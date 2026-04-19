@@ -81,7 +81,7 @@ Vollständige Beschreibung: [`00_MANIFEST.txt`](00_MANIFEST.txt) §3.
 RetroTunnel/
 ├── 00_MANIFEST.txt                 Grundentscheidungen, Design-Prinzipien
 ├── 01_GLOSSARY.txt                 Kanonische Begriffe + PREFIX-LEGENDE
-├── 02_ASSUMPTIONS_AND_RULES.txt    16 System-Regeln, 9 Annahmen
+├── 02_ASSUMPTIONS_AND_RULES.txt    17 System-Regeln, 9 Annahmen
 ├── 03_CHANGELOG.txt                Zentrale Projekthistorie
 ├── README.md                       Dieses Dokument
 ├── LICENSE                         MIT
@@ -109,7 +109,7 @@ RetroTunnel/
 │   ├── BASE-005_PLATFORM_CORE/     OS-Baseline, Endpoints, Lifecycle ✅
 │   ├── BASE-010_IDENTITY_CORE/     Customers, Connections, Rollen ✅
 │   ├── BASE-020_AAA_CORE/          FreeRADIUS + SQL-first ✅
-│   ├── BASE-030_TUNNEL_L2TP_IPSEC/ L2TP/IPsec (accel-ppp) ✅
+│   ├── BASE-030_TUNNEL_L2TP_IPSEC/ L2TP/IPsec (accel-ppp + strongSwan) ✅
 │   ├── BASE-040_TUNNEL_WIREGUARD/  AmneziaWireGuard
 │   ├── BASE-050_FIREWALL_CORE/     nftables, NAT, Peer-Isolation
 │   ├── BASE-060_DNS_CORE/          Unbound + AdGuard + DNAT53
@@ -148,7 +148,7 @@ Seit 2026-04-16 ist die Nummerierung konsequent 3-stellig: Base-Ordner BASE-000 
 |---|---|
 | `00_MANIFEST.txt` | Design-Prinzipien, Architektur-Achsen, Ordnerstruktur, Vorgänger-Referenz |
 | `01_GLOSSARY.txt` | Kanonische Begriffe + PREFIX-LEGENDE (alle Identifier-Namensräume) |
-| `02_ASSUMPTIONS_AND_RULES.txt` | 16 bindende System-Regeln, 9 Annahmen, 5 Nicht-Annahmen |
+| `02_ASSUMPTIONS_AND_RULES.txt` | 17 bindende System-Regeln, 9 Annahmen, 5 Nicht-Annahmen |
 | `base/BASE-000_SQL_FIRST/` | SQL-first Governance: Prefixe, Naming, Registry, Auth-Split |
 | `base/BASE-005_PLATFORM_CORE/` | Plattform-Grundnorm: OS, Endpoints, Users, Secrets, Lifecycle |
 | `model/DOMAIN_MODEL.txt` | Zwei-Ebenen-Modell, Policy-System, reason_registry, Zählregel |
@@ -205,7 +205,8 @@ Governance-Dateien für die Zusammenarbeit mit Claude (AI Co-Architect):
 | M2-005 | BASE-005_PLATFORM_CORE (Grundnorm OS/Lifecycle) | ✅ Done |
 | M2-010 | BASE-010_IDENTITY_CORE (Schema, Lifecycle, Write-Path) | ✅ Done |
 | M2-020 | BASE-020_AAA_CORE (Admission, RADIUS, WG-Vertrag) | ✅ Done |
-| M2-030..110 | Rest der Kern-Module (9 Base-Module) | ⬜ Waiting |
+| M2-030 | BASE-030_TUNNEL_L2TP_IPSEC (accel-ppp + strongSwan) | ✅ Done |
+| M2-040..110 | Rest der Kern-Module (8 Base-Module) | ⬜ Waiting |
 | M3 | Erweiterungs-Module (10 Module) | ⏸ Deferred |
 | M4 | Decisions, Proofs, Implementation | ⏸ Deferred |
 
