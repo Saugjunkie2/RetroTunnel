@@ -1,0 +1,99 @@
+================================================================================
+BASE-020 — AAA CORE (INDEX)
+================================================================================
+DATEI: BASE-020_INDEX.txt
+VERSION: v1.0
+DATUM: 2026-04-19
+STATUS: ACTIVE
+
+ZWECK:
+  Gemeinsamer AAA-/Admission-Core fuer RetroTunnel. Definiert den
+  systemweiten Zugangsvertrag fuer beide Tunnel-Typen und traegt
+  die vollstaendige FreeRADIUS-Realisierung fuer L2TP/IPsec.
+
+  BASE-020 ist NICHT "nur RADIUS". Der Modulname AAA_CORE bedeutet:
+  gemeinsame Authentication/Authorization/Accounting-Grundnorm.
+  RADIUS ist die konkrete Realisierung fuer EINEN Tunnel-Typ.
+
+  WireGuard hat keinen RADIUS-Login-Flow. BASE-020 definiert den
+  Admission-Vertrag den auch der WG-Pfad erfuellen muss, aber die
+  konkrete WG-Realisierung lebt in BASE-040_TUNNEL_WIREGUARD.
+  Die tunnelneutrale Session-Truth/SimUse-Logik lebt in
+  BASE-070_SESSION_CORE.
+
+VORGAENGER (Altkonzept):
+  B050_SQL_AAA_RADIUS.txt — AAA-Flow, SimUse, Fail-Closed
+  B056_RADIUS_SCHEMA_MAPPING.txt — radcheck/radreply Mapping, Guard
+  B165_ACCOUNTING_COLLECTOR_SESSION_MAPPING.txt — Accounting, Mapping
+  D002_SQL_FIRST_NO_MIGRATION.txt (Alt) — SQL-first ab Tag 1
+  D012_SESSION_CONTROL_A_B.txt — Truth/Guard/Repair
+
+VORGAENGER (neues Konzept, deprecated):
+  model/state_machines/SM_SESSION.txt — Session-Lifecycle (→ BASE-070)
+
+ENTSCHEIDUNGEN DIE IN DIESE BASE EINGEFLOSSEN SIND:
+  - SQL-first ab Tag 1, kein chap-secrets (Alt-D002, uebernommen)
+  - RADIUS direct-read aus vpn_connection_l2tp_ipsec_auth
+    (Marco + Claude + ChatGPT konvergiert, 2026-04-18)
+  - radcheck/radreply NICHT als primaere operative Auth-Truth
+  - vpn_session_locks tunnelneutral, Owner BASE-070
+    (ChatGPT-Korrektur, Marco bestaetigt 2026-04-18)
+  - WireGuard-Admission als abweichender Vertragspfad, kein
+    Pseudo-Login (ChatGPT-Empfehlung, Marco bestaetigt 2026-04-18)
+
+DATEIEN IN DIESEM MODUL:
+
+  010  SCOPE_UND_BEGRIFFE     Was AAA in RetroTunnel bedeutet.
+                               Begriffe, Abgrenzung, Tunnelneutralitaet.
+  020  ADMISSION_VERTRAG      Gemeinsamer Zugangsvertrag fuer beide
+                               Tunnel-Typen. Entscheidungsklassen,
+                               Fail-Closed, Session-Signal-Vertrag.
+  030  L2TP_IPSEC_RADIUS      Volle FreeRADIUS-Realisierung.
+                               Direct-read, MSCHAPv2, Reply-Attribute,
+                               On-Demand-Janitor, DB-Down-Verhalten.
+  040  WIREGUARD_ADMISSION    Abweichendes Admission-Modell.
+                               Peer-Praesenz = Autorisierung.
+                               Vertragsbindung an Admission-Vertrag.
+  050  ACCOUNTING_ABGRENZUNG  radacct vs vpn_sessions.
+                               Was ist Forensik, was ist Truth.
+  060  OWNER_GRENZEN          Was BASE-020 ownt, was nicht.
+                               Grenzregeln gegen Scope-Drift.
+  090  INVARIANTEN            AAA-01..AAA-xx. Harter Vertrag.
+  095  TESTS                  T-AAA-01..xx. Definition of Done.
+
+ABHAENGIGKEITEN:
+  REQUIRES:
+    BASE-000_SQL_FIRST (Naming, Prefixe, Registry, DB-User GRANTs)
+    BASE-005_PLATFORM_CORE (OS-Baseline, Service-User, Lifecycle)
+    BASE-010_IDENTITY_CORE (Auth-Split Schema, Connection-Lifecycle,
+                            Reason-Registry, Write-Path)
+  INFLUENCES:
+    BASE-030_TUNNEL_L2TP_IPSEC (konsumiert RADIUS-Entscheidung)
+    BASE-040_TUNNEL_WIREGUARD (konsumiert Admission-Vertrag)
+    BASE-050_FIREWALL_CORE (Connect-Gate nutzt Admission-Ergebnis)
+    BASE-070_SESSION_CORE (Session-Start-Signal, Guard-Vertrag)
+    BASE-080_POLICY_APPLY_CORE (Policy-Apply nach Admission)
+
+PLATTFORM-CONTRACT (BASE-005):
+  a) systemd-Unit(s): freeradius.service (Owner: BASE-020)
+  b) Linux-User: freerad (FreeRADIUS Daemon-User)
+  c) Endpunkte: localhost:1812/udp (Auth), localhost:1813/udp (Acct)
+     Kein WAN-Exposure (nur accel-ppp/strongSwan auf localhost)
+  d) Pfade: /etc/freeradius/3.0/ (Config), /var/log/freeradius/ (Logs)
+  e) Secrets: DB-Passwort fuer radius DB-User (/etc/freeradius/...)
+  f) Dependencies: Requires=mariadb.service (harte Abhaengigkeit)
+  g) Readiness: Prozess laeuft UND DB-Verbindung etabliert
+  h) Restart: Restart=on-failure (systemd)
+
+PANEL-CONSUMABILITY (DP-07):
+  - Panel zeigt Auth-Status pro Connection (authenticated/rejected/never)
+  - Panel zeigt letzte Auth-Events (radpostauth, anonymisiert)
+  - Admin-Panel: SimUse-Lock-Status einsehbar (read-only)
+  - Admin-Panel: On-Demand-Janitor manuell ausloesbar
+  - SOLL/IST: RADIUS-Health (DB-Verbindung, Queue-Tiefe)
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

@@ -1,0 +1,1339 @@
+================================================================================
+RetroTunnel — STATE MACHINE: SESSION LIFECYCLE
+================================================================================
+VERSION: v1.0
+DATUM: 2026-04-16
+STATUS: DEPRECATED (siehe Deprecation-Hinweis unten)
+PFAD: model/state_machines/SM_SESSION.txt
+
+================================================================================
+DEPRECATION-HINWEIS (2026-04-16)
+================================================================================
+
+Diese Datei ist inhaltlich UEBERHOLT und wird bei Ausarbeitung von
+BASE-070_SESSION_CORE aufgeloest. Session-Lifecycle, Drei-Saeulen-Modell
+(Truth/Guard/Repair), SimUse-Guard und die 27 Invarianten leben dann
+in BASE-070, nicht mehr im Model-Layer.
+
+Grund: Entscheidung 2026-04-16 "model/ wird aufgeloest — eine Wahrheit,
+ein Ort".
+
+BEGRIFFS-BRUECKE (beim Lesen mental uebersetzen):
+
+  Alt (in dieser Datei)               Neu (Kanon ab 2026-04-16)
+  ----------------------------------  -----------------------------------
+  tunnel_type='LEGACY'                tunnel_type='L2TP_IPSEC'
+  tunnel_type='MODERN'                tunnel_type='WIREGUARD'
+  "AWG Session Controller"            "WireGuard Session Controller"
+  "active_session_locks" Tabelle      "vpn_session_locks" (BASE-000 K-02)
+  "vpn_sessions" Tabelle              "vpn_sessions" (unveraendert)
+  "customers" Tabelle                 "web_customers" (BASE-000 K-01)
+  "reason_registry" Tabelle           "vpn_reason_registry" (BASE-000 K-03)
+  "connection_lifecycle_log" Tabelle  "log_connection_lifecycle" (BASE-000 K-04)
+  BASE-04_NFT_CORE                    BASE-050_FIREWALL_CORE
+  BASE-06_SESSION_CORE                BASE-070_SESSION_CORE
+  BASE-07_POLICY_APPLY_CORE           BASE-080_POLICY_APPLY_CORE
+  BASE-02_TUNNEL_AWG                  BASE-040_TUNNEL_WIREGUARD
+  BASE-01_TUNNEL_LEGACY               BASE-030_TUNNEL_L2TP_IPSEC
+
+DREI-SAEULEN-MODELL BLEIBT GUELTIG:
+Die Logik selbst (Truth = vpn_sessions, Guard = vpn_session_locks,
+Repair = Janitor), die 27 Invarianten und 38 Tests sind unveraendert
+kanonisch. Nur Tabellennamen und BASE-Referenzen sind veraltet.
+
+KANONISCHER NEU-STAND fuer schnelle Orientierung:
+  - Session-Truth: vpn_sessions (fuer L2TP_IPSEC + WIREGUARD gemeinsam)
+  - SimUse-Guard: vpn_session_locks (kurzlebig, atomar)
+  - WireGuard Session Controller: Polling-basiert (VALID/STALE/closed)
+  - 3 Endpfade fuer WIREGUARD: Roaming, Ghost-Cleanup, Neustart
+  - radacct bleibt fuer L2TP_IPSEC als Accounting/Forensik-Quelle
+
+REFERENZ ALTES KONZEPT:
+  D012_SESSION_CONTROL_A_B.txt — Architekturentscheidung Truth/Guard/Repair
+  B165_ACCOUNTING_COLLECTOR_SESSION_MAPPING.txt — Session Mapping
+  B168_STALE_SESSION_JANITOR.txt — Ghost-Detection, Janitor
+  B169_RADIUS_LOGIN_FLOW_ONDEMAND_JANITOR.txt — On-Demand Cleanup
+  B170_SESSION_STABILITY_DPD_LCP.txt — DPD/LCP Keepalive
+  B171_SESSION_CONTROL_KNOTENPUNKT.txt — Knotenpunkt Truth/Guard/Repair
+
+DELTA ZUM ALTEN KONZEPT (historisch):
+  - Session-Truth ist NICHT MEHR radacct allein, sondern vpn_sessions
+  - radacct bleibt fuer L2TP_IPSEC als Accounting/Forensik-Quelle
+  - WIREGUARD hat keinen RADIUS-Pfad — Session-Truth kommt direkt
+    vom WireGuard Session Controller
+  - Drei-Saeulen-Modell (Truth/Guard/Repair) bleibt erhalten, wird aber
+    tunnelneutral formuliert
+  - ENTFERNT: Model C (Session-State-Machine PENDING/ACTIVE) — bleibt
+    verworfen wie in D012
+  - NEU: Roaming-Semantik fuer WIREGUARD (Endpoint-Wechsel != neue Session)
+  - NEU: VALID-Definition differenziert nach L2TP_IPSEC/WIREGUARD
+
+ERARBEITET DURCH:
+  Marco + ChatGPT (Architekturentscheidungen + Review) +
+  Claude (Ausarbeitung + eigene Befunde).
+
+================================================================================
+1) GRUNDENTSCHEIDUNG: OPTION A — GEMEINSAME SESSION-TRUTH
+================================================================================
+
+ENTSCHEIDUNG (KANONISCH, NICHT VERHANDELBAR):
+  vpn_sessions ist die EINZIGE Session-Truth für LEGACY + MODERN.
+
+  - LEGACY schreibt in vpn_sessions über eine radacct-Bridge
+    (radacct bleibt zusätzlich für Accounting/Forensik bestehen,
+     ist aber NICHT MEHR die alleinige Session-Wahrheit).
+  - MODERN schreibt in vpn_sessions über einen AWG Session Controller.
+  - Beide Tunnel-Typen teilen dasselbe Drei-Säulen-Modell.
+
+BEGRÜNDUNG (Warum nicht Option B oder C):
+  Option B (synthetische radacct für MODERN): Verbiegt MODERN künstlich
+    auf ein Legacy-Buchführungsmodell. Unnötige Emulation, Driftquelle.
+  Option C (nur Handshake-Heuristik): Kein sauberer Start/Stop,
+    keine gute Basis für SimUse/Guard/Janitor allein.
+
+LEITREGEL:
+  Eine Connection ist eine IDENTITÄT, nicht ein einzelnes physisches Gerät.
+  Dieselbe AWG-/WG-Konfig kann technisch auf mehrere Geräte kopiert werden.
+  Das ergibt KEINEN sauberen stabilen Mehrgerätebetrieb, sondern
+  "last active endpoint wins" / Endpoint-Flattern.
+  Für RetroTunnel gilt: gleiche Konfig auf zwei Geräten =
+  SimUse-/KONFLIKTFALL derselben Identität, nicht legitimer Parallelbetrieb.
+
+================================================================================
+2) DREI-SÄULEN-MODELL (aus D012, tunnelneutral erweitert)
+================================================================================
+
+  SÄULE 1 — TRUTH
+    vpn_sessions ist die einzige Session-Truth.
+    Eine Session ist aktiv := vpn_sessions Row mit closed_at IS NULL.
+    Keine zweite Wahrheit (kein Model C, keine State-Machine in der
+    Session-Tabelle). radacct ist NICHT Truth, sondern Legacy-Accounting.
+
+  SÄULE 2 — GUARD
+    active_session_locks ist ein kurzlebiger Mutex/Guard gegen
+    Race-Conditions beim Session-Start.
+    Guard ist KEIN Session-State. Er schützt nur das Attach-Fenster.
+    TTL-basiert (vpn_active_session_lock_ttl_seconds aus Settings).
+    Release nach bestätigtem Session-Eintrag in vpn_sessions.
+
+  SÄULE 3 — REPAIR
+    Janitor/Repair bringt vpn_sessions und Runtime wieder in Einklang.
+    Zwei Modi:
+      a) Periodischer Janitor (systemd Timer, alle vpn_janitor_interval_seconds)
+      b) On-Demand Janitor (im Attach-/Login-Pfad, single-target)
+    Janitor schließt nur Ghosts: Session-Truth sagt "aktiv", aber
+    Runtime-Validierung sagt "nicht VALID".
+
+  ÜBERGREIFEND — HARDCUT
+    Admin-Hardcut = technischer Kill → dann Reconcile.
+    Nie nur DB bereinigen ohne technischen Kill.
+    Für LEGACY: PPP-Prozess killen.
+    Für MODERN: Peer runtime-seitig entfernen.
+
+================================================================================
+3) vpn_sessions — SESSION-TRUTH TABELLE
+================================================================================
+
+3.1) Pflichtfelder
+
+  Feld                 Typ               Constraint          Beschreibung
+  ──────────────────── ───────────────── ─────────────────── ──────────────────────────
+  id                   BIGINT UNSIGNED   PK, AUTO_INCREMENT  Session-ID
+  vpn_connection_id    BIGINT UNSIGNED   FK, NOT NULL        Welche Connection
+                                                             [EIGEN-01: BIGINT statt INT,
+                                                              passend zu vpn_connections.id]
+  tunnel_type          ENUM              NOT NULL            LEGACY | MODERN
+  session_token        VARCHAR(64)       UNIQUE, NOT NULL    Eindeutiger Session-Identifier
+                                                             (pro Session-Instanz).
+                                                             Generierung: CSPRNG, 32 Bytes,
+                                                             hex-kodiert (64 Zeichen).
+                                                             Server-generiert, nicht
+                                                             client-supplied.
+                                                             [EIGEN-02: Generierung spezifiziert]
+  started_at           TIMESTAMP         NOT NULL            Session-Beginn
+  last_seen_at         TIMESTAMP         NOT NULL            Letzter bestätigter Liveness-
+                                                           Nachweis:
+                                                           LEGACY: Interim/Acct-Bestätigung
+                                                           MODERN: frischer Handshake
+                                                           NICHT: "Controller hat gepollt"
+                                                           Wird NUR aktualisiert wenn echtes
+                                                           Lebenszeichen vorliegt (SES-26).
+  closed_at            TIMESTAMP         NULL                NULL = aktiv, NOT NULL = beendet
+  close_reason         ENUM              NULL                NULL solange aktiv. Bei Close:
+                                                           NORMAL_DISCONNECT |
+                                                           ADMIN_HARDCUT |
+                                                           JANITOR_GHOST |
+                                                           JANITOR_STALE |
+                                                           CONNECTION_DISABLED |
+                                                           CONNECTION_ROLE_CHANGE |
+                                                           SYSTEM_RESTART |
+                                                           TIMEOUT_STALE
+                                                           [F-SES-005: SYSTEM_HARDCUT
+                                                            entfernt — kein eigenständiger
+                                                            kanonischer Anwendungsfall]
+  client_ipv4          VARCHAR(15)       NOT NULL            Zugewiesene Tunnel-IPv4
+  client_ipv6          VARCHAR(45)       NULL                Zugewiesene Tunnel-IPv6
+                                                           (NULL wenn v6_addr_policy=NONE)
+                                                           [G-01 v0.5: VARCHAR(39)→VARCHAR(45),
+                                                            konsistent mit DOMAIN_MODEL §3.4]
+  runtime_ref          VARCHAR(64)       NOT NULL            Runtime-Handle:
+                                                           LEGACY: "ppp0", "ppp14" etc.
+                                                           MODERN: PublicKey (Base64)
+  endpoint_info        VARCHAR(64)       NULL                Client-Quell-IP:Port (Diagnose)
+  truth_source         ENUM              NOT NULL            LEGACY_RADIUS_BRIDGE |
+                                                           MODERN_AWG_CONTROLLER
+
+3.2) Indices
+
+  PRIMARY KEY(id)
+  UNIQUE(session_token)
+  INDEX(vpn_connection_id, closed_at)   — SimUse-Check: aktive Session?
+  INDEX(closed_at)                      — Janitor: offene Sessions scannen
+  INDEX(last_seen_at)                   — Janitor: Stale-Detection
+  INDEX(truth_source)                   — Debugging/Statistik
+  INDEX(runtime_ref)                    — Janitor/Kill: Session per Runtime-Handle
+                                          finden (z.B. "welche Session hat ppp0?")
+                                          [EIGEN-03: Index ergänzt]
+
+3.3) Kern-Invarianten (vpn_sessions)
+
+  SES-01  closed_at IS NULL → Session ist aktiv.
+  SES-02  closed_at IS NOT NULL → close_reason IS NOT NULL.
+  SES-03  Pro vpn_connection_id DARF maximal EINE aktive Session
+          existieren (closed_at IS NULL). SimUse=1.
+          Durchsetzungsmechanismus: Siehe §5 + §15 SES-03.
+  SES-04  vpn_connection_id MUSS auf eine existierende vpn_connections
+          Row verweisen (FK).
+  SES-05  tunnel_type MUSS mit vpn_connections.tunnel_type übereinstimmen.
+  SES-06  client_ipv4 MUSS mit vpn_connections.fixed_ip übereinstimmen
+          (Session erbt IP aus Connection, nicht umgekehrt).
+  SES-06b client_ipv6 (wenn gesetzt) MUSS mit vpn_connections.fixed_ipv6
+          übereinstimmen. NULL ist nur erlaubt wenn
+          vpn_connections.v6_addr_policy=NONE.
+          [F-SES-003: IPv6-Invariante ergänzt]
+  SES-07  started_at <= last_seen_at (immer).
+  SES-08  closed_at IS NOT NULL → closed_at >= started_at.
+  SES-09  Eine aktive Session DARF nur existieren wenn die zugehörige
+          Connection op_status IN (ACTIVE, RESTRICTED) hat.
+          op_status=DISABLED → Session MUSS geschlossen sein.
+
+================================================================================
+4) SESSION-LIFECYCLE
+================================================================================
+
+Eine Session hat KEINEN eigenen Zustands-Automaten (kein Model C).
+Stattdessen gibt es genau zwei Zustände, abgeleitet aus closed_at:
+
+  OFFEN   := closed_at IS NULL    (Session aktiv, Tunnel steht)
+  CLOSED  := closed_at IS NOT NULL (Session beendet, historisch)
+
+Session-Übergänge:
+
+  Übergang          Trigger                      Effekt
+  ──────────────── ──────────────────────────── ──────────────────────────
+  (kein) → OFFEN   Neuer Login/Attach           INSERT in vpn_sessions
+  OFFEN → OFFEN    Liveness-Nachweis            last_seen_at = NOW()
+                   (LEGACY: Interim-Update,       NUR bei bestätigtem
+                    MODERN: frischer Handshake)    Lebenszeichen, NICHT bei
+                                                  bloßem Controller-Poll
+                                                  [F-SES-004: präzisiert]
+  OFFEN → OFFEN    Roaming (Endpoint-Wechsel)   endpoint_info aktualisiert
+                   (nur MODERN, siehe §7.1)       last_seen_at ggf. aktualisiert
+  OFFEN → CLOSED   Normaler Disconnect          closed_at=NOW(), NORMAL_DISCONNECT
+  OFFEN → CLOSED   Admin Hardcut                closed_at=NOW(), ADMIN_HARDCUT
+  OFFEN → CLOSED   Janitor Ghost-Detection      closed_at=NOW(), JANITOR_GHOST
+  OFFEN → CLOSED   Janitor Stale-Detection      closed_at=NOW(), JANITOR_STALE
+  OFFEN → CLOSED   Connection DISABLED (T-04+)  closed_at=NOW(), CONNECTION_DISABLED
+  OFFEN → CLOSED   Rollenwechsel (T-09, D002)    closed_at=NOW(), CONNECTION_ROLE_CHANGE
+                   (in-place Mutation: Connection
+                    bleibt ACTIVE, Session wird
+                    per Hard-Cut geschlossen)
+  OFFEN → CLOSED   System-Restart               closed_at=NOW(), SYSTEM_RESTART
+  OFFEN → CLOSED   MODERN Inaktivitäts-Timeout  closed_at=NOW(), TIMEOUT_STALE
+
+WICHTIG: "Restricted" erzeugt KEINEN Session-Close.
+  Wenn eine Connection von ACTIVE nach RESTRICTED wechselt, bleibt die
+  Session offen. Nur die Enforcement-Policy ändert sich (Full Tunnel →
+  Walled Garden via nftables). Kein Session-Kill, kein Reconnect nötig.
+  Umgekehrt: RESTRICTED → ACTIVE öffnet nur die Firewall-Regeln,
+  Session bleibt ebenfalls bestehen.
+
+================================================================================
+5) SimUse=1 — EINE SESSION PRO CONNECTION
+================================================================================
+
+REGEL (KANONISCH, NICHT VERHANDELBAR):
+  Pro vpn_connection_id darf maximal EINE aktive Session existieren.
+  Kein Takeover. Fail-Closed.
+
+DURCHSETZUNG (tunnelneutral, dreistufig):
+  [F-SES-002 v0.3: Hierarchie explizit als Primär/Sekundär/Backstop]
+
+  GELTUNGSBEREICH (MUST):
+  Der folgende Ablauf gilt für ECHTE NEUE Session-Starts:
+    - LEGACY: Jeder Login-Versuch ist ein neuer Session-Start.
+    - MODERN Fall B: Ghost-Cleanup + neuer Session-Start.
+    - MODERN Fall C: Normaler neuer Session-Start.
+  NICHT für MODERN Fall A (Roaming / Update bestehender Session):
+    MODERN Fall A ist KEIN neuer Session-Start und folgt NICHT dem
+    Reject-Pfad aus §5, sondern dem Update-Pfad aus §7.1 Fall A.
+    Ein erneuter Handshake bei offener VALIDer MODERN-Session
+    durchläuft NIEMALS den generischen "aktive Session = REJECT"-Pfad.
+  [F-SES-001 v0.4: Geltungsbereich explizit, MODERN Fall A ausgeschlossen]
+
+  PRIMÄRSCHUTZ — Guard-Lock auf vpn_connection_id:
+    Der Guard (active_session_locks mit UNIQUE(vpn_connection_id))
+    ist die ERSTE und WICHTIGSTE Eintrittssperre. Er serialisiert
+    den Session-Start-Pfad auf Connection-Ebene.
+    Dies ist die entscheidende Sperre, die auch dann greift, wenn
+    noch KEINE offene Session-Row existiert (erster Login überhaupt).
+    Kein zweiter Prozess kann parallel denselben Start-Pfad durchlaufen.
+
+  SEKUNDÄRSCHUTZ — Transaktionaler Recheck vor INSERT:
+    Innerhalb des bereits durch den Guard serialisierten Pfads wird
+    unmittelbar vor dem INSERT nochmals geprüft:
+      SELECT ... FOR UPDATE WHERE vpn_connection_id=? AND closed_at IS NULL
+    Dies ist eine transaktionale Absicherung INNERHALB des geschützten
+    Pfads, nicht die alleinige Sperre. Der Recheck fängt Edge Cases ab,
+    die trotz Guard theoretisch entstehen könnten (z.B. wenn Guard-TTL
+    abläuft und ein zweiter Prozess den Guard vor dem Cleanup erwirbt).
+
+  BACKSTOP — Janitor / Reconcile:
+    Der periodische Janitor (§9) und der On-Demand Janitor im Login-Pfad
+    räumen Ghosts, Stale-Sessions und Lock-Leichen auf. Sie sind KEIN
+    Primärschutz, sondern Reparaturmechanismus für Betriebsmüll.
+
+  ZUSAMMENFASSUNG DER HIERARCHIE:
+    Guard     = verhindert parallelen Eintritt (Primär)
+    Recheck   = verhindert INSERT trotz zwischenzeitlicher Änderung (Sekundär)
+    Janitor   = räumt kaputte/alte Zustände auf (Backstop)
+
+  ABLAUF (Neuer Session-Start, alle Tunnel-Typen):
+    1. Guard-Lock auf vpn_connection_id erwerben
+       (active_session_locks, TTL = vpn_active_session_lock_ttl_seconds)
+       Falls Lock nicht erwerbbar (existierender unexpired Lock): REJECT.
+    2. Prüfen: EXISTS aktive Session in vpn_sessions?
+       (closed_at IS NULL AND vpn_connection_id = ?)
+    3. Falls JA: On-Demand Janitor (single-target, BEST EFFORT)
+       - Prüft ob aktive Session noch VALID ist (siehe §8)
+       - Falls NICHT VALID: Ghost → Session schließen → weiter zu 4
+       - Falls VALID: Session ist real → REJECT (fail-closed)
+    4. Falls nach Janitor weiterhin aktive VALID Session: REJECT (fail-closed)
+    5. Falls KEINE aktive Session (oder Ghost bereinigt):
+       a) Transaktionaler Recheck (SELECT ... FOR UPDATE) — Sekundärschutz
+       b) INSERT vpn_sessions (atomar innerhalb derselben Transaktion)
+       c) COMMIT
+       d) Guard-Lock freigeben (ERST NACH COMMIT, SES-25)
+       e) Connect-Gate + vpn-policy-apply (SM_POLICY_RESTRICT §6)
+
+  HINWEIS: Für MODERN existiert ein separater Pfad (§7.1 Fall A),
+  der NICHT durch diesen Ablauf läuft. Siehe GELTUNGSBEREICH oben.
+
+SIMUSE-KONFLIKT (MODERN-spezifisch):
+  Dieselbe AWG-Konfig auf zwei Geräten erzeugt am Server dieselbe
+  Peer-Identität. WireGuard/AWG unterstützt pro Peer nur EINEN
+  aktiven Endpoint ("last handshake wins"). Das Ergebnis ist
+  Endpoint-Flattern, kein stabiler Zweigerat-Betrieb.
+  RetroTunnel behandelt das als:
+    - SimUse-Verletzung der Connection-Identität
+    - KEIN unterstützter Betriebsmodus
+    - Kein automatisches Takeover auf den "neueren" Endpoint
+
+ROAMING-EHRLICHKEIT:
+  Bei MODERN sind Roaming (Gerät wechselt Netzwerk) und SimUse-Konflikt
+  (gleiche Konfig auf zwei Geräten) aus Serversicht technisch NICHT
+  zuverlässig unterscheidbar. Beide sehen identisch aus:
+    - Gleicher Peer-Key
+    - Neuer Endpoint
+    - Neuer Handshake
+
+  PRAGMATISCHE REGEL:
+  Endpoint-Wechsel bei bereits offener, VALIDer Session wird IMMER
+  als Fortsetzung derselben Session behandelt (§7.1 Fall A):
+    - endpoint_info wird aktualisiert
+    - last_seen_at wird aktualisiert
+    - KEIN neuer Session-Datensatz
+    - KEIN Session-Kill
+    - KEIN REJECT
+
+  SimUse=1 schützt gegen ZWEITE PARALLELE SESSION (zweiter Session-
+  Datensatz in vpn_sessions), nicht gegen Identitäts-Sharing auf
+  Peer-Ebene. Das ist eine ehrliche Grenze des Modells.
+
+5.1) Session-Start Flow-Diagramm
+
+  Neuer Login/Attach (LEGACY + MODERN Fall B/C)
+       │
+       ▼
+  ┌─ Guard-Lock erwerben ──────────────────────────┐
+  │  active_session_locks (UNIQUE vpn_connection_id)│
+  ├── Lock NICHT erwerbbar → REJECT                 │
+  └────────────┬───────────────────────────────────┘
+               │ Lock erworben
+               ▼
+  ┌─ Aktive Session vorhanden? ────────────────────┐
+  │  vpn_sessions: closed_at IS NULL?              │
+  ├── NEIN → Recheck + INSERT → COMMIT → Gate+Apply│
+  ├── JA ─┐                                        │
+  └───────┼────────────────────────────────────────┘
+          ▼
+  ┌─ On-Demand Janitor ────────────────────────────┐
+  │  Session VALID? (§8)                           │
+  ├── VALID → REJECT (fail-closed, echte Session)  │
+  ├── NICHT VALID → Ghost schließen → weiter       │
+  └────────────┬───────────────────────────────────┘
+               │ Ghost bereinigt
+               ▼
+  ┌─ Recheck + INSERT + COMMIT ────────────────────┐
+  │  Guard-Release ERST NACH COMMIT (SES-25)       │
+  │  Connect-Gate + vpn-policy-apply (SM_POL §6)   │
+  └────────────────────────────────────────────────┘
+
+  MISSBRAUCHSERKENNUNG (OPTIONAL, Diagnose):
+  Häufige Endpoint-Wechsel (Flattern) können als Diagnose-Signal
+  erfasst werden (Monitoring/Forensik), sind aber KEIN harter
+  Guard-Mechanismus im Session-Core. Erkennung und Reaktion auf
+  Konfig-Missbrauch ist ein separates Thema (MOD-06/Abuse).
+
+================================================================================
+6) LEGACY SESSION-PFAD (PPP/RADIUS/accel-ppp)
+================================================================================
+
+KANONISCHER STATUS:
+  Der folgende Ablauf ist FIX als Lifecycle-/Reihenfolge-Vertrag.
+  Die technische Implementierungsform der radacct→vpn_sessions Bridge
+  (Hook, Daemon, Trigger oder anderer Mechanismus) ist noch offen
+  und wird in BASE-20_AAA_CORE entschieden (OPEN-SES-04).
+  [EIGEN-06: Klarstellung kanonisch vs. operativ]
+
+6.1) Session-Start (Login)
+
+  Auslöser: RADIUS Access-Request via accel-ppp
+  Flow (kanonischer Lifecycle-Vertrag):
+    1. Normalize Username (trim, kein case-folding)
+    2. Map subaccount_login → vpn_connection_id (SQL-first)
+    3. Prüfe: Connection op_status IN (ACTIVE, RESTRICTED)?
+       Falls DISABLED → REJECT
+    4. Guard-Lock erwerben (active_session_locks)
+    5. SimUse-Check + On-Demand Janitor (2-Stufen-Modell aus B169)
+    6. Falls frei: ACCEPT (RADIUS antwortet dem Client)
+    7. Acct-Start eintrifft (radacct Row wird geschrieben)
+    8. ip-up Hook:
+       - /run/vpn-sessions/<ppp_if>.env erstellen (B165)
+       - vpn_sessions INSERT (truth_source=LEGACY_RADIUS_BRIDGE)
+         (Transaktion: Recheck + INSERT atomar)
+       - Guard-Lock freigeben (ERST NACH committed INSERT, SES-25)
+       - Connect-Gate + vpn-policy-apply (SM_POLICY_RESTRICT §6)
+
+  GUARD-RELEASE REGEL (SES-25):
+    Der Guard wird NICHT bei Acct-Start freigegeben, sondern erst nach
+    erfolgreichem vpn_sessions INSERT. Acct-Start allein ist kein
+    ausreichender Truth-Commit. Zwischen Acct-Start und ip-up kann
+    ein Zeitfenster liegen — in diesem Fenster schützt der Guard.
+    Falls ip-up/INSERT scheitert, läuft der Guard per TTL ab.
+    Kein zweiter Login darf in diesem Fenster durchrutschen.
+
+6.2) Heartbeat / Interim
+
+  - RADIUS Interim Updates → acctupdatetime in radacct
+  - Collector (B165) liest Kernel-Counter, schreibt Accounting-Deltas
+  - vpn_sessions.last_seen_at = NOW() bei jedem Interim
+
+6.3) Session-Ende (Disconnect)
+
+  - Client trennt → PPP Disconnect → ip-down Hook
+  - RADIUS Acct-Stop → radacct.stop_time = NOW()
+  - vpn_sessions: closed_at = NOW(), close_reason = NORMAL_DISCONNECT
+  - /run/vpn-sessions/<ppp_if>.env entfernen
+  - vpn-policy-apply (Cleanup: nftables/tc)
+
+6.4) Hardcut (Admin)
+
+  - vpn-session-kill <vpn_connection_id>
+  - Kill PPPD_PID (mit PID-Reuse-Schutz: START_TS prüfen)
+  - ip-down Hook läuft automatisch
+  - vpn_sessions: closed_at = NOW(), close_reason = ADMIN_HARDCUT
+  - Reconcile
+
+================================================================================
+7) MODERN SESSION-PFAD (AWG/WireGuard)
+================================================================================
+
+7.1) Session-Start / Peer-Attach
+  [F-SES-001: Komplett umgeschrieben als drei explizite Endpfade]
+
+  Auslöser: AWG Session Controller erkennt neuen Handshake eines
+  konfigurierten Peers auf awg0.
+  HINWEIS: Dieser Auslöser ist ein DETEKTIONSEREIGNIS, nicht der
+  chronologisch erste Schritt. Die Gate-/Peer-Add-Sequenz
+  (SM_POLICY_RESTRICT §6.2, POL-23: Gate VOR Peer-Add) muss
+  bereits abgeschlossen sein, bevor ein Handshake stattfindet.
+
+  Gemeinsamer Einstieg (alle Fälle):
+    1. Map wg_public_key → vpn_connection_id (SQL-first)
+    2. Prüfe: Connection op_status IN (ACTIVE, RESTRICTED)?
+       Falls DISABLED → Peer runtime-seitig entfernen, kein Session-Start
+    3. Guard-Lock erwerben (active_session_locks)
+    4. Prüfe: EXISTS aktive Session in vpn_sessions für diese
+       vpn_connection_id? (closed_at IS NULL)
+    5. Falls aktive Session vorhanden:
+       VALID-Check gemäß §8 (nach tunnel_type).
+       Ergebnis bestimmt den Endpfad (A vs B).
+
+  Ab hier verzweigt der Flow in drei getrennte Endpfade:
+
+  ── FALL A: Aktive Session vorhanden + VALID ──────────────────────
+  (Roaming / Endpoint-Wechsel, §5 ROAMING-EHRLICHKEIT)
+
+    Bedeutung: Derselbe Peer meldet sich von einem neuen Endpoint.
+    Dies wird als Fortsetzung derselben Session behandelt.
+
+    Effekte:
+      - endpoint_info = neuer Endpoint (UPDATE auf bestehende Row)
+      - last_seen_at = NOW() (frischer Handshake bestätigt Liveness)
+      - KEIN neuer Session-Datensatz (kein INSERT)
+      - KEIN Session-Kill, KEIN REJECT
+      - Guard-Lock freigeben nach erfolgreichem UPDATE/COMMIT
+
+    Endpfad: Session bleibt dieselbe Row, nur Felder aktualisiert.
+
+  ── FALL B: Aktive Session vorhanden + NICHT VALID ────────────────
+  (Ghost/Stale — alte Session ist tot, neue Session wird angelegt)
+
+    Bedeutung: vpn_sessions sagt "aktiv", aber Runtime sagt "tot".
+    Alte Session wird bereinigt, neue wird angelegt.
+
+    Effekte:
+      - Alte Session schließen: closed_at = NOW(),
+        close_reason = JANITOR_GHOST oder JANITOR_STALE
+      - Danach: Transaktionaler Recheck (Sekundärschutz)
+      - INSERT vpn_sessions (neue Session, neuer session_token)
+      - COMMIT
+      - Guard-Lock freigeben (ERST NACH COMMIT, SES-25)
+      - Connect-Gate + vpn-policy-apply (SM_POLICY_RESTRICT §6)
+
+    Endpfad: Alte Session closed, neue Session offen.
+
+  ── FALL C: Keine aktive Session vorhanden ────────────────────────
+  (Normaler neuer Session-Start)
+
+    Bedeutung: Connection hat aktuell keine offene Session.
+    Neuer Session-Start ohne Altlast.
+
+    Effekte:
+      - Transaktionaler Recheck (Sekundärschutz)
+      - INSERT vpn_sessions (truth_source=MODERN_AWG_CONTROLLER)
+      - COMMIT
+      - Guard-Lock freigeben (ERST NACH COMMIT, SES-25)
+      - Connect-Gate + vpn-policy-apply (SM_POLICY_RESTRICT §6)
+
+    Endpfad: Neue Session offen.
+
+  HINWEIS: AWG hat keinen expliziten "Login" wie RADIUS. Der Peer
+  ist persistent konfiguriert. Der "Session-Start" ist der Moment,
+  in dem der Controller den ersten gültigen Handshake detektiert
+  und die Session in vpn_sessions einträgt (Fall B oder C).
+  Fall A (Roaming) erzeugt KEINEN neuen Session-Start.
+
+7.2) Heartbeat / Liveness
+
+  - AWG Session Controller pollt periodisch Peer-Status:
+    last_handshake_at, rx_bytes, tx_bytes (via wg show / AWG-API)
+  - vpn_sessions.last_seen_at wird NUR aktualisiert wenn der Peer
+    einen FRISCHEN Handshake hat (last_handshake_at hat sich seit
+    letztem Poll geändert oder ist jünger als Threshold).
+    Bloßes Polling ohne neuen Handshake aktualisiert last_seen_at NICHT
+    (SES-26).
+  - Roaming-Update: endpoint_info aktualisieren wenn sich Endpoint ändert.
+
+  IMPLEMENTIERUNGSHINWEIS (DB-Last bei vielen Peers):
+    Bei vielen aktiven MODERN-Peers mit kurzem PersistentKeepalive kann
+    die UPDATE-Frequenz auf vpn_sessions hoch werden. Der Controller
+    SOLLTE last_seen_at-Updates auf einen sinnvollen Mindestabstand
+    beschränken (z.B. max 1 Update pro 30–60 Sekunden pro Peer, sofern
+    kein Endpoint-Wechsel vorliegt). Exakter Wert: BASE-70_SESSION_CORE.
+    [Gemini V1 v0.4: DB-I/O-Schutz als Implementierungshinweis]
+
+7.3) Session-Ende
+  [EIGEN-04: Zuständigkeitsregel Controller vs Janitor klargestellt]
+
+  ZUSTÄNDIGKEITSREGEL (MODERN Stale-Erkennung):
+    Der AWG Session Controller ist PRIMÄR zuständig für die Erkennung
+    inaktiver Peers und deren Session-Schließung. Der periodische
+    Janitor (§9) ist BACKSTOP für den Fall, dass der Controller
+    ausfällt oder einen Stale-Fall nicht erkennt.
+
+    Controller (Primär):
+      - Pollt periodisch alle aktiven Peers
+      - Erkennt Inaktivität (kein Handshake innerhalb Threshold)
+      - Schließt Session: close_reason = TIMEOUT_STALE
+
+    Janitor (Backstop):
+      - Erkennt Sessions die der Controller übersehen hat
+      - Prüft VALID-Kriterien (§8.2)
+      - Schließt Session: close_reason = JANITOR_STALE oder JANITOR_GHOST
+
+    UNTERSCHEIDUNG: TIMEOUT_STALE (Controller hat Inaktivität erkannt)
+    vs JANITOR_STALE (Janitor hat den Controller-Ausfall kompensiert).
+    Beide beenden die Session, der close_reason unterscheidet die Quelle
+    für Audit und Debugging.
+
+  Peer-Verhalten nach Session-Close:
+  - Peer bleibt in AWG-Config (für Reconnect), aber Session ist closed
+  - vpn-policy-apply (Cleanup)
+
+  DESIGN-SPANNUNG (OPEN, Auflösung in BASE-30_TUNNEL_AWG):
+  Wenn der Peer nach Session-Close in der AWG-Runtime verbleibt,
+  kann der nächste Handshake Traffic forwarden BEVOR connect_pending
+  gesetzt ist. Das widerspricht SM_POLICY_RESTRICT §6.2 / POL-23
+  ("Gate MUSS vor Peer-Add gesetzt sein"). Zwei mögliche Auflösungen:
+    A) Peer wird nach Session-Close aus Runtime entfernt (ephemer).
+       Reconnect erfordert Re-Add durch Controller (Gate → Add → Apply).
+    B) Peer bleibt in Runtime (persistent), aber ein Mechanismus
+       verhindert Forwarding ohne Gate (z.B. AllowedIPs-Staging,
+       nftables-Default-Drop auf Peer-IPs, oder Controller-Lock).
+  Die Entscheidung wird in BASE-30_TUNNEL_AWG getroffen.
+  Siehe auch: OPEN-POL-01, OPEN-SES-05.
+
+  WICHTIG: Bei MODERN gibt es keinen expliziten "Disconnect"-Event
+  wie bei PPP. Der Session Controller muss Inaktivität erkennen.
+  Der Peer bleibt nach aktuellem Stand in der AWG-Runtime konfiguriert,
+  damit er sich jederzeit wieder verbinden kann (neuer Handshake →
+  neuer Session-Start, §7.1 Fall C). Die Gate-Garantie für diesen
+  Reconnect-Pfad ist jedoch noch NICHT kanonisch geschlossen
+  (siehe DESIGN-SPANNUNG oben).
+
+7.4) Hardcut (Admin)
+
+  - vpn-session-kill <vpn_connection_id>
+  - Peer runtime-seitig entfernen: wg set awg0 peer <pubkey> remove
+    (oder AWG-äquivalente API)
+  - vpn_sessions: closed_at = NOW(), close_reason = ADMIN_HARDCUT
+  - Reconcile (nftables Cleanup)
+  - Peer wird NICHT automatisch re-provisioniert (Admin muss ggf.
+    manuell re-enablen oder Connection bleibt ohne Peer bis Reprovision)
+
+  UNTERSCHIED ZU LEGACY: Nach Hardcut muss der Peer für Reconnect
+  explizit wieder in die AWG-Config aufgenommen werden (Reprovision).
+  Bei LEGACY reicht ein neuer Login-Versuch nach Session-Close.
+
+================================================================================
+8) VALID-DEFINITION (wann ist eine Session "echt"?)
+================================================================================
+
+Der Janitor darf eine Session NUR schließen wenn sie NICHT VALID ist.
+VALID bedeutet: Runtime-Realität bestätigt, dass die Session tatsächlich
+lebt. Unterschiedliche Prüfung je nach tunnel_type:
+
+8.1) VALID für LEGACY (PPP)
+
+  Eine LEGACY-Session ist VALID wenn ALLE folgenden Bedingungen gelten:
+    a) /run/vpn-sessions/<PPP_IF>.env existiert UND
+       CONNECTION_ID im Mapping == vpn_connection_id der Session
+    b) PPP_IF existiert als Kernel-Interface (ip link show)
+       ODER
+       PPPD_PID existiert UND START_TS matcht (PID-Reuse-Schutz)
+    c) Mapping ist nicht manipuliert (Permissions-Check: nur root darf
+       /run/vpn-sessions/ schreiben)
+
+  GHOST := Session in vpn_sessions offen + NICHT VALID
+  → Janitor darf schließen (close_reason = JANITOR_GHOST)
+
+  STALE := Session in vpn_sessions offen + last_seen_at älter als
+           vpn_stale_threshold_seconds (aus Settings)
+           UND NICHT VALID
+  → Janitor darf schließen (close_reason = JANITOR_STALE)
+
+  WICHTIG: Wenn Mapping VALID ist, darf NICHT geschlossen werden,
+  auch wenn last_seen_at "stale" aussieht (Interim-Updates können
+  verzögert sein).
+
+8.2) VALID für MODERN (AWG)
+
+  Eine MODERN-Session ist VALID wenn ALLE folgenden Bedingungen gelten:
+    a) Peer mit dem erwarteten PublicKey existiert noch in der
+       AWG-Runtime-Konfiguration auf awg0
+    b) AllowedIPs des Peers matchen die erwarteten Tunnel-IPs
+       der Connection (fixed_ip/fixed_ipv6)
+    c) last_handshake_at des Peers ist jünger als
+       wg_modern_session_stale_seconds (aus Settings)
+
+  GHOST := Session in vpn_sessions offen + Peer existiert nicht mehr
+           auf awg0 ODER AllowedIPs stimmen nicht
+  → Janitor darf schließen (close_reason = JANITOR_GHOST)
+
+  STALE := Session in vpn_sessions offen + Peer existiert +
+           last_handshake_at älter als wg_modern_session_stale_seconds
+  → Janitor darf schließen (close_reason = JANITOR_STALE)
+  → Peer bleibt in AWG-Config (für Reconnect), nur Session wird closed
+
+  HINWEIS: Traffic-Counter (rx_bytes, tx_bytes) sind OPTIONAL als
+  Zusatzsignal für Diagnose, aber NICHT als primäre Wahrheit für
+  VALID/STALE. Primärsignal ist last_handshake_at.
+
+================================================================================
+9) JANITOR / REPAIR
+================================================================================
+
+9.1) Periodischer Janitor (Backstop)
+
+  Trigger: systemd Timer alle vpn_janitor_interval_seconds (Settings)
+  Scope: ALLE offenen Sessions in vpn_sessions (closed_at IS NULL)
+  Ablauf:
+    1. Für jede offene Session: VALID-Check gemäß §8
+    2. Falls NICHT VALID → Session schließen (close_reason je nach Grund)
+    3. Falls aktiver Guard-Lock ohne Runtime existiert (Lock-Leiche)
+       → Lock bereinigen (DELETE, SES-24)
+    4. Lifecycle-Log: Event SESSION_JANITOR_CLOSE
+
+  Safety: Row-Lock (SELECT ... FOR UPDATE) pro Session, damit
+  Janitor nicht gegen parallelen Session-Start arbeitet.
+
+9.2) On-Demand Janitor (im Attach-/Login-Pfad)
+
+  Trigger: Neuer Login/Attach-Versuch findet aktive Session vor
+  Scope: NUR die betroffene vpn_connection_id (single-target)
+  Ablauf (2-Stufen-Modell aus B169):
+    STUFE 1:
+      1. On-Demand Cleanup (BEST EFFORT)
+      2. SimUse-Check (STRICT)
+    STUFE 2 (nur wenn blocked + Cleanup in S1 nicht gelaufen):
+      1. Zweiter Cleanup-Versuch
+      2. SimUse-Re-Check (STRICT)
+    Falls nach Stufe 2 weiterhin blocked: REJECT (fail-closed)
+
+  Rate-Limit: vpn_cleanup_ratelimit_window_seconds (Settings)
+  Cache: vpn_cleanup_result_ttl_seconds (Settings)
+  Timeout: vpn_cleanup_timeout_seconds (Settings)
+
+9.3) Boot-Janitor (SYSTEM_RESTART)
+
+  Auslöser: Systemstart / Reboot. Der Boot-Janitor läuft nach
+  vpn_boot_janitor_delay_seconds (Settings) Delay.
+
+  SEMANTIK:
+    Nach einem Systemneustart können offene Sessions aus dem Zustand
+    vor dem Restart in vpn_sessions verbleiben (closed_at IS NULL),
+    obwohl die zugehörigen Runtime-Ressourcen (PPP-Prozesse, AWG-Peers)
+    nicht mehr existieren.
+
+    Der Boot-Janitor prüft ALLE offenen Sessions gegen die aktuelle
+    Runtime. Sessions, die nach dem Neustart NICHT durch die aktuelle
+    Runtime als VALID bestätigt sind (§8), werden geschlossen mit:
+      close_reason = SYSTEM_RESTART
+
+    NICHT: blind alle offenen Sessions schließen.
+    NUR: Sessions die nach dem Neustart nicht mehr VALID sind.
+
+  DELAY-BEGRÜNDUNG:
+    vpn_boot_janitor_delay_seconds gibt der Runtime Zeit, nach dem
+    Boot vollständig hochzufahren (AWG, accel-ppp, FreeRADIUS).
+    Ohne Delay würde der Janitor Sessions schließen, deren Runtime
+    noch beim Starten ist — false positives.
+
+  TECHNISCHE MECHANIK:
+    Wie der Boot-Janitor gestartet wird (systemd-Timer, Boot-Hook,
+    Epoch-Erkennung) ist OPEN für BASE-70_SESSION_CORE.
+    Hier ist NUR die Semantik kanonisch:
+    - Scope: alle offenen Sessions
+    - Prüfung: VALID-Check §8
+    - Close-Reason: SYSTEM_RESTART
+    - Timing: nach vpn_boot_janitor_delay_seconds
+
+9.4) Janitor-Invarianten
+
+  SES-12  Janitor darf NIEMALS eine VALID Session schließen.
+  SES-13  Janitor ist idempotent: zweiter Lauf auf bereits geschlossene
+          Session = no-op.
+  SES-14  On-Demand Janitor ist BEST EFFORT: Timeout/Fehler → Cleanup
+          wird übersprungen, SimUse bleibt STRICT.
+  SES-24  Guard-Lock Cleanup: Wenn Session geschlossen + Lock existiert
+          + kein VALID Runtime-Mapping → Lock löschen (Lock-Leiche).
+
+  IMPLEMENTIERUNGSHINWEIS (Defensive Logging):
+    Wenn der Janitor bei der VALID-Prüfung einen Fehler erkennt (z.B.
+    inkonsistente Runtime-Daten, unerwartete Zustände), SOLLTE das als
+    CRITICAL-Level Log-Event geschrieben werden — auch wenn die Session
+    letztlich nicht geschlossen wird. SES-12 schützt vor falschem Close,
+    aber der CRITICAL-Log macht das Fehlsignal sichtbar für Monitoring.
+    [Gemini V3 v0.4: Defensive Logging als Implementierungshinweis]
+
+================================================================================
+10) CROSS-FILE: SESSION ↔ CONNECTION-LIFECYCLE (SM_CONNECTION)
+================================================================================
+
+SM_SESSION und SM_CONNECTION sind orthogonal aber gekoppelt:
+  - SM_CONNECTION: Lifecycle der CONNECTION (ACTIVE/RESTRICTED/DISABLED)
+  - SM_SESSION: Lifecycle der SESSION (offen/closed)
+  - Eine Connection kann ACTIVE sein ohne aktive Session (Gerät offline)
+  - Eine aktive Session erfordert op_status IN (ACTIVE, RESTRICTED)
+
+10.1) Auswirkung Connection-Transitions auf Sessions
+
+  Connection-Transition         Session-Effekt
+  ──────────────────────────── ────────────────────────────────────
+  T-02 ACTIVE→RESTRICTED       Session bleibt offen (OFFEN in DB).
+  (Quota/Expiry)                Identisch zu T-03 (siehe unten).
+
+  T-03 ACTIVE→RESTRICTED       Session bleibt offen (OFFEN in DB).
+                                Tunnel bleibt bestehen.
+                                Enforcement wechselt zu Walled Garden.
+                                vpn-policy-apply: nftables-Set-Wechsel +
+                                Conntrack-Flush für verbotene Flows
+                                (SM_POLICY_RESTRICT §11/§12).
+                                Bestehende TCP-Verbindungen zu Nicht-
+                                Service-IPs werden gekappt, ABER:
+                                KEIN Session-Kill. KEIN Tunnel-Abbruch.
+                                KEIN Reconnect nötig.
+
+  T-05 RESTRICTED→ACTIVE       Session bleibt offen.
+  (Re-Eval, kein neuer Grund)   Enforcement wechselt zu Full Tunnel.
+                                vpn-policy-apply aktualisiert nftables.
+
+  T-05 RESTRICTED→RESTRICTED   Session bleibt offen.
+  (Reason-Wechsel)              restrict_finalize_at ggf. neu.
+                                Enforcement bleibt Walled Garden.
+
+  T-04 ACTIVE→DISABLED         Session MUSS sofort geschlossen werden.
+                                Hardcut: technischer Kill.
+                                close_reason = CONNECTION_DISABLED.
+
+  T-07 RESTRICTED→DISABLED     Session MUSS sofort geschlossen werden.
+                                Hardcut: technischer Kill.
+                                close_reason = CONNECTION_DISABLED.
+
+  T-06 RESTRICTED→DISABLED     Session MUSS sofort geschlossen werden.
+  (Restrict-Timeout, JOB)       Hardcut: technischer Kill.
+                                close_reason = CONNECTION_DISABLED.
+
+  T-08 DISABLED→ACTIVE|RESTR   KEINE automatische Session-Eröffnung.
+  (Restore)                     Gerät muss sich neu verbinden.
+                                Erst bei neuem Login/Attach → neue Session.
+
+  T-09 Rollenwechsel            Kaskade: D002 §7 (D003-E02).
+  (Customer-Kaskade, D002)       In-place Mutation (access_role + ip_slot).
+                                Subpfad A (ACTIVE): Session Hardcut + close.
+                                  close_reason = CONNECTION_ROLE_CHANGE.
+                                  Client reconnectet → neue Session.
+                                Subpfad B (RESTRICTED): Session Hardcut + close.
+                                  close_reason = CONNECTION_ROLE_CHANGE.
+                                  op_status bleibt RESTRICTED.
+                                  Client reconnectet → neue Session.
+                                Subpfad C (DISABLED): KEIN Session-Effekt.
+                                  Keine aktive Session vorhanden.
+
+  T-01 Claim                   Session bleibt offen (wenn vorhanden).
+                                Ownership wechselt, Session läuft weiter.
+
+================================================================================
+11) HARDCUT (ADMIN / SYSTEM)
+================================================================================
+
+11.1) Allgemeine Regel (aus D012, unverändert)
+
+  Hardcut = technischer Kill → dann Reconcile.
+  Nie nur DB bereinigen ohne technischen Kill.
+  Reihenfolge ist zwingend:
+    1. Runtime-Kill (PPP-Prozess / AWG-Peer entfernen)
+    2. Session in vpn_sessions schließen
+    3. /run-Mapping entfernen (LEGACY) / Runtime-State cleanen
+    4. vpn-policy-apply (nftables/tc Cleanup)
+    5. Lifecycle-Log: Event SESSION_HARDCUT
+
+11.2) Hardcut-Tool
+
+  /usr/local/bin/vpn-session-kill <vpn_connection_id>
+  - Privilege Separation: Panel (www-data) darf NICHT direkt killen.
+    www-data ruft über sudoers ausschließlich dieses Tool auf.
+  - Input-Validierung: Positive numerische Connection-ID
+    (BIGINT UNSIGNED), Lookup vpn_connection_id
+  - Tool erkennt tunnel_type und wählt den richtigen Kill-Pfad:
+    LEGACY: kill PPPD_PID (mit PID-Reuse-Schutz)
+    MODERN: wg set awg0 peer <pubkey> remove (oder AWG-API)
+  - Alle Hardcut-Aktionen sind auditpflichtig
+
+11.3) System-initiierter Hardcut (Connection Disable)
+
+  Wenn SM_CONNECTION eine Connection auf DISABLED setzt (T-04/T-06/T-07),
+  MUSS das System automatisch einen Hardcut der aktiven Session auslösen.
+  close_reason = CONNECTION_DISABLED (NICHT ADMIN_HARDCUT).
+  Dies ist ein SYSTEM-initiierter Hardcut, kein Admin-Hardcut.
+
+================================================================================
+12) RESTRICTED vs DISABLED — SESSION-SICHT
+================================================================================
+
+  RESTRICTED (Connection op_status=RESTRICTED):
+    - Session bleibt OFFEN
+    - Tunnel bleibt BESTEHEN
+    - Enforcement: NUR Walled Garden (SERVICE_NET)
+    - Peer wird NICHT entfernt (weder LEGACY noch MODERN)
+    - Client kann Panel/DNS/NTP nutzen (Self-Heal)
+    - Kein Session-Kill, kein Reconnect nötig
+
+  DISABLED (Connection op_status=DISABLED):
+    - Session wird GESCHLOSSEN (Hardcut)
+    - Tunnel wird BEENDET
+    - Peer wird runtime-seitig entfernt (MODERN) / PPP wird gekillt (LEGACY)
+    - Kein Panel über diese Connection
+    - Session-Close ist MUST, nicht optional
+
+  ÜBERGANG: Wenn eine Connection von RESTRICTED nach DISABLED wechselt
+  (T-06 Timeout, T-07 Admin), wird die Session erst bei diesem Übergang
+  gekillt — nicht schon bei Eintritt in RESTRICTED.
+
+================================================================================
+13) SETTINGS-KEYS (SQL-first, kanonische Prefixe gemäß TRUTH_MODEL)
+================================================================================
+  [EIGEN-05: Alle Keys mit kanonischem Prefix gemäß TRUTH_MODEL §5.2]
+
+  Key                                     Zweck
+  ─────────────────────────────────────── ────────────────────────────────────
+  vpn_active_session_lock_ttl_seconds     Guard-Lock TTL (Fail-Safe)
+  vpn_janitor_interval_seconds            Periodischer Janitor-Intervall
+  vpn_boot_janitor_delay_seconds          Boot-Delay vor globalem Janitor-Sweep
+  vpn_stale_threshold_seconds             LEGACY: Stale-Erkennung
+  wg_modern_session_stale_seconds         MODERN: Handshake-Stale-Threshold
+  vpn_cleanup_ratelimit_window_seconds    On-Demand: Rate-Limit Fenster
+  vpn_cleanup_result_ttl_seconds          On-Demand: Cache-TTL
+  vpn_cleanup_timeout_seconds             On-Demand: Timeout pro Cleanup
+  radius_acct_interim_seconds             LEGACY: Interim-Update Intervall
+
+  Alle Keys folgen SQL-first Governance (B057 / TRUTH_MODEL):
+  - DB ist Policy-Quelle
+  - Failsafe/Hardcap per B057-Contract
+  - Im Login-/Attach-Pfad: Cached Values, KEINE live DB-Reads pro Request
+
+  NEUER KEY: wg_modern_session_stale_seconds
+  - Typ: INT >0
+  - fail_class: FAIL_SAFE_HARDCAP
+  - allowed_override_scope: NONE
+  - failsafe: 300 (5 Minuten, konservativ)
+  - Zweck: Threshold ab dem ein MODERN-Peer ohne frischen Handshake
+    als stale gilt. Muss mit PersistentKeepalive abgeglichen werden.
+  - Wird in BASE-90_SETTINGS_CORE final parametrisiert.
+
+================================================================================
+14) LOGGING / AUDIT
+================================================================================
+
+Session-Events werden im connection_lifecycle_log geschrieben
+(DOMAIN_MODEL §7B). KEINE eigene session_event_log-Tabelle.
+Begründung: Ein Audit-Strom pro Connection, nicht zwei getrennte Logs.
+[EIGEN-07: Marco-Entscheidung — zentrale Log-Tabelle behalten]
+
+Pflicht-Events:
+
+  Event                    Wann
+  ──────────────────────── ────────────────────────────────────
+  SESSION_START            Neue Session in vpn_sessions angelegt
+  SESSION_END              Session normal geschlossen
+  SESSION_HARDCUT          Admin oder System Hardcut
+  SESSION_JANITOR_CLOSE    Janitor hat Ghost/Stale geschlossen
+  SESSION_SIMUSE_REJECT    SimUse=1 hat zweiten Attach abgewiesen
+
+Jeder Log-Eintrag enthält:
+  vpn_connection_id, session_token (bei Session-Events, NULL bei
+  reinen Connection-Events), tunnel_type, actor_type, event_at,
+  close_reason (bei Close-Events), endpoint_info (bei Start).
+
+CROSS-FILE-NACHZUG ERLEDIGT:
+  DOMAIN_MODEL: event_type ENUM um 5 Session-Events erweitert,
+  session_token Feld ergänzt (CLL-04), Scope-Liste erweitert.
+
+================================================================================
+15) INVARIANTEN (MUST)
+================================================================================
+
+  Session-Truth:
+  SES-01  closed_at IS NULL = Session aktiv.
+  SES-02  closed_at IS NOT NULL → close_reason IS NOT NULL.
+  SES-03  Max EINE aktive Session pro vpn_connection_id (SimUse=1).
+          [F-SES-002: Durchsetzungs-Hierarchie explizit dreistufig]
+          DURCHSETZUNG:
+            PRIMÄRSCHUTZ = Guard-Lock (active_session_locks)
+              Serialisiert den Session-Start-Pfad auf Connection-Ebene.
+              Greift auch wenn noch keine offene Session-Row existiert.
+              Der Guard ist die eigentliche letzte Wahrheit am Gate.
+            SEKUNDÄRSCHUTZ = Transaktionaler Recheck vor INSERT
+              SELECT ... FOR UPDATE innerhalb des geschützten Pfads.
+              Fängt Edge Cases ab (z.B. Guard-TTL-Ablauf + sofortiger
+              Neu-Erwerb durch zweiten Prozess).
+            BACKSTOP = Janitor / Reconcile
+              Räumt Ghosts, Stale-Sessions und Lock-Leichen auf.
+              Ist KEIN Primärschutz, sondern Reparaturmechanismus.
+          Bei Race-Condition entscheidet der Guard: genau ein Prozess
+          erwirbt den Lock, der andere wird durch UNIQUE-Constraint
+          auf vpn_connection_id abgewiesen.
+  SES-04  vpn_connection_id FK auf vpn_connections.
+  SES-05  tunnel_type muss mit vpn_connections.tunnel_type übereinstimmen.
+  SES-06  client_ipv4 muss mit vpn_connections.fixed_ip übereinstimmen.
+  SES-06b client_ipv6 (wenn gesetzt) muss mit vpn_connections.fixed_ipv6
+          übereinstimmen. NULL nur wenn v6_addr_policy=NONE.
+          [F-SES-003: IPv6-Invariante ergänzt]
+  SES-07  started_at <= last_seen_at.
+  SES-08  closed_at IS NOT NULL → closed_at >= started_at.
+  SES-09  Aktive Session nur bei op_status IN (ACTIVE, RESTRICTED).
+          op_status=DISABLED → Session MUSS geschlossen sein.
+
+  Guard:
+  SES-10  Guard ist KEIN Session-State, nur Mutex.
+  SES-11  Guard-TTL ist endlich (vpn_active_session_lock_ttl_seconds).
+          Kein unbegrenzter Lock möglich.
+
+  Janitor:
+  SES-12  Janitor darf NIEMALS eine VALID Session schließen.
+  SES-13  Janitor ist idempotent.
+  SES-14  On-Demand Janitor ist BEST EFFORT; SimUse bleibt STRICT.
+
+  Hardcut:
+  SES-15  Hardcut = technischer Kill → Reconcile. Nie nur DB.
+  SES-16  Connection DISABLED → aktive Session MUSS Hardcut erfahren.
+
+  Cross-File:
+  SES-17  RESTRICTED erzeugt KEINEN Session-Close.
+  SES-18  DISABLED erzeugt IMMER einen Session-Close (Hardcut).
+  SES-19  Restore (T-08) erzeugt KEINE automatische Session.
+          Gerät muss sich neu verbinden.
+
+  MODERN-spezifisch:
+  SES-20  Endpoint-Wechsel bei offener VALID Session ist Fortsetzung,
+          KEIN neuer Session-Start (§7.1 Fall A, Roaming-Ehrlichkeit).
+  SES-21  MODERN Hardcut entfernt Peer aus Runtime. Reprovision nötig.
+  SES-22  MODERN VALID = Peer vorhanden + AllowedIPs korrekt +
+          last_handshake < wg_modern_session_stale_seconds.
+
+  Tunnel-Typ:
+  SES-23  vpn_connections.tunnel_type ist unveränderlich nach INSERT.
+
+  Guard-/Janitor-Konsistenz:
+  SES-24  Guard-Lock Cleanup: Wenn Session geschlossen + Lock existiert
+          + kein VALID Runtime-Mapping → Lock löschen (Lock-Leiche).
+  SES-25  Guard-Release ERST NACH committed vpn_sessions Schreiboperation
+          (INSERT bei neuem Session-Start, UPDATE bei Fall A Roaming).
+          Acct-Start allein ist KEIN ausreichender Truth-Commit.
+  SES-26  last_seen_at wird NUR bei echtem Liveness-Nachweis aktualisiert,
+          NICHT bei bloßem Controller-Poll ohne frischen Handshake.
+
+================================================================================
+16) TESTS / VALIDIERUNG (DoD)
+================================================================================
+
+Funktionale Tests:
+
+T-SES-01: LEGACY Login Happy Path
+  Login → Guard → SimUse-Check (frei) → ACCEPT → Acct-Start →
+  Session in vpn_sessions, Mapping in /run. Erwartung: Session offen.
+
+T-SES-02: MODERN Attach Happy Path (§7.1 Fall C)
+  Peer Handshake → Controller → Guard → SimUse-Check (frei) →
+  Session in vpn_sessions. Erwartung: Session offen.
+
+T-SES-03: SimUse=1 LEGACY
+  Aktive Session vorhanden + VALID. Zweiter Login-Versuch.
+  Erwartung: REJECT (fail-closed). Keine zweite Session.
+
+T-SES-04: SimUse=1 MODERN (zweiter Attach derselben Connection-Identität)
+  Aktive Session vorhanden + VALID. Weiterer Attach derselben
+  Connection-Identität (gleicher Peer-Key).
+  Erwartung: Kein zweiter Session-Start. Kein zweiter Datensatz.
+  (Wird als Roaming/Fall A behandelt, §7.1)
+  [F-SES-002 v0.4: "anderes Gerät" neutralisiert — serverseitig
+   nicht unterscheidbar, siehe ROAMING-EHRLICHKEIT]
+
+T-SES-05: LEGACY Ghost-Recovery
+  radacct offen + /run Mapping existiert nicht (Ghost).
+  Janitor schließt Session. Danach Login möglich.
+
+T-SES-06: MODERN Ghost-Recovery
+  vpn_sessions offen + Peer nicht mehr auf awg0.
+  Janitor schließt Session. Danach Attach möglich.
+
+T-SES-07: MODERN Stale-Recovery
+  vpn_sessions offen + Peer vorhanden + last_handshake älter als Threshold.
+  Janitor schließt Session. Peer bleibt in AWG-Config.
+
+T-SES-08: LEGACY Hardcut
+  Admin Hardcut → PPP gekillt → Session closed (ADMIN_HARDCUT) →
+  Reconcile → neuer Login möglich.
+
+T-SES-09: MODERN Hardcut
+  Admin Hardcut → Peer entfernt → Session closed (ADMIN_HARDCUT) →
+  Reconcile. Peer muss re-provisioniert werden für Reconnect.
+
+T-SES-10: Connection DISABLED → Session-Kill
+  Connection wird T-04/T-07 disabled. Aktive Session vorhanden.
+  Erwartung: Session sofort closed (CONNECTION_DISABLED), Hardcut.
+
+T-SES-11: Connection RESTRICTED → Session bleibt
+  Connection wird T-03 restricted. Aktive Session vorhanden.
+  Erwartung: Session bleibt offen. Enforcement wechselt zu Walled Garden.
+
+T-SES-12: RESTRICTED→ACTIVE → Enforcement-Wechsel
+  Connection war restricted, wird re-evaluiert zu ACTIVE (T-05).
+  Erwartung: Session bleibt offen. Enforcement wechselt zu Full Tunnel.
+
+T-SES-13: Restore → KEINE automatische Session
+  DISABLED Connection wird restored (T-08).
+  Erwartung: Keine Session in vpn_sessions. Gerät muss neu verbinden.
+
+T-SES-14: MODERN Roaming (§7.1 Fall A)
+  MODERN Session aktiv + VALID. Client wechselt WiFi → neuer Endpoint.
+  Erwartung: Session bleibt offen. endpoint_info aktualisiert. KEIN
+  neuer Session-Start. KEIN SimUse-Reject. KEIN INSERT.
+
+T-SES-15: On-Demand Janitor + Reconnect
+  Stale LEGACY Session. Neuer Login-Versuch.
+  Stufe 1: On-Demand Cleanup schließt Stale.
+  SimUse-Check: frei → ACCEPT. Neue Session.
+
+T-SES-16: Guard-Lock Leiche
+  Guard-Lock existiert + Session closed + kein Runtime-Mapping.
+  Periodischer Janitor bereinigt Lock. Danach Login möglich.
+
+T-SES-17: T-09 Rollenwechsel → Session-Close (D002)
+  Connection wird T-09 (Rollenwechsel ACTIVE→ACTIVE, in-place Mutation).
+  Aktive Session. Erwartung: Session closed (CONNECTION_ROLE_CHANGE),
+  Hardcut. Dieselbe Connection mit neuem ip_slot, Client reconnectet.
+
+T-SES-17b: T-09 Rollenwechsel aus RESTRICTED → Session-Close (D002 §7)
+  Connection ist RESTRICTED mit aktiver Session (Walled Garden).
+  T-09 Kaskade: access_role + ip_slot Mutation, Subpfad B.
+  Erwartung: Session closed (CONNECTION_ROLE_CHANGE), Hardcut.
+  op_status bleibt RESTRICTED (Restrict-Grund bleibt).
+  Dieselbe Connection mit neuem ip_slot, Client reconnectet.
+
+T-SES-18: SYSTEM_RESTART — Boot-Janitor
+  System wird neugestartet. Offene Sessions in vpn_sessions.
+  Boot-Janitor läuft nach vpn_boot_janitor_delay_seconds.
+  Erwartung: Sessions ohne VALID Runtime-Nachweis werden geschlossen
+  (close_reason=SYSTEM_RESTART). Sessions die nach Boot wieder VALID
+  sind (z.B. AWG-Peer kam rechtzeitig hoch) bleiben offen.
+
+Race-/Idempotenz-Tests:
+
+T-SES-RACE-01: Paralleler Login vs Janitor
+  Janitor schließt Ghost während neuer Login-Versuch gleichzeitig läuft.
+  Erwartung: Row-Lock, genau ein Gewinner. Endzustand konsistent.
+
+T-SES-RACE-02: Paralleler Hardcut vs Disconnect
+  Admin Hardcut und normaler Disconnect gleichzeitig.
+  Erwartung: Session genau einmal geschlossen. Kein doppelter Close.
+
+T-SES-IDEM-01: Janitor doppelt
+  Periodischer + On-Demand Janitor laufen gleichzeitig für dieselbe Session.
+  Erwartung: Genau ein Close wirkt, zweiter ist no-op.
+
+T-SES-IDEM-02: Hardcut auf bereits geschlossene Session
+  vpn-session-kill auf Connection ohne aktive Session.
+  Erwartung: no-op, kein Fehler, kein Kill-Versuch.
+
+Guard-Release Tests (SES-25):
+
+T-SES-GUARD-01: Parallele LEGACY-Logins selbe Connection
+  Zwei parallele Access-Requests für dieselbe vpn_connection_id.
+  Guard schützt: zweiter Request wird blockiert bis erster
+  Session-INSERT committed ist. Erwartung: genau EINE Session.
+
+T-SES-GUARD-02: Acct-Start ohne ip-up (Session-INSERT scheitert)
+  ACCEPT gesendet, Acct-Start kommt, aber ip-up/INSERT scheitert.
+  Guard läuft per TTL ab. Kein zweiter Login durchgerutscht.
+  Erwartung: Kein verwaister Session-Datensatz, Guard bereinigt.
+
+Guard-Hierarchie Tests (F-SES-002):
+
+T-SES-GUARD-03: Zwei Startversuche gleichzeitig, keine Session vorhanden
+  Guard serialisiert: nur einer kommt bis zum INSERT.
+  Erwartung: Max EINE offene Session. Guard ist Primärschutz.
+
+T-SES-GUARD-04: Erster Prozess scheitert vor INSERT
+  Guard erworben, aber INSERT scheitert. Guard/TTL/Janitor verhindern
+  dauerhafte Blockade. Erwartung: Kein Doppelinsert, Guard wird bereinigt.
+
+Liveness-Semantik Tests (SES-26):
+
+T-SES-LIVE-01: MODERN Polling ohne frischen Handshake
+  Controller pollt, aber last_handshake_at hat sich nicht geändert.
+  Erwartung: last_seen_at wird NICHT aktualisiert. Session wird
+  nach Threshold-Ablauf stale.
+
+T-SES-LIVE-02: MODERN Polling mit frischem Handshake
+  Controller pollt, last_handshake_at ist neuer als beim letzten Poll.
+  Erwartung: last_seen_at wird aktualisiert. Session bleibt VALID.
+
+SimUse-Durchsetzung Tests:
+
+T-SES-SIMUSE-01: Race zweier Session-Starts
+  Zwei parallele Session-Starts (Guard + Recheck + INSERT).
+  Erwartung: Guard serialisiert (Primärschutz). Max EINE offene Session.
+
+MODERN-Branching Tests (F-SES-001):
+
+T-SES-BRANCH-01: Fall A — Roaming bei offener VALID Session
+  Offene VALIDe MODERN-Session. Gleicher Peer, neuer Endpoint.
+  Erwartung: Kein neuer Datensatz. Bestehende Session aktualisiert
+  (endpoint_info + last_seen_at). Guard nach UPDATE/COMMIT freigegeben.
+  Keine semantische Vermischung mit dem INSERT-Pfad.
+
+T-SES-BRANCH-02: Fall B — Offene Session NICHT VALID
+  Offene Session, aber NICHT VALID (Peer fehlt auf awg0).
+  Erwartung: Alte Session geschlossen (JANITOR_GHOST). Neue Session
+  angelegt. Genau ein neuer offener Datensatz.
+
+T-SES-BRANCH-03: Fall C — Keine offene Session
+  Keine aktive Session für diese Connection.
+  Erwartung: Normaler INSERT. Guard-Release nach COMMIT.
+
+T-SES-BRANCH-04: Mehrere Handshakes desselben Peers in kurzer Zeit
+  Gleicher Peer sendet viele Handshakes schnell hintereinander.
+  Erwartung: Keine Session-Vervielfachung. Nur Aktualisierung (Fall A).
+
+Roaming-Ehrlichkeit Tests (SES-20):
+
+T-SES-ROAM-01: Endpoint-Wechsel bei offener VALID Session
+  MODERN Session offen + VALID. Gleicher Peer, neuer Endpoint.
+  Erwartung: Session bleibt offen. endpoint_info aktualisiert.
+  KEIN neuer Session-Datensatz. KEIN REJECT.
+
+T-SES-ROAM-02: Häufige Endpoint-Wechsel (Flattern)
+  Gleicher Peer, viele Endpoint-Wechsel in kurzer Zeit.
+  Erwartung: Immer dieselbe Session. Optional Diagnose-Flag.
+
+Controller vs Janitor Tests (EIGEN-04):
+
+T-SES-STALE-01: Controller erkennt Stale-Peer
+  Peer ohne Handshake > wg_modern_session_stale_seconds.
+  Controller schließt Session: close_reason = TIMEOUT_STALE.
+
+T-SES-STALE-02: Controller ausgefallen, Janitor als Backstop
+  Peer stale + Controller hat nicht geschlossen (simuliert).
+  Periodischer Janitor erkennt STALE + schließt: JANITOR_STALE.
+
+Invarianten-Test:
+
+T-SES-INV-01: SES-01 bis SES-26 (inkl. SES-06b) gegen DB prüfen
+  Alle Invarianten werden nach jeder Session-Operation validiert.
+
+================================================================================
+17) OFFENE PUNKTE
+================================================================================
+
+OPEN-SES-01: Exakte Implementierung des MODERN Session-Controllers
+  (Hook-Daemon, Polling-Intervall, Netlink/API, daemon-native AWG-API)
+  Grundentscheidung steht: Controller schreibt in vpn_sessions.
+  Technische Implementierung: BASE-70_SESSION_CORE.
+
+OPEN-SES-02: Exakter Wert wg_modern_session_stale_seconds
+  Muss in Settings/BASE-90 entschieden werden.
+  Muss mit AWG-Handshake-Verhalten abgeglichen werden.
+  WireGuard sendet Handshakes typischerweise alle ~2 Minuten bei
+  aktivem Traffic, konfigurierbar via PersistentKeepalive.
+
+OPEN-SES-03: Runtime-Mapping Schema für MODERN
+  LEGACY hat /run/vpn-sessions/<ppp_if>.env (B165).
+  MODERN braucht ein Äquivalent. Format/Pfad: BASE-70_SESSION_CORE.
+  Konzeptionell MUSS ein Runtime-Mapping existieren (für Kill/Repair).
+
+OPEN-SES-04: LEGACY radacct → vpn_sessions Bridge (technische Form)
+  [EIGEN-06: Klarstellung — nur die technische Implementierungsform]
+  Der kanonische Ablauf in §6.1 ist FIX als Lifecycle-Vertrag.
+  OPEN ist NUR die technische Implementierungsform der Bridge:
+  - Wie genau LEGACY-Sessions von radacct nach vpn_sessions gespiegelt
+    werden (direkt im ip-up-Hook, via Trigger, via Daemon).
+  - Operative Entscheidung: BASE-20_AAA_CORE.
+  - Der Ablauf (Guard→ACCEPT→Acct-Start→INSERT→Guard-Release→Apply)
+    ist NICHT mehr offen.
+
+OPEN-SES-05: Reprovision-Mechanik nach MODERN Hardcut
+  Nach Peer-Removal aus AWG-Config: Wann/wie wird der Peer wieder
+  hinzugefügt? Automatisch bei Connection Re-Enable? Nur manuell?
+  Hängt an BASE-30_TUNNEL_AWG.
+
+OPEN-SES-06: Accounting für MODERN
+  LEGACY hat radacct für Quota/Usage-Tracking.
+  MODERN braucht einen alternativen Accounting-Pfad (Kernel-Counter
+  via Peer-Traffic-Stats). Hängt an BASE-70_SESSION_CORE.
+
+  [EIGEN-08: OPEN-SES-07 (Plan-Downgrade) entfernt — gehört in
+   MOD-10_PLANS, nicht in SM_SESSION. Scope-Disziplin.]
+
+================================================================================
+18) TUNNEL-TYP-WECHSEL (LEGACY ↔ MODERN)
+================================================================================
+
+ENTSCHEIDUNG (KANONISCH):
+  Ein in-place Wechsel des tunnel_type einer bestehenden Connection
+  ist NICHT möglich und NICHT gewollt.
+
+  Eine Connection ist LEGACY oder MODERN — für immer.
+  tunnel_type ist unveränderlich nach INSERT (SES-23).
+
+  "Wechsel" bedeutet:
+    1. Alte Connection wird gelöscht (DISABLE_CUSTOMER_DELETE oder
+       DISABLE_ADMIN_MANUAL → Revocation → Pool-Rückführung)
+    2. Neue Connection mit dem gewünschten tunnel_type wird erstellt
+       (Weg A oder Weg B)
+    3. Neuer ip_slot, neuer subaccount_login/wg_public_key
+    4. Neue Config wird per E-Mail zugestellt
+
+  Das ist KEIN Rollenwechsel (T-09). T-09 wechselt die
+  access_role innerhalb desselben tunnel_type, nicht den tunnel_type.
+
+  BEGRÜNDUNG:
+  - LEGACY und MODERN haben fundamental unterschiedliche Auth-,
+    Session- und Tunnelpfade (PPP/RADIUS vs AWG/Controller)
+  - Ein in-place Wechsel würde die Connection-Identität brechen
+    (anderer Login-Typ, andere Credentials, andere Runtime)
+  - Delete + Create ist sauberer und verständlicher für den Customer
+
+  INVARIANTE:
+  SES-23  vpn_connections.tunnel_type ist unveränderlich nach INSERT.
+          Kein UPDATE auf tunnel_type erlaubt.
+
+  PANEL-INTEGRATION:
+  Details zur Panel-UX (Button, Vorbedingungen, Ablauf) gehören in
+  MOD-06_PANEL_FEATURES. Hier nur die Session-relevante Kernaussage:
+  Tunnel-Typ-Wechsel erfordert Delete + Create, nicht in-place Update.
+  Vorbedingungen und UX-Flow: MOD-06_PANEL_FEATURES.
+  [F-SES-005 v0.4: Panel-Details nach MOD-06 verschoben]
+
+  [F-SES-006: §19 DISPLAY-NAME entfernt — gehört in DOMAIN_MODEL §3.3b,
+   nicht in SM_SESSION. Kein Session-Lifecycle-Bezug.]
+
+================================================================================
+CHANGELOG
+================================================================================
+v1.0 (2026-04-16): F-FRESH-N01 Fix.
+  Begriffs-Bruecke erweitert: web_customers (K-01), vpn_reason_registry
+  (K-03), log_connection_lifecycle (K-04) ergaenzt fuer Minimum-Set-
+  Konsistenz mit anderen Model-Dateien.
+v0.9 (2026-04-16): Tag-3-Reorganisation Deprecation-Header.
+  DEPRECATED-Status mit Begriffs-Bruecke. Tunnel-Referenzen und
+  BASE-Nummern in der Bruecke aktualisiert.
+v0.8 (2026-04-15): ChatGPT Audit #5 Pre-Fix (F-001).
+  §7.3: DESIGN-SPANNUNG Block ergänzt — Widerspruch zwischen
+  persistentem Peer (Reconnect) und Gate-First (POL-23) explizit
+  als OPEN benannt. Zwei Auflösungswege (A: ephemer, B: persistent
+  mit Schutzmechanismus). Delegation an BASE-30_TUNNEL_AWG.
+  "WICHTIG"-Block qualifiziert: Reconnect-Pfad nicht kanonisch
+  geschlossen, Verweis auf DESIGN-SPANNUNG.
+  27 Invarianten (unverändert). 38 Tests (unverändert).
+v0.7 (2026-04-12): Claude Eigenreview (REVIEW_STANDARD v0.7) + ChatGPT-Confirm.
+  0 MAJOR + 5 MINOR, alle gefixt:
+  F-SES-101: §5 ABLAUF Schritt 5e: Connect-Gate + vpn-policy-apply ergänzt.
+  F-SES-102: §7.1 Common Entry Schritt 5: expliziter VALID-Check vor
+    Branching (Fall A vs B).
+  F-SES-103: SES-25 erweitert: Guard-Release nach INSERT ODER UPDATE
+    (deckt jetzt auch Fall A ab).
+  F-SES-104: §9.3 Boot-Janitor neu: SYSTEM_RESTART Semantik kanonisch
+    beschrieben (Marco+ChatGPT-Entscheidung: Semantik hier, Mechanik
+    in BASE-70). Nur nicht-VALID Sessions werden geschlossen.
+  F-SES-105: T-SES-17 (T-09 Rollenwechsel) + T-SES-18 (SYSTEM_RESTART
+    Boot-Janitor) ergänzt.
+  §9.3→§9.4 umnummeriert (Janitor-Invarianten).
+  27 Invarianten (unverändert). 38 Tests (+2). Status: PATCH-REIF.
+  Vollständige Review-Historie (v0.2–v0.6, 7 Reviews):
+  siehe 03_CHANGELOG.txt bzw. dateieigene Git-History.
+v0.1 (2026-04-12): Initiale Session State Machine.
+  23 Invarianten (SES-01..SES-23). 20 Tests.
+================================================================================

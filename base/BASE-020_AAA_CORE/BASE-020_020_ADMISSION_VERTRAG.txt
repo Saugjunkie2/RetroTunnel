@@ -1,0 +1,200 @@
+================================================================================
+BASE-020 — ADMISSION VERTRAG (Gemeinsamer Zugangsvertrag)
+================================================================================
+DATEI: BASE-020_020_ADMISSION_VERTRAG.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Definiert den gemeinsamen Vertrag den jeder Zugangsweg erfuellen
+  muss. Dieser Vertrag ist tunnelneutral — die Realisierung ist
+  tunnelspezifisch (BASE-020_030 fuer L2TP, BASE-040 fuer WG).
+
+================================================================================
+1) EINGABEN FUER EINE ZUGANGSENTSCHEIDUNG
+================================================================================
+
+  Jeder Zugangsweg muss dem System diese Informationen liefern:
+
+  IDENTITAET: Welche vpn_connection ist betroffen?
+    L2TP_IPSEC: subaccount_login → Lookup vpn_connection_id
+    WIREGUARD:  wg_public_key → Lookup vpn_connection_id
+
+  CREDENTIAL-NACHWEIS: Ist der Client wirklich dieser Peer?
+    L2TP_IPSEC: MSCHAPv2 Passwort-Verifikation gegen NT-Hash
+    WIREGUARD:  Kryptographischer Handshake (PublicKey-Match)
+
+  KONTEXT: Zusaetzliche Informationen fuer die Entscheidung
+    Quell-IP (Calling-Station-Id / Endpoint)
+    Zeitpunkt
+    Tunnel-Typ
+
+================================================================================
+2) ENTSCHEIDUNGSKLASSEN
+================================================================================
+
+  Das System kennt drei Zugangs-Ergebnisse:
+
+  ACCEPT (Zugang gewaehrt):
+    Connection ist ACTIVE → Full Tunnel (Internet)
+    Connection ist RESTRICTED → Walled Garden (nur SERVICE_NET)
+    In beiden Faellen: Session-Start wird signalisiert.
+
+  REJECT (Zugang verweigert):
+    Connection ist DISABLED → kein Tunnel
+    Credential-Fehler → kein Tunnel
+    SimUse-Verletzung → kein Tunnel
+    DB nicht erreichbar → kein Tunnel (Fail-Closed)
+
+  Die Unterscheidung ACCEPT-Full vs ACCEPT-Restricted ist NICHT
+  Teil der Admission-Entscheidung. Admission entscheidet nur
+  ACCEPT vs REJECT. Die Policy (Full/Restricted/QoS) wird durch
+  BASE-080_POLICY_APPLY_CORE nach Session-Start durchgesetzt.
+
+================================================================================
+3) PRUEFKETTE (kanonische Reihenfolge, tunnelneutral)
+================================================================================
+
+  Die folgende Pruefkette gilt fuer jeden NEUEN SESSION-KANDIDATEN.
+  Die Realisierung ist tunnelspezifisch, die LOGIK ist identisch.
+
+  WICHTIG: Nicht jeder Handshake ist ein neuer Session-Kandidat.
+  WireGuard Fall A (Roaming/Endpoint-Update) durchlaeuft diese
+  Kette NICHT — es ist kein neuer Zugangsversuch sondern ein
+  Update einer bestehenden Session. Detail → BASE-070.
+
+  Fuer L2TP_IPSEC: Jeder RADIUS Access-Request ist ein Session-Kandidat.
+  Fuer WIREGUARD: Nur Fall B/C (neuer Peer, neuer Session-Start).
+
+  Schritt 1: IDENTITAET AUFLOESEN
+    Input → vpn_connection_id
+    Wenn nicht aufloesbar → REJECT (unbekannte Identitaet)
+
+  Schritt 2: STATUS PRUEFEN
+    op_status der Connection pruefen (vpn_connections)
+    DISABLED → REJECT (sofort, kein Credential-Check noetig)
+    ACTIVE oder RESTRICTED → weiter zu Schritt 3
+
+  Schritt 3: CREDENTIAL VERIFIZIEREN
+    L2TP_IPSEC: MSCHAPv2 gegen subaccount_nt_hash
+    WIREGUARD:  Implizit durch Handshake (Peer war in Config)
+    Bei Credential-Fehler → REJECT
+
+  Schritt 4: SIMUSE PRUEFEN (inkl. On-Demand Janitor)
+    4a) On-Demand Janitor: Stale/Ghost-Session fuer diese
+        vpn_connection_id pruefen und ggf. schliessen (§6).
+        MUSS vor der eigentlichen SimUse-Pruefung laufen.
+    4b) SimUse-Check: Offene Session in vpn_sessions fuer
+        diese vpn_connection_id?
+    Wenn ja (nach Janitor) → REJECT (SimUse=1, kein Takeover)
+    AUSNAHME WIREGUARD: Fall A (Roaming/Endpoint-Update einer
+    bestehenden Session) ist KEIN neuer Session-Start und wird
+    NICHT als SimUse-Verletzung behandelt. Detail → BASE-070.
+
+  Schritt 5: GUARD ERWERBEN
+    vpn_session_locks: Lock fuer vpn_connection_id erwerben
+    Wenn Lock bereits gehalten (nicht expired) → REJECT
+    Bei Erfolg → weiter zu Schritt 6
+    Owner des Guard-Mechanismus: BASE-070_SESSION_CORE
+
+  Schritt 6: ACCEPT
+    Zugang gewaehrt. Session-Start-Signal an BASE-070.
+    Connect-Gate wird aktiviert (BASE-080).
+    Policy-Apply wird getriggert.
+    Guard wird bei Session-Start (vpn_sessions INSERT) released.
+
+================================================================================
+4) FAIL-CLOSED VERTRAG (MUST, R-02)
+================================================================================
+
+  FAIL-CLOSED gilt fuer ALLE Zugangsversuche beider Tunnel-Typen.
+  Kein Client erhaelt Zugang wenn eine Pruefung nicht durchfuehrbar ist.
+
+  DB nicht erreichbar → REJECT (R-02, R-04)
+  Auth-Tabelle nicht lesbar → REJECT
+  vpn_connection nicht gefunden → REJECT
+  Status-Feld nicht evaluierbar → REJECT
+  Session-Lock nicht pruefbar → REJECT
+  Unbekannter Fehler → REJECT
+
+  Es gibt KEINE Break-Glass-Accounts ueber AAA.
+  Es gibt KEINEN Fallback auf "Accept without DB".
+  Recovery bei DB-Down erfolgt out-of-band (SSH/Console).
+
+  TUNNELSPEZIFISCHE FAIL-CLOSED-SEMANTIK:
+  L2TP_IPSEC: RADIUS antwortet mit Access-Reject. Kein Haengen.
+              Bestehende Tunnel laufen weiter (Kernel-State intakt).
+              Neue Logins werden abgewiesen. Recovery: DB kommt
+              wieder → naechster Login funktioniert.
+  WIREGUARD:  Hybrid-Loesung (Marco-Entscheidung 2026-04-18):
+              Peers werden bei Stoerung NICHT aus der Config entfernt.
+              Stattdessen: Timer startet bei DB-Stoerung.
+              Grace-Periode: wg_failclosed_grace_seconds
+              (Settings-Key, Default 300s = 5 min, BASE-090).
+              Wenn DB nach Grace-Periode immer noch nicht stabil
+              → WireGuard-Dienst wird GESTOPPT (alle WG-Sessions
+              sterben). Bei DB-Recovery → Dienst wird neu gestartet,
+              Peers sind noch in der Config, Clients reconnecten.
+              Verschiedene Systeme, verschiedene Wege, gleiches Ziel:
+              Fail-Closed. Detail → BASE-040.
+
+================================================================================
+5) SESSION-SIGNAL-VERTRAG (Uebergabe an BASE-070)
+================================================================================
+
+  Nach ACCEPT muss der Zugangsweg ein Session-Start-Signal an
+  BASE-070_SESSION_CORE liefern. Dieses Signal enthaelt:
+
+  PFLICHT-FELDER:
+    vpn_connection_id    (INT, FK → vpn_connections.id)
+    tunnel_type          (ENUM: L2TP_IPSEC | WIREGUARD)
+    client_ipv4          (VARCHAR, zugewiesene VPN-IPv4)
+    client_ipv6          (VARCHAR, zugewiesene VPN-IPv6, NULL wenn
+                          nur IPv4 zugewiesen — bei WIREGUARD immer
+                          gesetzt weil WG definitiv Dual-Stack ist)
+    truth_source         (VARCHAR: RADIUS_ACCT | AWG_CONTROLLER)
+    session_token        (VARCHAR, eindeutiger Sitzungsschluessel)
+    runtime_ref          (VARCHAR, Laufzeit-Referenz fuer Janitor/Kill:
+                          L2TP_IPSEC = pppX Interface-Name,
+                          WIREGUARD = wg_public_key)
+    source_event_at      (TIMESTAMP, tatsaechlicher Zeitpunkt des
+                          Quell-Events: Acct-Start bzw. Handshake.
+                          NICHT identisch mit NOW() beim INSERT —
+                          kann bei verzoegerter Verarbeitung abweichen.
+                          Wichtig fuer Forensik und Zeitrelationen.)
+
+  TUNNELSPEZIFISCHE SIGNAL-QUELLEN:
+    L2TP_IPSEC: RADIUS Accounting-Start (Acct-Start Paket)
+                → truth_source = RADIUS_ACCT
+                → session_token = Acct-Session-Id
+    WIREGUARD:  AWG Session Controller detektiert neuen Handshake
+                → truth_source = AWG_CONTROLLER
+                → session_token = generiert (vpn_connection_id + timestamp)
+
+  TIMING:
+    L2TP_IPSEC: Signal kommt NACH Credential-Verifikation und
+                Guard-Erwerb, typisch innerhalb von Sekunden.
+    WIREGUARD:  Signal kommt NACH Handshake-Detektion durch den
+                Controller (Polling-basiert, Intervall aus Settings).
+
+================================================================================
+6) ON-DEMAND JANITOR VOR SIMUSE (aus Altkonzept B169)
+================================================================================
+
+  VOR der SimUse-Pruefung (Schritt 4) MUSS ein On-Demand Janitor
+  fuer die betroffene vpn_connection_id ausgefuehrt werden.
+
+  Zweck: Stale/Ghost-Sessions erkennen und schliessen, damit
+  SimUse=1 nicht durch Leichen blockiert wird.
+
+  Ablauf (kanonisch, aus B169/D012):
+  a) Pruefen: Offene Session in vpn_sessions fuer diese connection_id?
+  b) Wenn ja: Runtime-Validierung (ist die Session wirklich aktiv?)
+     - L2TP_IPSEC: PPP-Interface + PID existiert? (VALID-Check)
+     - WIREGUARD: Peer in WG-Config + last_handshake aktuell?
+  c) Wenn Runtime-Validierung negativ → Ghost: Session schliessen
+  d) Wenn Runtime-Validierung positiv → echte aktive Session: REJECT
+
+  On-Demand Janitor ist RATE-LIMITED und CACHE-FAEHIG (B169).
+  Owner der Janitor-Mechanik: BASE-070_SESSION_CORE.
+  BASE-020 definiert hier nur den Vertrag: "Vor SimUse-Check
+  muss ein On-Demand-Cleanup moeglich sein."

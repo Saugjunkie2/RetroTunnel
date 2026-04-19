@@ -1,0 +1,136 @@
+================================================================================
+BASE-000 — DATENBANK UND SICHERHEITSZONEN
+================================================================================
+DATEI: BASE-000_010_DATENBANK_UND_SICHERHEITSZONEN.txt
+
+================================================================================
+1) EINE DATENBANK (A-04, DEC-SQLF-001)
+================================================================================
+
+  Datenbankname: retrotunnel_main_db
+  Engine: MariaDB 11.8+
+  Charset: utf8mb4
+  Collation: utf8mb4_unicode_ci
+  MIGRATION: Der bisherige Server verwendet "retrowork_vpn" als
+  Datenbanknamen (alter Projektname). Bei RetroTunnel-Deployment
+  wird "retrotunnel_main_db" verwendet.
+
+  Es gibt EINE Datenbank fuer System + Webpanel (kein Split).
+  Begruendung: Panel ist nur im VPN erreichbar, Sicherheit wird
+  ueber DB-User-GRANTs auf Prefix-Ebene gesteuert (§2), nicht
+  ueber DB-Trennung. Foreign Keys ueber DB-Grenzen sind in
+  MariaDB/InnoDB nicht moeglich — ein DB-Split wuerde SQL-first
+  Integritaetsgarantien brechen.
+
+================================================================================
+2) DB-USER UND RECHTE (Sicherheitszonen ueber Prefixe)
+================================================================================
+
+  Die Prefixe (§3) definieren nicht nur Namensraeume sondern
+  Sicherheitszonen. Jeder Dienst bekommt einen eigenen DB-User
+  mit GRANTs NUR auf das was er braucht.
+
+  DB-User: radius (FreeRADIUS)
+  Prinzip: ALLOWLIST — nur diese Tabellen, sonst nichts.
+  RADIUS ist ein L2TP_IPSEC-Protokoll. WIREGUARD-Connections gehen
+  nie durch RADIUS. Diese Liste ist stabil und wird sich nicht aendern.
+    rad*                             SELECT, INSERT, UPDATE
+    vpn_connection_l2tp_ipsec_auth   SELECT (Auth-Lookup)
+    vpn_session_locks                SELECT, INSERT, DELETE (SimUse)
+    vpn_connections                  SELECT (Status-Check)
+    vpn_sessions                     SELECT (SimUse-/Truth-Check)
+                                     KEIN INSERT: vpn_sessions INSERT
+                                     erfolgt durch system-User via
+                                     Bridge/ip-up (R-15 Owner≠Runner).
+                                     RADIUS prueft, System committet.
+  Alles andere: KEIN Zugriff. Insbesondere NICHT:
+    web_*, wg_*, settings_*, policy_*, peak_*, log_*, spool_*
+
+  DB-User: webpanel (OpenResty/PHP-FPM)
+  Prinzip: Breiter Zugriff mit gezielten Einschraenkungen.
+    web_*                            SELECT, INSERT, UPDATE, DELETE
+    vpn_connections                  SELECT + gezielte WRITE (Claim)
+    vpn_connection_l2tp_ipsec_auth   SELECT (Panel-Anzeige)
+    wg_connection_auth               SELECT (Panel-Anzeige)
+    vpn_sessions                     SELECT (Status-Anzeige)
+    vpn_reason_registry              SELECT
+    settings_*, policy_*             SELECT, INSERT, UPDATE, DELETE
+  Exakte per-Tabelle GRANTs: jeweilige Base-Module.
+
+  DB-User: system (Janitor, Reconcile, Provisioner)
+  Prinzip: Vollzugriff.
+    ALLE Tabellen                    ALLE Rechte
+
+  SICHERHEITSARGUMENT:
+  RADIUS bekommt KEINEN Zugriff auf wg_*-Tabellen. Wenn WIREGUARD-
+  Connections Auth-Daten in einer vpn_*-Tabelle haetten, koennte
+  ein RADIUS-Login-Versuch mit WireGuard-Credentials eine vollstaendige
+  Auth-Runde ausloesen (DB-Lookup, Hash-Vergleich). Bei 3000
+  missbrauchten Connections = RADIUS-Flooding-Vektor.
+  Loesung: WireGuard-Auth-Daten leben in wg_*-Tabellen → RADIUS sieht
+  sie physisch nicht.
+
+================================================================================
+3) PREFIX-ALLOWLIST (kanonisch)
+================================================================================
+
+  Jede Tabelle und jeder Settings-Key MUSS mit genau einem der
+  folgenden Prefixe beginnen. Prefixlose Namen sind verboten.
+
+  KANONISCHE PREFIXE (primaere Sicherheitszonen):
+  Folgen dem Muster prefix_ (mit Unterstrich).
+
+  Prefix     Domaene             Beschreibung
+  ────────── ─────────────────── ────────────────────────────────────
+  vpn_       VPN-Operationen     Connections, Sessions, Locks,
+                                 Lifecycle, Policy-Apply.
+                                 RADIUS hat Lese+Schreibzugriff.
+  web_       Panel/Webpanel      Customers, Panel-Sessions,
+                                 Panel-spezifische Daten.
+                                 RADIUS hat KEINEN Zugriff.
+  wg_        WireGuard           WIREGUARD-Auth-Daten, WG-Config,
+                                 WireGuard-spezifische Settings-Keys.
+                                 RADIUS hat KEINEN Zugriff.
+                                 Prefix ist wg_ (nicht awg_):
+                                 WireGuard ist die Konstante,
+                                 nicht der Fork (MANIFEST §3.1).
+
+  RESERVIERTE STANDARD-FAMILIE (Kompatibilitaets-Ausnahme):
+  Folgt NICHT dem prefix_ Muster. Kein Unterstrich nach "rad".
+  Diese Namen werden von FreeRADIUS vorgegeben und sind nicht
+  umbenennbar. Sie sind KEINE kanonischen Prefixe sondern eine
+  reservierte Fremdnamensfamilie.
+
+  rad*       FreeRADIUS          radacct, radcheck, radreply,
+                                 radgroupcheck, radgroupreply,
+                                 radpostauth, radusergroup.
+                                 Zusaetzlich: nas, nasreload
+                                 (kein rad-Prefix, aber Teil
+                                 der FreeRADIUS-Installation).
+
+  QUERSCHNITT-PREFIXE (funktionsuebergreifend):
+
+  Prefix     Domaene             Beschreibung
+  ────────── ─────────────────── ────────────────────────────────────
+  settings_  Settings-System     Katalog, globale/kunden/connection-
+                                 spezifische Werte (BASE-090)
+  policy_    Policy-System       Katalog, Rollen-Defaults, Customer-
+                                 Overrides, Plan-Werte (BASE-100, D003)
+  radius_    RADIUS-Settings     FreeRADIUS-bezogene Settings-Keys
+                                 (z.B. radius_acct_interim_seconds).
+                                 NUR fuer Settings-Keys, NICHT fuer
+                                 Tabellen (Tabellen nutzen rad* ohne
+                                 Unterstrich). (BASE-020, BASE-070)
+  peak_      Peak-Mode           CPU-Overload-Schutz, dynamische
+                                 QoS-Anpassung (MOD-009)
+  log_       Logging/Audit       Lifecycle-Logs, Audit-Events
+  spool_     Spool/Queue         Transiente Queues (falls benoetigt)
+
+4) NEUE PREFIXE EINFUEHREN
+
+  Die Allowlist (§3) ist erweiterbar. Neue Prefixe erfordern:
+  a) Begruendung warum kein bestehender Prefix passt
+  b) Sicherheitszone definieren (welcher DB-User darf zugreifen)
+  c) Eintrag in dieser Datei
+  d) Propagation auf TRUTH_MODEL §5
+================================================================================

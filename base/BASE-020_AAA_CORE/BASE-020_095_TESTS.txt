@@ -1,0 +1,133 @@
+================================================================================
+BASE-020 — ACCEPTANCE TESTS
+================================================================================
+DATEI: BASE-020_095_TESTS.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Messbare Tests fuer alle Invarianten in BASE-020.
+  Jeder Test referenziert die getestete Invariante.
+
+================================================================================
+1) ADMISSION-VERTRAG TESTS (tunnelneutral)
+================================================================================
+
+  T-AAA-01  DISABLED Connection Login → REJECT. [AAA-02]
+  T-AAA-02  DB-Down → neuer Login-Versuch → REJECT (kein Haengen,
+            schnelle Antwort). [AAA-03]
+  T-AAA-03  SimUse: Zweiter Login mit gleicher vpn_connection_id
+            waehrend aktive Session → REJECT. [AAA-04]
+  T-AAA-04  Stale Session + On-Demand Janitor: Ghost-Session wird
+            geschlossen, danach Login erlaubt. [AAA-05]
+  T-AAA-05  ACCEPT ohne nachfolgendes vpn_sessions INSERT →
+            Systemfehler detektiert (Guard laeuft ab, Alert). [AAA-06]
+  T-AAA-06  DB-Down → kein Fail2ban-Ban auf den Versuch. Backend-
+            Fehler hat eigenen Reason-Code. [AAA-07]
+
+================================================================================
+2) L2TP/IPSEC RADIUS TESTS
+================================================================================
+
+  T-AAA-07  Korrekter Login: subaccount_login + Passwort →
+            Access-Accept + Framed-IP-Address = fixed_ip. [AAA-09, AAA-12]
+
+  T-AAA-08  Falsches Passwort → Access-Reject. [AAA-11]
+  T-AAA-09  RADIUS-User SQL-Query auf wg_connection_auth → Denied
+            (DB-Level GRANT Enforcement). [AAA-10]
+  T-AAA-10  Acct-Start empfangen → vpn_session_locks Row geloescht +
+            vpn_sessions INSERT erstellt. [AAA-13, AAA-06]
+  T-AAA-11  Acct-Start fehlt (Timeout) → Guard laeuft nach TTL ab.
+            Naechster Login nicht dauerhaft blockiert. [AAA-14]
+  T-AAA-12  radpostauth enthaelt Eintrag fuer ACCEPT und REJECT.
+            Keine Secrets (NT-Hash, Passwort) im Log. [AAA-15]
+  T-AAA-13  WIREGUARD-Connection per RADIUS-Login-Versuch (falls
+            technisch moeglich) → REJECT. [AAA-16]
+  T-AAA-14  direct-read: Auth-Daten kommen aus
+            vpn_connection_l2tp_ipsec_auth, NICHT aus radcheck.
+            Credential-Rotation in SoT → sofort wirksam ohne
+            Sync-Delay. [AAA-09]
+  T-AAA-15  Reply-Attribute: Framed-IP-Address stimmt mit
+            vpn_connections.fixed_ip ueberein (exakt). [AAA-12]
+  T-AAA-16  DB-Down Recovery: DB wieder erreichbar → naechster
+            Login funktioniert sofort. [AAA-03]
+
+================================================================================
+3) WIREGUARD ADMISSION TESTS
+================================================================================
+
+  T-AAA-17  WIREGUARD-Connection hat keinen RADIUS-Eintrag in
+            radacct (niemals). [AAA-17, AAA-22]
+  T-AAA-18  DISABLED WIREGUARD-Connection: Peer nicht in WG-Config
+            (oder entfernt nach DISABLE). [AAA-18, AAA-02]
+  T-AAA-19  WG Roaming (Endpoint-Update): Bestehende Session bleibt,
+            KEIN SimUse-REJECT, KEIN neuer Session-Start. [AAA-20]
+
+================================================================================
+4) ACCOUNTING-ABGRENZUNG TESTS
+================================================================================
+
+  T-AAA-20  L2TP Session: Eintrag in vpn_sessions UND radacct.
+            vpn_sessions.closed_at ist SoT, nicht radacct.stop_time.
+            [AAA-21, AAA-24]
+  T-AAA-21  WG Session: Eintrag in vpn_sessions, KEIN Eintrag
+            in radacct. [AAA-22]
+  T-AAA-22  Code-Review: Kein Consumer prueft radacct.stop_time
+            fuer SimUse-Entscheidungen. [AAA-23]
+
+================================================================================
+5) CROSS-FILE / INTEGRATION TESTS
+================================================================================
+
+  T-AAA-23  Guard tunnelneutral: L2TP Login erwirbt Lock.
+            WG Session-Start (Fall B/C) erwirbt Lock.
+            Gleicher Mechanismus, andere Triggerstelle. [AAA-08]
+  T-AAA-24  Credential-Rotation in vpn_connection_l2tp_ipsec_auth:
+            Aenderung ist SOFORT wirksam beim naechsten RADIUS-Login.
+            Kein Sync-Delay, kein radcheck-Update noetig. [AAA-09]
+  T-AAA-25  Full Integration: L2TP Login → ACCEPT → Acct-Start →
+            vpn_sessions INSERT → vpn_session_locks Release →
+            Policy-Apply → Connect-Gate Release → Full Tunnel.
+            Gesamte Kette ohne Fehler. [AAA-01..AAA-06]
+  T-AAA-26  Full Integration: WG Handshake → AWG Controller
+            detektiert → vpn_sessions INSERT → Lock Acquire+Release
+            → Policy-Apply → Connect-Gate Release → Full Tunnel.
+            [AAA-01, AAA-06, AAA-17..AAA-19]
+  T-AAA-27  Owner-Grenze: RADIUS-Code/Config enthaelt KEINE
+            WireGuard-spezifische Logik. Kein wg_public_key Lookup,
+            kein awg0 Interface-Check. [AAA-17, AAA-26]
+  T-AAA-28  Owner/Runner: vpn_session_locks INSERT durch RADIUS
+            ist technischer Write (radius DB-User), aber kein
+            fachlicher Ownership-Anspruch. BASE-070 definiert TTL,
+            Cleanup, Janitor. [AAA-25]
+  T-AAA-29  FreeRADIUS-Nebenpfade: radgroupcheck, radgroupreply,
+            usergroup, huntgroups sind leer/deaktiviert. Kein
+            FreeRADIUS Simultaneous-Use Check-Attribut gesetzt.
+            Config-Review Nachweis. [AAA-28]
+  T-AAA-30  WG Hybrid-Fail-Closed: DB-Down simulieren,
+            wg_failclosed_grace_seconds (Default 300s) abwarten
+            → WireGuard-Dienst wird gestoppt. Alle WG-
+            Sessions sterben. DB-Recovery → Dienst-Neustart →
+            Peers reconnecten. [AAA-29]
+  T-AAA-31  WG Grace-Periode: Kurzer DB-Flap (< Grace-Periode)
+            → WireGuard laeuft weiter, bestehende Sessions bleiben.
+            Timer wird zurueckgesetzt bei DB-Recovery. [AAA-29]
+  T-AAA-32  Session-Signal Vollstaendigkeit: vpn_sessions INSERT
+            enthaelt ALLE Pflichtfelder: vpn_connection_id,
+            tunnel_type, client_ipv4, client_ipv6, truth_source,
+            session_token, runtime_ref, source_event_at.
+            WG: client_ipv6 MUSS gesetzt sein (Dual-Stack).
+            L2TP: client_ipv6 darf NULL sein. [AAA-06]
+  T-AAA-33  Keine FreeRADIUS-Businesslogik in unlang:
+            Config-Review zeigt dass Entscheidungslogik (Status-
+            Check, SimUse, Guard) in SQL/Script lebt, nicht
+            in unlang-Bloecken. [AAA-27]
+  T-AAA-34  WG-Key-Rotation ohne aktive Session: Alter Peer
+            entfernt, neuer Peer provisioniert. Kein Session-
+            Folgeschritt. Naechster Handshake = neuer Session-
+            Start. [AAA-30]
+  T-AAA-35  WG-Key-Rotation MIT aktiver Session: Alter Peer
+            entfernt → Session geschlossen (close_reason =
+            AUTH_KEY_ROTATED) → Lock freigegeben → neuer Peer
+            provisioniert → naechster Handshake = neuer Session-
+            Start-Kandidat. Kein paralleler alter+neuer Peer.
+            [AAA-30]

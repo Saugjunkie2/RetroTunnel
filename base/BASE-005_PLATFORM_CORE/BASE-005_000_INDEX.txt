@@ -1,0 +1,144 @@
+================================================================================
+RetroTunnel — BASE-005: PLATFORM CORE — INDEX
+================================================================================
+VERSION: v1.0
+DATUM: 2026-04-19
+STATUS: ACTIVE
+PFAD: base/BASE-005_PLATFORM_CORE/BASE-005_000_INDEX.txt
+
+================================================================================
+1) WARUM BASE-005?
+================================================================================
+
+Jeder Dienst im System (MariaDB, FreeRADIUS, WireGuard, strongSwan,
+nftables, Unbound, AdGuard, OpenResty, PHP-FPM, Janitor, Reconcile, ...)
+braucht die gleichen Fundament-Fragen beantwortet:
+
+  - Unter welchem Linux-User laufe ich?
+  - An welche IP/Port binde ich?
+  - Wo liegen meine Config-Files, Logs, State?
+  - Wo leben meine Secrets?
+  - Wann darf ich starten (wer muss vorher bereit sein)?
+  - Was bedeutet "bereit" fuer meinen Dienst?
+  - Was passiert bei Crash / Reload / Shutdown?
+
+Wenn diese Fragen in jeder Base einzeln beantwortet werden, entsteht
+Drift: BASE-040 sagt /etc/wireguard/awg0.conf, BASE-050 sagt etwas
+anderes, und niemand merkt es bis der Server nicht mehr bootet.
+
+BASE-005 ist die zentrale Heimat fuer Plattform-weite Vertraege.
+Analog zu BASE-000 fuer SQL-Naming, aber fuer OS/Betrieb/Laufzeit.
+
+================================================================================
+2) SCOPE
+================================================================================
+
+  WAS HIER STEHT:
+  - Welche OS-Baseline das System voraussetzt
+  - Service-Endpunkt-Registry (IP, Port, Bind, Interface)
+  - Filesystem-Layout (Config-Pfade, State, Runtime, Logs)
+  - Linux-User/Gruppen und ihre Rechte
+  - Secret-Management (wo, wie, Rotation)
+  - Service-Inventar (welche systemd-Units existieren)
+  - Lifecycle-/Dependency-/Readiness-Vertrag
+
+  WAS HIER NICHT STEHT:
+  - SQL-Naming, Tabellen, Keys (-> BASE-000)
+  - Settings-Resolution (-> BASE-090)
+  - Policy-Resolution (-> BASE-100)
+  - Fachliche Tunnel-/Auth-Details (-> jeweilige Fach-Base)
+  - Session-Truth / Accounting-Semantik (-> BASE-070)
+  - Backup-Orchestrierung (-> MOD-008)
+  - Monitoring/Alerting (-> MOD-007)
+  - Panel-/Business-States (-> BASE-110, MOD-006)
+
+================================================================================
+3) DATEIUEBERSICHT
+================================================================================
+
+  BASE-005_010_SCOPE_UND_GRENZEN.txt
+    Aufnahme-Regel: Was gehoert in BASE-005, was nicht.
+    Verhindert dass BASE-005 zum Sammelplatz wird.
+
+  BASE-005_020_OS_BASELINE.txt
+    Debian-Version, Kernel-Features, systemd-Baseline.
+    Pflicht-Module (nftables, WireGuard).
+
+  BASE-005_030_SERVICE_ENDPOINTS_UND_PORTS.txt
+    Jeder Dienst: welche IP, welcher Port, welches Interface.
+    Vermeidet Bind-Konflikte.
+
+  BASE-005_040_FILESYSTEM_UND_LOG_LAYOUT.txt
+    Path-Registry: /etc/, /var/lib/, /run/, Log-Orte,
+    Rotation-Prinzipien.
+
+  BASE-005_050_LINUX_USERS_GROUPS_PERMISSIONS.txt
+    Welcher Dienst laeuft unter welchem User.
+    File-Permissions fuer sensitive Pfade.
+
+  BASE-005_060_SECRET_MANAGEMENT.txt
+    Wo leben Secrets, wer darf lesen, Rotation-Prinzipien,
+    Backup-Regeln.
+
+  BASE-005_070_SERVICE_INVENTAR.txt
+    Alle systemd-Units mit Owner-Base, Rolle, Diensttyp.
+    Einzige Quelle fuer "welche Units gibt es ueberhaupt".
+
+  BASE-005_080_LIFECYCLE_DEPENDENCIES_READINESS.txt
+    Boot / Restart / Reload / Shutdown / Crash-Recovery.
+    Dependency-Typen (hart, weich, async).
+    Readiness-Vertrag (wann ist ein Dienst "bereit").
+
+  BASE-005_090_INVARIANTEN.txt
+    PF-01..PF-xx. Harter Vertrag, pruefbar.
+
+  BASE-005_095_TESTS_UND_VALIDIERUNG.txt
+    T-PF-01..xx. Definition of Done.
+
+  NUMMERIERUNG: 3-stellige 10er-Schritte (000, 010, 020...).
+  Luecke zwischen 090 und 095 erlaubt Einfuegungen zwischen
+  Invarianten und Tests. Siehe 02_ASSUMPTIONS_AND_RULES R-16.
+
+================================================================================
+4) REFERENZEN
+================================================================================
+
+NEUES KONZEPT:
+  00_MANIFEST §6 — Ordnerstruktur
+  02_ASSUMPTIONS_AND_RULES — Design-Prinzipien (insb. R-16)
+  BASE-000 — SQL-Foundation (analoger Ansatz: Grundnorm als eigene Base)
+  NETWORK_MODEL (model/) — IP-Pools, Service-Anchors
+    wird in BASE-005_030_SERVICE_ENDPOINTS_UND_PORTS aufgeloest
+    (Single-SoT-Prinzip)
+
+ERARBEITET DURCH:
+  Marco (Owner, Vision) + Claude (Ausarbeitung) + ChatGPT (Drittreview:
+  Lifecycle/Readiness als Schluesselbegriff, Endpoint-/Port-Registry
+  als eigener Block).
+
+================================================================================
+5) PFLICHT-ABSCHNITT FUER ALLE FACH-BASES
+================================================================================
+
+Jede spaetere Fach-Base (BASE-010 bis BASE-110) MUSS einen Abschnitt
+"Plattform-Contract" enthalten, der folgende Punkte spezifiziert:
+
+  a) Meine systemd-Unit(s)
+  b) Mein Linux-User / Gruppen
+  c) Meine Endpunkte / Ports / Bind-IPs / Interfaces
+  d) Meine Pfade (Config, State, Runtime, Logs)
+  e) Meine Secrets (Pfade, wer darf lesen)
+  f) Meine Dependencies beim Boot (harte/weiche/async)
+  g) Mein Readiness-Kriterium
+  h) Mein Restart-/Reload-/Recovery-Verhalten
+
+Die Fach-Base definiert diese Punkte NICHT neu — sie referenziert die
+zentralen Registries aus BASE-005. Die Base sagt: "Ich bin Dienst X aus
+dem Service-Inventar (BASE-005_070), binde an Endpoint Y (BASE-005_030),
+laufe unter User Z (BASE-005_050)."
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

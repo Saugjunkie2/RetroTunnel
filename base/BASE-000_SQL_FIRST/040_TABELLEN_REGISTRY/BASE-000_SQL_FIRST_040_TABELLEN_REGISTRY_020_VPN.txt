@@ -1,0 +1,38 @@
+================================================================================
+BASE-000 — TABELLEN-REGISTRY — ZONE: vpn_ (VPN-Operationen)
+================================================================================
+DATEI: BASE-000_SQL_FIRST_040_TABELLEN_REGISTRY_020_VPN.txt
+
+  vpn_connections                                       [BESTEHEND, BASE-010]
+    Zweck: Shared Connection-Basistabelle. Lifecycle, IP-Zuordnung,
+           Tunnel-Typ, Rolle, operativer Zustand. Tunnelneutral.
+           Auth-Daten sind NICHT hier (-> vpn_connection_l2tp_ipsec_auth
+           bzw. wg_connection_auth).
+    Konzeptname: "vpn_connections" (DOMAIN_MODEL §3) — korrekt.
+
+  vpn_connection_l2tp_ipsec_auth                        [NEU, BASE-010]
+    Zweck: L2TP_IPSEC-spezifische Auth-Daten. Nur fuer
+           tunnel_type=L2TP_IPSEC. subaccount_login (RADIUS-Username),
+           subaccount_nt_hash (MSCHAPv2 Secret). RADIUS liest diese Tabelle.
+    FK: vpn_connection_id -> vpn_connections.id (1:0..1)
+    Bisheriger Konzeptname: Felder lagen in vpn_connections (DOMAIN_MODEL §3.1/§3.3)
+    KORREKTUR: Physisch getrennte Tabelle (Auth-Split, Sicherheitszone).
+
+  vpn_sessions                                          [NEU, BASE-070]
+    Zweck: Session-Truth. Eine Row = eine VPN-Session (offen oder closed).
+           Tunnelneutral. Ersetzt radacct als Session-Truth (SM_SESSION §1).
+    FK: vpn_connection_id -> vpn_connections.id
+
+  vpn_session_locks                                     [BESTEHEND, BASE-070]
+    Zweck: Atomarer SimUse-Guard (Mutex). Kein Session-State.
+           Schuetzt gegen parallele Login-Races.
+    FK: vpn_connection_id -> vpn_connections.id (UNIQUE)
+    Bisheriger Konzeptname: "active_session_locks" (DOMAIN_MODEL §4)
+    KORREKTUR: Kanonischer Name ist vpn_session_locks (Prefix vpn_).
+
+  vpn_reason_registry                                   [NEU, BASE-010]
+    Zweck: Kanonische Reason-Codes mit Policy-Attributen (is_restoreable,
+           revocation_mode, precedence_rank, auto_finalize_to_reason_code).
+    Konzeptname: "reason_registry" (DOMAIN_MODEL §7A)
+    KORREKTUR: Kanonischer Name ist vpn_reason_registry (Prefix vpn_).
+================================================================================

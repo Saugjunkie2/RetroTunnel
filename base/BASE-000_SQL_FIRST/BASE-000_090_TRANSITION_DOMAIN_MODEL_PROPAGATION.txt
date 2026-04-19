@@ -1,0 +1,64 @@
+================================================================================
+BASE-000 — TRANSITION: DOMAIN_MODEL PROPAGATION
+================================================================================
+DATEI: BASE-000_090_TRANSITION_DOMAIN_MODEL_PROPAGATION.txt
+
+STATUS: SUPERSEDED — K-01..K-12 werden bei BASE-010 Ausarbeitung angewendet
+HINWEIS (2026-04-16): Nicht mehr als pendente Propagation behandeln.
+  "model/ wird aufgeloest sobald zustaendige Base fertig ist".
+  K-01..K-11 werden nicht mehr in DOMAIN_MODEL propagiert, sondern
+  bei Ausarbeitung von BASE-010_IDENTITY_CORE direkt dort umgesetzt
+  (Schema lebt in Base, nicht mehr im Model). Datei bleibt als
+  Referenz was uebernommen werden muss, bis BASE-010 fertig ist.
+
+HINWEIS: Diese Datei ist ein UEBERGANGS-ARTEFAKT. Die Korrekturen
+werden bei Ausarbeitung der zustaendigen Base (BASE-010_IDENTITY_CORE)
+direkt dort umgesetzt. Danach wird diese Datei archiviert oder auf
+"ERLEDIGT" gesetzt.
+
+================================================================================
+KORREKTUREN (K-01..K-11)
+================================================================================
+
+BASE-000 erzwingt folgende Korrekturen am DOMAIN_MODEL:
+
+  TABELLENNAMEN:
+  K-01  "customers" -> "web_customers" (§2, Tabellenname)
+  K-02  "active_session_locks" -> "vpn_session_locks" (§4, Tabellenname)
+  K-03  "reason_registry" -> "vpn_reason_registry" (§7A, Tabellenname)
+  K-04  "connection_lifecycle_log" -> "log_connection_lifecycle" (§7B)
+  K-05  "role_policy_defaults" -> "policy_role_defaults" (§5.5/D003)
+  K-06  "customer_policy_overrides" -> "policy_customer_overrides" (§5.5/D003)
+  K-07  "plan_policy_values" -> "policy_plan_values" (§5.5/D003)
+
+  AUTH-SPLIT:
+  K-08  Auth-Felder aus vpn_connections §3.1/§3.3 in eigene Tabellen:
+        subaccount_login + subaccount_nt_hash -> vpn_connection_l2tp_ipsec_auth
+        wg_public_key + wg_preshared_key -> wg_connection_auth
+  K-09  subaccount_login: NOT NULL auf vpn_connections ENTFAELLT
+        (Feld existiert nicht mehr auf vpn_connections, sondern in
+         vpn_connection_l2tp_ipsec_auth wo es NOT NULL ist)
+
+  NEUE FELDER:
+  K-10  wg_connection_name NEU in wg_connection_auth (generierter
+        Identifier fuer WIREGUARD, analog subaccount_login fuer L2TP_IPSEC)
+  K-11  connection_ref NEU in vpn_connections (tunnelneutraler Identifier)
+
+  TUNNEL-TYPE ENUM-WERTE (NEU, 2026-04-16):
+  K-12  tunnel_type ENUM-Werte: 'LEGACY' -> 'L2TP_IPSEC',
+        'MODERN' -> 'WIREGUARD'. Begruendung: technisch praezise,
+        keine Zeitdrift, konsistent mit wg_-Zone-Prinzip.
+
+================================================================================
+PROPAGATIONS-PLAN
+================================================================================
+
+  Schritt 1: Marco reviewed BASE-000 Ordner (AKTUELL)
+  Schritt 2: Marco gibt Freigabe
+  Schritt 3: Korrekturen K-01..K-12 bei Ausarbeitung BASE-010_IDENTITY_CORE
+             direkt im Schema umsetzen (nicht mehr in DOMAIN_MODEL)
+  Schritt 4: Cross-File-Check (SM_CONNECTION, SM_SESSION, D003 etc. —
+             diese werden bei Auflösung der model/-Dateien in ihre
+             zustaendigen Bases verschoben und dort angepasst)
+  Schritt 5: Diese Datei wird auf "ERLEDIGT" gesetzt
+================================================================================

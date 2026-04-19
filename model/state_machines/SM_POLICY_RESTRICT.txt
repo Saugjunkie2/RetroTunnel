@@ -1,0 +1,1134 @@
+================================================================================
+RetroTunnel — STATE MACHINE: POLICY RESTRICT (Enforcement Lifecycle)
+================================================================================
+VERSION: v1.8
+DATUM: 2026-04-16
+STATUS: DEPRECATED (siehe Deprecation-Hinweis unten)
+PFAD: model/state_machines/SM_POLICY_RESTRICT.txt
+
+================================================================================
+DEPRECATION-HINWEIS (2026-04-16)
+================================================================================
+
+Diese Datei ist inhaltlich UEBERHOLT und wird bei Ausarbeitung von
+BASE-080_POLICY_APPLY_CORE aufgeloest. Enforcement-Lifecycle, Policy-
+Apply, Connect-Gate, Hard-Cut, FLUSH+REBUILD Reconcile und die
+23 Invarianten (POL-01..POL-23) leben dann in BASE-080.
+
+Grund: Entscheidung 2026-04-16 "model/ wird aufgeloest — eine Wahrheit,
+ein Ort".
+
+BEGRIFFS-BRUECKE (beim Lesen mental uebersetzen):
+
+  Alt (in dieser Datei)               Neu (Kanon ab 2026-04-16)
+  ----------------------------------  -----------------------------------
+  tunnel_type='LEGACY'                tunnel_type='L2TP_IPSEC'
+  tunnel_type='MODERN'                tunnel_type='WIREGUARD'
+  "AWG" (als Tunnel-Typ)              "WireGuard" / "AmneziaWG"
+  "reason_registry" Tabelle           "vpn_reason_registry" (BASE-000 K-03)
+  BASE-04_NFT_CORE                    BASE-050_FIREWALL_CORE
+  BASE-05_WIRING_CORE (falls refd)    BASE-080_POLICY_APPLY_CORE
+  BASE-07_POLICY_APPLY_CORE           BASE-080_POLICY_APPLY_CORE
+  BASE-07_DIAG_CORE                   BASE-110_WEBSTACK_CORE
+  BASE-10_WEBSTACK_CORE               BASE-110_WEBSTACK_CORE
+  BASE-01_TUNNEL_LEGACY               BASE-030_TUNNEL_L2TP_IPSEC
+  BASE-02_TUNNEL_AWG                  BASE-040_TUNNEL_WIREGUARD
+
+ENFORCEMENT-LOGIK BLEIBT GUELTIG:
+Die 23 Invarianten und 33 Tests sind unveraendert kanonisch.
+vpn-policy-apply als einziges Tool (DRY), Connect-Gate, FAIL-CLOSED
+bei Apply-Failure, Single-Writer Lock bleiben wie sie sind. Nur
+Tabellennamen und BASE-Referenzen sind veraltet.
+
+KANONISCHER NEU-STAND fuer schnelle Orientierung:
+  - L2TP_IPSEC Connect-Gate: ip-up Hook (accel-ppp)
+  - WIREGUARD Connect-Gate: Controller-basiert (Polling, kein Hook)
+  - Kill-Handle L2TP_IPSEC: accel-ppp disconnect
+  - Kill-Handle WIREGUARD: Peer-Remove (wg set <iface> peer <pubkey> remove)
+
+REFERENZ ALTES KONZEPT:
+  B166_POLICY_APPLY_RECONCILE.txt — Policy-Apply/Reconcile Kette
+  B150_Walled_Garden_Restricted_Mode_(QuotaExpiryManual).txt — Restricted Mode
+  B063_NFT_ENFORCEMENT_ANTISCAN_EGRESS_DNS.txt — nftables Enforcement
+
+DELTA ZUM ALTEN KONZEPT (historisch):
+  - IKEv2/strongSwan -> AmneziaWireGuard, Kill-Handle = Peer-Remove
+  - conn_group -> tunnel_type + access_role
+  - restricted_effective/restricted_reason -> op_status + op_reason_code
+  - Session-Truth jetzt in vpn_sessions (nicht nur /run Mapping)
+  - WIREGUARD Connect-Gate: WG hat kein ip-up-Aequivalent -> Controller-basiert
+  - Pending 2-Stage Mapping (B166 §4.1 IKEv2) adaptiert fuer WireGuard
+  - reason_registry ersetzt hardcoded Reason-Strings
+
+ERARBEITET DURCH:
+  Marco + ChatGPT (Architekturentscheidungen im alten Konzept) +
+  Claude (Ueberfuehrung in RetroTunnel-Struktur).
+
+================================================================================
+1) ZWECK UND SCOPE
+================================================================================
+
+Dieses Dokument definiert den Enforcement-Lifecycle für RetroTunnel —
+wie SQL-Truth (op_status, op_reason_code) deterministisch in
+Kernel-Enforcement (nftables Sets, tc QoS) übersetzt wird.
+
+SCOPE:
+  - Policy-Apply Tool (vpn-policy-apply): SQL → Kernel Translation
+  - Connect-Gate (No-Unpoliced-Window bei Tunnelaufbau)
+  - Hard-Cut Mechanik (Conntrack-Flush bei FULL→RESTRICTED)
+  - Reconcile (periodische Drift-Reparatur)
+  - Trigger-Kette (wer ruft wann vpn-policy-apply auf?)
+  - DB-Down Verhalten
+
+NICHT IN SCOPE:
+  - nftables Regeldetails (Syntax, Chain-Reihenfolge) → BASE-50_FIREWALL_CORE
+  - tc QoS Konfiguration (qdiscs, filters) → MOD-03_QOS
+  - Restricted Allowlist Details (Ports, Protokolle) → bereits in NETWORK_MODEL
+  - Anti-Scan / Rate-Limiting → BASE-50_FIREWALL_CORE
+  - Session-Lifecycle → SM_SESSION
+  - op_status Transitionen → SM_CONNECTION
+
+ABHÄNGIGKEITEN:
+  - SM_CONNECTION (Transitionen T-01..T-08, op_status/op_reason_code)
+  - SM_SESSION (Session-Truth in vpn_sessions, Kill-Handles)
+  - DOMAIN_MODEL (vpn_connections Schema, reason_registry)
+  - TRUTH_MODEL (Settings-Keys, SQL-first Governance)
+  - NETWORK_MODEL (Service-Net, Restricted Allowlist, Pools)
+
+================================================================================
+2) GRUNDREGELN
+================================================================================
+
+GR-01  SQL ist Source of Truth. Kernel ist abgeleiteter Zustand.
+       Wenn SQL und Kernel sich widersprechen, gewinnt SQL.
+       Reconcile repariert Drift periodisch.
+
+GR-02  Enforcement passiert im Kernel (nftables Sets + tc Regeln),
+       NICHT per SQL-Query pro Paket (Control-Plane vs Data-Plane).
+
+GR-03  Kein manueller nftables-Hotfix. Reconcile überschreibt alles,
+       was nicht aus SQL-Truth abgeleitet ist.
+
+GR-04  Policy-Apply ist idempotent: wiederholtes Anwenden erzeugt
+       immer denselben Kernel-Zustand.
+
+GR-05  Offline Connections haben im Steady-State KEINE
+       Kernel-Repräsentation. Policy greift erst beim nächsten
+       Tunnelaufbau (Connect-Gate → Apply).
+       AUSNAHME: Temporäre Failure-Reste (connect_pending) sind bewusst
+       erlaubt — sowohl harmlose (Peer entfernt, Gate stale) als auch
+       kritische (Peer/Session noch aktiv, Killpfad nicht abgeschlossen).
+       Reconcile bereinigt beide Typen (§7 Schritt 5, POL-21).
+       [F-POL-038 v1.0: Beide Failure-Resttypen in Ausnahme]
+
+GR-06  Verify-Wall (Email-Verifikation) ist App-Layer und KEIN
+       Kernel-Policy-Trigger. Kein nftables/tc Apply bei Verify.
+
+GR-07  Dualstack-Parität: Enforcement MUSS für IPv4 UND IPv6
+       gleichwertig sein (restricted_v4 UND restricted_v6).
+       LEGACY trägt nur zu v4 bei (kein IPv6).
+
+GR-08  ADMIN-Exemption (R-08): access_role=ADMIN ist NICHT
+       restricted-fähig. Keine Ausnahme, auch nicht manuell.
+       Not-Aus für kompromittierte Admins = DISABLE (T-04/T-07
+       mit DISABLE_ADMIN_ABUSE, IMMEDIATE), nicht Restrict.
+       ADMIN-Connections landen NIE in restricted_v4/v6.
+       Das Enforcement-Tool behandelt ADMIN nicht anders — die
+       Exemption liegt in SM_CONNECTION T-03, nicht hier.
+
+================================================================================
+3) ZENTRALES TOOL: vpn-policy-apply (DRY-Prinzip)
+================================================================================
+
+Alle Trigger (Hooks, Panel Events, Reconcile Timer) rufen
+AUSSCHLIESSLICH ein zentrales Tool auf:
+
+  /usr/local/bin/vpn-policy-apply
+
+Keine Logik-Duplikate in Hooks oder Panel-Code.
+Das Tool ist idempotent (GR-04).
+
+3.1) Modi
+
+  MODUS A — Single Target (STRICT):
+    vpn-policy-apply --connection-id=<id>
+    Verwendet von: Connect-Hooks, Panel Events.
+    Fehler → harter Exit-Code (keine stille Degradierung).
+
+  MODUS B — Reconcile All (BEST EFFORT):
+    vpn-policy-apply --reconcile-all
+    Verwendet von: systemd Timer (Reconcile).
+    Einzelfehler werden geloggt, Tool läuft weiter.
+
+  MODUS C — Customer Scope (STRICT, optional):
+    vpn-policy-apply --customer-id=<id>
+    Verwendet von: Bulk-Änderungen (z.B. Admin-Tool).
+    Appliziert Policy für alle CLAIMED Connections des Customers.
+
+3.2) Exit-Codes
+
+  0 = OK (Applied / Offline-Noop / Offline-Cleanup / Reconcile OK)
+  1 = PARTIAL_OK (nur --reconcile-all: einige Sessions fehlgeschlagen)
+  2 = TEMPFAIL_SQL (DB nicht erreichbar)
+  3 = INVALID_ARGS / INPUT_ERROR
+  4 = RUNTIME_APPLY_ERROR (nft/tc/tool/permission)
+  5 = TEMPFAIL_LOCKED (Single-Writer Lock belegt)
+  6 = STATE_MAPPING_ERROR (Session-Mapping beschädigt)
+  7 = INTERNAL_ERROR
+
+  Offline ist KEIN Fehler:
+    --connection-id=<id> ohne aktive Session → Exit 0 + INFO "offline noop"
+
+================================================================================
+4) APPLY-LOGIK (SINGLE TARGET)
+================================================================================
+
+Ablauf: vpn-policy-apply --connection-id=<id>
+
+SCHRITT 1: SQL lesen (Control-Plane)
+  Lade effective Policy für diese vpn_connection_id:
+    - op_status (ACTIVE / RESTRICTED / DISABLED)
+    - op_reason_code (aus reason_registry, NULL wenn ACTIVE)
+    - tunnel_type, access_role
+    - fixed_ip, fixed_ipv6 (materialisierte IPs)
+    - speed_profile / rate-limit (falls QoS aktiv)
+
+SCHRITT 2: Session-Aktivität feststellen
+  Prüfe: Existiert eine offene Session in vpn_sessions
+  (closed_at IS NULL) für diese vpn_connection_id?
+
+  FALL ONLINE:
+    - client_ipv4/client_ipv6 + runtime_ref verfügbar
+    - Kernel-Enforcement wird gesetzt (Schritt 3)
+
+  FALL OFFLINE:
+    Keine aktive Session in vpn_sessions für diese Connection.
+
+    FALL OFFLINE-A: Kein stale Enforcement im Kernel
+      fixed_ip NICHT in restricted_v4, fixed_ipv6 NICHT in restricted_v6
+      (wenn vorhanden), keine tc-Regeln aktiv.
+      → Exit 0 + INFO "offline noop"
+      Policy greift beim nächsten Tunnelaufbau.
+
+    FALL OFFLINE-B: Stale Enforcement im Kernel vorhanden
+      [F-POL-001 v0.2: Cleanup-Pfad für Session-Kill-Aftermath]
+      fixed_ip noch in restricted_v4 ODER fixed_ipv6 noch in
+      restricted_v6 ODER tc-Regeln noch aktiv.
+      → Enforcement-Cleanup: IP aus restricted_v4/v6 entfernen,
+        tc-Regeln entfernen (wenn Interface noch existiert).
+      → Exit 0 + INFO "offline cleanup"
+      Dieser Fall tritt auf nach Session-Kill (SM_SESSION §11.1),
+      wo vpn-policy-apply NACH dem Session-Close aufgerufen wird.
+      Ohne diesen Cleanup-Pfad bliebe stale Enforcement bis Reconcile.
+
+SCHRITT 3: Kernel-Enforcement setzen (nur ONLINE)
+
+  3a) nftables Sets (Dualstack, GR-07):
+
+    Bestimme pro Session:
+      CLIENT_IP4 = fixed_ip (immer vorhanden)
+      CLIENT_IP6 = fixed_ipv6 (NULL bei LEGACY oder v6_addr_policy=NONE)
+
+    op_status = RESTRICTED:
+      CLIENT_IP4 → restricted_v4 hinzufügen
+      CLIENT_IP6 → restricted_v6 hinzufügen (wenn nicht NULL)
+      Effekt: Walled Garden (nur SERVICE_NET erreichbar)
+
+    op_status = ACTIVE:
+      CLIENT_IP4 → aus restricted_v4 entfernen
+      CLIENT_IP6 → aus restricted_v6 entfernen (wenn nicht NULL)
+      Effekt: Full Tunnel (Internet-Zugang)
+
+    op_status = DISABLED:
+      Sollte nicht vorkommen (DISABLED → kein Tunnel → offline).
+      Falls doch: Session-Kill + Cleanup.
+
+  3b) tc QoS:
+    Speed-Profile auf Tunnel-Interface anwenden (tc qdisc/filters).
+    Falls kein Speed-Limit: Default/Cleanup anwenden.
+    Details: MOD-03_QOS.
+
+4.1) Apply-Flow Diagramm
+  [F-POL-013 v0.4: Flow-Diagramm ergänzt]
+
+  vpn-policy-apply --connection-id=<id>
+       │
+       ▼
+  ┌─ SCHRITT 1: SQL lesen ─────────────────────────┐
+  │  op_status, fixed_ip/v6, speed_profile         │
+  └────────────────────────────────────────────────┘
+       │
+       ▼
+  ┌─ SCHRITT 2: Session aktiv? ────────────────────┐
+  │  vpn_sessions: closed_at IS NULL?              │
+  └────────────┬──────────────────┬────────────────┘
+               │ JA               │ NEIN
+               ▼                  ▼
+          ┌─ ONLINE ──┐    ┌─ OFFLINE ─────────────┐
+          │           │    │ Stale Enforcement?     │
+          │           │    ├── NEIN → Exit 0 (noop) │
+          │           │    ├── JA → Cleanup (OFF-B) │
+          │           │    └────────────────────────┘
+          ▼
+  ┌─ SCHRITT 3: Enforcement ───────────────────────┐
+  │  3a) nft Sets (restricted_v4/v6)               │
+  │  3b) tc QoS                                    │
+  └────────────────────────────────────────────────┘
+          │
+          ▼
+  ┌─ Hard-Cut? ────────────────────────────────────┐
+  │  old_restricted_v4/v6=false AND new=RESTRICTED?│
+  ├── JA → Conntrack-Flush (v4+v6)                 │
+  │        Fail? → vpn-session-kill (Fail-Safe)    │
+  ├── NEIN → kein Flush (idempotent)               │
+  └────────────────────────────────────────────────┘
+          │
+          ▼
+       Exit 0
+
+================================================================================
+5) HARD-CUT (IMMEDIATE ENFORCEMENT)
+================================================================================
+
+Zweck: Bei Transition FULL → RESTRICTED (op_status ACTIVE→RESTRICTED)
+müssen auch ESTABLISHED Flows sofort enden. Kein Soft-Cut, keine Grace.
+Hard-Cut gilt auch bei Reconcile-Drift-Fix (neu-restricted IPs).
+
+5.1) Trigger-Bedingung
+
+  Hard-Cut wird NUR ausgelöst bei TRANSITION, nicht bei jedem Apply.
+  [F-POL-007 v0.3: Familienweise Pre-Checks statt einzelnes Bool]
+
+  PRE-CHECK (familienweise, Dualstack-sicher):
+    old_restricted_v4 = CLIENT_IP4 war VOR dem Apply bereits
+                        in restricted_v4
+    old_restricted_v6 = CLIENT_IP6 war VOR dem Apply bereits
+                        in restricted_v6 (nur wenn CLIENT_IP6 != NULL)
+    new_restricted = op_status == RESTRICTED (aus SQL)
+
+  Hard-Cut Trigger:
+    Hard-Cut wird ausgelöst wenn MINDESTENS EINE Adressfamilie
+    NEU in den Restricted-Zustand wechselt:
+
+    (old_restricted_v4 = false AND new_restricted = true)
+    ODER
+    (CLIENT_IP6 != NULL AND old_restricted_v6 = false AND new_restricted = true)
+
+  Flush-Scope bei Trigger:
+    Conntrack-Flush für ALLE Tunnel-IPs der Connection (v4 UND v6),
+    nicht nur für die neu-restricted Familie. Begründung: Dualstack-
+    Parität — ein Partial-Drift darf keine Flows auf der anderen
+    Familie am Leben lassen.
+
+    Kein Hard-Cut wenn:
+      - Beide Familien bereits restricted (idempotent)
+      - Transition RESTRICTED → ACTIVE (= Unlock, kein Flush nötig)
+      - Session ist offline (kein Kernel-State vorhanden)
+
+  PRE-CHECK REIHENFOLGE (MUST):
+    1. Kernel-Pre-Check (old_restricted_v4/v6 ermitteln)
+    2. nftables/tc Enforcement setzen (Restricted-Set + QoS)
+    3. Hard-Cut auslösen (wenn Trigger-Bedingung erfüllt)
+    4. Audit/Log schreiben
+
+5.2) Hard-Cut Mechanik (Tunneltyp-abhängig)
+
+  PRIMÄRMECHANISMUS — Conntrack-Flush (MUST):
+    Conntrack-States der CLIENT_IP4 und CLIENT_IP6 löschen
+    (bidirektional: src UND dst, beide Adressfamilien).
+    Damit kann "ct state established,related accept" nicht als Bypass wirken.
+
+    Flush-Scope: ALLE Conntrack-Einträge die CLIENT_IP4 oder
+    CLIENT_IP6 enthalten (orig + reply Tuple, src + dst).
+    [F-POL-011 v0.4: Singular "CLIENT_IP" → explizit v4 + v6]
+
+  PREFLIGHT (MUST):
+    vpn-policy-apply MUSS deterministisch erkennen, ob Conntrack-Flush
+    möglich ist (Tool vorhanden, Rechte vorhanden).
+    Wenn Flush nicht verfügbar → sofort Fail-Safe.
+
+  FAIL-SAFE — Session-Kill (MUST wenn Flush fehlschlägt):
+    [F-POL-002 v0.2: Referenz auf vpn-session-kill statt Raw-Commands]
+
+    Ausgeführt über: /usr/local/bin/vpn-session-kill <vpn_connection_id>
+    (SM_SESSION §11.2 — privilege-separiert, mit Safety-Checks)
+
+    LEGACY:
+      vpn-session-kill erkennt tunnel_type=LEGACY → PPPD_PID Kill
+      Safety-Check: PID + Interface + start_time (PID-Reuse-Schutz)
+      Effekt: PPP-Session beendet, kein Interface → kein Traffic
+
+    MODERN:
+      vpn-session-kill erkennt tunnel_type=MODERN → AWG Peer-Remove
+      Effekt: Peer aus Runtime entfernt, kein Traffic
+      Reprovision nötig für Reconnect (OPEN-SES-05)
+
+  FEHLERBEHANDLUNG (STRICT, Single Target):
+    Flush OK → OK
+    Flush fail + Session-Kill OK → OK (Log: "hard_cut_fallback=session_kill")
+    Flush fail + Session-Kill fail → RUNTIME_APPLY_ERROR (Exit 4)
+    Silent Failure ist INAKZEPTABEL.
+
+================================================================================
+6) CONNECT-GATE (No-Unpoliced-Window)
+================================================================================
+
+Zweck: Kein Traffic-Leak zwischen Tunnelaufbau und Policy-Apply.
+Ein Client darf NIEMALS WAN-Traffic senden, bevor vpn-policy-apply
+erfolgreich gelaufen ist.
+
+6.1) LEGACY (PPP/accel-ppp)
+
+  Ablauf (D1a aus B063/B166):
+    1. ip-up Hook feuert
+    2. CLIENT_IP → connect_pending_v4 (nftables Set: DROP ALL forward)
+       Sofort, VOR jedem SQL-Zugriff
+    3. vpn-policy-apply --connection-id=<id>
+    4. NUR bei Exit 0 (SUCCESS):
+       CLIENT_IP aus connect_pending_v4 entfernen
+       Gate-Entfernung ist Teil des Erfolgskriteriums (wie §6.2).
+       Scheitert Gate-Entfernung → Retry → bei erneutem Scheitern:
+       FAIL-CLOSED (Schritt 5): PPP-Session killen, connect_pending
+       bleibt. Exit 4. Client reconnectet, Apply läuft erneut.
+       Danach gilt restricted/full gemäß SQL-Policy
+    5. Bei TEMPFAIL_SQL/ERROR/TIMEOUT:
+       FAIL-CLOSED → PPP-Session killen
+       connect_pending_v4 bleibt bis Cleanup bestehen
+       Kein Fallback auf Restricted bei SQL-Ausfall
+
+6.2) MODERN (AWG)
+
+  AWG hat kein natürliches ip-up Event. Der AWG Session Controller
+  (SM_SESSION §7) übernimmt die Gate-Funktion.
+
+  ABSTRAKTE GARANTIESTRUKTUR (MUST):
+  [F-POL-015 v0.5: Gate-Garantie konzeptionell geschlossen]
+
+  Das No-Unpoliced-Window für MODERN erfordert eine striktere
+  Reihenfolge als bei LEGACY, weil AWG Peers sofort nach Handshake
+  Traffic über AllowedIPs forwarden können:
+
+    REIHENFOLGE-GARANTIE (MUST):
+      1. connect_pending_v4/v6 MUSS gesetzt sein BEVOR der Peer
+         Traffic forwarden kann.
+      2. Das bedeutet: Entweder wird der Peer erst NACH dem
+         Gate-Setzen zur AWG Runtime hinzugefügt (Peer-Add nach Gate),
+         oder AllowedIPs werden erst nach Gate-Setzen konfiguriert.
+      3. Es darf KEIN Zeitfenster geben, in dem der Peer Traffic
+         forwarden kann aber connect_pending noch nicht gesetzt ist.
+
+    FAIL-CLOSED (MUST):
+      Wenn das Gate-Setzen scheitert → Peer NICHT zur Runtime
+      hinzufügen. Kein Tunnel ohne Gate.
+      Wenn Apply nach Gate scheitert → Peer aus Runtime entfernen.
+      connect_pending BLEIBT als defense-in-depth bestehen (Linie A).
+      Reconcile bereinigt sobald Inaktivität bestätigt (§7 Schritt 5).
+      [F-POL-027 v0.8: An Linie A nachgezogen — kein sofortiger
+       connect_pending Cleanup bei Failure]
+
+    KONSEQUENZ FÜR DIE IMPLEMENTIERUNG:
+      Der Controller muss den Peer-Lifecycle steuern:
+        Gate setzen → Peer zur AWG Runtime hinzufügen → Apply →
+        Gate entfernen bei Success / Peer entfernen bei Failure.
+      NICHT: Peer existiert bereits → Handshake → Gate setzen (Race!).
+
+  Ablauf (konzeptionell):
+    1. Controller erkennt neuen Peer (Provisioning oder Reconnect)
+    2. CLIENT_IP4 → connect_pending_v4
+       CLIENT_IP6 → connect_pending_v6 (wenn vorhanden)
+    3. Peer zur AWG Runtime hinzufügen (erst JETZT kann Traffic fließen,
+       aber connect_pending blockt Forward)
+    4. vpn-policy-apply --connection-id=<id>
+    5. NUR bei Exit 0:
+       IPs aus connect_pending_* entfernen.
+       Gate-Entfernung ist Teil des Erfolgskriteriums:
+       Scheitert die nft-Set-Entfernung → Retry (SHOULD).
+       Scheitert auch Retry → KEIN Exit 0. Nachpfad:
+         Policy wurde korrekt gesetzt, aber Client ist in
+         connect_pending blockiert. Daher wird dieser Fall wie
+         ein Apply-Failure behandelt → FAIL-CLOSED (Schritt 6):
+         Peer-Remove, connect_pending bleibt (defense-in-depth).
+         Client muss reconnecten, dann läuft Apply erneut.
+         Exit 4 (RUNTIME_APPLY_ERROR).
+       [F-POL-047 v1.4: Nachpfad explizit auf FAIL-CLOSED gemappt]
+    6. Bei TEMPFAIL/ERROR:
+       FAIL-CLOSED → Peer aus AWG Runtime entfernen.
+       connect_pending_* BLEIBT BESTEHEN (defense-in-depth).
+       Reconcile bereinigt sobald Inaktivität bestätigt (§7 Schritt 5).
+
+       FEHLERBEHANDLUNG (MUST, analog §5.2 Hard-Cut):
+       [F-POL-031 v0.9: Peer-Remove-Fail explizit modelliert]
+
+         Apply fail + Peer-Remove OK:
+           → Linie A. Peer weg, connect_pending bleibt temporär.
+           → Reconcile entfernt Pending beim nächsten Lauf sobald
+             bestätigt: Peer nicht mehr aktiv UND keine aktive Session.
+             Kein TTL-Warten nötig bei bestätigter Inaktivität.
+           → Exit 4 (RUNTIME_APPLY_ERROR)
+           → Log: apply_fail, peer_removed=true
+           [F-POL-035 v1.0: Cleanup-Semantik vereinheitlicht — Variante B]
+
+         Apply fail + Peer-Remove FAIL:
+           → KRITISCHER ZUSTAND. Peer/Session noch aktiv,
+             FAIL-CLOSED-Killpfad nicht abgeschlossen.
+           → connect_pending ist die EINZIGE verbleibende Sperre.
+           → connect_pending MUSS BLEIBEN (defense-in-depth).
+           → Pending wird als CRITICAL markiert (pending_critical=true
+             oder äquivalenter Marker in /run oder vpn_sessions).
+           → Exit 4 (RUNTIME_APPLY_ERROR)
+           → Log: CRITICAL, apply_fail, peer_remove_fail=true
+           → Admin-Alert SHOULD ausgelöst werden (Monitoring)
+           → Reconcile darf dieses Pending NICHT per TTL entfernen
+             solange der Peer noch in der AWG Runtime existiert
+             (siehe §7 Schritt 5 Prüfung 3).
+
+  OPEN-POL-01: Implementierungsmechanik der MODERN-Gate-Garantie
+  Die Gate-Garantie selbst ist kanonisch festgelegt (§6.2, POL-23):
+  Gate MUSS vor Peer-Add gesetzt sein, kein Forward ohne Gate.
+  Offen ist NUR die konkrete Umsetzung: Wie der Controller
+  Gate-Setzung und Peer-Add atomar verknüpft (AllowedIPs-Staging,
+  Controller-Lock, oder andere Mechanik).
+  Wird in BASE-30_TUNNEL_AWG + BASE-70_SESSION_CORE spezifiziert.
+  Siehe auch SM_SESSION §7.3 (DESIGN-SPANNUNG: persistenter Peer
+  vs Gate-First bei Reconnect nach Session-Close).
+
+================================================================================
+7) RECONCILE (Safety-Net, BEST EFFORT)
+================================================================================
+
+Ablauf: vpn-policy-apply --reconcile-all
+
+Zweck: Periodische Drift-Reparatur. Wenn ein Event-basierter Apply
+verpasst wurde (Hook-Fehler, Panel-Bug), korrigiert Reconcile den
+Kernel-Zustand spätestens innerhalb vpn_reconcile_interval_seconds
+(+ max 60s Wiring-Tick-Jitter).
+
+7.1) Reconcile-Ablauf
+
+  SCHRITT 0: Session-Mapping Hygiene
+    - LEGACY: /run Mapping stale wenn PPP-Interface nicht existiert → löschen
+    - MODERN: vpn_sessions Einträge prüfen (Janitor, SM_SESSION §9)
+    - Nur valide aktive Sessions nach Hygiene → Ist-Liste aufbauen
+
+  SCHRITT 1: Ist-Liste aufbauen
+    Enumeriere alle aktiven Sessions aus vpn_sessions (closed_at IS NULL).
+    Pro Session: vpn_connection_id, client_ipv4, client_ipv6, tunnel_type.
+
+  SCHRITT 2: Batch SQL Query (kein N+1)
+    Lade effective Policy für alle aktiven vpn_connection_ids:
+    SELECT ... WHERE id IN (...)
+    Ergebnis: op_status, op_reason_code, speed_profile pro Connection.
+
+  SCHRITT 3: Apply pro aktive Session (BEST EFFORT)
+    Setze nft/tc pro Session entsprechend SQL-Policy.
+    Einzelfehler werden geloggt, Reconcile läuft weiter.
+
+  SCHRITT 4: Restricted-Set Rebuild (deterministisch, EXAKT)
+
+    Soll-Mengen berechnen:
+      desired_restricted_v4 = { fixed_ip aller aktiven Sessions
+                                mit op_status=RESTRICTED }
+      desired_restricted_v6 = { fixed_ipv6 aller aktiven Sessions
+                                mit op_status=RESTRICTED UND fixed_ipv6 NOT NULL }
+
+    Delta bestimmen:
+      to_add_v4 = desired \ current (fehlende Einträge)
+      to_del_v4 = current \ desired (stale Einträge)
+      (analog für v6)
+
+    Set-Update (MUST atomar):
+      Beide Sets (restricted_v4 + restricted_v6) in EINER nftables
+      Transaktion aktualisieren. Kein Leak-Window zwischen
+      Flush und Rebuild.
+
+    Hard-Cut bei Drift-Fix:
+      Für jede IP in to_add (neu restricted durch Reconcile):
+      Conntrack-Flush MUSS versucht werden (ESTABLISHED Flows kappen).
+      Bei Flush-Fail: Session-Kill als Fail-Safe (SHOULD, BEST EFFORT).
+
+  SCHRITT 5: connect_pending Hygiene
+  [F-POL-006 v0.3: connect_pending Cleanup in Reconcile ergänzt]
+
+    connect_pending_v4/v6 enthält im Steady-State nur IPs mit aktivem
+    Connect-Gate. Darüber hinaus können temporäre Failure-Reste
+    vorhanden sein (§6.2 Linie A). Reconcile bereinigt harmlose Reste
+    sobald Inaktivität bestätigt, kritische Reste per Peer-Check.
+
+    Soll-Menge:
+      desired_pending = {} im Steady-State (leer — nach erfolgreichem
+      Apply wird die IP entfernt, nach normalem Disconnect ebenso).
+      AUSNAHME: Failure-Reste (§6.2 Linie A) und In-Flight-Gates
+      können temporär vorhanden sein. Diese sind KEIN Fehler, sondern
+      bewusster defense-in-depth Zustand. Harmlose Reste werden sobald
+      Inaktivität bestätigt entfernt, kritische per Peer-Check geschützt.
+      [F-POL-024 v0.7: Failure-Reste als legitimer temporärer Zustand]
+
+    Reconcile-Regel:
+    [F-POL-016 v0.5: TTL-basierte Unterscheidung statt "aktive Session"]
+      Für jede IP in connect_pending_v4/v6:
+
+        PRÜFUNG 1: Keine aktive Session für diese IP?
+          [F-POL-040 v1.2: Peer-Check auch ohne Session, verhindert
+           vorzeitiges Purge kritischer Reste]
+          → Prüfe zusätzlich: Ist der zugehörige Peer noch in der
+            Runtime aktiv? (MODERN: AWG Peer-Check. LEGACY: pppX?)
+
+            Peer/Session NICHT aktiv → Harmloser Stale-Rest. IP sofort aus
+              connect_pending_* entfernen.
+
+            Peer/Session NOCH aktiv → KRITISCHER ZUSTAND (kein Session-Row
+              aber Tunnelruntime forwarded noch). connect_pending ist letzte
+              Sperre. IP NICHT entfernen. Log: CRITICAL.
+              Reconcile versucht Peer-Remove/Session-Kill.
+              Erst nach erfolgreichem Peer-Remove darf Pending fallen.
+
+        PRÜFUNG 2: Aktive Session vorhanden?
+          → Prüfe Gate-Alter: Wie lange ist die IP schon in
+            connect_pending? (Setze Einfügezeitpunkt als Metadatum
+            oder nutze Session-start_at als Proxy.)
+          → Wenn Gate-Alter > vpn_connect_gate_ttl_seconds (Settings):
+            → PRÜFUNG 3 (Sicherheits-Check vor Purge):
+              [F-POL-032 v0.9: Peer-Check verhindert fail-open]
+              Ist der zugehörige Peer/Session noch in der Runtime aktiv?
+              (MODERN: AWG Peer-Check. LEGACY: pppX existiert?)
+
+              Peer/Session NICHT mehr aktiv → Stale Gate, sicher zu entfernen.
+                IP aus connect_pending_* entfernen.
+
+              Peer NOCH aktiv → KRITISCHER ZUSTAND.
+                connect_pending ist letzte Sperre, Killpfad nicht
+                abgeschlossen. IP NICHT entfernen. Log: CRITICAL.
+                Reconcile versucht erneut Peer-Remove.
+                Erst nach erfolgreichem Peer-Remove darf Pending fallen.
+
+          → Wenn Gate-Alter <= TTL:
+            → Belassen (Apply läuft vermutlich noch).
+
+      vpn_connect_gate_ttl_seconds:
+        Settings-Key, failsafe = 120 (2 Minuten, konservativ).
+        Muss länger sein als der längste erwartete Apply-Lauf
+        (SQL-Read + nft + tc), aber kurz genug um stale Gates
+        nicht minutenlang festzuhalten.
+
+  SCHRITT 6: tc QoS Hygiene (SHOULD, soweit möglich)
+  [F-POL-006 v0.3: tc-Cleanup in Reconcile ergänzt]
+
+    LEGACY: tc-Regeln auf pppX verschwinden automatisch wenn das
+    Interface bei Disconnect entfernt wird. Kein expliziter Cleanup.
+
+    MODERN: tc auf awg0 ist per-peer und bleibt nach Peer-Verlust
+    ggf. stale. Reconcile SHOULD stale tc-Regeln identifizieren
+    und entfernen (Peers ohne aktive Session in vpn_sessions).
+    Exakte Mechanik: OPEN-POL-03 (MOD-03_QOS).
+
+7.2) Timing
+
+  Reconcile-Intervall: vpn_reconcile_interval_seconds (Settings-Key)
+  Wiring-Tick: 60s systemd Timer
+  Effektives Intervall: max(vpn_reconcile_interval_seconds, 60s) per Gating
+  Maximaler Drift: vpn_reconcile_interval_seconds + 60s Jitter
+
+================================================================================
+8) TRIGGER-KETTE
+================================================================================
+
+Wer löst vpn-policy-apply wann aus?
+
+  TRIGGER 1: Connect-Hook (Tunnelaufbau)
+    LEGACY: ip-up Hook → vpn-policy-apply --connection-id=<id>
+    MODERN: AWG Controller → vpn-policy-apply --connection-id=<id>
+    Zweck: Sofortige Wirkung beim Connect (kein Unpoliced-Window).
+
+  TRIGGER 2: Disconnect-Hook (Tunnelabbau)
+    LEGACY: ip-down Hook → Accounting-Flush + Enforcement-Cleanup
+    MODERN: Controller erkennt Peer-Verlust → Session-Close + Cleanup
+
+    Enforcement-Cleanup bei Disconnect (SHOULD):
+    [F-POL-003 v0.2: Disconnect-Cleanup spezifiziert]
+      - fixed_ip aus restricted_v4 entfernen (wenn vorhanden)
+      - fixed_ipv6 aus restricted_v6 entfernen (wenn vorhanden)
+      - tc-Regeln: Bei LEGACY entfallen automatisch mit pppX Interface.
+        Bei MODERN: explizites Cleanup nötig (OPEN-POL-03).
+      Falls Disconnect-Hook den Cleanup verpasst (Race, Crash):
+      → Reconcile repariert (stale IPs werden im nächsten Lauf entfernt).
+
+  TRIGGER 3: Panel Events (MUSS Apply triggern)
+    - Claim done → --connection-id (SM_ONBOARDING ONB-23)
+    - Quota reset/refill → --connection-id
+    - Expiry extend → --connection-id
+    - Manual Restrict/Unrestrict → --connection-id
+    - Speed change → --connection-id
+    - Admin Hardcut → --connection-id (nach Session-Kill)
+    - Grace Reset (SM_ONBOARDING §6.1) → --connection-id
+    - Maintenance mode ON/OFF (global) → --reconcile-all
+    Email-Verify ist KEIN Trigger (App-Layer, GR-06).
+
+  TRIGGER 4: Reconcile Timer
+    systemd Wiring-Tick 60s → vpn-policy-apply --reconcile-all
+    Effektives Intervall via vpn_reconcile_interval_seconds (Gating).
+
+================================================================================
+9) CONCURRENCY / SINGLE-WRITER (MUST)
+================================================================================
+
+Apply und Reconcile dürfen NIEMALS parallel laufen.
+Race-Conditions auf nft/tc + inkonsistenter Kernel-State möglich.
+
+  - Single-Writer Lock vor jeder Apply/Reconcile-Ausführung
+  - Lock belegt → Exit 5 (TEMPFAIL_LOCKED), keine Partial Applies
+  - Stale-Lock Handling: definierte TTL, damit Crash nicht
+    dauerhaft blockiert
+  - Idempotenz: Wiederholung nach TEMPFAIL/Crash stellt
+    deterministischen Endzustand wieder her
+  - Konkrete Mechanik (flock/Lockfile): BASE-80_POLICY_APPLY_CORE
+
+================================================================================
+10) DB-DOWN VERHALTEN
+================================================================================
+
+  DB down:
+    AAA (neue VPN-Logins): FAIL-CLOSED (deny/reject für ALLE)
+    vpn-policy-apply: TEMPFAIL_SQL (Exit 2), keine Änderung
+    Bestehende Sessions: Kernel-State bleibt wie er ist
+    Connect-Gate: FAIL-CLOSED → Session-Kill (kein Fallback)
+
+  DB recovery:
+    Panel Events können wieder Apply auslösen
+    Reconcile korrigiert Drift beim nächsten Lauf
+
+  KEIN Default-Restricted bei DB-Ausfall:
+    Connect-Gate (connect_pending_*) blockt ALLEN Forward-Traffic.
+    Es gibt keinen "Restricted als Fallback" Modus bei SQL-Ausfall.
+    Entweder SQL liefert die Policy, oder der Client wird gekillt.
+
+================================================================================
+11) CROSS-FILE: ENFORCEMENT ↔ STATE MACHINES
+================================================================================
+
+SM_POLICY_RESTRICT ist die ENFORCEMENT-Schicht. Die State Machines
+(SM_CONNECTION, SM_SESSION, SM_ONBOARDING) definieren WANN ein
+Zustandswechsel passiert. SM_POLICY_RESTRICT definiert WIE dieser
+Zustandswechsel im Kernel durchgesetzt wird.
+
+  SM_CONNECTION Transition     Enforcement-Effekt
+  ─────────────────────────── ────────────────────────────────────
+  T-02 ACTIVE→RESTRICTED      Apply: IP in restricted_v4/v6
+                                Hard-Cut: Conntrack-Flush
+  T-03 ACTIVE→RESTRICTED      Identisch zu T-02
+  (anderer Grund)
+  T-04 ACTIVE→DISABLED         Session-Kill (vpn-session-kill) +
+                                Enforcement-Cleanup (via Apply OFFLINE-B
+                                oder Reconcile, NICHT sofort atomar)
+  T-05 RESTRICTED→ACTIVE       Apply: IP aus restricted_v4/v6
+                                Kein Hard-Cut (Unlock)
+  T-06 RESTRICTED→DISABLED     Session-Kill + Enforcement-Cleanup
+                                (via Apply OFFLINE-B oder Reconcile)
+  T-07 RESTRICTED→DISABLED     Session-Kill + Enforcement-Cleanup
+                                (via Apply OFFLINE-B oder Reconcile)
+  T-08 DISABLED→ACTIVE|RESTR   Kein sofortiger Apply (Session erst bei
+                                neuem Connect, dann Connect-Gate)
+  T-09 Rollenwechsel (Kaskade) Hard-Cut + Apply (neuer Pool/neue IP).
+                                DB-Commit VOR Hard-Cut (D002 §7.4).
+                                Propagationsdelay: Standard SQL→Kernel-
+                                Modell, abgedeckt durch CIDR-Enforcement
+                                + Connect-Gate + Reconcile.
+
+  SM_SESSION Events:
+    SESSION_START → Connect-Gate + Apply
+    SESSION_END → Enforcement-Cleanup (IP aus Sets)
+    SESSION_HARDCUT → Kill + Enforcement-Cleanup
+
+  SM_ONBOARDING:
+    Claim (T-01) → Apply (ONB-23)
+    Grace-Ablauf (T-02) → Apply + Hard-Cut
+
+================================================================================
+12) INVARIANTEN (MUST)
+================================================================================
+
+  Grundregeln:
+  POL-01  SQL ist Source of Truth. Kernel ist abgeleiteter Zustand.
+          Widerspruch → SQL gewinnt, Reconcile repariert.
+  POL-02  vpn-policy-apply ist das EINZIGE Tool für Kernel-Enforcement.
+          Keine Logik-Duplikate in Hooks oder Panel-Code (DRY).
+  POL-03  Apply ist idempotent: wiederholtes Anwenden erzeugt
+          denselben Kernel-Zustand.
+  POL-04  Offline Connections haben im Steady-State KEINE Kernel-
+          Repräsentation. Temporäre Failure-Reste sind bewusst erlaubt:
+          a) Harmlose (Peer entfernt, Gate stale) → Reconcile entfernt
+             sobald Inaktivität bestätigt.
+          b) Kritische (Peer/Session noch aktiv) → Reconcile darf NICHT
+             entfernen, versucht erneut Peer-Remove.
+          [F-POL-041 v1.2: Beide Failure-Resttypen wie GR-05/POL-21]
+
+  Restricted-Sets:
+  POL-05  restricted_v4 enthält EXAKT die fixed_ip aller aktiven
+          Sessions mit op_status=RESTRICTED. Keine stale IPs,
+          keine fehlenden IPs.
+  POL-06  restricted_v6 enthält EXAKT die fixed_ipv6 aller aktiven
+          Sessions mit op_status=RESTRICTED UND fixed_ipv6 NOT NULL.
+  POL-07  Set-Updates (restricted_v4 + restricted_v6) erfolgen in
+          EINER atomaren nftables Transaktion. Kein Leak-Window.
+  POL-08  Dualstack-Parität: IPv4 und IPv6 Enforcement ist gleichwertig.
+          LEGACY trägt nur zu v4 bei.
+
+  Hard-Cut:
+  POL-09  Hard-Cut NUR bei Transition FULL→RESTRICTED.
+          Trigger ist familienweise: mindestens eine Adressfamilie
+          muss NEU in den Restricted-Zustand wechseln.
+          Bereits restricted → kein erneuter Flush.
+  POL-10  Hard-Cut Conntrack-Flush ist verbindungsweite: ALLE Tunnel-IPs
+          (v4 + v6) werden geflusht, auch wenn nur eine Familie neu ist.
+          Partial-Drift darf keine Flows am Leben lassen.
+  POL-11  Hard-Cut Fail-Safe: Session-Kill wenn Flush fehlschlägt.
+          LEGACY: PPPD_PID Kill. MODERN: AWG Peer-Remove.
+  POL-12  Silent Failure bei Hard-Cut ist INAKZEPTABEL.
+          Flush fail + Kill fail → RUNTIME_APPLY_ERROR (Exit 4).
+
+  Connect-Gate:
+  POL-13  Kein Forward-Traffic vor erfolgreichem Apply (GR-05).
+          connect_pending_* Sets blocken ALLEN Forward-Traffic.
+  POL-14  Connect-Gate FAIL-CLOSED: Bei TEMPFAIL_SQL/ERROR/TIMEOUT
+          MUSS der Kill-Pfad versucht werden.
+          Kill OK → Session/Peer weg, connect_pending bleibt temporär.
+          Kill FAIL → CRITICAL. connect_pending bleibt als letzte
+          Sperre. Kein stiller Weiterlauf, Admin-Alert, Reconcile
+          versucht erneut Kill (§6.2 Fehlerbehandlung).
+          [F-POL-036 v1.0: Kill-Fail als expliziter Zweig]
+  POL-15  connect_pending_* IPs werden im Apply-Pfad NUR bei Exit 0
+          entfernt. Außerhalb des Apply-Pfads entfernt Reconcile
+          harmlose Reste sobald Inaktivität bestätigt ist (§7 Schritt 5).
+          Kritische Reste (Peer noch aktiv) werden NICHT entfernt.
+          [F-POL-039 v1.2: Reconcile-Cleanup als zweiter Entfernungspfad]
+
+  Concurrency:
+  POL-16  Apply und Reconcile sind mutual exclusive (Single-Writer Lock).
+          Lock belegt → Exit 5, keine Partial Applies.
+
+  Reconcile:
+  POL-17  Reconcile ist BEST EFFORT: Einzelfehler werden geloggt,
+          andere Sessions werden trotzdem korrigiert.
+  POL-18  Reconcile-Drift wird innerhalb vpn_reconcile_interval_seconds
+          + 60s Jitter korrigiert.
+  POL-19  Reconcile purgt stale Mappings deterministisch.
+          LEGACY: PPP-Interface nicht existent → Mapping löschen.
+          MODERN: Session in vpn_sessions closed → Cleanup.
+
+  Verify-Exemption:
+  POL-20  Verify-Wall (Email-Verifikation) ist KEIN Kernel-Policy-Trigger.
+          PENDING→ACTIVE Customer-Transition löst KEINEN Apply aus.
+
+  Cleanup-Vollständigkeit:
+  [F-POL-006 v0.3: connect_pending + tc als Invarianten]
+  POL-21  connect_pending_v4/v6 enthält im Steady-State NUR IPs mit
+          aktivem Connect-Gate. Darüber hinaus kann connect_pending
+          zwei Arten von temporären Resten enthalten:
+          a) Harmlose Stale-Reste: Peer wurde bereits entfernt (Linie A
+             oder normaler Disconnect), aber Gate-Entfernung scheiterte.
+             Per Definition kein aktiver Peer mehr vorhanden.
+             → Reconcile entfernt sobald Peer+Session bestätigt inaktiv.
+             NICHT harmlos: "Apply erfolgreich aber Gate-Entfernung
+             scheitert" — Gate-Entfernung ist Teil des Apply-Erfolgs-
+             kriteriums (§6.2 Schritt 5). Scheitert sie, ist Apply
+             NICHT Exit 0 sondern Exit 4. Client wäre sonst in
+             connect_pending blockiert trotz korrekter Policy.
+          [F-POL-043 v1.3: Harmlos = nur wenn Peer bereits weg]
+          b) Kritische Failure-Reste: Peer/Session ist noch aktiv und
+             connect_pending ist die letzte verbleibende Sperre, weil
+             der FAIL-CLOSED-Killpfad nicht erfolgreich abgeschlossen
+             wurde. Ursachen können sein:
+             - Apply fail + Peer-Remove fail
+             - Gate-Entfernung fail + FAIL-CLOSED + Peer-Remove fail
+             → Reconcile darf NICHT entfernen solange Peer aktiv.
+             → Reconcile versucht erneut Peer-Remove.
+          [F-POL-050 v1.5: Zustandsbezogen statt ursachenbezogen]
+  POL-22  Reconcile prüft NICHT NUR restricted_v4/v6, sondern AUCH
+          connect_pending_v4/v6 und (soweit möglich) stale tc-State.
+
+  MODERN Gate-Garantie:
+  [F-POL-015 v0.5: Abstrakte Gate-Garantie als Invariante]
+  POL-23  MODERN Peers dürfen KEINEN Forward-Traffic senden bevor
+          connect_pending gesetzt ist. Die Reihenfolge ist:
+          Gate setzen → Peer zur Runtime hinzufügen → Apply.
+          NICHT: Peer existiert → Handshake → Gate setzen (Race!).
+
+================================================================================
+13) TESTS / VALIDIERUNG (DoD)
+================================================================================
+
+Apply-Tests:
+
+T-POL-01: Connect Apply (LEGACY)
+  PPP connect → ip-up → vpn-policy-apply. Connection ist RESTRICTED.
+  Erwartung: CLIENT_IP in restricted_v4. Walled Garden aktiv.
+
+T-POL-02: Connect Apply (MODERN)
+  Controller setzt Gate (connect_pending) → Peer zur AWG Runtime →
+  vpn-policy-apply. Connection ACTIVE.
+  Erwartung: CLIENT_IP NICHT in restricted_v4/v6. Full Tunnel.
+  Gate wurde bei Apply-Success entfernt.
+
+T-POL-03: Panel Event Apply — Manual Restrict
+  Admin setzt Manual Restrict → Apply.
+  Erwartung: CLIENT_IP in restricted_v4/v6. Hard-Cut ausgelöst.
+
+T-POL-04: Panel Event Apply — Quota Reset
+  Quota wird zurückgesetzt → Apply.
+  Erwartung: CLIENT_IP aus restricted_v4/v6 entfernt. Full Tunnel.
+
+T-POL-05: Offline Noop
+  vpn-policy-apply --connection-id=<id> für offline Connection.
+  Erwartung: Exit 0, keine Kernel-Änderung.
+
+Hard-Cut Tests:
+
+T-POL-06: Hard-Cut ESTABLISHED Flows
+  Client hat laufenden Download (ESTABLISHED). op_status → RESTRICTED.
+  Apply + Hard-Cut. Erwartung: Download sofort unterbrochen.
+  Nur Allowlist (DNS/Panel/NTP) erreichbar.
+
+T-POL-07: Hard-Cut Fail-Safe (Flush unavailable)
+  Conntrack-Flush nicht verfügbar. op_status → RESTRICTED.
+  Erwartung: Session-Kill greift. Traffic stoppt. Log: hard_cut_fallback.
+
+T-POL-08: Hard-Cut Idempotenz
+  Connection bereits RESTRICTED. Erneuter Apply.
+  Erwartung: Kein erneuter Conntrack-Flush. Kein unnötiger Kill.
+
+T-POL-08b: Apply Idempotenz (allgemein, POL-03)
+  [F-POL-014 v0.4: Neuer Test]
+  vpn-policy-apply zweimal hintereinander mit identischem SQL-State.
+  Erwartung: Identischer Kernel-State nach beiden Läufen.
+  Keine unnötigen Schreiboperationen, keine unnötigen Flushes.
+
+Connect-Gate Tests:
+
+T-POL-09: No-Leak Gate (LEGACY)
+  Simuliere Delay in vpn-policy-apply (z.B. sleep 10).
+  Erwartung: Während connect_pending aktiv: kein Forward-Traffic.
+  Nach SUCCESS: Gate entfernt, Policy gilt.
+
+T-POL-09b: Gate-Entfernung scheitert nach erfolgreichem Apply
+  [F-POL-046 v1.3 + F-POL-048 v1.4: Test mit Nachzustand]
+  vpn-policy-apply setzt Policy korrekt, aber nft-Entfernung aus
+  connect_pending_v4 schlägt fehl (simulierter nft-Fehler).
+  Erwartung: Exit 4 (NICHT Exit 0). FAIL-CLOSED-Pfad greift:
+  Peer wird entfernt (MODERN) bzw. Session gekillt (LEGACY).
+  connect_pending bleibt als defense-in-depth.
+  Client muss reconnecten. Kein Traffic-Leak.
+
+T-POL-09c: Gate-Entfernung fail + anschließender Kill fail
+  [F-POL-051 v1.5: Neuer Test für kritischen Zweig]
+  vpn-policy-apply setzt Policy korrekt, Gate-Entfernung scheitert,
+  FAIL-CLOSED greift, aber Peer-Remove/Session-Kill scheitert ebenfalls.
+  Erwartung: CRITICAL. connect_pending bleibt als letzte Sperre.
+  Peer noch aktiv. Admin-Alert. Reconcile versucht erneut Peer-Remove.
+  Kein stiller Weiterlauf.
+
+T-POL-10: Connect-Gate FAIL-CLOSED — Peer-Remove OK (Linie A)
+  vpn-policy-apply scheitert (TEMPFAIL_SQL). Peer wird entfernt.
+  Erwartung: connect_pending bleibt temporär bestehen. Kein Traffic-Leak.
+  Reconcile entfernt Pending sobald Peer+Session bestätigt inaktiv
+  (kein TTL-Warten nötig bei bestätigter Inaktivität).
+  [F-POL-037 v1.0: Als Peer-Remove-OK-Zweig benannt]
+
+Reconcile Tests:
+
+T-POL-11: Missed Event Drift
+  Panel-Änderung ohne Apply (Event verpasst). Reconcile läuft.
+  Erwartung: Kernel-State korrigiert innerhalb Reconcile-Intervall.
+
+T-POL-12: Restricted-Set Rebuild (stale IPs)
+  restricted_v4 enthält stale IP (manuell eingefügt oder Client offline).
+  Erwartung: Reconcile entfernt stale IP.
+
+T-POL-13: Restricted-Set Rebuild (fehlende IPs)
+  Restricted Connection online, aber IP fehlt in restricted_v4
+  (und/oder fixed_ipv6 fehlt in restricted_v6 bei Dualstack).
+  Erwartung: Reconcile fügt IP(s) hinzu + Hard-Cut (Drift-Fix).
+
+T-POL-14: Atomic Update Safety
+  Dauertraffic + paralleles Reconcile.
+  Erwartung: Kein Moment, in dem restricted_v4 ODER restricted_v6
+  leer ist obwohl desired non-empty (kein Leak-Window, beide Sets).
+
+T-POL-15: Stale Mapping Purge (LEGACY)
+  /run enthält pppX.env aber PPP-Interface existiert nicht.
+  Erwartung: Reconcile löscht stale Mapping.
+
+DB-Down Tests:
+
+T-POL-16: SQL Down — Apply
+  vpn-policy-apply bei DB-Ausfall.
+  Erwartung: Exit 2 (TEMPFAIL_SQL). Keine Kernel-Änderung.
+
+T-POL-17: SQL Down — Connect
+  Neuer VPN-Login bei DB-Ausfall. Connect-Gate aktiv.
+  Erwartung: FAIL-CLOSED → Session-Kill. Kein Traffic-Leak.
+
+T-POL-18: SQL Recovery — Reconcile
+  DB kommt zurück. Reconcile läuft.
+  Erwartung: restricted_v4/v6 werden aus SQL-Truth wiederhergestellt.
+  connect_pending_v4/v6 werden als Runtime-/Gate-State bereinigt
+  (harmlose Reste sobald Inaktivität bestätigt, kritische per Peer-Check).
+  tc-QoS Wiederherstellung abhängig von OPEN-POL-03.
+
+Concurrency Tests:
+
+T-POL-19: Single-Writer Lock
+  Zwei parallele Apply-Aufrufe.
+  Erwartung: Einer gewinnt, anderer Exit 5 (TEMPFAIL_LOCKED).
+
+Dualstack Tests:
+
+T-POL-20: Restricted Dualstack (MODERN)
+  MODERN Connection mit IPv4 + IPv6. op_status → RESTRICTED.
+  Erwartung: CLIENT_IP4 in restricted_v4 UND CLIENT_IP6 in restricted_v6.
+
+T-POL-21: Restricted IPv4-only (LEGACY)
+  LEGACY Connection (nur IPv4). op_status → RESTRICTED.
+  Erwartung: CLIENT_IP4 in restricted_v4. restricted_v6 unberührt.
+
+T-POL-22: Hard-Cut Partial Drift (Dualstack)
+  [F-POL-007 v0.3: Neuer Test für familienweisen Trigger]
+  MODERN Connection. v4 bereits in restricted_v4, v6 noch NICHT in
+  restricted_v6. Apply setzt v6 ebenfalls restricted.
+  Erwartung: Hard-Cut wird ausgelöst (v6 ist neu restricted).
+  Conntrack-Flush für BEIDE Familien (v4 + v6).
+
+Cleanup Tests:
+
+T-POL-23: Stale connect_pending Purge (keine Session, kein Peer)
+  [F-POL-042 v1.2: Peer-Check ergänzt]
+  connect_pending_v4 enthält IP, keine aktive Session, Peer NICHT
+  mehr in Runtime aktiv. Reconcile läuft.
+  Erwartung: Harmloser Stale-Rest. IP aus connect_pending_v4 entfernt.
+
+T-POL-23b: Stale connect_pending Purge (aktive Session, Gate-TTL abgelaufen)
+  [F-POL-016 v0.5: Neuer Test]
+  connect_pending_v4 enthält IP, aktive Session existiert, aber
+  Gate-Alter > vpn_connect_gate_ttl_seconds. Peer NICHT mehr aktiv.
+  Reconcile läuft.
+  Erwartung: Stale Gate erkannt und IP aus connect_pending_v4 entfernt.
+
+T-POL-23c: CRITICAL Pending — Peer-Remove-Fail (MODERN)
+  [F-POL-033 v0.9: Neuer Test für kritischen Failure-Zweig]
+  connect_pending_v4 enthält IP, Gate-TTL abgelaufen, aber Peer ist
+  noch in AWG Runtime aktiv (Peer-Remove scheiterte).
+  Reconcile läuft.
+  Erwartung: connect_pending wird NICHT entfernt (letzte Sperre).
+  Log: CRITICAL. Reconcile versucht erneut Peer-Remove.
+
+T-POL-23d: CRITICAL Pending ohne Session (Peer noch aktiv)
+  [F-POL-042 v1.2: Neuer Test für F-POL-040 Grenzfall]
+  connect_pending_v4 enthält IP, KEINE aktive Session, aber Peer
+  ist noch in AWG Runtime aktiv (Apply+Kill fehlgeschlagen, kein
+  Session-Row angelegt). Reconcile läuft.
+  Erwartung: connect_pending wird NICHT entfernt (letzte Sperre).
+  Log: CRITICAL. Reconcile versucht Peer-Remove.
+
+T-POL-24: MODERN tc Stale nach Peer-Verlust
+  [F-POL-006 v0.3: Neuer Test]
+  MODERN Peer verloren, Session closed, aber tc-Regeln auf awg0 stale.
+  Reconcile läuft.
+  Erwartung: Stale tc-Regeln identifiziert (Cleanup abhängig OPEN-POL-03).
+
+Strict vs Best Effort:
+
+T-POL-25: Strict — nft Fehler bei Single Apply
+  vpn-policy-apply --connection-id=<id>. nft-Befehl schlägt fehl.
+  Erwartung: Exit 4 (RUNTIME_APPLY_ERROR).
+
+T-POL-26: Best Effort — ein Session-Fehler bei Reconcile
+  Reconcile: Eine Session hat nft-Fehler, andere sind OK.
+  Erwartung: Exit 1 (PARTIAL_OK). Andere Sessions korrigiert.
+
+Invarianten-Test:
+
+T-POL-INV-01: POL-01 bis POL-23 gegen Kernel-State + DB prüfen
+  Alle Invarianten werden nach jeder Apply/Reconcile-Operation validiert.
+
+================================================================================
+14) OFFENE PUNKTE
+================================================================================
+
+OPEN-POL-01: Implementierungsmechanik der MODERN-Gate-Garantie
+  Die Gate-Garantie selbst ist kanonisch festgelegt (§6.2, POL-23):
+  Gate MUSS vor Peer-Add gesetzt sein, kein Forward ohne Gate.
+  Offen ist NUR die konkrete Umsetzung: Wie der Controller
+  Gate-Setzung und Peer-Add atomar verknüpft (AllowedIPs-Staging,
+  Controller-Lock, oder andere Mechanik).
+  Wird in BASE-30_TUNNEL_AWG + BASE-70_SESSION_CORE spezifiziert.
+  Siehe auch SM_SESSION §7.3 (DESIGN-SPANNUNG: persistenter Peer
+  vs Gate-First bei Reconnect nach Session-Close).
+
+OPEN-POL-02: MODERN Peer-Remove / Reconnect / Reprovision
+  AWG Peer-Remove als Fail-Safe bei Conntrack-Flush-Failure.
+  Exakte Mechanik (wg set awg0 peer <pubkey> remove vs AWG-API).
+
+  FALLTRENNUNG (nach Peer-Removal-Anlass):
+
+  Fall 1 — Apply-Failure (FAIL-CLOSED):
+    DB-Zustand: UNVERÄNDERT. Credentials/Keys bleiben.
+    Runtime: Peer entfernt.
+    Reconnect: Controller kann Peer automatisch re-adden
+    (Gate → Peer-Add → Apply erneut).
+    Client-Config: KEINE neue .conf nötig.
+
+  Fall 2 — Admin-Hardcut (ADMIN_HARDCUT):
+    DB-Zustand: UNVERÄNDERT. Session: closed.
+    Runtime: Peer entfernt (SES-21).
+    Reconnect: Peer wird NICHT automatisch re-provisioniert.
+    Re-Add erfordert explizite Aktion (Admin re-enable oder
+    Controller-Trigger bei Connection-Status-Wechsel).
+    Client-Config: KEINE neue .conf nötig — bestehende Config
+    funktioniert sobald Peer server-seitig re-added wird.
+    Siehe SM_SESSION §7.3.
+
+  Fall 3 — Session-Stale/Timeout:
+    Peer BLEIBT in AWG-Config. Nur Session wird geschlossen.
+    Reconnect: direkt möglich (Fall A oder C in SM_SESSION §7.1).
+    DESIGN-SPANNUNG: Persistenter Peer vs Gate-First (POL-23).
+    Auflösung offen — siehe SM_SESSION §7.3 + OPEN-POL-01.
+
+  Noch zu klären (BASE-30_TUNNEL_AWG):
+  - Automatischer Re-Add nach Hardcut: Wann/ob?
+  - Rolle des Controllers vs Admin bei Reprovision
+  - Verhalten bei Connection-Disable + späterer Restore
+  Wird in BASE-30_TUNNEL_AWG spezifiziert.
+
+OPEN-POL-03: tc QoS Apply-Mechanik
+  Wie tc qdiscs/filters pro Tunnel-Interface gesetzt werden.
+  LEGACY: tc auf pppX. MODERN: tc auf awg0 (per-peer shaping).
+  Wird in MOD-03_QOS spezifiziert.
+
+OPEN-POL-04: Reconcile Health-Key
+  policy_reconcile_last_ok_at als /diag Health-Key für
+  Monitoring und Maintenance-Gate (B151).
+  Wird in BASE-110_WEBSTACK_CORE spezifiziert.
+
+OPEN-POL-05: Wiring Details (systemd Timer, Hooks, Lock-Mechanik)
+  Konkrete systemd Unit-Files, flock-Pfade, Hook-Registrierung.
+  Wird in BASE-80_POLICY_APPLY_CORE spezifiziert.
+
+================================================================================
+CHANGELOG
+================================================================================
+v1.7 (2026-04-15): ChatGPT Befundbericht Fixes (F-VB-002 + F-VB-N06).
+  OPEN-POL-01: Rückreferenz auf SM_SESSION §7.3 (DESIGN-SPANNUNG)
+  ergänzt (2 Stellen: inline + OPEN-Sektion).
+  §11 Cross-File-Tabelle: T-09 Rollenwechsel-Eintrag ergänzt
+  (Hard-Cut + Apply, D002 §7.4 Propagationsdelay).
+  23 Invarianten (unverändert). 33 Tests (unverändert).
+v1.6 (2026-04-12): ChatGPT-Review #12 v1.5 — PATCH-REIF. 0 MAJOR + 3 MINOR.
+  F-POL-052: §6.2 + §7 Prüfung 3 zustandsbezogen nachgezogen.
+  F-POL-053: "Peer" → "Peer/Session" für Tunnelneutralität in GR-05,
+    POL-04 b), POL-21b, §7 Schritt 5 Prüfung 1+3.
+  F-POL-054: Changelog-Label "POL-04b" → "POL-04 b)".
+  23 Invarianten. 33 Tests. Status: PATCH-REIF.
+  Vollständige Review-Historie (v0.2–v1.5, 12 ChatGPT-Reviews):
+  siehe 03_CHANGELOG.txt bzw. dateieigene Git-History.
+v0.1 (2026-04-12): Initiale Policy-Restrict State Machine.
+  Überführung aus altem Konzept (B166 v1.6, B150 v1.0, B063 v1.0).
+  20 Invarianten. 24 Tests. 5 offene Punkte (OPEN-POL-01..05).
+================================================================================

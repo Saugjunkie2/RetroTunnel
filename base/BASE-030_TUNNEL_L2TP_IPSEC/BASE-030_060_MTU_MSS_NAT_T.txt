@@ -1,0 +1,156 @@
+================================================================================
+BASE-030 — MTU, MSS-CLAMPING UND NAT-TRAVERSAL
+================================================================================
+DATEI: BASE-030_060_MTU_MSS_NAT_T.txt
+STATUS: ACTIVE
+
+================================================================================
+1) OVERHEAD-RECHNUNG (L2TP/IPsec NAT-T, Transport-Mode)
+================================================================================
+
+  Ausgehend von 1500 Byte Ethernet-MTU (WAN):
+
+  | Layer                          | Bytes    |
+  |--------------------------------|----------|
+  | Aeusserer IPv4-Header          | 20       |
+  | UDP NAT-T (Port 4500)          | 8        |
+  | ESP-Header (SPI + Seq)         | 8        |
+  | ESP-IV (3DES=8, AES=16)        | 8-16     |
+  | L2TP Data-Header               | 8        |
+  | PPP-Header                     | 4        |
+  | ESP-Padding + PadLen + NextHdr | 2-17     |
+  | ESP-ICV (HMAC-SHA1-96)         | 12       |
+  | SUMME worst-case (AES+NAT-T)   | ~93      |
+
+  Sichere PPP-MTU: 1500 - 93 = ~1407
+  Konservative Wahl: MTU/MRU = 1400
+
+  Bei Clients hinter weiterem NAT oder PPPoE (MTU 1492):
+  1492 - 93 = ~1399 → MTU 1380 als Fallback.
+
+================================================================================
+2) ACCEL-PPP MTU/MRU KONFIGURATION
+================================================================================
+
+  [ppp]
+    mtu = 1400          PPP-MTU die dem Client mitgeteilt wird
+    mru = 1400          Maximum Receive Unit (Server-seitig)
+    min-mtu = 1280      Untergrenze (IPv6-Minimum, auch fuer IPv4 sinnvoll)
+
+  [l2tp]
+    ppp-max-mtu = 1400  Harte Obergrenze fuer verhandelte PPP-MTU.
+                        Deckelt [ppp] mtu. Selbst mtu=1500 in [ppp]
+                        wuerde durch ppp-max-mtu=1400 begrenzt.
+
+  KEIN ACCEL-PPP MSS-CLAMPING:
+  accel-ppp macht KEIN automatisches MSS-Clamping. Das muss
+  ueber nftables im Forward-Pfad erfolgen (BASE-050 Scope).
+
+================================================================================
+3) MSS-CLAMPING (nftables, BASE-050 Scope)
+================================================================================
+
+  HINWEIS: Die Firewall-Regeln selbst gehoeren in BASE-050.
+  Hier wird nur die Logik fuer BASE-030 dokumentiert.
+
+  MSS-CLAMPING POSITION: MUSS VOR ct state established,related stehen.
+  Begruendung: SYN-ACK Pakete aus dem Internet zurueck zum Client
+  durchlaufen die established/related-Regel und werden sofort
+  akzeptiert — OHNE die MSS-Clamping-Regeln zu erreichen. Das
+  fuehrt dazu dass grosse Pakete mit voller MSS im Tunnel ankommen
+  und verworfen werden. Symptom: Webseiten laden extrem langsam
+  oder gar nicht.
+
+  BEIDE RICHTUNGEN: MSS-Clamping muss sowohl fuer ausgehende (saddr)
+  als auch fuer eingehende (daddr) SYN-Pakete greifen.
+
+  L2TP/IPSEC (PPP-Interfaces):
+    iifname "ppp*" tcp flags syn tcp option maxseg size set 1360
+    oifname "ppp*" tcp flags syn tcp option maxseg size set 1360
+
+  MSS-WERT: 1360 = MTU 1400 - IPv4-Header 20 - TCP-Header 20
+
+  ALTERNATIVE: "tcp option maxseg size set rt mtu" berechnet die MSS
+  automatisch aus der Route-MTU (funktional wie --clamp-mss-to-pmtu).
+  Fester Wert (1360) ist robuster wenn ICMP Fragmentation-Needed
+  gefiltert wird (haeufig bei ISPs).
+
+================================================================================
+4) NAT-TRAVERSAL (NAT-T)
+================================================================================
+
+  NAT-T (RFC 3947/3948) ist fuer L2TP/IPsec mit XP-Clients
+  zwingend erforderlich: Die meisten Clients sitzen hinter NAT-
+  Routern die ESP (IP-Protokoll 50) nicht weiterleiten koennen.
+
+  NAT-T MECHANISMUS:
+  - IKE Phase 1: Client und Server erkennen NAT (NAT-D Payloads)
+  - Ab diesem Zeitpunkt: ESP wird in UDP/4500 eingekapselt
+  - Kein ESP (Protokoll 50) mehr noetig — nur noch UDP 500 + 4500
+
+  STRONGSWAN:
+  - NAT-T ist per Default aktiv (kein Konfigurationsbedarf)
+  - strongSwan erkennt NAT automatisch und wechselt auf UDP/4500
+
+  DPD UND NAT-KEEPALIVE SIND VERSCHIEDENE MECHANISMEN:
+  - DPD (Dead Peer Detection): dpd_delay=30s, dpd_timeout=90s.
+    Prueft ob der Peer noch lebt (IKE Informational Exchange).
+    Ist NICHT fuer NAT-Mapping-Erhaltung zustaendig.
+  - NAT-T Keepalive: Separate 0xff-Pakete auf UDP/4500.
+    Standardintervall: 20 Sekunden (charon.keep_alive).
+    DIESE halten die NAT-Mappings am Router offen.
+    Konfigurierbar in /etc/strongswan.conf:
+      charon { keep_alive = 20 }
+  Beide Mechanismen laufen parallel, dienen aber verschiedenen
+  Zwecken. DPD erkennt tote Peers, NAT-Keepalive erhaelt NAT-State.
+
+  NFTABLES (BASE-050 Scope):
+  - UDP 500 + UDP 4500 + ESP auf WAN-Interface akzeptieren
+  - UDP 1701 NUR via IPsec (meta ipsec exists)
+  - OHNE meta ipsec exists koennte ein Angreifer nackte L2TP-
+    Pakete an accel-ppp senden und Sessions ohne Verschluesselung
+    aufbauen
+
+================================================================================
+5) XP-SPEZIFISCHE NAT-T PROBLEME
+================================================================================
+
+  PROBLEM: Windows XP hat einen Bug bei NAT-T IPsec.
+  Ohne Registry-Fix (B080) sendet XP keine ESP-in-UDP Pakete
+  wenn der Client selbst hinter NAT sitzt.
+
+  SYMPTOM: Fehler 789 oder 809 beim VPN-Verbindungsversuch
+
+  FIX: Registry-Key auf dem XP-Client (Detail → _070):
+    HKLM\SYSTEM\CurrentControlSet\Services\IPSec
+    AssumeUDPEncapsulationContextOnSendRule = DWORD 2
+    Reboot erforderlich.
+
+  MEHRERE CLIENTS HINTER DEMSELBEN NAT:
+  Mehrere Windows-L2TP-Clients hinter demselben NAT-Router sind
+  ein bekannter technischer Grenzfall. Sie verwenden identische
+  UDP/1701 Source-Port Tuples. strongSwan unterscheidet Sessions
+  ueber IKE SA Cookies, aber der NAT-Router kann die Zuordnung
+  verlieren. Die strongSwan-Doku warnt ausdruecklich vor diesem
+  Szenario bei NAT-T mit mehreren Clients zum selben Gateway.
+  BEWERTUNG: Gleiches-NAT-Mehrfachnutzung ist best-effort, NICHT
+  garantiert. Fuer Privatanwender (1-2 Geraete) funktioniert es
+  in der Praxis meistens, aber Verbindungsabbrueche sind moeglich.
+  Fuer Firmen-NAT mit vielen Clients waere das connmark-Plugin
+  noetig — das ist fuer RetroTunnel nicht relevant.
+
+================================================================================
+6) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  - MTU/MRU: Panel zeigt konfigurierte Werte (aus accel-ppp Config)
+  - MSS-Clamping: Panel zeigt ob Clamping-Regeln aktiv sind
+    (nft list chain inet filter forward | grep maxseg)
+  - NAT-T Status: Panel zeigt ob NAT erkannt wurde (pro SA,
+    aus swanctl --list-sas: "nat-any" oder "nat-local/remote")
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

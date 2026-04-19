@@ -1,0 +1,101 @@
+================================================================================
+BASE-005 — SERVICE INVENTAR
+================================================================================
+DATEI: BASE-005_070_SERVICE_INVENTAR.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Einzige Quelle fuer "welche systemd-Units existieren im System".
+  Jeder Dienst hat einen Owner-Base, eine Rolle und einen Typ.
+  Die LIFECYCLE-Datei (080) baut auf diesem Inventar auf.
+
+================================================================================
+1) INVENTAR-SCHEMA
+================================================================================
+
+  Jeder Eintrag:
+    Unit-Name         Die konkrete systemd-Unit
+    Owner-Base        Welche Base beschreibt die Fachlogik
+    Typ               core / helper / job / timer
+    Rolle             Was der Dienst tut (1 Satz)
+    Kritisch          Ja / Nein / Bedingt
+    User              Linux-User (Referenz auf BASE-005_050)
+
+================================================================================
+2) KERN-DIENSTE (immer aktiv)
+================================================================================
+
+  Unit                        Owner       Typ    User      Kritisch
+  --------------------------- ----------- ------ --------- -----------------
+  mariadb.service             BASE-020    core   mysql     Ja
+  freeradius.service          BASE-020    core   freerad   Ja
+  strongswan.service            BASE-030    core   root      Bedingt (L2TP_IPSEC)
+  accel-ppp.service             BASE-030    core   root      Bedingt (L2TP_IPSEC)
+  awg-quick@awg0.service          BASE-040    core   root      Bedingt (WIREGUARD)
+    (AmneziaWG-Fork: awg-quick statt wg-quick,
+     eigenes Kernel-Modul amneziawg via DKMS)
+  nftables.service              BASE-050    core   root      Ja
+  unbound.service               BASE-060    core   unbound   Ja
+  AdGuardHome.service           BASE-060    core   adguardhome Ja
+    (Standalone Binary, CAP_NET_BIND_SERVICE + CAP_NET_RAW)
+  openresty.service             BASE-110    core   root      Ja (Panel)
+    (Worker: www-data)
+  php-fpm.service               BASE-110    core   www-data  Ja (Panel)
+
+================================================================================
+3) HELPER-DIENSTE (einmalig oder on-demand)
+================================================================================
+
+  Unit                              Owner       Typ       Rolle
+  --------------------------------- ----------- --------- -----------------------
+  lo-service-ips.service            BASE-005    helper    Service-IPs auf lo
+                                                          bereitstellen (oneshot,
+                                                          vor allen Diensten)
+  boot-reconcile.service            BASE-080    helper    Einmalig nach Boot:
+                                                          vpn-policy-apply
+                                                          --reconcile-all (oneshot)
+  boot-janitor.service              BASE-070    helper    Einmalig nach Boot:
+                                                          Stale-Session Cleanup
+                                                          (oneshot, verzoegert)
+
+================================================================================
+4) JOB-DIENSTE (periodisch, alle 60s systemd-Timer-Tick)
+================================================================================
+
+  Alle Timer verwenden OnUnitActiveSec=60s als Wiring-Tick.
+  Das effektive Intervall wird per SQL-Setting gesteuert (Gating
+  im Service: noop wenn Intervall nicht erreicht). Quelle: B167 §6.
+
+  Unit + Timer                        Owner       SQL-Setting
+  ----------------------------------- ----------- ---------------------------
+  vpn-policy-reconcile.service        BASE-080    vpn_reconcile_interval_seconds
+  vpn-policy-reconcile.timer                      (>= 60s, SQL-first)
+
+  vpn-accounting-collector.service    BASE-070    radius_acct_interim_seconds
+  vpn-accounting-collector.timer                  (>= 60s, SQL-first)
+
+  vpn-stale-session-janitor.service   BASE-070    janitor_interval_seconds
+  vpn-stale-session-janitor.timer                 (>= 60s, SQL-first)
+
+  LOCKING: Jeder Job nutzt flock unter /run/ (Single-Writer).
+  Bei Lock-Kollision: sauberer Abbruch (TEMPFAIL_LOCKED).
+
+================================================================================
+5) OPTIONALE / ZUKUENFTIGE DIENSTE
+================================================================================
+
+  fail2ban.service                    MOD-005    core       Optional
+  vpn-backup.timer                    MOD-008    timer      Optional
+  vpn-peak-monitor.service            MOD-009    job        Optional
+
+================================================================================
+6) OWNER-BASE-REGEL
+================================================================================
+
+  INVARIANTE: Jede systemd-Unit hat GENAU EINE Owner-Base. Diese
+  Base beschreibt die Fachlogik. Hier im Inventar stehen nur
+  Metadaten (Name, User, Typ, Referenz zu Owner-Base).
+
+================================================================================
+KEINE OFFENEN INPUT-FRAGEN — alle Punkte geklaert.
+================================================================================

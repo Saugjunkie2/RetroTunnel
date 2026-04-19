@@ -1,0 +1,137 @@
+================================================================================
+RetroTunnel — BASE-000: SQL-FIRST GOVERNANCE — INDEX
+================================================================================
+VERSION: v1.0
+DATUM: 2026-04-19
+STATUS: ACTIVE
+PFAD: base/BASE-000_SQL_FIRST/BASE-000_000_INDEX.txt
+
+================================================================================
+1) WARUM BASE-000?
+================================================================================
+
+Jede weitere Base und jedes Modul arbeitet mit SQL. Die Erfahrung aus
+dem bisherigen Betrieb zeigt: Ohne zentrale Naming-Regeln entstehen
+ad-hoc Namen die driften. Tabellennamen mussten nachtraeglich umbenannt
+werden weil das Konzept andere Namen verwendete als die Implementierung
+brauchte (z.B. "customers" vs "web_customers"). BASE-000 verhindert das:
+Der kanonische Name hier IST der DB-Name. Kein Mapping, kein Drift.
+
+BASE-000 ist das Fundament VOR allen anderen Base-Modulen. Jedes
+Base-Modul das Tabellen einfuehrt, MUSS diese zuerst in BASE-000
+registrieren (040_TABELLEN_REGISTRY/).
+
+================================================================================
+2) SCOPE
+================================================================================
+
+  WAS HIER STEHT:
+  - Welche Datenbank(en) existieren und wie sie heissen
+  - Welche Prefixe existieren und was sie bedeuten (Sicherheitszonen)
+  - Wie SQL-Tabellen und -Felder benannt werden (Naming-Regeln)
+  - Welche Tabellen existieren, wie sie heissen, wofuer sie gedacht sind
+  - Wie neue Namen gebildet werden
+  - Was ein Credential ist vs. ein Identifier vs. ein UI-Alias
+
+  WAS HIER NICHT STEHT:
+  - Wie die Tabellen zusammenspielen (-> jeweilige Base-Module)
+  - Vollstaendige Feld-Definitionen (-> BASE-010_IDENTITY_CORE etc.)
+  - Settings-Key Katalog und Resolution (-> BASE-090_SETTINGS_CORE)
+  - Policy-System Logik (-> BASE-100_POLICY_CORE)
+  - Session-Lifecycle (-> BASE-070_SESSION_CORE)
+
+================================================================================
+3) DATEIUEBERSICHT
+================================================================================
+
+  NORMATIVE KERN-DATEIEN (dauerhaft):
+
+  BASE-000_010_DATENBANK_UND_SICHERHEITSZONEN.txt
+    DB-Name, DB-User, GRANTs, Prefix-Allowlist, Sicherheitszonen.
+    Aendert sich selten.
+
+  BASE-000_020_NAMING_REGELN.txt
+    PR-, TN-, FN-Regeln. Langlebigste Datei — aendert sich praktisch nie.
+
+  BASE-000_030_IDENTIFIER_KLASSEN.txt
+    Was ist Credential, Connection-Referenz, UI-Alias, Primaerschluessel.
+    Eigenes fachliches Thema, getrennt von Naming.
+
+  040_TABELLEN_REGISTRY/
+    Eine Datei PRO Prefix-Zone. WAECHST mit jedem neuen Base-Modul.
+    Jede neue Tabelle wird hier registriert bevor sie implementiert wird.
+    Eigener Ordner mit 10er-Nummerierung fuer Erweiterbarkeit.
+
+  BASE-000_050_INVARIANTEN.txt
+    SQL-01..SQL-10. Harter Vertrag. Prueffbar.
+
+  BASE-000_060_TESTS_UND_VALIDIERUNG.txt
+    T-SQL-01..07. Definition of Done.
+
+  TRANSITIONS-DATEIEN (temporaer, entfallen nach Propagation):
+
+  BASE-000_090_TRANSITION_DOMAIN_MODEL_PROPAGATION.txt
+    K-01..K-11. Korrekturen die nach Marco-Review in DOMAIN_MODEL
+    propagiert werden. Danach wird die Datei archiviert oder geleert.
+
+  BASE-000_091_OFFENE_PUNKTE.txt
+    OPEN-SQL-01..05. Volatil, triggert Entscheidungen.
+
+  NUMMERIERUNG: 3-stellige 10er-Schritte (000, 010, 020...).
+  Ermoeglicht Einfuegungen ohne Umnummerierung (z.B. 015 zwischen
+  010 und 020). Siehe 02_ASSUMPTIONS_AND_RULES R-16.
+
+  DATEINAMEN: Selbstbeschreibende Namen (bewusste Redundanz).
+  Jede Datei traegt ihren vollstaendigen Kontext im Dateinamen, damit
+  sie auch ohne Ordnerstruktur identifizierbar ist. Beispiel:
+  BASE-000_SQL_FIRST_040_TABELLEN_REGISTRY_020_VPN.txt sagt sofort:
+  Modul BASE-000, SQL-First, Tabellen-Registry, Zone VPN.
+
+================================================================================
+3.1) PROZESS: NEUE TABELLE REGISTRIEREN
+================================================================================
+
+  Jedes Base-Modul das eine neue Tabelle einfuehrt, MUSS diese
+  Schritte durchlaufen:
+
+  1. Prefix-Zone bestimmen: In welche Zone gehoert die Tabelle?
+     Prefix-Allowlist: BASE-000_010_DATENBANK_UND_SICHERHEITSZONEN §3.
+  2. Namen bilden: Naming-Regeln TN-01..TN-07 aus
+     BASE-000_020_NAMING_REGELN anwenden.
+  3. Eintrag erstellen: In der entsprechenden Zone-Datei unter
+     040_TABELLEN_REGISTRY/ einen Eintrag mit Tabellenname, Status,
+     Owner-Modul, Zweck und ggf. FKs hinzufuegen.
+  4. Registry-INDEX aktualisieren: Tabellen-Anzahl in der
+     Zusammenfassung von BASE-000_SQL_FIRST_040_TABELLEN_REGISTRY_000_INDEX
+     anpassen.
+  5. Andere Dateien referenzieren: DOMAIN_MODEL und andere Dateien
+     verwenden ab sofort NUR den hier registrierten Namen.
+
+
+================================================================================
+4) REFERENZEN
+================================================================================
+
+ALTES KONZEPT:
+  B055_DB_SCHEMA_CORE.txt — Core Schema
+  B057_SETTINGS_PARAMETER_CANON_SQLFIRST_MAGIC_GUARD.txt — Settings Contract
+  B058_CONN_GROUP_POLICYKEY_DETERMINISTIC_DERIVATIONS.txt — Policy-Key
+  B345_WRITE_PATH_MATRIX_CONTRACT.txt — Write-Path Contract
+  entwuerfe/sql-first/ — NORM-01..07, DOC-SET-PR-PFX, DOC-SET-KEYCAT,
+    DOC-SET-WRITEPATH, DOC-SET-REGISTRY (32 Dateien, nie ins Kanon uebertragen)
+
+NEUES KONZEPT:
+  MANIFEST §3.1 (wg_ Prefix-Entscheidung)
+  ASSUMPTIONS A-04 (Single Server, Single DB)
+  TRUTH_MODEL §5 (Settings-Key Naming, teilweise Overlap)
+  DOMAIN_MODEL (Feld-Definitionen referenzieren Tabellennamen)
+
+ERARBEITET DURCH:
+  Marco (Owner) + Claude (Analyse + Ausarbeitung) + ChatGPT (Drittreview
+  Schema-Trennung + Strukturvorschlag). Alt-Kanon sql-first: Marco + ChatGPT.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

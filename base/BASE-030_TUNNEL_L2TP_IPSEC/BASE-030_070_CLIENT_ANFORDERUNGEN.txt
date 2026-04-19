@@ -1,0 +1,137 @@
+================================================================================
+BASE-030 — CLIENT-ANFORDERUNGEN (XP/VISTA)
+================================================================================
+DATEI: BASE-030_070_CLIENT_ANFORDERUNGEN.txt
+STATUS: ACTIVE
+
+================================================================================
+1) UNTERSTUETZTE CLIENTS
+================================================================================
+
+  PRIMAER: Windows XP SP2+ (32-bit und 64-bit)
+  SEKUNDAER: Windows Vista (alle Editionen)
+
+  Beide nutzen den eingebauten Windows L2TP/IPsec VPN-Client.
+  KEINE Drittanbieter-Software erforderlich.
+
+  NICHT UNTERSTUETZT ueber L2TP/IPsec:
+  - Windows 7+ (sollen WIREGUARD nutzen, nicht L2TP/IPsec)
+  - Linux/macOS (koennen L2TP/IPsec, sollen aber WIREGUARD nutzen)
+  - Mobile Geraete (sollen WIREGUARD nutzen)
+  L2TP/IPsec existiert NUR fuer Clients die kein WireGuard
+  unterstuetzen koennen.
+
+================================================================================
+2) CLIENT-KONFIGURATION (WINDOWS XP)
+================================================================================
+
+  VPN-Einrichtung:
+  - Systemsteuerung → Netzwerkverbindungen → Neue Verbindung
+  - Typ: VPN-Verbindung mit dem Arbeitsplatz
+  - Server: rt-gw-001.v6.rocks (FQDN, NICHT die IP-Adresse)
+    WICHTIG: Der Client traegt IMMER den FQDN ein, nie die IP.
+    Die DNS-Aufloesung erfolgt ueber den eigenen DNS des Clients
+    (z.B. Router-DNS, Provider-DNS). Der Server-DNS (AdGuard/
+    Unbound auf SERVICE_DNS) greift erst NACH dem VPN-Aufbau.
+  - Verbindungseigenschaften → Sicherheit:
+    - VPN-Typ: L2TP/IPsec
+    - IPsec-Einstellungen: Vorinstallierter Schluessel = <PSK>
+  - Verbindungseigenschaften → Netzwerk:
+    - IPv6 deaktivieren (falls vorhanden)
+
+  CREDENTIALS:
+  - Benutzername: subaccount_login (z.B. vpn_a2b3c4d5e6f7g8h9)
+  - Passwort: Klartext-Passwort (aus dem der NT-Hash berechnet wird)
+  - PSK: Gemeinsamer Pre-Shared Key (fuer alle L2TP/IPsec Clients)
+
+================================================================================
+3) NAT-T REGISTRY FIX (PFLICHT)
+================================================================================
+
+  PROBLEM: Windows XP hat einen Bug bei IPsec NAT-Traversal.
+  Ohne Fix scheitern VPN-Verbindungen hinter NAT-Routern
+  (Fehler 789/809).
+
+  FIX: Registry-Key setzen und neu starten:
+
+  Pfad: HKLM\SYSTEM\CurrentControlSet\Services\IPSec
+  Name: AssumeUDPEncapsulationContextOnSendRule
+  Typ:  DWORD (32-bit)
+  Wert: 2
+
+  Wert-Bedeutung:
+    0 = NAT-T deaktiviert (Default)
+    1 = NAT-T nur wenn Server hinter NAT
+    2 = NAT-T immer (Client UND Server hinter NAT)
+
+  Wert 2 ist die einzig sichere Option: Der Client kann hinter
+  jedem NAT-Router sein, und der Server koennte ebenfalls hinter
+  NAT stehen (Provider-seitiges NAT, Carrier-Grade NAT).
+
+  REBOOT ERFORDERLICH nach Setzen des Registry-Keys.
+
+  IDEMPOTENZ: Das Setup-Tool (spaeter MOD-006 oder separates
+  Client-Setup-Tool) muss pruefen ob der Key bereits existiert
+  und den Wert nur setzen wenn er fehlt oder falsch ist.
+
+  REGISTRY-DATEI (.reg) fuer einfache Verteilung:
+    Windows Registry Editor Version 5.00
+    [HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\IPSec]
+    "AssumeUDPEncapsulationContextOnSendRule"=dword:00000002
+
+================================================================================
+4) VERBINDUNGSABLAUF (CLIENT-SICHT)
+================================================================================
+
+  1. User klickt "Verbinden" im Windows VPN-Dialog
+  2. Windows initiiert IKEv1 Main Mode (UDP 500)
+  3. PSK-Authentifizierung (gleicher PSK auf beiden Seiten)
+  4. IKE Phase 2: CHILD_SA fuer L2TP (Transport-Mode, ESP)
+  5. NAT-T: Falls NAT erkannt, Wechsel auf UDP 4500
+  6. L2TP Control Channel (SCCRQ/SCCRP/ICRQ/ICRP)
+  7. PPP Verhandlung (LCP, Auth)
+  8. MS-CHAPv2: Username + Passwort → accel-ppp → RADIUS → DB
+  9. RADIUS Accept mit Framed-IP-Address
+  10. IPCP: Client bekommt feste IPv4 aus dem Rollen-Pool
+  11. Full-Tunnel: Default-Route zeigt auf VPN
+
+  ZEITDAUER: Typisch 3-8 Sekunden (XP, DSL).
+  Bei langsamem IKE-Handshake (Entropie-Problem auf Server):
+  haveged installieren oder virtio-rng pruefen.
+
+================================================================================
+5) BEKANNTE EINSCHRAENKUNGEN
+================================================================================
+
+  - IPv4-only: L2TP/IPsec Clients bekommen KEINE IPv6-Adresse (NA-05)
+  - Kein Split-Tunnel: Full-Tunnel ist Pflicht (gesamter Traffic
+    durch VPN). Windows XP unterstuetzt keinen Split-Tunnel fuer
+    L2TP/IPsec ohne Registry-Hacks.
+  - Kein automatischer Reconnect: XP reconnected nicht automatisch
+    bei Verbindungsverlust. Der User muss manuell neu verbinden.
+  - DNS-Konfiguration: XP uebernimmt die DNS-Server aus dem
+    PPP-IPCP (accel-ppp [dns] Sektion). Kein manuelles Setzen noetig.
+  - MTU nicht konfigurierbar: XP verhandelt die MTU per LCP mit
+    accel-ppp. Der Client kann die MTU nicht manuell ueberschreiben.
+
+================================================================================
+6) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  - Client-Setup-Anleitung: Panel bietet herunterladbare Anleitung
+    fuer XP-Einrichtung (PDF oder Textdatei)
+  - Registry-Fix: Panel bietet .reg-Datei zum Download
+    (NAT-T Fix, idempotent)
+  - PSK-Einsicht: Panel zeigt Klartext-PSK fuer ADMIN
+    (damit Marco den PSK an Kunden weitergeben kann).
+    Jede Einsichtnahme wird im Audit-Log protokolliert.
+    Der User braucht den PSK fuer selbstaendigen VPN-Aufbau —
+    Connection-Infos muessen leicht einsehbar sein (Marco-Grundsatz).
+  - Verbindungsstatus: Panel zeigt ob ein L2TP_IPSEC Client
+    aktuell verbunden ist (aus vpn_sessions)
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

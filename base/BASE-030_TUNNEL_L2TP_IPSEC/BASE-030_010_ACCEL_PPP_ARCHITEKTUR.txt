@@ -1,0 +1,220 @@
+================================================================================
+BASE-030 — ACCEL-PPP ARCHITEKTUR
+================================================================================
+DATEI: BASE-030_010_ACCEL_PPP_ARCHITEKTUR.txt
+STATUS: ACTIVE
+
+================================================================================
+1) WARUM ACCEL-PPP
+================================================================================
+
+  accel-ppp ersetzt den klassischen Stack aus xl2tpd + pppd + pppd-
+  RADIUS-Plugin durch einen einzigen Daemon. Vorteile:
+
+  - Ein Prozess statt drei (kein separater L2TP-Daemon + PPP-Daemon)
+  - Eingebaute RADIUS-Anbindung (kein pppd-Plugin noetig)
+  - Eingebautes Session-Management (single-session=replace)
+  - Eingebauter Shaper (tc-Integration fuer QoS, ab MOD-003)
+  - pppd-kompatible Hook-Schnittstelle (ip-up/ip-down mit Env-Vars)
+  - Aktiv gepflegte Codebasis (1.13.0 Release 2024-03-30,
+    1.14.0 Release 2026-01; Version wird bei Implementation
+    auf aktuellsten stabilen Tag gepinnt)
+
+  EINSCHRAENKUNG: accel-ppp ist NICHT in Debian main. Installation
+  erfolgt durch Source-Build gegen libpcre2-dev (Debian 13 hat
+  libpcre3 entfernt).
+  BUILD-VERTRAG:
+  - Exakter Git-Tag oder Commit-Hash wird bei Implementation fixiert
+  - Build-Flags und Abhaengigkeiten dokumentiert in implementation/guides/
+  - Reproduzierbarer Build (deterministisch wiederholbar)
+  - Update-Pfad: Neuer Tag → Build → Test → Deploy (kein Auto-Update)
+  - Rollback: Vorheriges Binary bleibt als Fallback erhalten
+
+================================================================================
+2) MODUL-ARCHITEKTUR
+================================================================================
+
+  accel-ppp ist modular. Module werden in [modules] geladen:
+
+  PFLICHT-MODULE (RetroTunnel):
+    log_file          Datei-basiertes Logging
+    l2tp              L2TP-Protokoll-Handler
+    auth_mschap_v2    MS-CHAPv2 Authentifizierung (XP-kompatibel)
+    radius            RADIUS-Client (Auth + Accounting)
+    pppd_compat       ip-up/ip-down Hook-Schnittstelle
+
+  OPTIONAL (spaeter):
+    shaper            tc-basiertes QoS pro Session (MOD-003)
+
+  NICHT GELADEN (nicht benoetigt):
+    pptp, pppoe, sstp, ipoe    (andere Tunneltypen)
+    auth_pap, auth_chap_md5    (nicht fuer L2TP/IPsec benoetigt)
+    connlimit                  (Limit via RADIUS SimUse)
+
+================================================================================
+3) KONFIGURATIONSSTRUKTUR
+================================================================================
+
+  Hauptdatei: /etc/accel-ppp.conf
+
+  [core]
+    thread-count = 4            Anzahl Worker-Threads. Beeinflusst
+                                Parallelitaet + fork-limit Default (threads*2).
+                                KANDIDAT FUER SETTINGS-KEY (BASE-090).
+    log-error = /var/log/accel-ppp/core.log
+
+  [common]
+    single-session = replace    LETZTER RETTUNGSMECHANISMUS gegen SimUse-Races.
+                                Dies ist NICHT der normale Policy-Pfad.
+                                Normal: RADIUS SimUse=1 lehnt zweite Session ab.
+                                Replace greift NUR wenn eine Race-Condition den
+                                RADIUS-Check umgeht. In diesem Fall beendet
+                                accel-ppp die alte Session zugunsten der neuen.
+                                RISIKO: Ein Angreifer mit gueltigem Login koennte
+                                theoretisch eine bestehende Session verdraengen.
+                                Mitigation: RADIUS SimUse ist der primaere Schutz,
+                                replace ist Belt-and-Suspenders (letzter Fallback).
+
+  [log]
+    log-file = /var/log/accel-ppp/accel-ppp.log
+    log-fail-file = /var/log/accel-ppp/auth-fail.log
+    level = 3                   Info-Level (Produktion: 1 oder 2)
+
+  [l2tp]
+    bind = 0.0.0.0              MUSS 0.0.0.0 sein (NICHT SERVICE_GW_PPP).
+                                Begruendung: L2TP-Pakete kommen mit der WAN-IP
+                                als Zieladresse an (IPsec Transport-Mode Traffic-
+                                Selector ist dynamic[udp/1701] auf der WAN-IP).
+                                Sicherheit: nftables erlaubt UDP 1701 NUR via
+                                IPsec (meta ipsec exists). Nackte L2TP-Pakete
+                                werden gedroppt (BASE-050).
+    lcp-echo-interval = 30      Dead-Peer-Detection Intervall (Sekunden)
+    lcp-echo-failure = 3        Anzahl fehlgeschlagener Echos bis Disconnect
+                                Disconnect nach 3x30 = 90s ohne Echo-Antwort.
+                                KEIN lcp-echo-timeout gesetzt: Wenn timeout
+                                gesetzt ist, aktiviert accel-ppp adaptive Echo
+                                und ignoriert lcp-echo-failure. Deterministisches
+                                Verhalten (interval + failure) ist bevorzugt.
+    ppp-max-mtu = 1400          Harte Obergrenze fuer verhandelte PPP-MTU.
+                                Deckelt [ppp] mtu. Muss mit [ppp] mtu=1400
+                                uebereinstimmen (Detail → _060).
+
+  [radius]
+    gw-ip-address = 10.77.0.10  MUSS in [radius] stehen (nicht [ppp]).
+                                Server-Seite des PPP-Links (SERVICE_GW_PPP).
+                                Ohne diesen Parameter kann accel-ppp die
+                                Framed-IP-Address aus dem RADIUS-Reply nicht
+                                als Peer-IP zuweisen.
+    server = 127.0.0.1,<SECRET>,auth-port=1812,acct-port=1813
+    acct-interim-interval = 300 Interim-Accounting alle 5 Minuten
+                                (haelt radacct aktuell fuer SimUse-Pruefung)
+    acct-delay-start = 0        MUSS 0 sein (LT-25). Verzoegerung >0 wuerde
+                                das Timing-Fenster der radacct-Korrelation
+                                in der Session-Bridge unkontrolliert vergroessern.
+    acct-timeout = 0            Accounting-Timeout: 0 = aktive Sessions werden
+                                bei Accounting-Antwort-Ausfall NICHT terminiert.
+                                Entscheidung: Fail-Closed gilt fuer NEUE Sessions
+                                (RADIUS REJECT bei DB-Down). BESTEHENDE Sessions
+                                bleiben bei Accounting-Stoerung aktiv — ein
+                                ungeplanter Massenabwurf waere operativ schaedlicher.
+                                Default (3s) wuerde Sessions bei kurzzeitiger
+                                DB-Stoerung hart beenden.
+
+  [ppp]
+    mtu = 1400                  Konservativ sicher (Detail → _060)
+    mru = 1400
+    min-mtu = 1280              Untergrenze
+    ipv4 = require              IPv4 ist Pflicht
+    ipv6 = deny                 L2TP_IPSEC ist IPv4-only (A-06, NA-05)
+    mppe = deny                 IPsec verschluesselt bereits. MPPE ist
+                                redundant und verursacht Kompatibilitaets-
+                                probleme mit einigen XP-Versionen.
+    ccp = 0                     Compression Control Protocol deaktiviert
+
+  [dns]
+    dns1 = 10.77.0.1            SERVICE_DNS (ab PH3)
+    dns2 = 10.77.0.2            SERVICE_RESOLVER (Fallback)
+
+  [client-ip-range]
+    0.0.0.0/0                   Whitelist erlaubter QUELL-IPs fuer eingehende
+                                L2TP-Verbindungen. NICHT die IP-Zuweisung
+                                (die kommt ueber RADIUS Framed-IP-Address).
+                                Ohne Eintrag lehnt accel-ppp ALLE Verbindungen
+                                ab. Zugangskontrolle uebernimmt nftables +
+                                RADIUS-Auth.
+
+  [pppd-compat]
+    ip-up = /etc/accel-ppp/ip-up
+    ip-down = /etc/accel-ppp/ip-down
+    ip-pre-up = /etc/accel-ppp/ip-pre-up
+                                Optionaler Frueh-Guard (Detail → _040 §2)
+    fork-limit = 8              Max gleichzeitige Hook-Hintergrundprozesse.
+                                Default: threads*2. Bei Reconnect-Storm (z.B.
+                                Provider-Stoerung, strongSwan-Restart) stauen
+                                sich Hooks. PPP-Sessions stehen, aber Release
+                                wird verzoegert → User sieht "verbunden aber
+                                kein Traffic". Wert muss zur Last passen.
+                                KANDIDAT FUER SETTINGS-KEY (BASE-090).
+    radattr-prefix = /var/run/radattr
+                                Schreibt pro Session eine Datei mit allen
+                                RADIUS-Reply-Attributen (parsebar mit awk).
+
+  [cli]
+    tcp = 127.0.0.1:2001        Telnet-CLI (nur lokal, Debugging/Monitoring)
+                                accel-cmd show sessions
+
+================================================================================
+4) SYSTEMD-INTEGRATION
+================================================================================
+
+  Service: accel-ppp.service (custom Unit)
+
+  [Unit]
+  Description=accel-ppp VPN Server (L2TP/IPsec)
+  After=network-online.target lo-service-ips.service
+        mariadb.service freeradius.service strongswan.service
+  Requires=lo-service-ips.service
+
+  BOOT-ABHAENGIGKEIT (BASE-005_080 §3):
+  Kanonische Boot-Sequenz aus BASE-005_080:
+  Phase 3: Auth + Tunnel (strongswan, accel-ppp)
+  Phase 4: Firewall + Netzwerk-Services (nftables)
+  accel-ppp startet NACH strongswan.service (After=).
+  nftables laedt NACH den Tunnel-Diensten — das ist BEWUSST so
+  (BASE-005_080 §3 Phase 4 HINWEIS): Tunnel-Interfaces muessen
+  existieren bevor nft-Regeln sie referenzieren koennen.
+  SICHERHEIT: Das Default-Deny auf ppp* (BASE-050, Wildcard-Regel)
+  funktioniert auch ohne existierende PPP-Interfaces, weil nftables
+  Wildcard-Patterns auf zukuenftige Interfaces matcht. Zusaetzlich
+  ist die nftables Default-Policy DROP — kein offener Forward-Pfad
+  ohne geladenes Ruleset.
+
+  RESTART-VERHALTEN:
+  Restart=on-failure, RestartSec=5
+  Bei accel-ppp Crash: alle aktiven L2TP-Sessions sterben.
+  PPP-Interfaces werden vom Kernel entfernt. Clients reconnecten
+  nach LCP-Timeout (typisch 30-120 Sekunden).
+
+================================================================================
+5) IP-POOL STRATEGIE
+================================================================================
+
+  accel-ppp hat KEINEN eigenen IP-Pool. Alle IPs kommen ueber RADIUS:
+
+  1. Client sendet L2TP-Session-Request
+  2. accel-ppp sendet Access-Request an FreeRADIUS
+  3. FreeRADIUS liest Framed-IP-Address aus vpn_connections (Direct-Read)
+  4. Access-Accept mit Framed-IP-Address=<fixed_ip>
+  5. accel-ppp weist die IP per IPCP dem Client zu
+
+  gw-ip-address (10.77.0.10, SERVICE_GW_PPP) ist die Server-Seite
+  des PPP-Links. Alle pppX-Interfaces haben diese IP als lokales Ende.
+
+  KEIN [ip-pool] Abschnitt in der Config. Falls RADIUS keine IP
+  liefert (z.B. bei DB-Fehler), scheitert die Session (Fail-Closed).
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

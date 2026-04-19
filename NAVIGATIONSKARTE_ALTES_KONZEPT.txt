@@ -1,0 +1,474 @@
+================================================================================
+NAVIGATIONSKARTE — ALTES KONZEPT (xp-vpn-stack)
+================================================================================
+VERSION: v1.0
+DATUM: 2026-04-19
+PFAD ALTES KONZEPT: ..\xp-vpn-stack\
+ZWECK: Schnelle Orientierung — welche Dateien sind für welches Thema relevant.
+       Eine neue Claude-Instanz muss NICHT alles lesen, sondern nur die
+       Dateien zum aktuell bearbeiteten Thema.
+
+       WICHTIG: Diese Datei ist eine Navigations- und Lesehilfe, nicht die
+       normative Quelle des alten Konzepts. Die Wahrheit steht in den
+       referenzierten Dateien selbst, nicht in dieser Karte.
+
+BEGRIFFS-BRÜCKE ALT ↔ NEU (WICHTIG):
+
+  Diese Karte indexiert Alt-Konzept-Dateien und benutzt daher
+  die Begriffe des Altkonzepts. Beim Übertrag ins neue Konzept
+  (RetroTunnel) gelten folgende Mappings:
+
+  Alt-Begriff (xp-vpn-stack)    Neu-Begriff (RetroTunnel)
+  ----------------------------- ------------------------------
+  conn_group                    tunnel_type + access_role
+  tunnel_type='LEGACY'          tunnel_type='L2TP_IPSEC'
+  tunnel_type='MODERN'          tunnel_type='WIREGUARD'
+  IKEv2 (strongSwan)            AmneziaWireGuard (awg0)
+  BASE-01_TUNNEL_LEGACY         BASE-030_TUNNEL_L2TP_IPSEC
+  BASE-02_TUNNEL_AWG            BASE-040_TUNNEL_WIREGUARD
+  legacy_auth Tabelle           vpn_connection_l2tp_ipsec_auth
+  Base-Nummerierung BASE-xx     Base-Nummerierung BASE-xxx (3-stellig)
+
+  Wenn in dieser Karte "LEGACY" oder "MODERN" oder "IKEv2" steht,
+  bezieht sich das auf den ORIGINAL-ALTKONZEPT-TEXT. Beim Lesen
+  mental auf die Neu-Begriffe übersetzen.
+
+DELTA ZU v0.1:
+  v0.1 hatte ~30 falsche Dateinamen (19 komplett falsch, 11 Name falsch).
+  v0.2 ist gegen das echte Dateisystem verifiziert (57 Blocks + 12 Decisions
+  einzeln gelesen und abgeglichen, 2026-04-12).
+
+================================================================================
+LESEHINWEIS FÜR CLAUDE
+================================================================================
+Diese Karte ist nach THEMEN sortiert, nicht nach Dateinummern.
+Wenn Marco sagt "wir arbeiten jetzt an Thema X", lies NUR die hier
+gelisteten Dateien für dieses Thema. Das spart Ressourcen.
+
+ACHTUNG bei gekoppelten Themen: Session (T8), Policy Apply (T9),
+AAA (T7), Onboarding (T11) und Connection-Lifecycle sind im alten
+Konzept stark verschränkt. Bei Arbeit an einem dieser Themen
+müssen die angrenzenden Themen mitgelesen werden, sonst entsteht
+ein zu enger Blickwinkel.
+
+Dateipfad-Basis: ..\xp-vpn-stack\blocks\  (sofern nicht anders angegeben)
+Decisions:       ..\xp-vpn-stack\decisions\
+Entwürfe:        ..\xp-vpn-stack\entwuerfe\
+Docs:            ..\xp-vpn-stack\docs\
+
+================================================================================
+THEMA 0 — PROJEKT-META / SCOPE / ZIELE / PRINZIPIEN
+================================================================================
+Kernfrage: Was ist das Projekt? Welche Ziele, Constraints, Prinzipien?
+
+PFLICHT-LEKTÜRE:
+  B010_META_SCOPE.txt
+    → Scope, Constraints, nicht verhandelbare Regeln (SQL-first, XP, Full-Tunnel)
+    → Zonenmodell SERVICE_NET + LEGACY + ADMIN + MODERN
+  B020_GOALS_TARGETS.txt
+    → Prüfbare Ziele G1-G11 (Full-Tunnel, idiotensicher, SQL-first, Stealth)
+  B030_PRINCIPLES_POLICYMODEL.txt
+    → Policy-Prinzipien P1-P7 (WAN-Exposure, Binding, nftables, tc, Identity)
+    → conn_group als Policy-Key, Segment-Trennung
+  B040_STACK_PROTOCOLS.txt
+    → Gesamter technischer Stack: strongSwan + xl2tpd + pppd
+    → LEGACY (IKEv1/L2TP) + ADMIN/MODERN (IKEv2) + FreeRADIUS
+    → Deckt ab was in v0.1 fälschlich als B010-B040 einzeln gelistet war
+
+HINWEIS: B010-B040 sind KEINE Tunnel-Config-Dateien (wie v0.1 behauptete).
+  B010 = Scope, B020 = Goals, B030 = Principles, B040 = Stack-Übersicht.
+  Tunnel-spezifische Details stehen in B070-B090 (Legacy) bzw. B059 (Modern).
+
+ROOT-DATEIEN DES ALTEN KONZEPTS (nicht thematisch, aber Fundament):
+  00_MASTER_v1.0.txt             → Gesamtarchitektur (Fundament-Datei Stufe 1)
+  02_GLOSSAR.txt                 → Kanonische Begriffe (Begriffsdisziplin)
+  03_ASSUMPTIONS_AND_RULES.txt   → Bindende Regeln und Annahmen
+  01_CHANGELOG.txt               → Versionshistorie aller Blocks
+  04_BLOCK_INDEX.txt             → Block-Verzeichnis mit Status/Priorität
+  Diese Dateien gehören keinem Einzelthema, sondern bilden das
+  Gesamtfundament. Sie werden über CLAUDE_BRIEFING "Stufe 1" abgedeckt.
+
+================================================================================
+THEMA 1 — DATENBANK / SCHEMA / IDENTITY
+================================================================================
+Kernfrage: Wie sieht das DB-Schema aus? Welche Tabellen, Felder, Constraints?
+
+PFLICHT-LEKTÜRE:
+  B050_SQL_AAA_RADIUS.txt
+    → AAA-Flow: Auth + Authorization + Accounting über SQL
+    → SimUse=1, Restricted-State, Fail-Closed, Stale-Handling
+    → ACHTUNG: v0.1 nannte diese Datei "B050_DB_SCHEMA_OVERVIEW" — FALSCH
+  B055_DB_SCHEMA_CORE.txt
+    → Kanonisches Schema: customers, vpn_connections, active_session_locks
+    → Feldnamen, Typen, Constraints, Indices — SoT für alles Schema-Bezogene
+  B056_RADIUS_SCHEMA_MAPPING.txt
+    → RADIUS SQL Mapping (radcheck/radreply/radacct) + SimUse-Lock
+    → ACHTUNG: v0.1 nannte diese Datei "B056_FREERADIUS_CONFIG" — FALSCH
+  B058_CONN_GROUP_POLICYKEY_DETERMINISTIC_DERIVATIONS.txt
+    → conn_group als Policy-Key, deterministisch aus SQL
+    → WICHTIG: conn_group wird in RetroTunnel durch tunnel_type +
+      access_role ersetzt. tunnel_type ENUM-Werte sind L2TP_IPSEC
+      und WIREGUARD (nicht LEGACY/MODERN wie im Altkonzept).
+  B345_WRITE_PATH_MATRIX_CONTRACT.txt
+    → Wer darf welche Felder schreiben (SYSTEM/ADMIN/USER)
+
+ERGÄNZEND:
+  B052_DB_OUTAGE_CONTRACT.txt
+    → DB-Down Verhalten: Fail-Closed (neue Sessions) + Freeze (bestehende)
+    → DB_UNKNOWN = exakt wie DB_DOWN (Enforcement identisch)
+  D002_SQL_FIRST_NO_MIGRATION.txt
+    → Entscheidung: SQL ab Tag 1, keine chap-secrets Migration
+
+ENTWÜRFE:
+  entwuerfe/sql-first/ (32 Dateien)
+    → SQL-first Governance: Key-Naming, Prefixe, Alias-Resolver, Drift-Modell
+    → INDEX: entwuerfe/sql-first/SQL-FIRST v1 — 00_INDEX.txt
+    → KERN-NORMEN: NORM-01 bis NORM-07
+
+================================================================================
+THEMA 2 — SETTINGS-SYSTEM (SQL-first Magic Guard)
+================================================================================
+Kernfrage: Wie werden Policy-Parameter verwaltet? Keys, Scopes, Validation?
+
+PFLICHT-LEKTÜRE:
+  B057_SETTINGS_PARAMETER_CANON_SQLFIRST_MAGIC_GUARD.txt
+    → DAS zentrale Settings-Dokument: settings_catalog, Resolution Order,
+      Fail-Class, Effective Value, ~20 kanonische Keys
+
+ERGÄNZEND:
+  B055_DB_SCHEMA_CORE.txt (Schema für settings_* Tabellen)
+  entwuerfe/sql-first/NORM-01 bis NORM-07 (Details zu Prefixen, Alias, Drift)
+
+================================================================================
+THEMA 3 — NETZWERK / IP-POOLS / SEGMENTE / SERVICE-NET
+================================================================================
+Kernfrage: Welche IP-Bereiche gibt es? Wie sind Services gebunden?
+
+PFLICHT-LEKTÜRE:
+  B060_NETPLAN_IPS_SEGMENTS.txt
+    → Netzplan, alle Pools, SERVICE_NET Anchors, IPv4/IPv6 Bereiche
+    → WICHTIG: Im neuen Konzept 5 Pools statt 3
+  B061_DUALSTACK_SLOT_MAPPING_PANEL_STATS.txt
+    → ip_slot als SoT, Materialisierung fixed_ip/fixed_ipv6
+    → Pool-Ampel, Tail-Reserve, Allocator-Randomness
+  B064_IP_LIFECYCLE_DRIFT_GUARDS_RECONCILE.txt
+    → Soft-Delete, Quarantäne, Reuse-Policy, Drift-Guards
+  docs/nft_service_ip_scopes.txt
+    → Service-IP Scopes für nftables (kanonische Referenz)
+
+================================================================================
+THEMA 4 — FIREWALL / NFTABLES / WAN-EXPOSURE / STEALTH
+================================================================================
+Kernfrage: Welche nftables-Regeln gelten? WAN-Stealth? Service-Allowlist?
+
+PFLICHT-LEKTÜRE:
+  B100_WAN_Exposure_Model_(Binding-First, optional Stealth).txt
+    → WAN Exposure: Binding-First, optionaler Stealth-Zusatz
+    → ACHTUNG: v0.1 nannte B100 "IKEV2_CONFIG" — KOMPLETT FALSCH
+  B063_NFT_ENFORCEMENT_ANTISCAN_EGRESS_DNS.txt
+    → nftables Enforcement, Anti-Scan, Egress, DNS-Regeln
+  B110_NFT_L2TP_ONLY_VIA_IPSEC.txt
+    → L2TP (UDP 1701) nur via IPsec/XFRM erlaubt
+    → ACHTUNG: v0.1 nannte B110 "SYSTEMD_SERVICES" — KOMPLETT FALSCH
+  B120_NFT_FORWARD_NAT_FULLTUNNEL.txt
+    → Forward + NAT für Full-Tunnel (pppX → WAN)
+    → ACHTUNG: v0.1 nannte B120 "SYSCTL_HARDENING" — KOMPLETT FALSCH
+  B130_NFT_PEER_ISOLATION.txt
+    → Peer Isolation: User↔User Traffic grundsätzlich DROP
+    → ACHTUNG: v0.1 nannte B130 "MTU_MSS_OFFLOAD" — KOMPLETT FALSCH
+  B140_NFT_OUTBOUND_ABUSE_BLOCKS.txt
+    → Outbound Abuse: SMTP/SMB/NetBIOS für alle conn_groups geblockt
+  B300_SECURITY_STEALTH_GUIDELINES.txt
+    → Übergreifende Security & Stealth Leitlinien
+    → ACHTUNG: v0.1 nannte B300 "SERVICE_RELIABILITY" — FALSCH
+  docs/nft_service_ip_scopes.txt
+    → Service-IP Scopes für nftables
+
+================================================================================
+THEMA 5 — TUNNEL LEGACY (L2TP/IPsec)
+================================================================================
+Kernfrage: Wie funktioniert der L2TP/IPsec Pfad für XP/Vista?
+
+PFLICHT-LEKTÜRE:
+  B040_STACK_PROTOCOLS.txt
+    → Gesamter Stack inkl. strongSwan IKEv1, xl2tpd, pppd, PSK
+    → ACHTUNG: v0.1 listete B010-B040 als einzelne Tunnel-Dateien.
+      Real: B010=Scope, B020=Goals, B030=Principles, B040=Stack.
+      Alle Tunnel-Details stehen IN B040 (nicht in B010/B020/B030).
+  B070_CRYPTO_LEGACY_DEBIAN13.txt
+    → Legacy Crypto für XP: 3DES/SHA1/MODP1024, OpenSSL Legacy Provider
+    → ACHTUNG: v0.1 listete dies als "B090_CRYPTO_LEGACY_COMPAT" — FALSCH
+  B080_XP_NATT_REGFIX.txt
+    → XP NAT-T Registry Fix (AssumeUDPEncapsulationContextOnSendRule)
+    → ACHTUNG: In v0.1 KOMPLETT FEHLEND
+  B090_MTU_MSS_STABILITY.txt
+    → MTU/MSS Clamp auf Forward-Pfad (Start 1300, Fallback 1280)
+    → ACHTUNG: v0.1 nannte B090 "CRYPTO_LEGACY_COMPAT" — FALSCH
+
+KONTEXT-HINWEIS:
+  Der Kanon nennt xl2tpd/pppd, aber LIVE läuft accel-ppp.
+  Das ist ein bekannter Konsistenzfehler (dokumentiert in Plans-Entwurf).
+  In RetroTunnel: Umsetzung in BASE-030_TUNNEL_L2TP_IPSEC (M2-030).
+  tunnel_type ENUM-Wert ist L2TP_IPSEC (war LEGACY im Altkonzept).
+
+================================================================================
+THEMA 6 — TUNNEL MODERN (IKEv2 → wird WIREGUARD in RetroTunnel)
+================================================================================
+Kernfrage: Was war für IKEv2 geplant? Was entfällt, was bleibt?
+
+ALT-BEGRIFF ("MODERN") im Altkonzept = NEU-BEGRIFF ("WIREGUARD") in
+RetroTunnel. Im Altkonzept war der Modern-Pfad IKEv2/strongSwan. Im
+neuen Konzept ist es AmneziaWireGuard. Das Thema heißt in der Karte
+weiter "MODERN", weil die Block-Dateien so bezeichnet sind.
+
+PFLICHT-LEKTÜRE (zum Verständnis, NICHT zur Übernahme):
+  B059_IKEV2_CREDENTIALS_GATE0_CERTTRUST_OPS_CONTRACT.txt
+    → IKEv2 Credentials: Gate-0 Server-Zertifikat (Let's Encrypt),
+      Gate-1 EAP-MSCHAPv2, Failure-Modes, fail-closed
+    → ENTFÄLLT in RetroTunnel (AmneziaWireGuard hat andere Auth)
+  B040_STACK_PROTOCOLS.txt
+    → Abschnitt ADMIN/MODERN: IKEv2 Dual-Stack, UDP 500/4500+ESP
+
+KONTEXT-HINWEIS:
+  ALLES was IKEv2/strongSwan-spezifisch ist (VICI, EAP-MSCHAPv2 Gate-1,
+  Server-Zertifikat Gate-0, UDP 500/4500+ESP Exposure) ENTFÄLLT.
+  AmneziaWireGuard hat eine fundamental andere Architektur
+  (PublicKey-Auth, dediziertes awg0-Interface, UDP-Single-Port).
+  Umsetzung: BASE-040_TUNNEL_WIREGUARD (M2-040).
+
+================================================================================
+THEMA 7 — AAA / RADIUS / AUTHENTICATION
+================================================================================
+Kernfrage: Wie funktioniert Auth/Accounting? FreeRADIUS + SQL?
+
+PFLICHT-LEKTÜRE:
+  B050_SQL_AAA_RADIUS.txt (AAA-Flow, SimUse, Restricted)
+  B055_DB_SCHEMA_CORE.txt (Schema: radcheck/radreply/radacct)
+  B056_RADIUS_SCHEMA_MAPPING.txt (RADIUS↔SQL Mapping + SimUse-Lock)
+  D002_SQL_FIRST_NO_MIGRATION.txt (Entscheidung SQL-first)
+  D012_SESSION_CONTROL_A_B.txt
+    → Session-Control: radacct=Truth (A), Locks=Guard (B), Janitor=Repair
+
+ERGÄNZEND:
+  B165_ACCOUNTING_COLLECTOR_SESSION_MAPPING.txt
+    → Accounting Collector, /run/vpn-sessions/*.env Mapping
+  B340_FAIL2BAN_RADIUS_EVENT_CLASSIFICATION.txt
+    → F2B_EVENT Logformat, Klassifikation
+
+================================================================================
+THEMA 8 — SESSION-MANAGEMENT / JANITOR / SIMUSE
+================================================================================
+Kernfrage: Wie werden Sessions verwaltet? Ghosts? Locks? Stale?
+
+PFLICHT-LEKTÜRE:
+  B165_ACCOUNTING_COLLECTOR_SESSION_MAPPING.txt
+    → Session Mapping: /run/vpn-sessions/*.env, pppX → connection_id
+  B166_POLICY_APPLY_RECONCILE.txt
+    → Policy Apply/Reconcile, FLUSH+REBUILD, Single-Writer, Exit-Codes
+  B167_WIRING_HOOKS_SYSTEMD.txt
+    → Hooks, Timer, systemd Services, Connect-Gate Mechanik
+  B168_STALE_SESSION_JANITOR.txt
+    → Periodischer Janitor: Ghost-Erkennung, Schließ-Regeln
+  B169_RADIUS_LOGIN_FLOW_ONDEMAND_JANITOR.txt
+    → On-Demand Janitor im Login-Flow (2-Stufen-Modell)
+  B170_SESSION_STABILITY_DPD_LCP.txt
+    → DPD/LCP Echo, Keepalive, Ghost-Prevention
+  B171_SESSION_CONTROL_KNOTENPUNKT.txt
+    → Zusammenfassung Session-Control (Truth/Guard/Repair/Override)
+  D012_SESSION_CONTROL_A_B.txt
+    → Architektur-Entscheidung: Model A (radacct) + Model B (locks)
+
+================================================================================
+THEMA 9 — POLICY APPLY / RECONCILE / HARD-CUT
+================================================================================
+Kernfrage: Wie wird SQL-Policy in den Kernel übertragen? Drift-Reparatur?
+
+PFLICHT-LEKTÜRE:
+  B166_POLICY_APPLY_RECONCILE.txt
+    → DAS zentrale Dokument: vpn-policy-apply Tool, Modi,
+      Single-Target + Customer-Scope + Reconcile, Hard-Cut, Exit-Codes
+  B150_Walled_Garden_Restricted_Mode_(QuotaExpiryManual).txt
+    → Restricted Mode: nftables Sets, Allowlist, Hard-Cut bei Statuswechsel
+
+ERGÄNZEND:
+  B167_WIRING_HOOKS_SYSTEMD.txt (Wiring/Hooks)
+  B052_DB_OUTAGE_CONTRACT.txt (DB-Down → Fail-Closed/Freeze)
+
+================================================================================
+THEMA 10 — DNS / ENFORCEMENT / ADGUARD
+================================================================================
+Kernfrage: Wie funktioniert DNS-Stack und DNS-Zwang?
+
+PFLICHT-LEKTÜRE:
+  B200_DNS_UNBOUND_ADGUARD.txt
+    → DNS-Stack: Unbound (Upstream) + AdGuardHome (Frontend)
+    → ACHTUNG: v0.1 nannte B200 "OPENRESTY_REWRITE" — KOMPLETT FALSCH
+  B210_DNS_ENFORCEMENT_DNAT53.txt
+    → DNAT53: Aller DNS-Traffic zwangsweise auf SERVICE_DNS
+    → Dualstack: v4+v6 für ADMIN/MODERN
+
+================================================================================
+THEMA 11 — ONBOARDING / VERIFY / CLAIM
+================================================================================
+Kernfrage: Wie werden neue Kunden/Geräte aufgenommen?
+
+PFLICHT-LEKTÜRE:
+  B155_Onboarding_Verify-Wall_Claim_Token.txt
+    → Verify-Wall, Claim-Flow, Grace/Overdue, Hard-Stop
+  D008_VERIFY_WALL_CUSTOMER_SCOPE.txt
+    → Entscheidung: Verify ist Customer-Attribut, nicht pro Connection
+
+ERGÄNZEND:
+  B150_Walled_Garden_Restricted_Mode_(QuotaExpiryManual).txt (Restricted bei Unclaimed)
+  B280_PANEL_FEATURES_USER_ADMIN.txt (Panel: Claim-Button, Verify-Anzeige)
+
+================================================================================
+THEMA 12 — WEBPANEL / ADMIN / USER VIEWS
+================================================================================
+Kernfrage: Was kann der User/Admin im Panel sehen und tun?
+
+PFLICHT-LEKTÜRE:
+  B280_PANEL_FEATURES_USER_ADMIN.txt → Features, Rollen, Funktionen
+  B285_PANEL_SECURITY_MODEL.txt → Security, RateLimit, AuthZ, CSRF, Scopes
+  B270_DIAG_ENDPOINT.txt → /diag JSON Endpoint (Support + Setup-Tool)
+  D003_SEGMENTATION_SINGLE_WEBPANEL.txt → Single Panel Surface
+
+================================================================================
+THEMA 13 — WEBSTACK / OPENRESTY / PHP
+================================================================================
+Kernfrage: Wie ist der Webserver aufgebaut?
+
+PFLICHT-LEKTÜRE:
+  B220_WEBSTACK_OPENRESTY_PHPFPM_DB.txt
+    → OpenResty + PHP-FPM + DB + phpMyAdmin, SERVICE_WEB Binding
+    → ACHTUNG: v0.1 nannte B220 "ADGUARD_CONFIG" — KOMPLETT FALSCH
+  D001_OPENRESTY_OVER_APACHE.txt → Warum OpenResty statt Apache
+
+================================================================================
+THEMA 14 — BLOCKPAGE / MITM / CA / CLIENT-SETUP
+================================================================================
+Kernfrage: Wie funktioniert HTTPS Blockpage? Wie wird der Client eingerichtet?
+
+PFLICHT-LEKTÜRE:
+  B230_HTTPS_BLOCKPAGE_MITM_CA.txt
+    → HTTPS Blockpage via MITM, interne Root-CA, On-the-fly Certs
+    → Cached/Rate-Limited Cert-Generierung
+    → ACHTUNG: v0.1 nannte B230 "WEBSTACK_OPENRESTY_PHPFPM_MYSQL" — FALSCH
+  B250_MYPAL_NSS_CERTIMPORT.txt
+    → MyPal NSS cert9.db Import (Browser-Truststore)
+    → ACHTUNG: v0.1 nannte B250 "INTERNAL_CA_ONTHEFLY" — FALSCH
+  B240_CLIENT_SETUP_TOOL_XP.txt
+    → Client Setup-Tool: NAT-T Fix, VPN-Config, CA-Import, Connectivity-Test
+    → ACHTUNG: v0.1 nannte B240 "BLOCKPAGE_DESIGN" — FALSCH
+  B260_TIME_NTP_STRATEGY.txt
+    → NTP-Strategie: Pre-Connect + Post-Connect, SERVICE_NTP
+    → ACHTUNG: v0.1 nannte B260 "MYPAL_NSS_TRUST" — FALSCH
+  D004_MITM_BLOCKPAGE_APPROACH.txt → Entscheidung MITM Approach
+  D006_NTP_MANDATORY_XP.txt → NTP ist Pflicht
+
+================================================================================
+THEMA 15 — FAIL2BAN / ABUSE / REASON CODES
+================================================================================
+Kernfrage: Wie werden Auth-Events klassifiziert? Banning? NAT-Safety?
+
+PFLICHT-LEKTÜRE:
+  B340_FAIL2BAN_RADIUS_EVENT_CLASSIFICATION.txt
+    → F2B_EVENT Format, Klassifikation, Self-DoS Schutz, NAT-Safety
+  B341_FAIL2BAN_JAILS_POLICY_VALUES.txt
+    → Jails (RADIUS + IKE), Thresholds, NAT-Safety Policy-Values
+  B342_POLICY_OUTCOME_REASON_CODES_MATRIX.txt
+    → Reason Registry: R_* Codes, Domains, Outcomes, Prioritätenkette
+  B343_FAIL2BAN_POLICY_OUTCOME_E2E_PACKAGE.txt
+    → E2E Zusammenspiel Auth→Logs→Ban / Outcome→Enforcement
+  D010_FAIL2BAN_RADIUS_EVENT_CLASSIFICATION_POLICY_DENY.txt
+    → Entscheidung: Event-Klassifikation + POLICY_DENY
+  D011_POLICY_OUTCOME_DENY_RESTRICT_REASON_CODES.txt
+    → DENY/RESTRICT Trennung
+
+================================================================================
+THEMA 16 — LOGGING / MONITORING / RETENTION
+================================================================================
+Kernfrage: Was wird geloggt? Wie lange? Alerts?
+
+PFLICHT-LEKTÜRE:
+  B330_LOGGING_MONITORING_RETENTION_ALERTS.txt
+    → Grundprinzipien, SQL-first Keys, Rotation, Alerts, Heavy-User
+
+================================================================================
+THEMA 17 — TESTS / ACCEPTANCE / PROOFS
+================================================================================
+Kernfrage: Wie wird bewiesen, dass das System korrekt funktioniert?
+
+PFLICHT-LEKTÜRE:
+  B310_TESTS_ACCEPTANCE_CATALOG.txt
+    → 1040 Zeilen E2E-Testkatalog: SimUse, DNS, /diag, Firewall,
+      Proofs, Onboarding, F2B, MTU/MSS, Logging
+
+================================================================================
+THEMA 18 — QOS / SPEED-LIMITING / TC
+================================================================================
+Kernfrage: Wie funktioniert per-Client Bandbreitenkontrolle?
+
+PFLICHT-LEKTÜRE:
+  B160_TC_QOS_PER_PPP.txt → tc auf pppX, CAKE/fq_codel, Profile aus SQL
+
+ENTWÜRFE:
+  entwuerfe/peak_mode_v2/ (17 Dateien)
+    → CPU-Overload Schutzmodus: SoftIRQ-basiert, State-Machine
+
+================================================================================
+THEMA 19 — PHASEN-PLAN / ROLLOUT
+================================================================================
+Kernfrage: In welcher Reihenfolge wird implementiert?
+
+PFLICHT-LEKTÜRE:
+  B290_PHASE_PLAN_ROLLOUT.txt
+    → PH1–PH10: VPN-Baseline → QoS → DNS → CA → Panel → Ops →
+      Accounting → Restricted → Monitoring → Extras
+
+================================================================================
+THEMA 20 — PLANS / TARIFE
+================================================================================
+Kernfrage: Wie funktioniert das Tarifsystem?
+
+ENTWÜRFE:
+  entwuerfe/Plans/PLANS_KONZEPTSTAND_BEREINIGT.txt
+    → Server-Rahmendaten, Kanon-Regeln, Enforcement-Mechanismen,
+      DB-Schema Lücken, Live-Stand, offene Fragen
+  entwuerfe/Plans/was chatgpt noch weiss.txt
+    → Brain-Dump, nicht normativ. Nur für Kontext.
+
+================================================================================
+THEMA 21 — MAINTENANCE / WARTUNGSMODUS
+================================================================================
+Kernfrage: Wie funktioniert der globale Wartungsmodus?
+
+PFLICHT-LEKTÜRE:
+  B151_MAINTENANCE_MODE_GLOBAL_(Panel_Toggle_RESTRICT_Portal).txt
+    → Maintenance bei DB_OK: Global RESTRICT + Wartungsportal
+    → ACHTUNG: v0.1 nannte B151 "IPV6_LEAK_CONTROL" — KOMPLETT FALSCH
+
+ERGÄNZEND:
+  B052_DB_OUTAGE_CONTRACT.txt (Abgrenzung: DB_DOWN ≠ Maintenance)
+
+================================================================================
+THEMA 22 — SONSTIGES / OPS / INFRASTRUKTUR
+================================================================================
+  B180_SYSTEMD_RESTART_HEALTHCHECKS.txt
+    → systemd Auto-Restart, Healthchecks (Service self-healing)
+    → ACHTUNG: v0.1 nannte B180 "OFFLOAD_TUNING" — FALSCH
+  B190_OFFLOAD_TUNING_DEFAULT.txt
+    → Offload-Tuning: TSO/GSO/GRO off auf WAN-NIC (VM Stabilität)
+  B320_BACKUP_RESTORE_DR_RUNBOOK.txt
+    → Backup/Restore/DR Runbook (Skeleton)
+  B344_DOD_OPEN_DECISIONS_OPEN_QUESTIONS.txt
+    → Offene Fragen/Entscheidungen, DoD-Restliste
+  D005_OFFLOAD_DEFAULT_VM.txt → Entscheidung: Offload-Tuning als Default
+  D007_SUBACCOUNTS_PER_DEVICE.txt → Entscheidung: Pro Gerät eigene Credentials
+  D009_CONNECT_GATING_D1A_SQL_FIRST.txt → Connect-Gate Entscheidung
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

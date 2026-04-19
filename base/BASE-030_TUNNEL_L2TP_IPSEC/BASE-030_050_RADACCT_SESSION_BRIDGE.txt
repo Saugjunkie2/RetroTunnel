@@ -1,0 +1,250 @@
+================================================================================
+BASE-030 — RADACCT-SESSION-BRIDGE (R-15 Realisierung)
+================================================================================
+DATEI: BASE-030_050_RADACCT_SESSION_BRIDGE.txt
+STATUS: ACTIVE
+
+================================================================================
+1) ZWECK UND KONTEXT
+================================================================================
+
+  Die Session-Bridge ist die konkrete Realisierung von R-15
+  (Owner ≠ Runner) fuer den L2TP-Pfad. Sie verbindet zwei Welten:
+
+  RADIUS-WELT (FreeRADIUS/accel-ppp):
+  - RADIUS Accounting schreibt Acct-Start in radacct
+  - radacct ist KEINE Session-Truth (die ist vpn_sessions, BASE-070)
+  - radacct ist Forensik-Archiv UND Korrelationsquelle fuer die Bridge
+
+  VPN-SESSION-WELT (vpn_sessions, BASE-070):
+  - vpn_sessions ist die kanonische Session-Truth
+  - vpn_session_locks sichert SimUse=1
+
+  Die Bridge liest den korrelierten radacct-Eintrag und schreibt
+  den vpn_sessions INSERT + vpn_session_locks DELETE.
+
+  OWNERSHIP (R-15):
+  - Zustandsregeln:  BASE-070 (Schema, Invarianten, Lifecycle)
+  - Runner/Trigger:  BASE-030 (ip-up Hook fuehrt den INSERT aus)
+  - RADIUS:          Entscheidet Auth (Accept/Reject)
+  - System-User:     Committet den Session-Start
+
+================================================================================
+2) BRIDGE-MECHANISMUS (Modell A: radacct-Korrelation)
+================================================================================
+
+  TRIGGER: ip-up Hook (BASE-030_040 §3, Schritt 2)
+  ZEITPUNKT: Nach Session-Mapping, UNTER aktivem Default-Deny
+
+  WARUM RADACCT-KORRELATION (Entscheidung aus F-030-002):
+  Die Acct-Session-Id ($SID) ist im ip-up Hook NICHT als Env-Var
+  verfuegbar (stock accel-ppp 1.13.0, verifiziert gegen Quellcode).
+  Ausserdem verlangt BASE-020_020 §5 dass source_event_at der
+  tatsaechliche Acct-Start-Zeitpunkt ist, NICHT NOW() beim INSERT.
+  Daher: Die Bridge korreliert den radacct-Eintrag und liest
+  session_token + source_event_at direkt aus radacct.
+
+  ABLAUF:
+  1. ip-up Hook wird ausgefuehrt (accel-ppp pppd_compat, asynchron)
+  2. Hook liest PEERNAME (subaccount_login) aus Env-Var
+  3. Hook fuehrt SQL-Lookup durch:
+     SELECT id, customer_id, tunnel_type, op_status, ip_slot, fixed_ip
+     FROM vpn_connections
+     WHERE subaccount_login = '$PEERNAME'
+     → Liefert vpn_connection_id fuer den Session-INSERT
+
+  4. Hook prueft op_status:
+     ACTIVE → weiter
+     RESTRICTED → weiter (mit Restricted-Enforcement in Policy-Apply)
+     DISABLED → ABBRUCH (sollte nicht vorkommen, RADIUS haette
+                bereits abgelehnt — Defense-in-Depth)
+
+  5. RADACCT-KORRELATION (bounded retry):
+     Der Hook wartet auf den korrelierten radacct-Eintrag:
+
+     SELECT acctsessionid, acctstarttime
+     FROM radacct
+     WHERE username = '$PEERNAME'
+       AND nasipaddress = '<SERVER_WAN_IP>'
+       AND acctstoptime IS NULL
+       AND acctstarttime >= NOW() - INTERVAL
+           vpn_l2tp_radacct_correlation_window_seconds SECOND
+     ORDER BY acctstarttime DESC LIMIT 1
+
+     KORRELATIONSKRITERIEN (verschaerft gegenueber v0.1):
+     - username = PEERNAME (Pflicht)
+     - nasipaddress = Server-WAN-IP (schraenkt auf diesen NAS ein)
+     - acctstoptime IS NULL (nur offene Sessions)
+     - acctstarttime >= NOW() - correlation_window (enge Zeitnaehe,
+       verhindert Fehlkorrelation mit alten Eintraegen)
+
+     OPTIONALE HAERTUNG (fuer spaetere Phasen):
+     Falls verfuegbar, zusaetzlich matchen auf:
+     - callingstationid = $CALLING_SID (public Client-IP)
+     - framedipaddress = $IPREMOTE (zugewiesene VPN-IP)
+     Diese Felder reduzieren Fehlkorrelationen bei schnellen
+     Reconnects desselben Users deutlich.
+     ARCHITEKTUR-OPTION: sid-in-auth=1 in accel-ppp wuerde die
+     Acct-Session-Id bereits im Access-Request mitsenden. Dann
+     koennte FreeRADIUS sie in einer Zwischentabelle speichern
+     und die Bridge koennte sie dort lesen statt radacct zu
+     durchsuchen. Das ist ein staerkerer Pfad, erfordert aber
+     Aenderungen in BASE-020 (FreeRADIUS Config). Deferred.
+
+     BOUNDED RETRY:
+     Falls kein Treffer (Acct-Start noch nicht in radacct):
+     - Retry bis zu vpn_l2tp_radacct_retry_count Mal
+     - Intervall: vpn_l2tp_radacct_retry_interval_seconds
+     - Maximale Wartezeit: retry_count × retry_interval (abgeleitet,
+       KEIN eigener Settings-Key — Drift-Vermeidung)
+     - Nach Timeout ohne Treffer: ABBRUCH, kein Release (Fail-Closed)
+
+     SETTINGS-KEYS (SQL-first, R-03, KANDIDATEN FUER BASE-090):
+       vpn_l2tp_radacct_correlation_window_seconds
+         Korrelationsfenster fuer radacct-Lookup. Default: 30.
+         Muss Worst-Case-Latenz zwischen Acct-Start-Versand und
+         radacct-INSERT abdecken.
+       vpn_l2tp_radacct_retry_count
+         Anzahl Korrelationsversuche. Default: 5.
+       vpn_l2tp_radacct_retry_interval_seconds
+         Pause zwischen Versuchen. Default: 1.
+       Timeout (abgeleitet): retry_count × retry_interval.
+       Fail-Class: FAIL_SAFE_HARDCAP (tighten-only).
+       Failsafe: correlation_window=10, retry_count=3, interval=1.
+       Owner: BASE-030. Katalog-Eintrag: BASE-090.
+
+     MEHRDEUTIGKEIT:
+     Falls >1 Treffer: ABBRUCH, kein Release (Fail-Closed).
+     Log: ERROR mit Details fuer Debugging.
+
+     ACCT-DELAY-START:
+     accel-ppp kennt den Parameter acct-delay-start (Verzoegerung
+     des Acct-Start-Pakets). Dieser MUSS auf 0 stehen (Invariante),
+     sonst vergroessert sich das Timing-Fenster unkontrolliert.
+
+  6. Hook fuehrt vpn_sessions INSERT aus (8 Pflichtfelder,
+     BASE-020_020 §5 Session-Signal-Vertrag):
+
+     INSERT INTO vpn_sessions (
+       vpn_connection_id,    -- aus SQL-Lookup (Schritt 3)
+       tunnel_type,          -- 'L2TP_IPSEC' (fest fuer diesen Pfad)
+       client_ipv4,          -- $IPREMOTE (Framed-IP-Address)
+       client_ipv6,          -- NULL (L2TP_IPSEC ist IPv4-only)
+       truth_source,         -- 'RADIUS_ACCT' (BASE-020 Vertrag)
+       session_token,        -- radacct.acctsessionid (Schritt 5)
+       runtime_ref,          -- $IFNAME (ppp0, ppp1, ...)
+       source_event_at       -- radacct.acctstarttime (Schritt 5)
+     )
+
+     WICHTIG: session_token und source_event_at kommen aus der
+     radacct-Korrelation (Schritt 5), NICHT aus Env-Vars oder NOW().
+     Dies ist die Realisierung des BASE-020_020 §5 Vertrags:
+     "source_event_at = tatsaechlicher Zeitpunkt des Quell-Events,
+      NICHT identisch mit NOW() beim INSERT."
+
+  7. Hook loescht vpn_session_locks (DELETE-Modell, BASE-020 Vertrag):
+     DELETE FROM vpn_session_locks
+     WHERE vpn_connection_id = <id>
+     (Lock-Row wird entfernt, nicht aktualisiert. Sauber, kein
+      stale State. Owner der Lock-Semantik: BASE-070.)
+
+  8. Hook schreibt VPN_CONNECTION_ID in Session-Mapping nach:
+     echo "VPN_CONNECTION_ID=<id>" >> /run/vpn-sessions/<IFNAME>.env
+     (Ergaenzt die in Schritt 1 geschriebene Datei)
+
+  DB-USER FUER BRIDGE:
+  Der ip-up Hook laeuft als root und nutzt einen dedizierten
+  DB-User (z.B. vpn_system@localhost) mit minimalen Rechten:
+  - SELECT auf vpn_connections (Lookup)
+  - SELECT auf radacct (Korrelation)
+  - INSERT auf vpn_sessions (Session-Start)
+  - DELETE auf vpn_session_locks (Lock-Release)
+  - SELECT auf vpn_session_locks (Lock-Pruefung)
+
+  KEIN Schreibzugriff auf vpn_connections, web_customers oder
+  andere Tabellen. Least-Privilege (BASE-000 Prinzip).
+
+================================================================================
+3) FAIL-CLOSED SEMANTIK
+================================================================================
+
+  Die Bridge hat vier Fehlerpfade:
+
+  DB NICHT ERREICHBAR:
+  - SQL-Lookup (Schritt 3) scheitert
+  - KEIN vpn_sessions INSERT, KEIN Release
+  - Traffic bleibt gesperrt (Default-Deny)
+  - Fail-Closed (DP-04)
+
+  VPN_CONNECTION NICHT GEFUNDEN:
+  - SQL-Lookup liefert 0 Rows (unbekannter Username)
+  - Sollte nicht vorkommen (RADIUS haette abgelehnt)
+  - Trotzdem: KEIN INSERT, kein Release, Fail-Closed
+
+  RADACCT-KORRELATION FEHLGESCHLAGEN:
+  - Kein radacct-Eintrag nach 5 Retries (Timeout)
+  - Oder: Mehrdeutigkeit (>1 Kandidat)
+  - KEIN vpn_sessions INSERT, kein Release, Fail-Closed
+  - Log: ERROR mit Details (PEERNAME, Timing, Kandidaten-Anzahl)
+
+  OP_STATUS = DISABLED:
+  - SQL-Lookup findet Connection, aber Status ist DISABLED
+  - Sollte nicht vorkommen (RADIUS prueft Status)
+  - Defense-in-Depth: KEIN INSERT, kein Release
+  - Log: WARNING (Race-Condition oder DB-Inkonsistenz)
+
+================================================================================
+4) ABGRENZUNG: WAS DIE BRIDGE NICHT MACHT
+================================================================================
+
+  - KEINE Auth-Entscheidung (das macht RADIUS in BASE-020)
+  - KEINE IP-Zuweisung (das macht RADIUS via Framed-IP-Address)
+  - KEINE Policy-Entscheidung (das macht Policy-Apply in BASE-080)
+  - KEINE Lock-Acquisition (SimUse-Lock wird von RADIUS geprueft,
+    die Bridge LOESCHT den Lock nach Session-Start)
+  - KEINE vpn_sessions Schema-Definition (das macht BASE-070)
+  - KEINE Pre-Traffic-Sperre (das macht nftables Default-Deny, BASE-050)
+  - KEIN Release (das macht Policy-Apply nach erfolgreicher Bridge)
+
+================================================================================
+5) RADACCT ALS FORENSIK-ARCHIV UND KORRELATIONSQUELLE
+================================================================================
+
+  radacct dient zwei Zwecken:
+
+  a) KORRELATIONSQUELLE fuer die Session-Bridge:
+     acctsessionid → session_token in vpn_sessions
+     acctstarttime → source_event_at in vpn_sessions
+     Dies ist der Kanonpfad fuer L2TP_IPSEC Session-Truth.
+
+  b) FORENSIK-ARCHIV (langfristig):
+     Traffic-Volumen, Session-Dauer, Acct-Session-Id
+     Billing-Grundlage, Cross-Check gegen vpn_sessions
+
+  STALE-SESSIONS IN RADACCT:
+  Bei hartem Reboot/Crash bleiben radacct-Eintraege mit
+  acctstoptime = NULL stehen. Das beeinflusst SimUse wenn
+  FreeRADIUS simul_count_query gegen radacct prueft.
+  Loesung: Boot-Janitor (BASE-070) setzt beim Start alle
+  offenen radacct-Eintraege auf beendet:
+    UPDATE radacct SET acctstoptime = NOW(),
+    acctterminatecause = 'NAS-Reboot'
+    WHERE acctstoptime IS NULL
+
+================================================================================
+6) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  - Bridge-Status: Panel zeigt ob der letzte ip-up Hook erfolgreich
+    war (aus Hook-Log oder dedizierter Status-Tabelle)
+  - Korrelations-Health: Panel zeigt Erfolgs-/Fehlerrate der
+    radacct-Korrelation (Retries, Timeouts, Mehrdeutigkeiten)
+  - Session-Truth: Panel liest vpn_sessions (nicht radacct)
+  - Forensik: Panel kann radacct als historisches Archiv anzeigen
+  - Stale-Count: Panel zeigt offene radacct-Eintraege als Health
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

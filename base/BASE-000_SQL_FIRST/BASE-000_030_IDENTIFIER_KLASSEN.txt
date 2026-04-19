@@ -1,0 +1,63 @@
+================================================================================
+BASE-000 — IDENTIFIER-KLASSEN
+================================================================================
+DATEI: BASE-000_030_IDENTIFIER_KLASSEN.txt
+
+Aus der Diskussion hat sich gezeigt: subaccount_login wurde als
+"universeller Connection-Identifier" missbraucht, obwohl es ein
+L2TP/IPsec-Credential ist. BASE-000 definiert die Klassen klar.
+
+================================================================================
+1) CREDENTIAL (Auth-Material, tunnelspezifisch)
+================================================================================
+
+  L2TP_IPSEC (tunnel_type = 'L2TP_IPSEC'):
+    subaccount_login    RADIUS-Username (vpn_[a-z2-7]{16})
+    subaccount_nt_hash  MSCHAPv2 Secret (NT-Hash)
+    -> Leben in: vpn_connection_l2tp_ipsec_auth
+    -> RADIUS liest diese Daten fuer Auth
+
+  WIREGUARD (tunnel_type = 'WIREGUARD'):
+    wg_public_key       WireGuard PublicKey (Base64, UNIQUE)
+    wg_preshared_key    WireGuard PresharedKey (optional)
+    -> Leben in: wg_connection_auth
+    -> RADIUS sieht diese Daten NIE
+
+  GLOBAL:
+    ipsec_psk           IPsec Pre-Shared Key (L2TP/IPsec, global)
+    -> Lebt NICHT in der DB (Datei-basiert, strongSwan/xl2tpd)
+
+================================================================================
+2) CONNECTION-REFERENZ (tunnelneutral, generiert)
+================================================================================
+
+  connection_ref        Generierter, eindeutiger, menschenlesbarer
+                        Identifier pro Connection. Tunnelneutral.
+                        Immutable nach Erstellung. Supporttauglich.
+    -> Lebt in: vpn_connections
+    -> Format: con_[a-z2-7]{12} (OPEN-SQL-01 CLOSED, Marco 2026-04-17.
+       Detail: BASE-010_040_IDENTIFIER_KLASSEN §2)
+    -> Zweck: Panel-Anzeige, Support, Logs, wenn kein display_name
+    -> IST KEIN Auth-Credential
+
+================================================================================
+3) ANZEIGENAME (User-Alias, optional)
+================================================================================
+
+  display_name          Frei waehlbarer Name im Panel ("Mein Laptop").
+                        Optional (NULL erlaubt). Kein UNIQUE.
+    -> Lebt in: vpn_connections
+    -> Panel-Fallback wenn NULL:
+      IMMER connection_ref (tunnelneutral, fuer beide Tunnel-Typen).
+      subaccount_login ist NUR Credential, KEIN Anzeige-Fallback.
+      wg_connection_name ist tunnelspezifisch, KEIN panelweiter Fallback.
+    -> IST KEIN Identifier, IST KEIN Auth-Credential
+
+================================================================================
+4) PRIMAERSCHLUESSEL (DB-intern)
+================================================================================
+
+  vpn_connections.id    BIGINT UNSIGNED, AUTO_INCREMENT.
+                        Fuer JOINs, FKs, interne Referenzen.
+    -> NICHT fuer Panel-Anzeige, NICHT fuer Support-Kommunikation.
+================================================================================

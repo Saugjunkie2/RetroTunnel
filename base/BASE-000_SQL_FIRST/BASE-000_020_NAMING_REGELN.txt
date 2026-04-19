@@ -1,0 +1,91 @@
+================================================================================
+BASE-000 — NAMING-REGELN
+================================================================================
+DATEI: BASE-000_020_NAMING_REGELN.txt
+
+================================================================================
+1) PRAEFIX-EBENEN (drei verschiedene Kontexte)
+================================================================================
+
+  Es gibt drei Ebenen auf denen Prefixe verwendet werden.
+  Diese duerfen NICHT verwechselt werden.
+
+  TABELLEN-PRAEFIX (Sicherheitszone, DB-Ebene)
+    Zweck: Ordnet eine Tabelle einer Sicherheitszone zu.
+    Muster: prefix_tabellenname (z.B. vpn_connections, web_customers)
+    Definiert in: BASE-000_010_DATENBANK_UND_SICHERHEITSZONEN §3
+    Steuert: DB-User GRANTs, Zugriffskontrolle
+
+  KEY-PRAEFIX (Settings-/Policy-Domaene, Katalog-Ebene)
+    Zweck: Ordnet einen Settings-Key einer Domaene zu.
+    Muster: prefix_keyname (z.B. vpn_pending_ttl_seconds)
+    Definiert in: BASE-000_010_DATENBANK_UND_SICHERHEITSZONEN §3
+    Steuert: Resolver, Panel-Gruppierung, Alias-Zuordnung
+
+  WERT-PRAEFIX (Identifier-Unterscheidung, Daten-Ebene)
+    Zweck: Macht einen generierten Wert selbstbeschreibend.
+    Muster: prefix_zufallsstring (z.B. vpn_xxxxx im Login-Wert)
+    Definiert in: BASE-000_030_IDENTIFIER_KLASSEN
+    Steuert: NICHTS technisch — nur menschliche Unterscheidbarkeit
+    KEIN Bezug zu Sicherheitszonen oder DB-GRANTs.
+
+================================================================================
+2) PREFIX-REGELN (aus Altkanon NORM-02 / PR-PFX uebertragen)
+================================================================================
+
+  PR-01  Jede Tabelle und jeder Key beginnt mit einem erlaubten Prefix.
+  PR-02  Format: lower_snake_case. Regex: ^[a-z0-9_]+$
+         Keine Punkte, keine Bindestriche, keine Grossbuchstaben.
+  PR-03  Punkt-Keys (foo.bar) sind Legacy und verboten.
+  PR-04  Canonical-First: Der kanonische Name ist die einzige
+         Schreibquelle. Aliases sind nur Lese-Bruecken.
+  PR-05  No-Alias-Write: Writer schreiben NUR kanonische Namen.
+  PR-06  Kein stiller Rename: Umbenennungen nur ueber Alias-Registry.
+
+================================================================================
+3) TABELLENNAMEN
+================================================================================
+
+2.1) Tabellenname = Prefix + Domaenenname
+
+  Muster: <prefix><domaene>[_<qualifier>]
+  Beispiele:
+    web_customers                   (web_ + customers)
+    vpn_connections                 (vpn_ + connections)
+    vpn_session_locks               (vpn_ + session_locks)
+    vpn_sessions                    (vpn_ + sessions)
+    vpn_connection_l2tp_ipsec_auth  (vpn_ + connection_l2tp_ipsec_auth)
+    wg_connection_auth              (wg_ + connection_auth)
+    settings_catalog                (settings_ + catalog)
+    policy_catalog                  (policy_ + catalog)
+    log_connection_lifecycle        (log_ + connection_lifecycle)
+
+2.2) Regeln fuer neue Tabellennamen
+
+  TN-01  Tabellenname beginnt IMMER mit einem Prefix aus
+         BASE-000_010_DATENBANK_UND_SICHERHEITSZONEN §3.
+  TN-02  Der Name nach dem Prefix beschreibt den INHALT, nicht die
+         Implementierung. "vpn_sessions" statt "vpn_session_table".
+  TN-03  Keine Abkuerzungen ausser etablierten (psk, ip, dns, nft, tc).
+  TN-04  Plural fuer Sammlungen (vpn_connections, nicht vpn_connection).
+  TN-05  Singular fuer Singletons (settings_catalog, nicht settings_catalogs).
+  TN-06  Keine redundanten Prefixe (vpn_vpn_connections ist falsch).
+         HINWEIS: Diese Regel gilt NUR fuer SQL-Tabellennamen.
+         Dateisystemnamen verwenden bewusst selbstbeschreibende
+         Prefixe (z.B. BASE-000_SQL_FIRST_040_...) damit jede Datei
+         auch ohne Ordnerkontext identifizierbar ist.
+  TN-07  FreeRADIUS-Tabellen behalten ihre Originalnamen (rad*).
+
+================================================================================
+4) FELDNAMEN INNERHALB VON TABELLEN
+================================================================================
+
+  FN-01  lower_snake_case (wie Tabellennamen).
+  FN-02  Felder tragen KEINEN Tabellen-Prefix (nicht vpn_connections.vpn_id
+         sondern vpn_connections.id).
+  FN-03  Ausnahme: Felder die auf andere Tabellen verweisen, tragen den
+         Zieltabellennamen als Qualifier (vpn_connection_id, customer_id).
+  FN-04  Timestamps: _at Suffix (created_at, claimed_at, disabled_at).
+  FN-05  Booleans: kein is_ Prefix noetig, aber erlaubt.
+  FN-06  ENUMs: Werte in UPPER_CASE (ACTIVE, RESTRICTED, DISABLED).
+================================================================================

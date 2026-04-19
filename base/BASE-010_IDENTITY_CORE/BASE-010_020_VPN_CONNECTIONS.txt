@@ -1,0 +1,167 @@
+================================================================================
+BASE-010 — VPN_CONNECTIONS (Connection-Schema nach Auth-Split)
+================================================================================
+DATEI: BASE-010_020_VPN_CONNECTIONS.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Kanonisches Schema fuer vpn_connections. Repraesentiert eine einzelne
+  VPN-Verbindung pro Geraet. Traegt Tunnel-Typ, Rolle, IP-Zuordnung,
+  Lifecycle-State — aber KEINE Auth-Credentials (siehe AUTH_SPLIT).
+
+  Auth-Felder (subaccount_login, nt_hash, wg_public_key, wg_preshared_key)
+  leben in separaten Kindtabellen (BASE-010_030).
+
+VORGAENGER:
+  B055 §2.2, DOMAIN_MODEL §3 (mit K-08 Auth-Split angewandt)
+
+================================================================================
+1) SCHEMA: vpn_connections
+================================================================================
+
+  --- IDENTITAET ---
+
+  Feld                 Typ               Constraint          Beschreibung
+  ──────────────────── ───────────────── ─────────────────── ────────────────────
+  id                   BIGINT UNSIGNED   PK AUTO_INCREMENT   Primaerschluessel
+  customer_id          BIGINT UNSIGNED   FK→web_customers.id NULL bis Claim
+                                         NULL
+  connection_ref       VARCHAR(20)       UNIQUE, NOT NULL    Tunnelneutraler
+                                                             Support-Identifier.
+                                                             Format: con_[a-z2-7]{12}
+                                                             Immutable, generiert.
+                                                             Siehe BASE-010_040.
+  display_name         VARCHAR(100)      NULL                Frei waehlbarer Anzeigename
+                                                             ("Mein PC", "Laptop").
+                                                             Rein kosmetisch.
+                                                             NULL = Fallback connection_ref.
+                                                             Kein Einfluss auf Auth/Policy.
+  created_at           TIMESTAMP         NOT NULL            Erstellungszeitpunkt
+  updated_at           TIMESTAMP         NOT NULL            Letzte Aenderung
+
+  --- KLASSIFIKATION (ersetzt altes conn_group) ---
+
+  tunnel_type          ENUM              NOT NULL            L2TP_IPSEC | WIREGUARD
+                                                             Bestimmt: Protokoll, Auth,
+                                                             Daemon, IPv6-Faehigkeit.
+                                                             Immutable nach INSERT (VC-08).
+  access_role          ENUM              NOT NULL            USER|VIP|MODERATOR|ADMIN
+                                                             ABGELEITET vom Customer-Rang.
+                                                             Alle Connections eines Customers
+                                                             haben dieselbe Rolle (D003-E02).
+
+  --- IP-ZUORDNUNG ---
+
+  v6_addr_policy       ENUM              NOT NULL            NONE | FIXED_SQL
+                                                             L2TP_IPSEC=NONE
+                                                             WIREGUARD=FIXED_SQL
+  ip_slot              INT UNSIGNED      NULL                SoT fuer IP-Ableitung.
+                                                             NULL bis Provisionierung.
+  fixed_ip             VARCHAR(15)       INDEX               Materialisiert aus ip_slot.
+                                                             Immutable (VC-04).
+  fixed_ipv6           VARCHAR(45)       INDEX               Materialisiert aus ip_slot.
+                                                             NULL wenn v6_addr_policy=NONE.
+                                                             Immutable (VC-04).
+
+  --- OPERATIVER ZUSTAND (Zwei-Ebenen-Modell, siehe BASE-010_070) ---
+
+  op_status            ENUM              NOT NULL            ACTIVE|RESTRICTED|DISABLED
+  op_reason_code       VARCHAR(64)       FK→vpn_reason_      NULL bei ACTIVE.
+                                         registry             RESTRICT_* oder DISABLE_*
+                                                             bei RESTRICTED/DISABLED.
+
+  --- CLAIM / ONBOARDING ---
+
+  claim_token_hash     VARCHAR(255)      UNIQUE, NULL        Hash des Claim-Tokens
+  claimed_at           TIMESTAMP         NULL                Zeitpunkt des Claims
+  unclaimed_grace_until TIMESTAMP        NULL                Full-Tunnel bis Grace ablaeuft.
+                                                             NULL bei Self-Service (Weg B).
+  claim_deadline       TIMESTAMP         NULL                Hard-Stop fuer Unclaimed.
+                                                             NULL bei Self-Service (Weg B).
+
+  --- POLICY / VERTRAG (Gruppe A) ---
+
+  expiry_date          TIMESTAMP         NULL                Laufzeit-Ende. NULL = unbegrenzt.
+                                                             NOW() > expiry_date →
+                                                             RESTRICT_EXPIRY_PASSED.
+
+  --- OPERATIVE MARKER (Gruppe B, SYSTEM-geschrieben) ---
+
+  restricted_at        TIMESTAMP         NULL                Eintritt in RESTRICTED
+  restrict_finalize_at TIMESTAMP         NULL                Materialisiert: wann
+                                                             RESTRICTED→DISABLED (Auto)
+  disabled_at          TIMESTAMP         NULL                Eintritt in DISABLED
+  restore_until        TIMESTAMP         NULL                Admin-Restore-Fenster
+  revoked_at           TIMESTAMP         NULL                Revocation-Start (Quarantaene)
+  quarantine_until     TIMESTAMP         NULL                Eingefroren bei Revocation
+
+  --- SOURCE FACTS (Gruppe C, Ausloeser-Fakten) ---
+
+  customer_paused_at   TIMESTAMP         NULL                Customer hat deaktiviert
+  admin_manual_restricted_at TIMESTAMP   NULL                Admin hat manuell restricted
+
+================================================================================
+2) OWNERSHIP (abgeleitet, KEIN eigenes Feld)
+================================================================================
+
+  PREPROVISIONED := customer_id IS NULL  (ownerlos, nie geclaimt)
+  CLAIMED        := customer_id IS NOT NULL (gehoert einem Customer)
+  Einmal CLAIMED = immer CLAIMED. Kein Unclaim (neue Connection statt Reset).
+
+================================================================================
+3) INDICES
+================================================================================
+
+  UNIQUE(connection_ref)
+  UNIQUE(claim_token_hash)
+  INDEX(op_status)
+  INDEX(op_reason_code)
+  INDEX(customer_id)
+  INDEX(tunnel_type)
+  INDEX(access_role)
+  INDEX(tunnel_type, access_role)
+  UNIQUE(fixed_ip)
+  UNIQUE(fixed_ipv6)
+  INDEX(unclaimed_grace_until)
+  INDEX(claim_deadline)
+  INDEX(expiry_date)
+  INDEX(restricted_at)
+  INDEX(restrict_finalize_at)
+  INDEX(disabled_at)
+  INDEX(restore_until)
+  INDEX(revoked_at)
+  INDEX(quarantine_until)
+  INDEX(customer_paused_at)
+  INDEX(admin_manual_restricted_at)
+
+================================================================================
+4) CONNECTION-INVARIANTEN (MUST)
+================================================================================
+
+  Kanonische Quelle: BASE-010_090_INVARIANTEN.
+  Die folgenden VCs verweisen auf die dort definierten Invarianten.
+
+  VC-01  → INV-37  connection_ref UNIQUE + immutable
+  VC-02  → INV-02  customer_id monotonic (kein Unclaim)
+  VC-03  → INV-38  claim_deadline immutable (Hard-Stop)
+  VC-04  → INV-30  fixed_ip/fixed_ipv6 immutable (Mutation nur Rollenwechsel)
+  VC-05  → INV-61  tunnel_type + access_role → derived_policy deterministisch
+  VC-06  → INV-32  Rollenwechsel erzeugt neue IP-Allokation
+  VC-07  expiry_date kann NULL sein (unbegrenzte Laufzeit).
+         Wenn gesetzt: NOW() > expiry_date → RESTRICT_EXPIRY_PASSED.
+         (Schema-lokal, kein INV-Gegenstueck)
+  VC-08  → INV-39  tunnel_type immutable nach INSERT
+  VC-09  → INV-55  op_status + op_reason_code nur durch SYSTEM
+  VC-10  → INV-56  access_role=ADMIN nicht restricted-faehig (R-08)
+
+================================================================================
+5) PANEL-CONSUMABILITY
+================================================================================
+
+  Panel zeigt: connection_ref, display_name (Fallback connection_ref),
+  tunnel_type Badge (L2TP/IPsec | WireGuard), access_role Badge,
+  op_status mit Farb-Kodierung (ACTIVE=gruen, RESTRICTED=gelb,
+  DISABLED=rot), op_reason_code Beschreibung (Mouseover aus
+  vpn_reason_registry.description), IP-Adressen, Deadlines.
+  SOLL/IST-Abgleich: Kernel-State (Projection) vs SQL-Werte (DP-07c).
+================================================================================

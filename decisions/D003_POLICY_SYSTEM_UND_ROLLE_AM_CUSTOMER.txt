@@ -1,0 +1,339 @@
+================================================================================
+RetroTunnel — DECISION D003: POLICY-SYSTEM UND ROLLE AM CUSTOMER
+================================================================================
+VERSION: v1.0
+DATUM: 2026-04-19
+STATUS: ENTSCHIEDEN (bleibt historisches ADR)
+ENTSCHEIDER: Marco
+AUSLÖSER: ChatGPT Audit #4, Architektur-Diskussion Connection-Limits.
+           Kernfrage: Wie modelliert RetroTunnel rollenbasierte Limits
+           und Kundenrechte flexibel und zukunftssicher?
+DRITTPRÜFUNG: ChatGPT (3 Review-Runden) + Claude (Gegenprüfung)
+KONVERGIERT: Ja (alle 3 Parteien stimmen überein)
+
+================================================================================
+TERMINOLOGIE-HINWEIS (2026-04-16)
+================================================================================
+
+Diese Datei verwendet die urspruengliche Terminologie vom Zeitpunkt
+der Entscheidung. Ab 2026-04-16 gelten folgende neue Tabellennamen
+(kanonisch in BASE-000):
+
+  Alt (in dieser Datei)               Neu (Kanon ab 2026-04-16)
+  ----------------------------------  -----------------------------------
+  role_policy_defaults                policy_role_defaults
+  customer_policy_overrides           policy_customer_overrides
+  plan_policy_values                  policy_plan_values
+  policy_catalog                      policy_catalog (unveraendert)
+  customers                           web_customers
+
+ENTSCHEIDUNG BLEIBT GUELTIG: Getrenntes Policy-System (D003-E01),
+Rolle am Customer (D003-E02), drei Policy-Tabellen (D003-E03),
+Aufloesung Override > Plan (USER) > Rollen-Default (D003-E04),
+NULL = unlimited (D003-E05), Zaehlregel/Slot-Relevanz (D003-E06),
+Panel zeigt effective value + source (D003-E07). Die Datei bleibt
+als historisches ADR stehen — ADRs werden bewusst nicht rueckwirkend
+umgeschrieben, nur die Tabellennamen-Aktualisierung via Bruecke oben.
+
+================================================================================
+1) KONTEXT UND PROBLEM
+================================================================================
+
+Im bisherigen Kanon waren Connection-Limits als Settings-Keys modelliert:
+  vpn_vip_max_connections = 3 (allowed_override_scope = NONE)
+  vpn_moderator_max_connections = 3 (allowed_override_scope = NONE)
+
+Das erzeugte drei Probleme:
+
+  P1: Ein VIP-Kunde der 4 statt 3 Connections braucht, kann nicht
+      individuell bedient werden (NONE verbietet Customer-Override).
+
+  P2: Key-Namen tragen Fachlogik (vpn_VIP_max_connections). Bei
+      wachsender Parameteranzahl entsteht Key-Explosion und das
+      Fachmodell ist im Key-Namen kodiert statt sauber modelliert.
+
+  P3: Policy-Parameter (was darf ein Kunde?) und operationale
+      Parameter (wie verhält sich das System?) lebten beide im
+      Settings-System — konzeptionell verschiedene Domänen in
+      einem Topf (DP-02 alt: "Jeder policy-relevante Parameter
+      ist ein Key in settings_catalog").
+
+Zusätzlich erkannt:
+
+  P4: access_role lebte auf vpn_connections. Das erlaubte theoretisch,
+      dass ein Customer Connections mit verschiedenen Rollen besitzt
+      (z.B. USER + VIP gleichzeitig). Marcos klare Aussage: "Jemand
+      der im Webpanel USER ist, kann niemals eine VIP-Connection haben.
+      Das führt zu Chaos."
+
+  P5: Es fehlte eine kanonische Zählregel, die definiert welche
+      Connection-Zustände gegen das max_connections Budget zählen.
+
+================================================================================
+2) BEWERTETE ALTERNATIVEN
+================================================================================
+
+WEG 1 — Per-Rollen Settings-Keys mit Customer-Override
+  vpn_vip_max_connections mit allowed_override_scope=CUSTOMER.
+  VERWORFEN: Key-Namen tragen Fachlogik, falsches Abstraktionsniveau,
+  bei wachsender Parameteranzahl nicht wartbar. "Handhabbar" ist
+  nicht dasselbe wie "sauber" (ChatGPT-Urteil, Claude bestätigt).
+
+WEG 2 — Generischer Key + Rollen-Defaults in derived policy
+  VERWORFEN: Wenn Rollen-Defaults nur im Code leben, ist SQL-first
+  gebrochen. Nur tragfähig wenn Defaults selbst DB-kanonisch sind
+  — dann ist es faktisch Weg 4.
+
+WEG 3 — Alles über Plans
+  VERWORFEN: Für USER passend, für VIP/MODERATOR/ADMIN falsch —
+  diese Rollen sind nicht planbasiert. Zu spät (MOD-10_PLANS ist M3).
+
+WEG 4 — Eigenes Policy-System mit Rollen-Defaults + Customer-Overrides
+  GEWÄHLT: Sauberste Architektur, zukunftssicher für unbekannte
+  Policy-Parameter, SQL-first, kein conn_group-Comeback, kein
+  Key-Name-als-Fachlogik. Alle drei Parteien konvergiert.
+
+ZUSÄTZLICH VERWORFEN:
+  group_id am Customer — wäre conn_group durch die Hintertür.
+  Rollen-Defaults im Code — bricht SQL-first.
+  Magic Numbers für unlimited (9999) — NULL = unlimited.
+  Interim-Architektur als Kanon — "Migrationspfad trivial" ist
+  zu optimistisch; in der Planungsphase gibt es keinen Grund für
+  eine bewusst schwächere Zwischenlösung.
+
+================================================================================
+3) ENTSCHEIDUNGEN
+================================================================================
+
+D003-E01: SETTINGS UND POLICY SIND GETRENNTE DOMÄNEN
+
+  Settings-System = operationale Parameter
+    Wie verhält sich das System intern?
+    Lock-TTL, Retry-Counter, Timeouts, Failsafe-Werte, Feature-Flags.
+    Auflösung: CONNECTION > CUSTOMER > GLOBAL.
+    Lebt in: settings_catalog + settings_global/customer/connection.
+
+  Policy-System = Kunden-/Rollenrechte und Limits
+    Was darf dieser Kunde?
+    max_connections, Quota, Storage, Feature-Zugriffe, Service-Rechte.
+    Auflösung: Customer-Override > Plan (nur USER) > Rollen-Default.
+    Lebt in: policy_catalog + role_policy_defaults +
+             customer_policy_overrides + (später) plan_policy_values.
+
+  Beides ist SQL-first. Beides hat Audit, Explain, Reconcile.
+  Aber es sind zwei getrennte Domänen mit eigener Auflösungslogik.
+
+  KANONÄNDERUNG: DP-02 im MANIFEST wird angepasst. Der alte Satz
+  "Jeder policy-relevante Parameter ist ein Key in settings_catalog"
+  gilt nicht mehr. Policy-Parameter leben im Policy-System.
+
+D003-E02: ROLLE GEHÖRT ZUM CUSTOMER, NICHT ZUR CONNECTION
+
+  Ein Kunde ist USER oder VIP oder MODERATOR oder ADMIN.
+  Das wird im Webpanel bestimmt. Alle seine Connections erben
+  dieselbe Rolle. Ein USER kann keine VIP-Connection haben.
+
+  Keine parallelen Rollen-Budgets im steady state. Gemischte Rollen
+  sind nur als transiente Migrations-/Repair-Zustände erlaubt.
+
+  Budget-Subjekt ist CUSTOMER, nicht CUSTOMER+ROLE.
+  Zählung: alle slot-relevanten Connections des Customers.
+
+  AUSWIRKUNG AUF D002: Rollenwechsel wird von einer Connection-
+  Mutation zu einer Customer-Operation mit Kaskade auf alle
+  Connections. D002 bleibt gültig für die einzelne Connection,
+  aber der Auslöser ist jetzt die Customer-Rollenänderung.
+
+  access_role bleibt als Feld auf vpn_connections (abgeleitet vom
+  Customer-Rang, nicht unabhängig gesetzt). Bei Rollenwechsel werden
+  ALLE Connections des Kunden in-place migriert (D002-Mechanik).
+
+D003-E03: POLICY-TABELLEN (Zielarchitektur)
+
+  a) policy_catalog
+     Definiert welche Policy-Parameter existieren.
+     Felder: policy_key (PK), Datentyp, allows_unlimited (BOOL),
+     Validierungsgrenzen, Beschreibung, Panel-Sichtbarkeit.
+     Beispiele: max_connections, max_storage_gb, streaming_access.
+
+  b) role_policy_defaults
+     Default-Wert pro Rolle pro Parameter. ALLE vier Rollen:
+       USER        max_active_connections = 2 (Basis-Default)
+       VIP         max_active_connections = 3
+       MODERATOR   max_active_connections = 3
+       ADMIN       max_active_connections = NULL (unlimited)
+
+     Gesamt-Budget wird ABGELEITET (nicht gespeichert):
+       max_total = max_active_connections + vpn_disabled_connection_buffer
+       vpn_disabled_connection_buffer = Settings-Key (global, Default 2)
+       Pattern: B057/B155 (Basis-Wert + Ableitungsregel)
+     Diese Tabelle vergibt keine Rolle — sie beschreibt nur,
+     welche Default-Werte für eine Rolle gelten.
+
+  c) customer_policy_overrides
+     Individuelle Ausnahmen pro Kunde.
+     Felder: customer_id (FK), policy_key (FK → policy_catalog),
+     value, created_by, override_reason, created_at.
+     Beispiel: Kunde 47, max_active_connections = 4, reason="Sonderwunsch".
+
+  d) plan_policy_values (optional, später, MOD-10_PLANS)
+     Wenn Plans eigene Policy-Werte tragen (USER-Differenzierung).
+     Plan ist nicht nur ein Name, sondern bringt definierte
+     Policy-Werte mit.
+
+D003-E04: AUFLÖSUNGSREIHENFOLGE
+
+  Für die Frage "Wie viele Connections darf dieser Kunde haben?":
+
+    1. customer_policy_overrides (individuell)
+       → Wenn Override existiert: dieser Wert gilt.
+    2. plan_policy_values (nur USER, wenn Plan vorhanden)
+       → Wenn Plan den Parameter definiert: Planwert gilt.
+    3. role_policy_defaults (Basis-Default für die Rolle)
+       → Immer vorhanden, Fallback für alle Rollen.
+
+  Ein Codepfad, eine Lookup-Logik, keine Sonderbehandlung pro Rolle.
+
+D003-E05: UNLIMITED-SEMANTIK
+
+  NULL = unlimited. Keine Magic Numbers (nicht 9999, nicht INT_MAX).
+  Unlimited-Checkbox im Panel nur dort, wo
+  policy_catalog.allows_unlimited = true.
+  Kein Consumer darf NULL als 0, leer oder Fehler interpretieren.
+
+D003-E06: ZÄHLREGEL — AKTIV-BUDGET + ABLEITUNGSREGEL (kanonisch)
+
+  Connection-Limits bestehen aus EINEM Policy-Parameter +
+  einer Ableitungsregel (Pattern aus B057/B155).
+
+  a) AKTIV-BUDGET (max_active_connections) — Policy-System
+     Wie viele Connections darf der Kunde gleichzeitig nutzen?
+     Zählt: ACTIVE, RESTRICTED.
+     Zählt NICHT: DISABLED, PREPROVISIONED, revoked.
+
+  b) GESAMT-BUDGET — ABGELEITET (nicht gespeichert)
+     max_total = max_active_connections + vpn_disabled_connection_buffer
+     vpn_disabled_connection_buffer = Settings-Key (global, Default 2).
+     Zählt: Alle nicht-terminal-revoked Connections mit customer_id.
+     Zählt NICHT: Terminal revoked/recycled,
+     PREPROVISIONED ohne customer_id (ownerlos).
+     Ownerlose Connections zählen erst nach Claim.
+
+  Zusätzlich: Rate-Limit (max_connection_creates_per_hour)
+  gegen Rapid-Create Abuse.
+
+  Die Zählregel ist fachlich formuliert, nicht technisch.
+  "Ist der Slot noch belegt?" — nicht "revoked_at IS NULL".
+  Die technische Umsetzung leitet sich aus der Fachsemantik ab.
+
+D003-E07: PANEL-ANFORDERUNG
+
+  Für jeden Policy-Parameter zeigt das Admin-Panel:
+    - Den Parameter-Namen (aus policy_catalog)
+    - Den wirksamen Wert (effective value)
+    - Die Quelle: Default / Plan / Individualisiert / Unlimited
+    - Ein Input-Feld zum Ändern
+    - Eine Unlimited-Checkbox (wenn allows_unlimited = true)
+    - Badge "(default)" oder "(individualisiert)"
+
+  Ohne Quellenanzeige wird das System undebugbar.
+
+D003-E08: INTERIM-REGELUNG (Settings-Keys)
+
+  Die bestehenden Settings-Keys vpn_vip_max_connections und
+  vpn_moderator_max_connections bleiben als INTERIM funktionsfähig
+  bis M2-90 (oder neues BASE-100_POLICY_CORE) die Policy-Tabellen
+  baut. Für die Interim-Phase: allowed_override_scope = CUSTOMER
+  (statt NONE), damit individuelle Ausnahmen sofort möglich sind.
+
+  Die Settings-Keys werden im TRUTH_MODEL als INTERIM markiert
+  mit Verweis auf D003 und den Migrationspfad.
+
+================================================================================
+4) PROPAGATION — WO MUSS DER KANON GEÄNDERT WERDEN?
+================================================================================
+
+  MANIFEST:        DP-02 anpassen (Settings ≠ Policy)
+  DOMAIN_MODEL:    §5 Policy vs Settings, §6 Weg 4 + Zählregel
+  TRUTH_MODEL:     §2 Policy-System als eigene SoT-Domäne,
+                   §7 Interim-Markierung der Settings-Keys,
+                   scope NONE→CUSTOMER
+  SM_CONNECTION:   Slot-Relevanz bei State-Transitions
+  SM_ONBOARDING:   Zählregel-Referenz bei Connection-Erstellung
+  BRIEFING:        §3.1 + §3.2 aktualisieren
+  REVIEW_TRACKER:  D003 ins Inventar aufnehmen
+
+================================================================================
+5) RISIKEN UND RANDFÄLLE
+================================================================================
+
+R-01: D002 MUSS NEU GELESEN WERDEN
+  Rollenwechsel ist jetzt eine Customer-Operation, nicht nur eine
+  Connection-Mutation. D002 bleibt gültig für die einzelne Connection,
+  aber der Auslöser und die Kaskade ändern sich.
+
+R-02: access_role AUF vpn_connections IST JETZT ABGELEITET
+  Das Feld bleibt (für Queries, nftables-Range-Enforcement, Logging).
+  Aber es wird NICHT mehr unabhängig vom Customer-Rang gesetzt.
+  Constraint: vpn_connections.access_role = customer.access_role.
+
+R-03: PANEL MUSS QUELLENANZEIGE HABEN
+  Ohne Quellenanzeige (Default/Plan/Override/Unlimited) wird das
+  System bei 3000 Kunden undebugbar. "Warum hat der Kunde 4?"
+  muss ohne SQL-Abfrage beantwortbar sein.
+
+R-04: POLICY-SYSTEM BRAUCHT DIESELBE DISZIPLIN WIE SETTINGS
+  Eigener Katalog, klare Subjects, Audit-Spur, Explain/Diag,
+  keine Hidden Defaults im Code, keine Magic Numbers.
+  Sonst gewinnt man begriffliche Trennung, verliert technische
+  Disziplin.
+
+================================================================================
+6) VALIDIERUNG — WAS SPÄTER BEWIESEN WERDEN MUSS
+================================================================================
+
+T-D003-01: Default VIP — kein Override → max_active_connections = 3
+           → vierte aktive Connection wird abgelehnt.
+
+T-D003-02: VIP mit Customer-Override max_active_connections = 4
+           → vierte aktive erlaubt, fünfte abgelehnt.
+
+T-D003-03: Anderer VIP ohne Override → bleibt bei 3.
+           Keine Seiteneffekte durch Kunde A.
+
+T-D003-04: USER per Plan — Plan erlaubt 2 → dritte abgelehnt.
+           Planwechsel auf 4 → vierte erlaubt.
+
+T-D003-05: Rollenwechsel USER→VIP — Zähler springt korrekt
+           auf VIP-Regeln. Kein Doppelzählen.
+
+T-D003-06a: PREPROVISIONED ownerlos zählt NICHT gegen Customer-Budget.
+            Admin erstellt 3 ownerlose Connections. Customer A hat 0.
+            Customer A claimt 1 → Budget: 1 (von max 3). Korrekt.
+
+T-D003-06b: PREPROVISIONED "Für User" zählt SOFORT.
+            Admin erstellt Connection für Customer A (Weg "Für User").
+            Customer A hat 2 aktive + 1 neu = 3. Budget voll.
+            4. Connection verweigert.
+
+T-D003-07: User deaktiviert 1 von 3 aktiven → 2 aktive, 1 deaktiviert.
+           Neue Connection anlegen → 3 aktive, 1 deaktiviert = 4 total ✓.
+           User deaktiviert nochmal → 2 aktive, 2 deaktivierte.
+           Neue anlegen → 3 aktive, 2 deaktivierte = 5 total ✓.
+           Nochmal deaktivieren + anlegen → Gesamt-Budget 5 erschöpft.
+           Panel-Meldung: "5 Verbindungen (3 aktive, 2 deaktivierte).
+           Maximum: 3 aktive, 5 gesamt."
+
+T-D003-08: Panel zeigt effective value + source korrekt.
+           Override löschen → Default greift wieder.
+
+T-D003-09: Rolle ändern → alle Policy-Werte neu evaluiert.
+
+T-D003-10: NULL = unlimited — kein Consumer interpretiert
+           NULL als 0 oder Fehler.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

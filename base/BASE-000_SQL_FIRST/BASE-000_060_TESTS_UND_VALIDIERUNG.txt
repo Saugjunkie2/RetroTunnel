@@ -1,0 +1,56 @@
+================================================================================
+BASE-000 — TESTS UND VALIDIERUNG (DoD)
+================================================================================
+DATEI: BASE-000_060_TESTS_UND_VALIDIERUNG.txt
+
+================================================================================
+1) TESTS
+================================================================================
+
+T-SQL-01: Prefix-Compliance (Tabellen)
+  Alle Tabellen in retrotunnel_main_db beginnen mit erlaubtem Prefix
+  oder gehoeren zur reservierten FreeRADIUS-Familie.
+  SELECT table_name FROM information_schema.tables
+  WHERE table_schema='retrotunnel_main_db'
+  -> Kanonische Prefixe: ^(vpn_|web_|wg_|settings_|policy_|peak_|log_|spool_)
+  -> Reservierte FreeRADIUS-Tabellen (EXPLIZITE ALLOWLIST, kein Regex):
+     radacct, radcheck, radreply, radgroupcheck, radgroupreply,
+     radpostauth, radusergroup, nas, nasreload.
+     Jede Tabelle die NICHT in dieser Liste und NICHT mit einem
+     kanonischen Prefix beginnt, ist ein Fehler.
+
+T-SQL-02: RADIUS-User GRANTs
+  RADIUS-DB-User hat KEINEN Zugriff auf web_* und wg_* Tabellen.
+  SHOW GRANTS FOR 'radius'@'localhost'
+  -> Kein GRANT auf web_*, wg_*, settings_*, policy_*.
+
+T-SQL-03: Auth-Split Integritaet
+  Jede L2TP_IPSEC-Connection hat genau 1 Row in vpn_connection_l2tp_ipsec_auth.
+  Jede WIREGUARD-Connection hat genau 1 Row in wg_connection_auth.
+  Keine L2TP_IPSEC-Connection hat eine Row in wg_connection_auth.
+  Keine WIREGUARD-Connection hat eine Row in vpn_connection_l2tp_ipsec_auth.
+
+T-SQL-04: Kanonische Namen in Konzeptdateien
+  ALLE normativen Konzeptdateien (model/, base/, decisions/, modules/)
+  verwenden ausschliesslich die in 040_TABELLEN_REGISTRY/ definierten
+  Tabellennamen. Kein prefixloser Tabellenname. Kein Altname ohne
+  Begriffs-Bruecke. Pruefung per Grep ueber alle kanonischen Dateien.
+
+T-SQL-05: Single DB
+  SHOW DATABASES -> nur retrotunnel_main_db (+ mysql, information_schema etc.)
+  Keine zweite Anwendungs-DB.
+
+T-SQL-06: Prefix-Compliance (Settings-Keys)
+  Alle Settings-Keys in settings_catalog beginnen mit einem erlaubten
+  Prefix aus BASE-000_010 §3.
+  SELECT `key` FROM settings_catalog
+  -> Jeder Key muss matchen: ^(vpn_|web_|wg_|settings_|policy_|peak_|log_|spool_|radius_)
+  -> Kein prefixloser Key. Kein Key mit unbekanntem Prefix.
+
+T-SQL-07: Writer-Kanonizitaet (Code-Review Checkpoint)
+  Jede Schreiboperation (INSERT, UPDATE) auf Tabellen- oder Key-Namen
+  verwendet den kanonischen Namen aus 040_TABELLEN_REGISTRY/ bzw.
+  settings_catalog. Kein Writer darf einen Altnamen, Alias oder
+  prefixlosen Namen als Schreibziel verwenden (PR-05, SQL-08).
+  Pruefung: Code-Review aller Provisioner/Apply/Panel-Schreibpfade.
+================================================================================

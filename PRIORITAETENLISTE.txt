@@ -1,0 +1,503 @@
+================================================================================
+RETROTUNNEL — PRIORITÄTENLISTE / ABARBEITUNGSPLAN
+================================================================================
+VERSION: v1.0
+DATUM: 2026-04-19
+STATUS: ACTIVE
+
+================================================================================
+LESEHINWEIS
+================================================================================
+Diese Liste definiert die Reihenfolge, in der Themen abgearbeitet werden.
+Die Reihenfolge basiert auf Abhängigkeiten: Jeder Schritt setzt voraus,
+dass die vorherigen Schritte mindestens als Entwurf existieren.
+
+Legende:
+  [DONE]     = Abgeschlossen
+  [ACTIVE]   = Aktuell in Arbeit
+  [NEXT]     = Nächster Schritt nach Abschluss des aktuellen
+  [WAITING]  = Wartet auf Vorgänger
+  [DEFERRED] = Bewusst zurückgestellt (spätere Phase)
+
+NAMENSKONVENTION (MUST, Drift-Guard):
+  M0..M4 = Modellphasen (RetroTunnel-Konzeptarbeit)
+    M0 = Fundament, M1 = Denkmodell, M2 = Kern-Module,
+    M3 = Erweiterungsmodule, M4 = Decisions/Proofs/Implementation
+  PH1..PH10 = Rollout-Phasen (Server-Implementierung, aus B290)
+    PH1 = VPN-Baseline, PH2 = QoS, PH3 = DNS, ... PH10 = Extras
+  KEINE Verwechslung: "M1 ist fertig" ≠ "PH1 ist fertig".
+  M-Phasen beschreiben Konzeptarbeit, PH-Phasen beschreiben Betrieb.
+
+NUMMERIERUNG: Seit 2026-04-16 konsequent 3-stellig.
+  Base-Ordner: BASE-000 bis BASE-110.
+  Dateinummern innerhalb Ordnern: 000, 010, ..., 090, 095.
+  Module: MOD-001 bis MOD-010.
+  Arbeitspakete M2-xxx folgen der Base-Nummer.
+
+================================================================================
+MODELLPHASE M0 — FUNDAMENT (Projekt-Infrastruktur)
+================================================================================
+
+M0-01 [DONE] Projektname + Ordnerstruktur
+  → RetroTunnel, Schichtenmodell alpha
+  → Datei: 00_MANIFEST.txt
+
+M0-02 [DONE] Grundentscheidungen dokumentieren
+  → tunnel_type/access_role, Rollen, IP-Pools, Design-Prinzipien
+  → Dateien: 00_MANIFEST.txt, 02_ASSUMPTIONS_AND_RULES.txt
+
+M0-03 [DONE] Glossar (Kernbegriffe)
+  → Datei: 01_GLOSSARY.txt
+
+M0-04 [DONE] Briefing-Dokument für neue Chat-Fenster
+  → Datei: CLAUDE_BRIEFING.txt
+
+M0-05 [DONE] Navigationskarte altes Konzept
+  → Datei: NAVIGATIONSKARTE_ALTES_KONZEPT.txt
+
+M0-06 [DONE] Prioritätenliste
+  → Datei: PRIORITAETENLISTE.txt (dieses Dokument)
+
+M0-07 [DONE] Erste Server-Dateien ablegen
+  → implementation/configs/etc/systemd/system/lo-service-ips.service
+  → implementation/configs/etc/hostname, hosts, resolv.conf
+
+================================================================================
+MODELLPHASE M1 — DENKMODELL (model/)
+================================================================================
+Warum zuerst? Alles andere baut auf dem Denkmodell auf. Ohne klare
+Entitäten, Beziehungen und SoT-Definitionen entsteht Drift.
+
+HINWEIS (2026-04-16): model/-Dateien werden bei Ausarbeitung der
+zustaendigen Base schrittweise aufgeloest. DOMAIN_MODEL + SM_CONNECTION
+-> BASE-010. SM_SESSION -> BASE-070. SM_POLICY_RESTRICT -> BASE-080.
+SM_ONBOARDING -> MOD-001. NETWORK_MODEL IP-Pools -> BASE-010, Service-
+Anchors -> BASE-005. TRUTH_MODEL SQL-Prinzipien -> BASE-000, Settings
+-> BASE-090. Begruendung: eine Wahrheit, ein Ort.
+
+M1-01 [DONE] NETWORK_MODEL.txt
+  → IP-Pools (5 Rollen-Pools + SERVICE_NET), Service-Anchors,
+    IPv4/IPv6, WAN-Interface, Loopback-Bindung
+  → Abhängigkeit: Keine (baut auf MANIFEST Grundentscheidungen auf)
+  → Altes Konzept: B060, B061, docs/nft_service_ip_scopes.txt
+  → Delta zum Alten: 5 Pools statt 3, .7 frei, .6 PMA bleibt
+
+M1-02 [DONE] DOMAIN_MODEL.txt
+  → Entitäten: Customer, VPN-Connection, Session, Plan, Settings-Key
+  → Beziehungen: Customer → Connections, Connection → Session
+  → Neue Felder: tunnel_type, access_role (statt conn_group)
+  → Abhängigkeit: M1-01 (Pool-Zuordnung pro Rolle)
+  → Altes Konzept: B055, B058, B050
+  → Delta: tunnel_type + access_role, 4 Rollen statt 3 conn_groups
+
+M1-03 [DONE] TRUTH_MODEL.txt
+  → Was ist SoT für was? (DB vs Runtime vs Kernel vs Panel)
+  → SQL-first Grundregeln, Settings-Resolution, Fail-Class
+  → SQL-Naming-Konventionen (Prefixe, Canonical Keys, Alias)
+  → Abhängigkeit: M1-02 (Entitäten müssen definiert sein)
+  → Altes Konzept: B057, B055, entwuerfe/sql-first/NORM-01 bis NORM-07
+  → HINWEIS: SQL-Naming-Teil wurde in BASE-000 kanonisiert.
+
+M1-04 [DONE] state_machines/SM_CONNECTION.txt
+  → Zwei-Ebenen-Modell: Ownership (PREPROVISIONED/CLAIMED) +
+    op_status (ACTIVE/RESTRICTED/DISABLED)
+  → Rollenwechsel: In-place Mutation (D002), kein neuer State nötig
+  → Abhängigkeit: M1-02
+  → Altes Konzept: B055 (status), B155 (Onboarding States), B064 (Lifecycle)
+
+M1-05 [DONE] state_machines/SM_SESSION.txt
+  → Session Lifecycle: offen/closed (kein Model C)
+  → vpn_sessions als gemeinsame Session-Truth (L2TP_IPSEC + WIREGUARD)
+  → SimUse Guard (dreistufig: Guard/Recheck/Janitor)
+  → WIREGUARD: 3 Endpfade (Roaming/Ghost-Cleanup/Neustart)
+  -> PATCH-REIF (27 Invarianten, 38 Tests, konvergiert)
+  → Abhängigkeit: M1-02, M1-03
+  → Altes Konzept: B171, D012, B165, B168, B169
+
+M1-06 [DONE] state_machines/SM_ONBOARDING.txt
+  → Verify-Wall (App-Layer, Customer-Scope) + Claim (Weg A+B)
+  → UNCLAIMED Grace + Hard-Stop + Admin-Aktionen
+  -> PATCH-REIF (23 Invarianten, 27 Tests, 7 Reviews, konvergiert)
+  → Abhängigkeit: M1-02, M1-04
+  → Altes Konzept: B155, D008
+
+M1-07 [DONE] state_machines/SM_POLICY_RESTRICT.txt
+  → Enforcement-Lifecycle: Policy-Apply, Connect-Gate, Hard-Cut, Reconcile
+  → vpn-policy-apply als einziges Tool (DRY), Single-Writer
+  -> PATCH-REIF (23 Invarianten, 33 Tests, 3x Eigen + 12x ChatGPT)
+  → Abhängigkeit: M1-02, M1-04
+  → Altes Konzept: B166, B150, B063
+
+M1-SWEEP [DONE] Review-Tracker Sweep 1-5
+  -> Model-Layer intern durchreviewt (2 ChatGPT Full-Spectrum-Audits).
+  -> Sweep 1-5 + 2 Audit-Runden + Drift-Sweeps abgeschlossen.
+  -> NICHT als Gesamtkanon geschlossen: M2-OPENs bestehen
+     (AWG-Auth, Connect-Gate, Session/Accounting, Secret Contract).
+  -> OPEN-Punkte sind explizit markiert, nicht versteckt.
+  -> Steuerung: REVIEW_TRACKER.txt
+
+================================================================================
+MODELLPHASE M2 — KERN-MODULE (base/)
+================================================================================
+Warum nach Model? Die Base-Module implementieren das Denkmodell.
+Ohne Model gibt es keine klaren Eingaben/Ausgaben.
+
+Reihenfolge innerhalb M2 basiert auf der kritischen Kette:
+SQL-First -> Platform -> Identity -> AAA -> Tunnels -> Firewall ->
+DNS -> Session -> Policy-Apply -> Settings -> Policy -> Web
+
+NUMMERIERUNG: Arbeitspaket-Nummern spiegeln Base-Nummer (3-stellig).
+Zwischen bestehenden Modulen kann eingefuegt werden
+(z.B. M2-015 zwischen M2-010 und M2-020).
+
+M2-000 [DONE] BASE-000_SQL_FIRST
+  -> Datenbank: retrotunnel_main_db (Single DB)
+  -> 9 Prefix-Zonen (Sicherheitszonen mit DB-User GRANTs)
+  -> Naming-Regeln (PR/TN/FN), 3 Praefix-Ebenen (Tabelle/Key/Wert)
+  -> Tabellen-Registry (24 aktiv + 1 geplant, pro Zone eine Datei)
+  -> Identifier-Klassen, Auth-Split
+     (vpn_connection_l2tp_ipsec_auth / wg_connection_auth), Invarianten
+  -> 18 Dateien in selbstbeschreibender Namenskonvention, 3-stellig
+  -> Abhaengigkeit: M1-02, M1-03
+  -> Altes Konzept: entwuerfe/sql-first/ (NORM-01..07, DOC-SETs)
+  -> ERARBEITET MIT: Claude + ChatGPT (2 Drittreviews)
+
+M2-005 [DONE] BASE-005_PLATFORM_CORE
+  -> Plattform-Grundnorm analog BASE-000, aber fuer OS/Betrieb/Laufzeit
+  -> Scope: OS-Baseline, Service-Endpoints/Ports, Filesystem/Log-Layout,
+     Linux-Users/Gruppen, Secret-Management, Service-Inventar,
+     Lifecycle/Dependencies/Readiness.
+  -> 4-Punkte-Aufnahme-Regel gegen Wildwuchs (nur Themen mit echtem
+     Drift-Risiko und mehreren Diensten).
+  -> Pflicht-Abschnitt "Plattform-Contract" in allen Fach-Bases.
+  -> 17 Invarianten (PF-01..PF-17), 19 Tests (T-PF-01..T-PF-19).
+  -> Status: 11 Dateien, alle ACTIVE. Alle Skelette gefuellt.
+     3 Design-Entscheidungen geschlossen: Hybrid-Logging, GPG-Backup,
+     systemd-Default-Shutdown.
+  -> 2 deferred auf BASE-040: AmneziaWG-Port, WG-Config-Pfad.
+  -> Abhaengigkeit: keine direkte, nur logisch vor Fach-Bases.
+  -> Altes Konzept: keine direkte Entsprechung — Platform-Contract
+     war im Altkonzept ueber viele B-Dateien verstreut.
+  -> ERARBEITET MIT: Marco + Claude + ChatGPT (Drittreview zu
+     Aufnahme-Regel, Lifecycle/Readiness-Terminologie, Design-
+     Entscheidungen, AmneziaWG/AdGuardHome Paket-Recherche).
+
+M2-010 [DONE] BASE-010_IDENTITY_CORE
+  -> web_customers, vpn_connections, vpn_connection_l2tp_ipsec_auth,
+     wg_connection_auth, tunnel_type (L2TP_IPSEC|WIREGUARD), access_role
+  -> DB-Schema (Felder, Typen, Constraints)
+  -> DOMAIN_MODEL + SM_CONNECTION werden hier aufgeloest.
+  -> Abhaengigkeit: M2-000, M1-02, M1-03
+  -> Altes Konzept: B055, B058, B345
+  -> FERTIG 2026-04-17: 11 Dateien, 80 Invarianten + 3 LR,
+     ~94 Tests, ChatGPT-Drittreview v1+v2 bestanden.
+     Auth-Split (3 Parteien), connection_ref con_[a-z2-7]{12},
+     wg_connection_name deterministisch, Provisioning atomar,
+     SoT/Mechanik-Split BASE-010/020. SM_CONNECTION aufgeloest.
+     OPEN-SQL-01/02/03 entschieden.
+
+M2-020 [DONE] BASE-020_AAA_CORE
+  -> Gemeinsamer AAA-/Admission-Core (nicht nur RADIUS)
+  -> 6-Schritte Admission-Vertrag (tunnelneutral)
+  -> L2TP/IPsec: FreeRADIUS direct-read aus Auth-SoT (kein radcheck/radreply)
+  -> WireGuard: Admission ≠ Login (Peer-Praesenz = Autorisierung)
+  -> WG-Key-Rotation = kontrollierter Session-Schnitt
+  -> Hybrid-Fail-Closed WG bei DB-Down (Grace → Dienst-Stop)
+  -> vpn_session_locks tunnelneutral (BASE-070 owned, RADIUS als Runner)
+  -> Abhaengigkeit: M2-010
+  -> Altes Konzept: B050, B056, B165, D002-alt, D012
+  -> FERTIG 2026-04-18: 9 Dateien, 30 Invarianten, 35 Tests.
+     ChatGPT-Drittreview v1+v2 bestanden.
+     ERARBEITET MIT: Marco + Claude + ChatGPT (Owner-Grenzmatrix,
+     Direct-Read-Entscheidung, Hybrid-Fail-Closed, Key-Rotation).
+
+M2-030 [DONE] BASE-030_TUNNEL_L2TP_IPSEC
+  -> 10 Dateien, 40 Invarianten, 45 Tests.
+  -> accel-ppp + strongSwan (swanctl/vici). Konsistenzfehler aufgeloest.
+  -> Default-Deny auf ppp* (F-001), radacct-Korrelation (F-002).
+  -> IKE-Lifetime, acct-timeout, ip-pre-up, fork-limit.
+  -> PSK-Panel Option C (Klartext + Audit).
+  -> ChatGPT-Drittreview v1+v2 bestanden. Gemini-Pruefung.
+  -> Entwuerfe: boot-firewall-baseline/, psk-secret-lifecycle/.
+  -> Altes Konzept: B040, B070, B080, B090.
+
+M2-040 [WAITING] BASE-040_TUNNEL_WIREGUARD
+  -> AmneziaWireGuard Konfiguration, Interface, Peer-Management
+  -> awg0 Interface, AllowedIPs, PublicKey-Verwaltung
+  -> Session-Hooks (Connect/Disconnect Erkennung)
+  -> AWG SESSION CONTROLLER (PFLICHT aus BASE-020_040 §2):
+     Muss Fall A/B/C Klassifikation implementieren:
+     Fall A = Roaming (kein neuer Session-Start)
+     Fall B = Ghost/Stale (Cleanup → neuer Start)
+     Fall C = Echter neuer Session-Start
+     Peer-Remove bei DISABLE/Reconcile (Hard-Cut = Peer-Remove).
+     Handshake-Detektion via last_handshake_time Polling.
+  -> WG-DB-Health-Check-Service (MUST, Marco-Entscheidung 2026-04-18):
+     Hybrid-Fail-Closed aus BASE-020: DB-Health periodisch pruefen,
+     Grace-Periode (wg_failclosed_grace_seconds, Default 300s),
+     bei persistenter DB-Stoerung WG-Dienst
+     stoppen. Bei Recovery Dienst neu starten. Realisierung als
+     systemd-Timer, Health-Check-Service oder integriert in AWG
+     Session Controller.
+  -> WG-Key-Rotation: Kontrollierter Session-Schnitt bei Rotation.
+     Alter Peer entfernen, Session beenden (AUTH_KEY_ROTATED),
+     neuer Peer provisionieren. Keine In-Place-Rotation.
+     (Marco + Claude + ChatGPT konvergiert, 2026-04-18)
+  -> Abhaengigkeit: M2-020 (AAA muss geklaert sein)
+  -> Altes Konzept: B059 (IKEv2 — als Kontrast, NICHT uebernehmen)
+  -> KOMPLETT NEU — kein direktes Aequivalent im alten Konzept
+  -> (Hinweis: Im alten Konzept war dies BASE-02_TUNNEL_AWG.
+     Jetzt: hoehere Nummer weil neuerer Tunneltyp.)
+
+M2-050 [WAITING] BASE-050_FIREWALL_CORE
+  -> nftables: WAN-Stealth, Rollen-Ranges, Service-Allowlist,
+     Peer-Isolation, DNS-Zwang (DNAT53), DoT-Block, NAT/Masquerade
+  -> Connect-Gate (pending Sets), Restricted Sets
+  -> CONNECT-GATE ADMISSION-INTEGRATION (PFLICHT aus BASE-020_020 §3):
+     connect_pending Sets muessen jeden neuen Session-Kandidaten
+     sofort in DROP-ALL aufnehmen BEVOR Policy-Apply laeuft.
+     Zusammenspiel: Admission ACCEPT → connect_pending → Policy-Apply
+     → Connect-Gate Release. Fail-Closed bei jedem Schritt.
+  -> OUTBOUND-ABUSE-PROTECTION (Marco-Anforderung 2026-04-18):
+     Server-Infrastruktur muss gegen Missbrauch durch VPN-User
+     (oder infizierte Geraete) geschuetzt werden:
+     - ICMP Rate-Limiting pro User (Ping-Flood-Schutz)
+     - SYN-Flood-Begrenzung pro User (ausgehende TCP-Verbindungen)
+     - Outbound Connection-Rate-Limiting (Brute-Force ueber VPN)
+     - Port-Scan-Erkennung und Begrenzung
+     - Generelles Outbound-Bandbreiten-Limit pro Connection (QoS, PH2)
+     ZIEL: Server darf nicht als Angriffsplattform missbraucht werden.
+     Schuetzt auch gegen infizierte Geraete die als Botnet-Node agieren.
+     PRIORITAET: Infrastruktur-Sicherheit VOR User-Komfort.
+  -> INBOUND-SERVER-HARDENING (Scope-Erweiterung 2026-04-18):
+     Schutz des Servers selbst gegen externe Angriffe:
+     - SSH-Haertung (Key-only Auth, nicht-Standard-Port, Fail2ban)
+     - TLS/Zertifikate fuer Panel (Let's Encrypt oder Self-signed)
+     - Inbound Rate-Limiting gegen den Server (nicht pro User,
+       sondern gegen DDoS/Scan auf Server-Ports)
+     - WAN-Stealth (bereits gelistet, hier zur Vollstaendigkeit)
+  -> Abhaengigkeit: M1-01, M2-030, M2-040
+     (muss beide Tunnel-Interfaces kennen)
+  -> Altes Konzept: B063, docs/nft_service_ip_scopes.txt
+  -> DELTA: 5 Pools statt 3, awg0 Interface, DoT-Blocking neu,
+     Outbound-Abuse-Protection ist KOMPLETT NEU (kein Aequivalent
+     im alten Konzept)
+
+M2-060 [WAITING] BASE-060_DNS_CORE
+  -> Unbound + AdGuard, DNAT53, Binding auf SERVICE_DNS
+  -> Abhaengigkeit: M2-050 (Firewall-Regeln fuer DNS)
+  -> Altes Konzept: B210
+
+M2-070 [WAITING] BASE-070_SESSION_CORE
+  -> Session-Mapping fuer beide Tunnel-Typen
+  -> /run/vpn-sessions/*.env (oder WireGuard-Aequivalent)
+  -> Locks, Janitor, Ghost-Handling
+  -> SM_SESSION wird hier aufgeloest.
+  -> SESSION-SIGNAL VERTRAG (PFLICHT aus BASE-020_020 §5):
+     vpn_sessions INSERT muss 8 Pflichtfelder annehmen:
+     vpn_connection_id, tunnel_type, client_ipv4, client_ipv6,
+     truth_source, session_token, runtime_ref, source_event_at.
+     Schema/Invarianten/Lifecycle fuer vpn_sessions.
+  -> ON-DEMAND JANITOR (PFLICHT aus BASE-020_020 §6):
+     Vor jedem SimUse-Check muss ein On-Demand Cleanup fuer die
+     betroffene vpn_connection_id laufen (Ghost-Sessions schliessen).
+     Rate-Limited, Cached (B169-Muster). Fuer beide Tunnel-Typen.
+  -> ROAMING FALL A (PFLICHT aus BASE-020_040 §2):
+     Wann ist ein WG-Handshake KEIN neuer Session-Start?
+     Definition und Abgrenzung gegen Fall B/C.
+  -> vpn_session_locks OWNERSHIP:
+     Semantik, TTL, Janitor, Guard/Recheck/Repair Hierarchie.
+     BASE-020 + BASE-040 sind Runner, BASE-070 ist Owner.
+  -> IP-POOL-ALLOKATION UND RECYCLING (Scope-Erweiterung 2026-04-18):
+     ip_slot ist SoT in BASE-010, aber die MECHANIK fuer:
+     - Slot-Zuweisung (welcher freie Slot wird vergeben?)
+     - Pool-Return bei Session-Close / Connection-Delete
+     - Quarantaene-Timer nach Revocation
+     - Pool-Erschoepfungs-Erkennung und -Warnung
+     gehoert hierher (Session-Close → Pool-Return Lifecycle).
+     Altes Konzept: B064, B310.
+  -> Abhaengigkeit: M2-020, M2-030, M2-040
+  -> Altes Konzept: B165, B167, B168, B169, B170, B171, D012
+
+M2-080 [WAITING] BASE-080_POLICY_APPLY_CORE
+  -> vpn-policy-apply, FLUSH+REBUILD, Reconcile, Hard-Cut
+  -> Single-Writer, Exit-Codes
+  -> SM_POLICY_RESTRICT wird hier aufgeloest.
+  -> CONNECT-GATE RELEASE (PFLICHT aus BASE-020_020 §3 Schritt 6):
+     Nach Admission ACCEPT + vpn_sessions INSERT muss Policy-Apply
+     die connect_pending Sperre loesen und nft/tc Soll-Zustand
+     herstellen. Fail-Closed: Wenn Policy-Apply scheitert →
+     Session killen (kein offener Forward-Pfad).
+  -> Abhaengigkeit: M2-050, M2-070
+  -> Altes Konzept: B166
+
+M2-090 [WAITING] BASE-090_SETTINGS_CORE
+  -> settings_catalog, settings_global/customer/connection
+  -> Resolution Order, Fail-Class, Effective Value, Trace
+  -> Kanonische Key-Liste (PH1 Required Keys)
+  -> Abhaengigkeit: M1-03 (Truth-Model definiert die Regeln)
+  -> Altes Konzept: B057, entwuerfe/sql-first/NORM-01 bis NORM-07
+  -> HINWEIS: Kann teilweise parallel zu M2-050..M2-080 bearbeitet werden.
+
+M2-100 [WAITING] BASE-100_POLICY_CORE
+  -> policy_catalog, policy_role_defaults, policy_customer_overrides
+  -> Aufloesungslogik (Override > Plan > Default), Effective-Value
+  -> Panel-Integration (D003-E07), Unlimited-Semantik (NULL)
+  -> Abhaengigkeit: M2-010 (Identity/Schema), M1-03 (Truth-Model)
+  -> Altes Konzept: B057 (teilweise), D003 (kanonisch)
+  -> HINWEIS: Kann parallel zu M2-090 (Settings) bearbeitet werden,
+     da Settings und Policy getrennte SQL-first-Domaenen sind (D003-E01).
+
+M2-110 [WAITING] BASE-110_WEBSTACK_CORE
+  -> OpenResty + PHP-FPM + MariaDB, SERVICE_WEB Binding (10.77.0.3)
+  -> EMAIL-SYSTEM / VERSANDINFRASTRUKTUR (Scope-Erweiterung 2026-04-18):
+     Das Konzept referenziert Emails an vielen Stellen:
+     - Credential-Versand (passwortgeschuetzte ZIP) bei Provisioning
+     - WireGuard Config-Versand bei Erstellung und Key-Rotation
+     - Verifikations-Email bei Customer-Registration
+     - Benachrichtigungen (Credential-Leak-Warnung, Restrict-Hinweise)
+     Scope: SMTP-Konfiguration, Absender-Logik, Templates,
+     Zustellueberwachung. Vorarbeit: docs/MAIL_ABSENDERLOGIK.txt.
+  -> Panel-Credential-Anzeige (Marco-Entscheidung 2026-04-18):
+     User MUSS seine L2TP Login-Daten + Passwort und WG Config +
+     QR-Code im Panel sehen koennen. Panel IST die Sicherheitsgrenze.
+     DB-seitige Secret-Restriktion fuer Panel-User: Spalten-Level-
+     Trennung (Column GRANTs / redacted Views) hier definieren.
+     subaccount_nt_hash wird nicht angezeigt (technisches Artefakt,
+     nicht menschenlesbar). Admin hat Vollzugriff auf alle anderen
+     Credential-Daten (INV-75, INV-80, Marco-Entscheidung 2026-04-18).
+  -> QUELL-IP-LEAK-WARNUNG (PFLICHT aus BASE-010_030 §4):
+     Panel kann Quell-IP-Vergleich implementieren und bei Verdacht
+     auf Credential-Leak warnen (Empfehlung an User, kein Zwang).
+  -> EMAIL-NORMALISIERUNG (PFLICHT aus BASE-010_010 CI-01a):
+     Lowercase, Trim, Plus-Alias-Policy, Punycode fuer IDN.
+     Regeln in BASE-010 definiert, Implementierung hier.
+  -> Abhaengigkeit: M1-01 (Service-Anchors), M2-005 (Platform-Contract)
+  -> Altes Konzept: B220, D001
+
+M2-QC [WAITING] QUALITAETS-CHECK NACH M2-ABSCHLUSS
+  -> TIMER-/JOB-LANDSCHAFT GESAMTUEBERSICHT (2026-04-18):
+     Mindestens 6 systemd-Timer im Konzept: reconcile, accounting-
+     collector, stale-session-janitor, boot-reconcile, boot-janitor,
+     WG-DB-Health-Check. Verstreut ueber BASE-005 (Service-Inventar),
+     BASE-030/040, BASE-070, BASE-080. Nach Abschluss aller M2-Bases
+     muss eine Gesamtuebersicht in BASE-005_070 (Service-Inventar)
+     erstellt werden: Alle Timer, Intervalle, Abhaengigkeiten,
+     Fail-Verhalten. Kein neuer Base-Ordner noetig.
+  -> Abhaengigkeit: Alle M2-Bases mindestens als Entwurf
+
+================================================================================
+MODELLPHASE M3 — ERWEITERUNGSMODULE (modules/)
+================================================================================
+Module bauen auf Base auf. Reihenfolge orientiert sich am alten
+Phasenplan (B290), angepasst an RetroTunnel.
+
+M3-010 [DEFERRED] MOD-002_RESTRICTED_MODE (Walled Garden)
+  -> Abhaengigkeit: M2-050, M2-080
+  -> Altes Konzept: B150
+
+M3-020 [DEFERRED] MOD-001_ONBOARDING (Verify/Claim/Grace)
+  -> SM_ONBOARDING wird hier aufgeloest.
+  -> Abhaengigkeit: M2-010, M2-110, M3-010
+  -> Altes Konzept: B155, D008
+
+M3-030 [DEFERRED] MOD-003_QOS (Speed-Limiting)
+  -> Abhaengigkeit: M2-040, M2-070, M2-080
+  -> Altes Konzept: B160, entwuerfe/peak_mode_v2/
+
+M3-040 [DEFERRED] MOD-005_FAIL2BAN (Event-Klassifikation)
+  -> Abhaengigkeit: M2-020, M2-050
+  -> Altes Konzept: B340-B343
+
+M3-050 [DEFERRED] MOD-004_BLOCKPAGE_CA (MITM Blockpage)
+  -> Abhaengigkeit: M2-060, M2-110
+  -> Altes Konzept: B230, B240, B250, B260, D004
+
+M3-060 [DEFERRED] MOD-006_PANEL_FEATURES (User/Admin Views)
+  -> Das Webpanel ist Marcos primaere Arbeitsoberflaeche.
+     Nahezu alle Admin-Aufgaben sollen ueber das Panel erledigbar
+     sein, nicht per SSH. MOD-006 ist daher eines der umfangreichsten
+     Module.
+  -> ADMIN-DASHBOARD (Marco-Anforderung 2026-04-18):
+     Detaillierte Anforderungen → BASE-110_WEBSTACK_CORE/entwuerfe/
+     admin-dashboard/ENTWURF_ADMIN_DASHBOARD.txt
+  -> Abhaengigkeit: M2-110, M2-010
+  -> Altes Konzept: B280, B285, B270
+
+M3-070 [DEFERRED] MOD-007_LOGGING_MONITORING
+  -> Abhaengigkeit: M2-090, M2-070
+  -> Altes Konzept: B330
+
+M3-080 [DEFERRED] MOD-008_BACKUP_DR
+  -> Abhaengigkeit: Alle Base-Module
+  -> Altes Konzept: B320
+  -> UPDATE-/UPGRADE-MANAGEMENT (Scope-Erweiterung 2026-04-18):
+     Wie wird das System aktualisiert?
+     - Debian-Upgrades (Minor/Major, Security-Patches)
+     - Paket-Updates (FreeRADIUS, AmneziaWG, MariaDB etc.)
+     - Config-Aenderungen nach Updates
+     - Rollback-Strategie bei fehlgeschlagenen Updates
+     - Pre-/Post-Update Healthchecks
+     Gehoert zum selben Scope wie Backup/DR: Betriebssicherheit.
+
+M3-090 [DEFERRED] MOD-009_PEAK_MODE (CPU-Overload)
+  -> Abhaengigkeit: M3-030 (QoS), M2-070 (Sessions)
+  -> Altes Konzept: entwuerfe/peak_mode_v2/ (17 Dateien)
+
+M3-100 [DEFERRED] MOD-010_PLANS (Tarife)
+  -> Abhaengigkeit: M3-030 (QoS), M3-010 (Restricted), M2-010 (Identity)
+  -> Altes Konzept: entwuerfe/Plans/
+
+================================================================================
+MODELLPHASE M4 — DECISIONS + PROOFS + IMPLEMENTATION
+================================================================================
+
+M4-01 [DEFERRED] Architecture Decision Records (decisions/)
+  → Werden laufend geschrieben wenn Architektur-Entscheidungen fallen
+  → Kein fester Zeitpunkt, aber jede Entscheidung wird dokumentiert
+
+M4-02 [DEFERRED] Tests / Acceptance (proofs/)
+  → Pro Base/Module: Proof-Dokument mit konkreten Tests
+  → Abhaengigkeit: Das jeweilige Base/Module muss existieren
+
+M4-03 [DEFERRED] Phase-Plan (implementation/PHASE_PLAN.txt)
+  → Implementierungs-Reihenfolge fuer den Server
+  → Abhaengigkeit: Alle Base-Module mindestens als Entwurf
+
+M4-04 [DEFERRED] Build-Guides (implementation/guides/)
+  → Step-by-Step Anleitungen pro Phase
+  → Abhaengigkeit: M4-03
+
+================================================================================
+ZUSAMMENFASSUNG: KRITISCHER PFAD
+================================================================================
+
+  M0 (DONE)
+    |
+  M1-01..07 (DONE)             <- Model komplett, alle State Machines patch-reif
+    |
+  M1-SWEEP (DONE)              <- 2 Audit-Runden verarbeitet, Model konsistent
+    |
+  M2-000 SQL_FIRST (DONE)      <- DB-Name, Prefixe, Naming, Registry, Auth-Split
+    |
+  M2-005 PLATFORM_CORE (DONE)  <- Grundnorm OS/Betrieb/Laufzeit
+    |
+  M2-010 IDENTITY              <- Schema mit tunnel_type + access_role
+    |
+  M2-020 AAA                   <- WireGuard-Auth-Bruecke (kritische Entscheidung)
+    |
+  M2-030 TUNNEL_L2TP_IPSEC     <- Ist-Zustand dokumentieren
+    |
+  M2-040 TUNNEL_WIREGUARD      <- Das Herzstueck (AmneziaWG)
+    |
+  M2-050 FIREWALL              <- DNS-Zwang, Rollen-Enforcement
+    |
+  M2-060..M2-110 (rest Base)
+    |
+  M3 Module (DEFERRED)
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

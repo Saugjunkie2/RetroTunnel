@@ -1,0 +1,222 @@
+================================================================================
+BASE-030 — INVARIANTEN (L2TP/IPsec Tunnel)
+================================================================================
+DATEI: BASE-030_090_INVARIANTEN.txt
+STATUS: ACTIVE
+
+================================================================================
+DAEMON-ARCHITEKTUR
+================================================================================
+
+  LT-01  accel-ppp ist der einzige L2TP/PPP-Daemon. Es gibt KEINEN
+         xl2tpd und KEINEN separaten pppd. Alle L2TP/PPP-Funktionen
+         (Tunnel-Setup, Auth, IP-Vergabe, Hooks) laufen in einem Prozess.
+
+  LT-02  accel-ppp und strongSwan kommunizieren NICHT direkt.
+         Die Entkopplung erfolgt ueber den Linux XFRM-Stack (Kernel).
+         strongSwan installiert IPsec-Policies, der Kernel dekapselt.
+         accel-ppp sieht auf UDP/1701 nur Klartext-L2TP.
+
+  LT-03  accel-ppp MUSS auf 0.0.0.0:1701 binden (NICHT auf
+         SERVICE_GW_PPP 10.77.0.10). Begruendung: L2TP-Pakete
+         kommen mit der WAN-IP als Zieladresse an (IPsec Transport-
+         Mode Traffic-Selector dynamic[udp/1701]). Sicherheit gegen
+         nackte L2TP-Pakete ueber nftables (meta ipsec exists, BASE-050).
+
+  LT-04  accel-ppp [client-ip-range] MUSS 0.0.0.0/0 enthalten.
+         Diese Sektion ist eine Whitelist erlaubter QUELL-IPs fuer
+         eingehende Verbindungen, NICHT die IP-Zuweisung. Ohne Eintrag
+         lehnt accel-ppp ALLE Verbindungen ab.
+
+  LT-05  [radius] gw-ip-address MUSS auf 10.77.0.10 (SERVICE_GW_PPP)
+         stehen und MUSS in der [radius]-Sektion stehen (NICHT [ppp]).
+         Ohne diesen Parameter kann accel-ppp die Framed-IP-Address
+         aus dem RADIUS-Reply nicht zuweisen.
+
+================================================================================
+IPSEC UND PSK
+================================================================================
+
+  LT-06  strongSwan nutzt AUSSCHLIESSLICH das swanctl/vici-Modell.
+         Kein ipsec.conf, kein Starter-Daemon. Service: strongswan.service
+         (charon-systemd). Config: /etc/swanctl/swanctl.conf.
+
+  LT-07  L2TP/IPsec-Verbindung MUSS version=1 (IKEv1) und
+         mode=transport nutzen. IKEv2 ist nicht kompatibel mit XP/Vista.
+         Transport-Mode ist Pflicht fuer L2TP (RFC 3193).
+
+  LT-08  Der Traffic-Selector MUSS local_ts=dynamic[udp/1701] sein.
+         Ohne diesen Selector weiss der Kernel nicht welche Pakete
+         verschluesselt werden sollen.
+
+  LT-09  Die PSK-Secrets-Sektion DARF KEINE id-Zeile enthalten.
+         Begruendung: IKEv1 Main Mode tauscht Identitaeten erst NACH
+         dem Key Exchange aus. Eine id-Bindung fuehrt zu
+         "no shared key found". Die Connection-local-Sektion hat
+         ebenfalls KEIN id (XP erwartet IP-basierte Identitaet).
+
+  LT-10  Der PSK lebt in /etc/swanctl/swanctl.conf (Dateisystem),
+         NICHT in SQL. Dokumentierte Ausnahme von SQL-first.
+
+  LT-11  Alle L2TP/IPsec-Clients teilen denselben Group-PSK.
+         Nutzer-Separierung erfolgt auf PPP-Ebene (MS-CHAPv2 via RADIUS,
+         individuelles Login pro vpn_connection).
+
+================================================================================
+CRYPTO UND OPENSSL
+================================================================================
+
+  LT-12  Das Paket openssl-provider-legacy MUSS installiert sein.
+         Der Legacy Provider MUSS system-global aktiviert sein.
+         ZUSAETZLICH muss der Default Provider explizit aktiviert
+         bleiben, sonst brechen alle normalen Crypto-Operationen.
+
+  LT-13  strongSwan openssl-Plugin: load_legacy = yes MUSS gesetzt sein.
+
+  LT-14  MPPE MUSS deaktiviert sein (mppe=deny in [ppp]).
+
+  LT-15  CCP MUSS deaktiviert sein (ccp=0 in [ppp]).
+
+================================================================================
+PPP-INTERFACE, DEFAULT-DENY UND HOOKS
+================================================================================
+
+  LT-16  Pro L2TP-Session existiert genau ein PPP-Interface (pppX).
+         Interface-Erstellung und -Loeschung werden von accel-ppp
+         verwaltet (nicht manuell).
+
+  LT-17  ipv6=deny MUSS in [ppp] gesetzt sein.
+         L2TP_IPSEC ist IPv4-only (A-06, NA-05).
+
+  LT-18  JEDE neue PPP-Session ist per Default vollstaendig gesperrt
+         (Default-Deny auf ppp*, BASE-050). Traffic ist NUR moeglich
+         wenn die Client-IP explizit in ein Freigabe-Set eingetragen
+         wird. Der ip-up Hook ist NICHT der Enforcement-Ort — er
+         ist ein asynchroner Trigger der UNTER dem Default-Deny
+         arbeitet. Die Pre-Traffic-Sperre ist Hook-unabhaengig.
+         (F-030-001 Korrektur: ip-up ist asynchron/geforkt, nicht
+         synchron/blockierend.)
+
+  LT-19  Kein Nutztraffic ohne erfolgreichen Release. Wenn der
+         ip-up Hook crasht, haengt, zu langsam ist oder frueh
+         terminiert wird: Client-IP ist NICHT im Freigabe-Set →
+         Traffic bleibt gesperrt → Fail-Closed automatisch.
+         Es gibt KEIN Zeitfenster ohne Schutz (Hook-unabhaengig).
+
+  LT-20  ip-down Hook MUSS vpn_sessions schliessen (closed_at),
+         vpn_session_locks loeschen (DELETE) und die Client-IP
+         aus dem Freigabe-Set + allen dynamischen Sets entfernen.
+
+================================================================================
+SESSION-BRIDGE (R-15) UND RADACCT-KORRELATION
+================================================================================
+
+  LT-21  Der ip-up Hook (Runner in BASE-030) fuehrt den vpn_sessions
+         INSERT aus. Das vpn_sessions Schema (Owner) lebt in BASE-070.
+         R-15: Runner ≠ Owner.
+
+  LT-22  Der vpn_sessions INSERT MUSS die 8 Pflichtfelder aus
+         BASE-020_020 §5 enthalten. Fuer L2TP_IPSEC:
+         tunnel_type='L2TP_IPSEC', client_ipv6=NULL,
+         truth_source='RADIUS_ACCT', runtime_ref=$IFNAME.
+         session_token und source_event_at MUESSEN aus der
+         radacct-Korrelation stammen (acctsessionid, acctstarttime),
+         NICHT aus Env-Vars oder NOW().
+         (F-030-002 Korrektur: $SID ist im stock accel-ppp 1.13.0
+         ip-up Hook NICHT als Env-Var verfuegbar.)
+
+  LT-23  Der Bridge-DB-User (vpn_system@localhost) hat Least-Privilege:
+         SELECT auf vpn_connections + radacct, INSERT auf vpn_sessions,
+         DELETE + SELECT auf vpn_session_locks.
+
+  LT-24  Die radacct-Korrelation MUSS bounded retry verwenden.
+         Retry-Parameter sind Settings-Keys (SQL-first, R-03):
+           vpn_l2tp_radacct_correlation_window_seconds (Default 30)
+           vpn_l2tp_radacct_retry_count (Default 5)
+           vpn_l2tp_radacct_retry_interval_seconds (Default 1)
+         Timeout = retry_count × retry_interval (abgeleitet, KEIN
+         eigener Key). Bei Timeout oder Mehrdeutigkeit (>1 Kandidat):
+         KEIN INSERT, kein Release → Fail-Closed.
+
+  LT-25  accel-ppp [radius] acct-delay-start MUSS 0 sein.
+         Ein Wert >0 vergroessert das Timing-Fenster der radacct-
+         Korrelation unkontrolliert.
+
+  LT-26  vpn_session_locks Release erfolgt per DELETE (nicht UPDATE).
+         DELETE-Modell: Lock-Row wird entfernt, kein stale State.
+         Owner der Lock-Semantik: BASE-070.
+
+================================================================================
+MTU / MSS / NAT-T
+================================================================================
+
+  LT-27  PPP MTU/MRU MUSS 1400 sein. Min-MTU MUSS 1280 sein.
+         [l2tp] ppp-max-mtu MUSS 1400 sein (harte Obergrenze).
+
+  LT-28  MSS-Clamping auf ppp* Interfaces MUSS in der nftables
+         Forward-Chain VOR ct state established,related stehen.
+         MSS-Clamping MUSS in BEIDE Richtungen greifen (iifname + oifname).
+
+  LT-29  UDP 1701 DARF nur via IPsec (meta ipsec exists) akzeptiert
+         werden. Nackte L2TP-Pakete MUESSEN gedroppt werden (BASE-050).
+
+  LT-30  Der NAT-T Registry Fix (AssumeUDPEncapsulationContextOnSendRule=2)
+         ist PFLICHT fuer jeden XP/Vista Client hinter NAT.
+
+  LT-31  DPD (dpd_delay/dpd_timeout) und NAT-T Keepalive
+         (charon.keep_alive) sind VERSCHIEDENE Mechanismen.
+         DPD prueft Peer-Liveness (IKE Informational Exchange).
+         NAT-Keepalive erhaelt NAT-Mappings (0xff-Pakete auf UDP/4500).
+         Beide laufen parallel, duerfen nicht verwechselt werden.
+
+================================================================================
+BOOT, LIFECYCLE UND BETRIEB
+================================================================================
+
+  LT-32  accel-ppp.service MUSS NACH strongswan.service starten
+         (After=strongswan.service). Boot-Sequenz gemaess
+         BASE-005_080 §3: Tunnel-Dienste Phase 3, nftables Phase 4.
+
+  LT-33  Bei accel-ppp Restart/Crash sterben ALLE aktiven L2TP-Sessions.
+         PPP-Interfaces werden vom Kernel entfernt. Clients reconnecten
+         nach LCP-Echo-Failure (3x30 = 90 Sekunden).
+
+  LT-34  Bei hartem Reboot bleiben radacct-Eintraege mit
+         acctstoptime=NULL stehen. Der Boot-Janitor (BASE-070)
+         MUSS diese beim Start bereinigen.
+
+  LT-35  accel-ppp single-session MUSS auf "replace" stehen.
+         Dies ist der LETZTE RETTUNGSMECHANISMUS gegen SimUse-Races,
+         NICHT der normale Policy-Pfad. Primaer: RADIUS SimUse=1.
+         Replace greift NUR wenn eine Race-Condition den RADIUS-Check
+         umgeht und beendet dann die alte Session (nicht die neue).
+
+  LT-36  LCP-Echo: lcp-echo-interval + lcp-echo-failure OHNE
+         lcp-echo-timeout. Wenn timeout gesetzt ist, aktiviert
+         accel-ppp adaptive Echo und ignoriert failure.
+         Deterministisches Verhalten ist bevorzugt.
+
+  LT-37  Gleiches-NAT-Mehrfachnutzung (mehrere L2TP-Clients hinter
+         demselben NAT-Router zum selben Gateway) ist best-effort,
+         NICHT garantiert. Verbindungsabbrueche sind moeglich.
+
+  LT-38  IKE SA rekey_time MUSS 0 sein (Connection-Ebene in swanctl).
+         Zusaetzlich zum CHILD rekey_time=0. Default waere ~4h.
+         Server-initiiertes IKE-Rekey bricht XP/Vista hinter NAT.
+         Ohne dieses Setting brechen Langzeit-Sessions nach ~4h.
+
+  LT-39  accel-ppp [radius] acct-timeout MUSS 0 sein.
+         Bestehende Sessions werden bei Accounting-Stoerung NICHT
+         terminiert. Fail-Closed gilt fuer NEUE Sessions (RADIUS
+         REJECT), nicht fuer bereits aufgebaute. Ein Massenabwurf
+         bei kurzzeitiger DB-Stoerung waere operativ schaedlicher.
+
+  LT-40  accel-ppp ip-pre-up DARF fuer fruehe technische Guards
+         genutzt werden (Interface-Registrierung, Vorbedingungen),
+         aber NICHT fuer Session-Truth oder radacct-Korrelation.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

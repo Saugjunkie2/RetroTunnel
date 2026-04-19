@@ -1,0 +1,137 @@
+================================================================================
+BASE-010 — WEB_CUSTOMERS (Panel-Account Schema)
+================================================================================
+DATEI: BASE-010_010_WEB_CUSTOMERS.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Kanonisches Schema fuer die Tabelle web_customers. Repraesentiert
+  einen menschlichen Benutzer im Webpanel. Ein Customer kann mehrere
+  VPN-Connections besitzen.
+
+VORGAENGER:
+  B055 §2.1 (customers), DOMAIN_MODEL §2
+  Tabellen-Rename: customers → web_customers (BASE-000 K-01)
+
+================================================================================
+1) SCHEMA: web_customers
+================================================================================
+
+  Feld                 Typ               Constraint          Beschreibung
+  ──────────────────── ───────────────── ─────────────────── ────────────────────
+  id                   BIGINT UNSIGNED   PK AUTO_INCREMENT   Primaerschluessel
+  email                VARCHAR(255)      UNIQUE, NOT NULL    Login-Identitaet
+  password_hash        VARCHAR(255)      NOT NULL            Argon2id Hash
+  display_name         VARCHAR(40)       NULL                UI-only (Panel-Anrede)
+                                                             Fallback = email
+                                                             Output escaped (XSS)
+  access_role          ENUM              NOT NULL            USER|VIP|MODERATOR|ADMIN
+                                         DEFAULT 'USER'                      SoT fuer Rolle des Kunden.
+                                                             Alle Connections erben
+                                                             diesen Wert (D003-E02).
+                                                             Nur ADMIN darf aendern.
+  plan_id              INT UNSIGNED      NULL                Aktiver Plan. NULL = kein
+                                                             Plan (nur Rollen-Defaults).
+                                                             Nur USER hat Plans.
+                                                             VIP/MOD/ADMIN: immer NULL.
+                                                             FK→plans ERST AB MOD-010 (M3).
+                                                             Bis dahin: logischer Verweis,
+                                                             kein DB-Level FK-Constraint.
+                                                             Tabelle plans wird in MOD-010
+                                                             definiert und registriert.
+  status               ENUM              NOT NULL            PENDING|ACTIVE|SUSPENDED|
+                                                             DELETED
+  email_verified_at    TIMESTAMP         NULL                NULL = PENDING (unverified)
+                                                             Monotonic: nie zurueck auf NULL
+  suspended_at         TIMESTAMP         NULL                Zeitpunkt der Sperrung
+                                                             NULL wenn nicht SUSPENDED
+  deleted_at           TIMESTAMP         NULL                Zeitpunkt der Loeschung
+                                                             NULL wenn nicht DELETED
+  created_at           TIMESTAMP         NOT NULL            Erstellungszeitpunkt
+  updated_at           TIMESTAMP         NOT NULL            Letzte Aenderung
+
+================================================================================
+2) INDICES
+================================================================================
+
+  UNIQUE(email)
+  INDEX(access_role)
+  INDEX(status)
+  INDEX(plan_id)
+  INDEX(suspended_at)
+  INDEX(deleted_at)
+
+================================================================================
+3) INVARIANTEN
+================================================================================
+
+  CI-01  email ist UNIQUE (DB-Constraint).
+  CI-01a EMAIL-NORMALISIERUNG: email wird VOR dem Speichern auf
+         Lowercase normalisiert (case-insensitive Vergleich).
+         Fuehrende/nachfolgende Whitespaces werden getrimmt.
+         Plus-Aliase (user+tag@example.com) werden NICHT
+         normalisiert — sie gelten als eigene Adresse.
+         Unicode/IDN-Domains: Punycode-gespeichert.
+         Detail-Implementierung → BASE-110_WEBSTACK_CORE.
+  CI-02  email_verified_at ist monotonic: einmal gesetzt, nie zurueck
+         auf NULL. "Unverify" existiert nicht. Reset = neuer Customer.
+  CI-03  status=ACTIVE setzt email_verified_at IS NOT NULL voraus.
+         email_verified_at IS NULL → status kann NICHT ACTIVE sein.
+  CI-04  Verify-Transition: SYSTEM setzt email_verified_at UND
+         status=ACTIVE in derselben Transaktion.
+  CI-05  display_name wird escaped gerendert (XSS-Safety). Max 40 Zeichen.
+  CI-06  USER kann status NIE direkt aendern.
+  CI-07  access_role Aenderung (Promotion/Demotion) nur durch ADMIN,
+         auditpflichtig. Kaskadiert auf alle Connections (D003-E02).
+  CI-08  plan_id darf nur bei access_role=USER gesetzt sein.
+         VIP/MOD/ADMIN: plan_id MUSS NULL sein.
+  CI-09  suspended_at IS NOT NULL ↔ status=SUSPENDED.
+  CI-10  deleted_at IS NOT NULL ↔ status=DELETED.
+  CI-11  deleted_at ist monotonic (DELETED ist terminal).
+
+================================================================================
+4) STATUS-LIFECYCLE
+================================================================================
+
+  PENDING → ACTIVE        (bei erfolgreicher E-Mail-Verifikation)
+  ACTIVE → SUSPENDED      (Admin-Aktion, z.B. Abuse)
+  ACTIVE → DELETED        (Admin-Aktion)
+  SUSPENDED → ACTIVE      (Admin-Aktion, nur wenn email_verified_at gesetzt)
+  Kein Rueckweg von DELETED.
+
+================================================================================
+5) STATUS-VERHALTEN (Panel / Auth / VPN)
+================================================================================
+
+  Status      Login   Panel-Inhalt       Claim   VPN-Connections
+  ─────────── ─────── ────────────────── ─────── ─────────────────────
+  PENDING     Ja      Verify-Wall        Nein    Nicht betroffen
+                      (nur Code/Resend)           (noch kein Claim)
+  ACTIVE      Ja      Volles Panel       Ja      Normal (Full/Restricted)
+  SUSPENDED   Nein    "Account gesperrt" Nein    Alle Connections werden
+                      + Support-Kontakt           DISABLED (Kaskade,
+                                                  DISABLE_CUSTOMER_SUSPENDED)
+  DELETED     Nein    Keine Antwort      Nein    Connections PHYSISCH GELOESCHT.
+                                                  Connection-Rows + Auth-Rows
+                                                  werden entfernt. Credentials
+                                                  vernichtet, IP ins Recycling.
+                                                  Kein Restore moeglich.
+                                                  Forensik: connection_ref +
+                                                  customer_id + IP-History
+                                                  bleiben in log_connection_
+                                                  lifecycle als DELETED-Event.
+                                                  OPEN-010-01: [CLOSED]
+                                                  Physische Loeschung (CASCADE),
+                                                  IP sofort ins Recycling,
+                                                  Historie in Lifecycle-Log.
+                                                  Marco 2026-04-18.
+
+================================================================================
+6) PANEL-CONSUMABILITY
+================================================================================
+
+  Panel zeigt: display_name (Fallback email), access_role Badge,
+  status Badge, Plan-Name (wenn vorhanden), Verify-Status.
+  Admin-Panel: Alle Felder sichtbar + Status-Aenderung + Rollenwechsel.
+  Mouseover auf access_role: Beschreibung der Rolle und Rechte.
+================================================================================

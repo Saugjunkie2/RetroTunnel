@@ -1,0 +1,872 @@
+================================================================================
+RetroTunnel — STATE MACHINE: ONBOARDING (Verify / Claim / Grace)
+================================================================================
+VERSION: v1.0
+DATUM: 2026-04-16
+STATUS: DEPRECATED (siehe Deprecation-Hinweis unten)
+PFAD: model/state_machines/SM_ONBOARDING.txt
+
+================================================================================
+DEPRECATION-HINWEIS (2026-04-16)
+================================================================================
+
+Diese Datei ist inhaltlich UEBERHOLT und wird bei Ausarbeitung von
+MOD-001_ONBOARDING aufgeloest. Onboarding-Logik (Verify-Wall, Claim
+Weg A+B, UNCLAIMED Grace, Hard-Stop) wandert in das Erweiterungs-
+Modul, nicht in eine Base — Onboarding ist ein Feature, kein Core.
+
+Grund: Entscheidung 2026-04-16 "model/ wird aufgeloest — eine Wahrheit,
+ein Ort". Onboarding ist M3-Scope (MOD-001), nicht M2 (Base).
+
+BEGRIFFS-BRUECKE (beim Lesen mental uebersetzen):
+
+  Alt (in dieser Datei)               Neu (Kanon ab 2026-04-16)
+  ----------------------------------  -----------------------------------
+  tunnel_type='LEGACY'                tunnel_type='L2TP_IPSEC'
+  tunnel_type='MODERN'                tunnel_type='WIREGUARD'
+  "AWG Claim-Authorization"           "WireGuard Claim-Authorization"
+  "customers" Tabelle                 "web_customers" (BASE-000 K-01)
+  "reason_registry" Tabelle           "vpn_reason_registry" (K-03)
+  BASE-07_POLICY_APPLY_CORE           BASE-080_POLICY_APPLY_CORE
+  BASE-11_IDENTITY_CORE               BASE-010_IDENTITY_CORE
+  MOD-01_ONBOARDING                   MOD-001_ONBOARDING
+  MOD-02_RESTRICTED_MODE              MOD-002_RESTRICTED_MODE
+
+ONBOARDING-LOGIK BLEIBT GUELTIG:
+Die 23 Invarianten und 27 Tests sind unveraendert kanonisch.
+Verify-Wall-Prinzip (Customer-Scope), Claim-Wege (A = Token, B = Self-
+Service), UNCLAIMED-Grace und Hard-Stop bleiben wie sie sind. Nur
+Tabellennamen und BASE-/MOD-Referenzen sind veraltet.
+
+REFERENZ ALTES KONZEPT:
+  B155_Onboarding_Verify-Wall_Claim_Token.txt — Vollstaendiger Onboarding-Flow
+  D008_VERIFY_WALL_CUSTOMER_SCOPE.txt — Verify = Customer-Attribut
+  B150_Walled_Garden_Restricted_Mode_(QuotaExpiryManual).txt — Restricted bei UNCLAIMED_OVERDUE
+
+DELTA ZUM ALTEN KONZEPT (historisch):
+  - conn_group Referenzen -> access_role (USER/VIP/MODERATOR/ADMIN)
+  - Altes status-Feld -> Zwei-Ebenen-Modell (Ownership + op_status)
+  - Claim aendert Ownership (customer_id), NICHT op_status
+  - Self-Service Weg B ergaenzt (kein Claim-Token, kein Grace/Deadline)
+  - WireGuard Claim-Authorization: IP-Ermittlung ueber vpn_sessions/Runtime
+  - Neue Rollen VIP + MODERATOR durchlaufen Onboarding (ADMIN exempt)
+  - connection_lifecycle_log statt disabled_by
+  - restricted_effective/restricted_reason -> op_status + op_reason_code
+
+ERARBEITET DURCH:
+  Marco + ChatGPT (Architekturentscheidungen im alten Konzept) +
+  Claude (Ueberfuehrung in RetroTunnel-Struktur).
+
+================================================================================
+1) ZWECK UND SCOPE
+================================================================================
+
+Dieses Dokument definiert den vollständigen Onboarding-Flow für
+RetroTunnel — vom unverifizierten Panel-Account bis zur geclaimten,
+betriebsbereiten VPN-Connection.
+
+SCOPE:
+  - Customer-Registrierung und E-Mail-Verifikation (Verify-Wall)
+  - Claim einer PREPROVISIONED Connection (Weg A: Laptop-Provisioning)
+  - Self-Service Connection-Erstellung (Weg B: Panel-Erstellung)
+  - UNCLAIMED Grace-Periode und Hard-Stop (Deadlines)
+  - Admin-Aktionen im Onboarding-Kontext
+
+NICHT IN SCOPE:
+  - nftables-Regeldetails für Restricted Mode → SM_POLICY_RESTRICT
+  - Panel-UI/UX Screens → MOD-06_PANEL_FEATURES
+  - Verify-Code Kryptographie (Hash, TTL, Lockout) → BASE-110/MOD-06
+  - RADIUS Auth-Details → BASE-20_AAA_CORE
+  - Session-Lifecycle → SM_SESSION
+
+ABHÄNGIGKEITEN:
+  - SM_CONNECTION (Ownership-Modell und relevante Transitionen
+    T-01, T-02, T-04, T-05, T-06)
+  - DOMAIN_MODEL (Customer-Schema, vpn_connections-Schema, reason_registry)
+  - TRUTH_MODEL (Settings-Keys für Grace/Deadline)
+  - NETWORK_MODEL (SERVICE_WEB muss im Restricted Mode erreichbar sein)
+
+================================================================================
+2) ZWEI ONBOARDING-WEGE
+================================================================================
+
+RetroTunnel kennt zwei Wege, wie eine VPN-Connection entsteht und
+einem Customer zugeordnet wird. Beide Wege führen zum Ownership-
+Endzustand CLAIMED. Der operative Endzustand ist TYPISCHERWEISE
+ACTIVE, kann aber RESTRICTED bleiben, wenn andere Restrict-Gründe
+aktiv sind (siehe §4.2 Multi-Reason).
+[F-ONB-006 v0.3: Endzustand-Beschreibung korrigiert]
+
+2.1) Weg A — Laptop-Provisioning (ADMIN erstellt vorab)
+
+  EINSCHRÄNKUNG: Nur für access_role USER, VIP, MODERATOR.
+  access_role=ADMIN ist bei Weg A NICHT zulässig (ONB-13).
+
+  Anwendungsfall: Marco richtet ein Gerät ein (z.B. Windows XP Laptop
+  für einen Kunden). Die Connection wird VOR der Kundenübergabe erstellt.
+
+  Ablauf:
+    1. ADMIN erstellt vpn_connection (Weg A gemäß SM_CONNECTION §2.1)
+    2. Connection ist PREPROVISIONED + ACTIVE (customer_id=NULL)
+    3. Claim-Token wird auf dem Gerät hinterlegt (Sticker, Datei, Setup-Tool)
+    4. Gerät wird an Kunden übergeben
+    5. Kunde registriert Panel-Account → Customer entsteht als PENDING
+    6. Kunde verifiziert E-Mail → Customer wird ACTIVE (Verify-Wall)
+    7. Kunde gibt Claim-Token im Panel ein → Connection wird CLAIMED
+    8. Endzustand: CLAIMED + ACTIVE (typisch) oder
+       CLAIMED + RESTRICTED (wenn andere Restrict-Gründe aktiv, §4.2)
+
+  Zeitdruck:
+    - unclaimed_grace_until: Bis dahin Full Tunnel auch ohne Claim
+    - claim_deadline: Hard-Stop, danach DISABLED
+    - Beide Zeiten kommen aus Settings-Keys (TRUTH_MODEL §7.3)
+
+2.2) Weg B — Self-Service im Panel (Customer erstellt selbst)
+
+  Anwendungsfall: Ein bereits verifizierter Customer erstellt im Panel
+  selbst eine neue Connection (z.B. zweites Gerät).
+
+  Ablauf:
+    1. Customer ist bereits ACTIVE (email_verified_at IS NOT NULL)
+    2. Customer klickt "Neue Verbindung" im Panel
+    3. Connection wird direkt als CLAIMED + ACTIVE erstellt
+       (SM_CONNECTION §2.2)
+    4. customer_id = Customer.id, claimed_at = NOW()
+    5. KEIN Claim-Token (nicht nötig — Customer ist bereits identifiziert)
+    6. KEINE Grace-Periode (kein unclaimed_grace_until)
+    7. KEIN Claim-Deadline (kein claim_deadline)
+    8. AWG-Config wird per E-Mail zugestellt / im Panel angezeigt
+    9. Endzustand: CLAIMED + ACTIVE (sofort betriebsbereit)
+
+  Vorbedingungen:
+    - Customer.status = ACTIVE
+    - Plan erlaubt weitere Connections (Connection-Limit nicht erreicht)
+    - Pool hat freie Slots (Fail-Closed bei Pool-Full)
+
+================================================================================
+3) VERIFY-WALL (Customer E-Mail-Verifikation)
+================================================================================
+
+ARCHITEKTURENTSCHEIDUNG (aus D008, KANONISCH):
+  E-Mail-Verifikation ist ein CUSTOMER-Attribut, nicht pro Connection.
+  Eine verifizierte Kontakt-E-Mail gilt für den gesamten Account.
+  Begründung: Im Abuse-/Supportfall ist teilweise Verifikation
+  unlogisch und umgehbar.
+
+3.1) EBENE: App-Layer (Panel-Guard)
+
+  Die Verify-Wall ist KEIN Kernel-Enforcement und hat KEINE Auswirkung
+  auf RADIUS/AAA, nftables oder VPN-Auth.
+  Verify-Wall steuert ausschließlich die Sichtbarkeit des Panel-
+  Innenlebens. Ein PENDING Customer kann sich per VPN verbinden
+  und das Panel erreichen — aber dort wird nur die Verify-Wall
+  angezeigt, nicht das Panel-Innenleben.
+
+  EBENENTRENNUNG (MUST, aus DOMAIN_MODEL §9):
+    Verify (Panel) → steuert Panel-Zugang
+    Claim (App-Layer) → steuert Connection-Ownership
+    op_status (Kernel) → steuert VPN-Enforcement
+    Alle drei Ebenen sind UNABHÄNGIG voneinander.
+
+3.2) Customer-Status-Lifecycle
+
+  PENDING  := email_verified_at IS NULL (unverified)
+  ACTIVE   := email_verified_at IS NOT NULL (verified)
+
+  Transition: PENDING → ACTIVE
+    Trigger: Erfolgreiche Verify-Code-Eingabe
+    Effekte (atomar):
+      - email_verified_at = NOW()
+      - customers.status = ACTIVE
+      - Beide in EINER Transaktion (DOMAIN_MODEL CI-04)
+
+3.3) Verify-Wall Flow (Panel-Ablauf)
+
+  REGISTRIERUNG:
+    1. Customer registriert Panel-Account (E-Mail + Panel-Passwort)
+    2. Optional: display_name (UI-only, max 40 Zeichen)
+    3. Account entsteht als PENDING (email_verified_at = NULL)
+    4. System sendet Verify-Code per E-Mail (Code, KEIN Link)
+    5. Customer kann sich sofort einloggen
+
+  LOGIN MIT PENDING-STATUS:
+    1. Customer loggt sich mit Panel-Credentials ein
+    2. Panel prüft: email_verified_at IS NULL → PENDING
+    3. Redirect auf Verify-Wall (ZWINGEND, kein Bypass möglich)
+    4. Verify-Wall zeigt EXAKT 3 Aktionen:
+       a) Code eingeben (Verify)
+       b) Code neu senden (Resend)
+       c) Support kontaktieren
+    5. KEIN Panel-Innenleben sichtbar. KEIN Claim möglich.
+       KEINE Connection-Übersicht. KEINE Settings.
+
+  VERIFY ERFOLGREICH:
+    1. Customer gibt korrekten Code ein
+    2. email_verified_at = NOW(), customers.status = ACTIVE (atomar)
+    3. Redirect ins Panel-Innenleben
+    4. Claim wird möglich (wenn Connections vorhanden)
+
+  MONOTONIC-REGEL (CI-02):
+    email_verified_at ist EINMAL gesetzt, NIE zurück auf NULL.
+    "Unverify" existiert nicht. Reset = neuer Customer.
+
+3.4) Verify-Code Mechanik (Konzept-Ebene)
+
+  - Code wird per E-Mail gesendet (Code-Eingabe im Panel, kein Link)
+  - In SQL wird NUR ein Hash gespeichert (kein Klartext persistiert)
+  - Code ist kurzlebig (TTL) und single-use
+  - Rate-Limits für Resend (Cooldown zwischen Versuchen)
+  - Max-Attempts mit Lockout (temporäre Sperre nach N Fehlversuchen)
+  - Konkrete Werte (TTL, Max-Attempts, Lockout-Dauer, Hash-Algorithmus)
+    werden in BASE-110_WEBSTACK_CORE / MOD-06_PANEL_FEATURES spezifiziert
+
+================================================================================
+4) CLAIM-FLOW (Weg A: Token-basierte Connection-Zuordnung)
+================================================================================
+
+Claim verbindet eine PREPROVISIONED Connection mit einem Customer.
+Claim ist NUR relevant für Weg A (Laptop-Provisioning).
+Weg B (Self-Service) hat keinen Claim, weil customer_id direkt
+beim INSERT gesetzt wird.
+
+KLARSTELLUNG ZUR CLAIM-SEMANTIK:
+  Der Claim ist eine BESITZBESTÄTIGUNG, nicht eine Suche oder Zuweisung.
+  Das System erkennt die Zuordnung bereits implizit durch den IP-Match:
+  Wenn ein User sich registriert und sein Request von IP 10.77.16.42 kommt,
+  und eine PREPROVISIONED Connection mit fixed_ip = 10.77.16.42 existiert,
+  dann WEISS das System bereits welche Connection diesem User gehört.
+  Der Claim-Token ist nur der formale Besitznachweis — die Bestätigung
+  dass der User tatsächlich Zugriff auf das Gerät hat. Der typische
+  User claimt genau EINMAL (bei Erstregistrierung).
+
+4.1) Vorbedingungen (MUST, alle gleichzeitig)
+
+  CUSTOMER:
+    - Customer.status = ACTIVE (email_verified_at IS NOT NULL)
+    - Customer ist eingeloggt im Panel
+
+  CONNECTION:
+    - customer_id IS NULL (PREPROVISIONED, Ownership-Ebene)
+    - op_status IN (ACTIVE, RESTRICTED)
+      (DISABLED Connections können nicht geclaimt werden)
+    - NOW() < claim_deadline (Hard-Stop noch nicht erreicht)
+      [F-ONB-018 v0.5: Strikt kleiner — bei Gleichheit gilt Hard-Stop]
+    - claim_token_hash IS NOT NULL
+
+  TOKEN:
+    - Vom User eingegebener Claim-Token matcht claim_token_hash
+
+  IP-AUTORISIERUNG (serverseitig ermittelt, IP-familienneutral):
+    [F-ONB-008 v0.3: Dualstack-fähig, nicht nur IPv4]
+    - Request-IP wird serverseitig aus dem VPN-Tunnel ermittelt,
+      NICHT aus HTTP-Headern (X-Forwarded-For etc.)
+    - LEGACY: IPv4 aus PPP-Session (pppX Interface)
+    - MODERN: IPv4 oder IPv6 aus vpn_sessions oder AWG AllowedIPs
+
+    Autorisierungsregel (IP-familienneutral):
+    Request-Tunnel-IP muss einer der zugeordneten Tunnel-IPs
+    der Ziel-Connection entsprechen (fixed_ip ODER fixed_ipv6).
+
+    Fall A — Erster Claim für diesen Customer:
+      Request-IP MUSS fixed_ip ODER fixed_ipv6 der Ziel-Connection
+      entsprechen. (Claim muss aus der Ziel-Connection selbst kommen.)
+
+    Fall B — Weitere Claims (Customer hat bereits Connections):
+      Request-IP MUSS die fixed_ip ODER fixed_ipv6 einer bereits
+      CLAIMED Connection des Customers sein (op_status != DISABLED).
+      Die zu claimende Connection muss NICHT aktiv/online sein.
+
+4.2) Claim-Effekte (atomar, in einer Transaktion)
+
+  - customer_id = Customer.id
+  - claimed_at = NOW()
+
+  OWNERSHIP-WECHSEL → POLICY-RE-EVALUATION:
+  [F-ONB-001 v0.2: Multi-Reason Edge Case explizit modelliert]
+
+  Nach dem Ownership-Wechsel (customer_id gesetzt) fällt die Bedingung
+  UNCLAIMED_OVERDUE automatisch weg (customer_id IS NOT NULL →
+  UNCLAIMED_OVERDUE kann nicht mehr aktiv sein). Der weitere Verlauf
+  hängt davon ab, ob ANDERE Restrict-Gründe aktiv sind:
+
+    FALL 1: op_reason_code = RESTRICT_UNCLAIMED_OVERDUE
+    (UNCLAIMED_OVERDUE war der EINZIGE aktive Restrict-Grund)
+      → op_status = ACTIVE, op_reason_code = NULL
+      → restricted_at = NULL, restrict_finalize_at = NULL
+      → Internet sofort frei (nach Policy-Apply, siehe unten)
+      (SM_CONNECTION T-01: Claim + Unrestrict)
+
+    FALL 2: op_reason_code = anderer Grund (z.B. RESTRICT_QUOTA_EXHAUSTED)
+    (UNCLAIMED_OVERDUE war aktiv aber nicht der höchstpriore Grund)
+      → Ownership-Wechsel erfolgt (customer_id + claimed_at gesetzt)
+      → op_status bleibt RESTRICTED
+      → op_reason_code bleibt beim höchstprioren verbleibenden Grund
+      → UNCLAIMED_OVERDUE fällt aus der Gesamtmenge aktiver Gründe
+      → Nächste Re-Evaluation (T-05) berücksichtigt neuen Zustand
+
+    FALL 3: op_status = ACTIVE (Grace noch nicht abgelaufen)
+      → Ownership-Wechsel erfolgt, keine Statusänderung
+
+  POLICY-APPLY TRIGGER (MUST):
+  [F-ONB-002 v0.2: Fehlender Trigger ergänzt]
+  Nach jedem erfolgreichen Claim MUSS vpn-policy-apply für die
+  betroffene Connection ausgelöst werden:
+    vpn-policy-apply --connection-id=<id>
+  Zweck: Kernel-Enforcement aktualisieren (Restricted-Set entfernen
+  wenn → ACTIVE, oder Enforcement bestätigen wenn → bleibt RESTRICTED).
+  Ohne Apply bleibt die Connection im Walled Garden obwohl op_status
+  sich geändert hat.
+
+  - Lifecycle-Log: Event CLAIM (actor=CUSTOMER, source=PANEL)
+
+  IDEMPOTENZ: Doppelter Claim auf dieselbe Connection → "already claimed"
+  deterministisch melden, kein Fehler, kein Doppel-Write.
+
+  RACE-SCHUTZ: Row-Lock (SELECT ... FOR UPDATE auf vpn_connections.id)
+  vor der Claim-Prüfung. Exakt ein Prozess gewinnt.
+
+4.3) Claim-Token Mechanik
+
+  - Token wird bei Provisioning (Weg A) server-generiert
+  - In DB: claim_token_hash (Hash des Tokens), UNIQUE
+  - Klartext-Token existiert NUR auf dem Gerät (Sticker, Datei, Setup-Tool)
+  - Token ist NICHT der VPN-Login (keine Verwechslungsgefahr)
+  - Token-Rotation durch Admin möglich (B155 §8.1):
+    Neuer Hash, neuer Klartext-Token wird verteilt
+    Ohne Änderung an claim_deadline oder unclaimed_grace_until
+
+  TOKEN-SICHERHEIT:
+  - Brute-Force-Schutz: Rate-Limit auf Claim-Versuche pro Session/IP
+  - Kein Enumeration: Token-Format nicht erratbar (CSPRNG)
+  - Kein Timing-Attack: Hash-Vergleich constant-time
+
+4.4) Claim-Ausschlüsse
+
+  ADMIN-EXEMPTION (MUST, R-08):
+    access_role=ADMIN durchläuft KEINEN Claim-Flow.
+    ADMIN-Connections werden bei Erstellung direkt gebunden:
+    customer_id wird sofort gesetzt, kein Claim-Token nötig.
+    Begründung: ADMIN ist nur Marco. Kein Onboarding-Overhead.
+
+  WEG B EXEMPTION:
+    Self-Service Connections (Weg B) durchlaufen KEINEN Claim-Flow.
+    customer_id wird beim INSERT direkt gesetzt.
+    Kein claim_token_hash, kein unclaimed_grace_until, kein claim_deadline.
+
+================================================================================
+5) UNCLAIMED GRACE + HARD-STOP (nur Weg A)
+================================================================================
+
+Weg-A-Connections haben zwei materialisierte Deadlines, die den
+Lebenszyklus einer ungeclaimten Connection begrenzen.
+Weg-B-Connections haben KEINE Deadlines (sofort CLAIMED).
+
+5.1) Grace-Periode (unclaimed_grace_until)
+
+  Zweck: Dem Kunden Zeit geben, sich zu registrieren, verifizieren
+  und zu claimen, OHNE dass der VPN-Zugang eingeschränkt wird.
+
+  Materialisierung: unclaimed_grace_until = NOW() + vpn_unclaimed_grace_days
+  (Settings-Key, failsafe=0 → sofort Overdue bei fehlendem Key)
+
+  Während Grace (NOW() < unclaimed_grace_until):
+    - Connection ist PREPROVISIONED + ACTIVE
+    - Full Tunnel (Internet-Zugang)
+    - Customer kann sich registrieren, verifizieren, claimen
+
+  Nach Grace-Ablauf (NOW() >= unclaimed_grace_until):
+    - SM_CONNECTION T-02: ACTIVE → RESTRICTED
+    - op_reason_code = RESTRICT_UNCLAIMED_OVERDUE
+    - Conntrack-Flush (Enforcement-Wechsel zu Walled Garden)
+      [F-ONB-023 v0.6: "Hard-Cut" → "Conntrack-Flush" — kein Session-Kill,
+       nur Enforcement-Reset. "Hard-Cut" reserviert für echte Kill-Pfade]
+    - Walled Garden: nur DNS + Panel + NTP
+    - Customer kann sich WEITERHIN registrieren, verifizieren, claimen
+      (Self-Heal MUSS funktionieren, SERVICE_WEB erreichbar)
+
+  Auto-Finalisierung (aus reason_registry):
+    RESTRICT_UNCLAIMED_OVERDUE finalisiert nach
+    default_restrict_window_days zu DISABLE_UNCLAIMED_TIMEOUT
+    (SM_CONNECTION T-06)
+
+5.2) Hard-Stop (claim_deadline)
+
+  Zweck: "Ewige Leichen" verhindern. Connections die nie geclaimt
+  werden, dürfen nicht unbegrenzt existieren.
+
+  Materialisierung: claim_deadline = created_at + vpn_claim_deadline_days
+  (Settings-Key, failsafe=0 → sofort DISABLED bei fehlendem Key)
+
+  Verhalten bei Ablauf (NOW() >= claim_deadline):
+    [F-ONB-018 v0.5: >= statt >. Bei Gleichheit gilt Hard-Stop.
+     Kein undefinierter Schwebezustand bei NOW()=claim_deadline.
+     Claim: NOW() < claim_deadline (strikt kleiner).
+     Hard-Stop: NOW() >= claim_deadline (größer oder gleich).]
+    - NUR wenn customer_id IS NULL (PREPROVISIONED)
+    - ZUSTANDSABHÄNGIGE TRANSITION:
+      [F-ONB-007 v0.3: Deadline greift aus ACTIVE UND RESTRICTED]
+
+      Falls op_status = ACTIVE:
+        SM_CONNECTION T-04: ACTIVE → DISABLED
+        op_reason_code = DISABLE_UNCLAIMED_TIMEOUT
+
+      Falls op_status = RESTRICTED:
+        SM_CONNECTION T-06: RESTRICTED → DISABLED
+        op_reason_code = DISABLE_UNCLAIMED_TIMEOUT
+        restricted_at = NULL, restrict_finalize_at = NULL (aufgeräumt)
+        [F-ONB-013 v0.4: T-07→T-06 korrigiert. T-06 ist der kanonische
+         JOB/Timeout-Pfad aus RESTRICTED. T-07 wäre Admin-Pfad.]
+
+    - revocation_mode = IMMEDIATE → revoked_at + quarantine_until sofort
+    - Kein Tunnelaufbau mehr möglich, kein Panel über diese Connection
+    - Lifecycle-Log: Event STATUS_CHANGE (actor=JOB)
+
+  UNVERLÄNGERBAR (MUST):
+    claim_deadline darf NICHT verlängert werden. Kein Admin-Extend.
+    Wenn ein neuer Versuch nötig ist → neuen PREPROVISIONED Datensatz
+    erstellen (neue Connection, neuer Token, neue Deadline).
+    Der alte Datensatz bleibt DISABLED (kein "Retten").
+
+  CLAIMED-EXEMPTION:
+    claim_deadline gilt NUR für PREPROVISIONED (customer_id IS NULL).
+    Einmal CLAIMED → claim_deadline ist irrelevant (wird nicht geprüft).
+
+5.3) Timeline (Weg A — typischer Ablauf)
+
+  Tag 0: Connection erstellt (PREPROVISIONED + ACTIVE)
+         ├── unclaimed_grace_until = Tag 0 + Grace-Days
+         └── claim_deadline = Tag 0 + Deadline-Days
+
+  Tag 0..Grace: Full Tunnel, Customer registriert/verifiziert/claimt
+  Tag Grace:    ACTIVE → RESTRICTED (UNCLAIMED_OVERDUE), Walled Garden
+  Tag Grace..X: Restricted, Self-Heal möglich (Panel erreichbar)
+  Tag X:        RESTRICTED → DISABLED (Auto-Finalisierung)
+  Tag Deadline: DISABLED (Hard-Stop, falls nicht vorher schon disabled)
+                Revocation → Quarantäne → Pool-Rückführung
+
+  HINWEIS: claim_deadline und restrict_finalize_at sind unabhängig.
+  Es kann sein, dass die Auto-Finalisierung VOR claim_deadline greift
+  (dann ist claim_deadline redundant). Oder claim_deadline greift
+  direkt aus ACTIVE (Grace nie abgelaufen, aber Deadline schon).
+
+  EDGE CASE (vpn_claim_deadline_days < vpn_unclaimed_grace_days):
+  [F-ONB-004 v0.2: Edge Case explizit dokumentiert]
+  Wenn claim_deadline VOR unclaimed_grace_until liegt (ungewöhnliche
+  Konfiguration), dann feuert der Hard-Stop BEVOR die Grace-Periode
+  abläuft. Die Connection geht direkt ACTIVE → DISABLED (T-04) ohne
+  je RESTRICTED gewesen zu sein. Kein Fehler — der Flow ist logisch
+  konsistent — aber ein Konfigurationshinweis für den Admin.
+
+================================================================================
+6) ADMIN-AKTIONEN IM ONBOARDING-KONTEXT
+================================================================================
+
+Folgende Admin-Aktionen sind spezifisch für den Onboarding-Flow
+(Weg A). Allgemeine Admin-Aktionen (Disable, Restrict, Restore,
+Rollenwechsel) sind in SM_CONNECTION §8 definiert.
+
+6.1) Grace Reset
+
+  Zweck: Einem Kunden mehr Zeit geben, ohne eine neue Connection
+  erstellen zu müssen.
+  Effekt: unclaimed_grace_until = NOW() + vpn_unclaimed_grace_days
+  Verändert NICHT: claim_deadline (Hard-Stop bleibt unberührt)
+  Vorbedingung: customer_id IS NULL (PREPROVISIONED)
+  Wenn Connection RESTRICTED wegen UNCLAIMED_OVERDUE:
+    → Re-Evaluation (SM_CONNECTION T-05): Falls kein anderer
+      Restrict-Grund aktiv → ACTIVE. Sonst bleibt RESTRICTED
+      mit nächsthöherem Grund.
+
+6.2) Rotate Claim-Token
+
+  Zweck: Neuen Token ausstellen (z.B. alter Token verloren, unleserlich).
+  Effekt: claim_token_hash = neuer Hash (neuer Klartext-Token wird verteilt)
+  Verändert NICHT: claim_deadline, unclaimed_grace_until
+  Vorbedingung: customer_id IS NULL (PREPROVISIONED) AND
+                op_status IN (ACTIVE, RESTRICTED)
+  Lifecycle-Log: Event mit actor=ADMIN, source=PANEL
+
+6.3) Create NEW PREPROVISIONED (statt Extend/Retten)
+
+  Zweck: Wenn eine Connection DISABLED ist (Hard-Stop abgelaufen),
+  kann sie NICHT "gerettet" werden. Stattdessen erstellt der Admin
+  eine neue PREPROVISIONED Connection.
+  Effekt:
+    - Neuer Datensatz (neue id, neuer subaccount_login, neuer ip_slot)
+    - Neuer claim_token_hash, neues unclaimed_grace_until, neues claim_deadline
+    - Alter Datensatz bleibt DISABLED (Revocation → Quarantäne → Pool)
+  Begründung: claim_deadline ist unverlängerbar. Neuer Start ist sauberer
+  als "alten Record mit neuem Deadline flicken".
+
+6.4) Admin-Panel: Unclaimed-Connections-Ansicht (MUST)
+
+  Das Admin-Panel MUSS eine Ansicht bieten die alle PREPROVISIONED
+  (customer_id IS NULL) Connections zeigt. Pro Connection:
+    - fixed_ip / fixed_ipv6
+    - subaccount_login (VPN-Login)
+    - access_role (vom Admin bei Erstellung gewählte Rolle)
+    - op_status (ACTIVE / RESTRICTED)
+    - unclaimed_grace_until (verbleibende Grace-Zeit)
+    - claim_deadline (Hard-Stop)
+    - created_at
+
+  Zusätzlich MUSS der Admin die VPN-Zugangsdaten bzw. Config-Dateien
+  der ungeclaimten Connections einsehen und herunterladen können:
+    - LEGACY: subaccount_login + Passwort (oder NT-Hash-Reset-Option)
+    - MODERN: AWG Config-Datei (generiert aus Connection-Daten)
+
+  Zweck: Der Admin nutzt diese Daten bei der Einrichtung neuer
+  Geräte (Laptops, Phones). Er öffnet die Unclaimed-Ansicht,
+  sieht welche Connections bereitstehen, und konfiguriert das
+  Gerät mit den angezeigten Zugangsdaten/Configs.
+
+  UI-Scope: MOD-06_PANEL_FEATURES (M3).
+
+================================================================================
+7) CROSS-FILE: ONBOARDING ↔ SM_CONNECTION
+================================================================================
+
+SM_ONBOARDING und SM_CONNECTION sind eng gekoppelt. Onboarding-Events
+lösen Connection-Transitionen aus, und Connection-States bestimmen
+was im Onboarding möglich ist.
+
+7.1) Onboarding-Events → Connection-Transitionen
+
+  Onboarding-Event           SM_CONNECTION Transition
+  ──────────────────────────  ────────────────────────────────
+  Claim (Weg A)              T-01: Ownership PREPROVISIONED→CLAIMED
+                              Falls RESTRICTED(UNCLAIMED_OVERDUE):
+                              → ACTIVE (Unrestrict)
+
+  Grace abgelaufen           T-02: ACTIVE → RESTRICTED
+                              op_reason_code = RESTRICT_UNCLAIMED_OVERDUE
+
+  claim_deadline abgelaufen  T-04: ACTIVE → DISABLED (wenn ACTIVE)
+  (zustandsabhängig)         T-06: RESTRICTED → DISABLED (wenn RESTRICTED)
+                              op_reason_code = DISABLE_UNCLAIMED_TIMEOUT
+                              [F-ONB-013 v0.4: T-07→T-06, JOB-Pfad]
+
+  restrict_finalize_at       T-06: RESTRICTED → DISABLED
+  abgelaufen (Auto-Final.)    op_reason_code = DISABLE_UNCLAIMED_TIMEOUT
+
+7.2) Connection-States → Onboarding-Möglichkeiten
+
+  Connection-Zustand         Claim möglich?   VPN möglich?
+  ──────────────────────────  ──────────────── ──────────────
+  PREPROVISIONED + ACTIVE     JA               JA (Full Tunnel)
+  PREPROVISIONED + RESTRICTED JA               JA (Walled Garden)
+  PREPROVISIONED + DISABLED   NEIN             NEIN
+  CLAIMED + *                 N/A (bereits)    Je nach op_status
+
+================================================================================
+8) STATE-DIAGRAMM (Onboarding-Sicht)
+================================================================================
+
+  ┌─────────────────────────────────────────────────────────────┐
+  │ CUSTOMER-EBENE (Panel)                                      │
+  │                                                             │
+  │  Registrierung → PENDING (Verify-Wall)                      │
+  │       │                                                     │
+  │       ▼                                                     │
+  │  Verify-Code korrekt → ACTIVE (Panel-Innenleben)            │
+  │       │                                                     │
+  │       ▼                                                     │
+  │  Claim-Token eingeben (oder Weg B: Self-Service)            │
+  └─────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────┐
+  │ CONNECTION-EBENE (Weg A: Laptop-Provisioning)               │
+  │                                                             │
+  │  INSERT → PREPROVISIONED + ACTIVE (Full Tunnel)             │
+  │       │                        │                            │
+  │       │ Grace abläuft          │ Claim erfolgt (T-01)       │
+  │       ▼                        ▼                            │
+  │  PREPROVISIONED + RESTRICTED   CLAIMED + ACTIVE ────────►   │
+  │  (UNCLAIMED_OVERDUE)           (typischer Endzustand)       │
+  │       │                  │                         BETRIEB  │
+  │       │ Claim (T-01)     │ Claim aber anderer                │
+  │       │ (einziger Grund) │ Restrict-Grund aktiv             │
+  │       ▼                  ▼                                  │
+  │  CLAIMED + ACTIVE    CLAIMED + RESTRICTED                   │
+  │  (Full Tunnel)       (anderer Grund bleibt)                 │
+  │                                                             │
+  │  ── Ohne Claim: ──────────────────────────────────────────  │
+  │       │                                                     │
+  │       │ Auto-Finalisierung (T-06) / Hard-Stop (T-04/T-06)  │
+  │       ▼                                                     │
+  │  DISABLED (kein VPN, kein Panel)                             │
+  │       ↓ Revocation → Quarantäne → Pool-Rückführung          │
+  └─────────────────────────────────────────────────────────────┘
+
+================================================================================
+9) INVARIANTEN (MUST)
+================================================================================
+
+  Verify:
+  ONB-01  Verify ist Customer-Attribut (customers.email_verified_at),
+          NICHT pro Connection. Ein Customer verifiziert sich EINMAL.
+  ONB-02  email_verified_at ist monotonic (CI-02): einmal gesetzt,
+          nie zurück auf NULL. Kein "Unverify".
+  ONB-03  customers.status=ACTIVE setzt email_verified_at IS NOT NULL
+          voraus (CI-03). Umgekehrt: email_verified_at IS NULL →
+          status kann NICHT ACTIVE sein.
+  ONB-04  Verify-Wall hat KEINE Auswirkung auf RADIUS/AAA/nftables.
+          PENDING Customer kann sich per VPN verbinden.
+
+  Claim:
+  ONB-05  Claim erfordert: Customer.status=ACTIVE + Claim-Token-Match
+          + IP-Autorisierung + op_status IN (ACTIVE, RESTRICTED)
+          + NOW() < claim_deadline.
+  ONB-06  Claim setzt customer_id + claimed_at atomar (INV-01 aus
+          SM_CONNECTION: customer_id IS NOT NULL ↔ claimed_at IS NOT NULL).
+  ONB-07  Claim ist idempotent: Doppelter Claim → "already claimed".
+  ONB-08  Claim ist einmalig pro Connection (INV-02/INV-03 aus
+          SM_CONNECTION: customer_id und claimed_at nie zurück auf NULL).
+  ONB-09  Claim bei UNCLAIMED_OVERDUE als EINZIGEM Restrict-Grund →
+          Unrestrict (T-01): op_status=ACTIVE, op_reason_code=NULL.
+          Bei Multi-Reason (andere Gründe aktiv): Ownership-Wechsel
+          erfolgt, op_status bleibt RESTRICTED mit verbleibendem Grund.
+  ONB-10  Für Claim sind KEINE VPN-Credentials nötig. Claim-Token
+          ist ein separates Geheimnis.
+
+  Weg A vs Weg B:
+  ONB-11  Weg A: claim_token_hash, unclaimed_grace_until, claim_deadline
+          MÜSSEN gesetzt sein (NOT NULL).
+  ONB-12  Weg B: claim_token_hash, unclaimed_grace_until, claim_deadline
+          sind NULL (kein Claim-Flow, sofort CLAIMED).
+  ONB-13  access_role=ADMIN durchläuft KEINEN Claim-Flow.
+          ADMIN-Connections sind immer pre-claimed (customer_id sofort gesetzt).
+
+  Grace / Deadline:
+  ONB-14  claim_deadline ist unverlängerbar (VC-03 aus DOMAIN_MODEL).
+          Admin kann nur neuen PREPROVISIONED Datensatz erstellen.
+  ONB-15  claim_deadline gilt NUR für PREPROVISIONED (customer_id IS NULL).
+          CLAIMED Connections werden nicht durch claim_deadline geprüft.
+  ONB-16  Grace Reset verändert NUR unclaimed_grace_until,
+          NICHT claim_deadline.
+  ONB-17  Token-Rotation verändert NUR claim_token_hash,
+          NICHT claim_deadline oder unclaimed_grace_until.
+
+  Race-Schutz:
+  ONB-18  Claim vs Hard-Stop-Job: Row-Lock (SELECT FOR UPDATE).
+          Exakt einer gewinnt, kein inkonsistenter Endzustand.
+  ONB-19  Claim vs Claim (parallele Versuche): Idempotent.
+          Erster gewinnt, zweiter bekommt "already claimed".
+
+  IP-Autorisierung:
+  ONB-20  Request-IP für Claim wird SERVERSEITIG aus dem VPN-Tunnel
+          ermittelt, NIEMALS aus HTTP-Headern (X-Forwarded-For etc.).
+  ONB-21  Erster Claim: Request-IP == fixed_ip ODER fixed_ipv6
+          der Ziel-Connection (IP-familienneutral).
+  ONB-22  Weitere Claims: Request-IP == fixed_ip ODER fixed_ipv6
+          einer bereits CLAIMED Connection des Customers
+          (op_status != DISABLED).
+
+  Enforcement:
+  ONB-23  Nach jedem erfolgreichen Claim MUSS vpn-policy-apply für die
+          betroffene Connection ausgelöst werden (Kernel-Enforcement
+          aktualisieren). Ohne Apply bleibt Restricted/Full-Tunnel
+          Zustand im Kernel stale.
+          [F-ONB-002 v0.2: Policy-Apply Trigger als Invariante]
+
+================================================================================
+10) TESTS / VALIDIERUNG (DoD)
+================================================================================
+
+Verify-Tests:
+
+T-ONB-01: PENDING Login → Verify-Wall
+  Customer registriert, email_verified_at IS NULL.
+  Login erfolgreich, aber nur Verify-Wall sichtbar.
+  Kein Panel-Innenleben, kein Claim möglich.
+
+T-ONB-02: Verify erfolgreich → ACTIVE
+  Korrekter Code eingegeben. email_verified_at = NOW().
+  Panel-Innenleben wird freigeschaltet. Claim wird möglich.
+
+T-ONB-03: Verify mit falschem Code → Fehlermeldung
+  Falscher Code. Kein Statuswechsel. Verify-Wall bleibt.
+
+T-ONB-04: Verify-Code Resend → neuer Code per E-Mail
+  Alten Code invalidieren, neuen senden. Rate-Limit beachten.
+
+T-ONB-05: Verify monotonic → kein "Unverify"
+  Einmal ACTIVE, nie zurück auf PENDING.
+
+Claim-Tests (Weg A):
+
+T-ONB-06: Claim Happy Path (erster Claim, aus Ziel-Connection)
+  ACTIVE Customer + korrekter Token + Request-IP == fixed_ip oder fixed_ipv6.
+  Erwartung: customer_id gesetzt, claimed_at gesetzt, CLAIMED.
+
+T-ONB-07: Claim aus anderer berechtigter Connection
+  Customer hat bereits Connection A (CLAIMED). Claimt Connection B
+  von Connection A aus (Request-IP == A.fixed_ip oder A.fixed_ipv6).
+  Erwartung: Claim erfolgreich.
+
+T-ONB-08: Claim mit falschem Token → Ablehnung
+  Korrekter Customer, falscher Token. Claim wird verweigert.
+
+T-ONB-09: Claim ohne Verify → Ablehnung
+  PENDING Customer versucht Claim. Verify-Wall verhindert es.
+
+T-ONB-10: Claim auf DISABLED Connection → Ablehnung
+  Connection ist DISABLED (Hard-Stop). Claim nicht möglich.
+
+T-ONB-11: Claim nach claim_deadline → Ablehnung
+  NOW() >= claim_deadline. Claim wird verweigert (strikt < nötig).
+  Auch bei NOW() = claim_deadline: Hard-Stop gilt, Claim nicht erlaubt.
+
+T-ONB-12: Claim bei UNCLAIMED_OVERDUE → Unrestrict
+  Connection ist RESTRICTED (UNCLAIMED_OVERDUE). Claim erfolgt.
+  Erwartung: op_status=ACTIVE, op_reason_code=NULL. Internet sofort frei.
+
+T-ONB-13: Doppelter Claim → "already claimed"
+  Connection ist bereits CLAIMED. Zweiter Claim-Versuch.
+  Erwartung: Idempotent, kein Fehler, kein Doppel-Write.
+
+Weg-B-Tests:
+
+T-ONB-14: Self-Service Connection erstellen
+  ACTIVE Customer, Plan erlaubt, Pool hat Slots.
+  Erwartung: Connection direkt CLAIMED + ACTIVE. Kein Token, kein Grace.
+
+T-ONB-15: Self-Service bei Pool-Full → Fail-Closed
+  Pool hat keine freien Slots.
+  Erwartung: INSERT scheitert, kein Halbzustand.
+
+T-ONB-16: Self-Service bei Connection-Limit erreicht → Ablehnung
+  Customer hat max Connections laut Plan/Rolle.
+  Erwartung: Neue Connection wird verweigert.
+
+Grace / Deadline Tests:
+
+T-ONB-17: Grace abgelaufen → RESTRICTED (UNCLAIMED_OVERDUE)
+  NOW() >= unclaimed_grace_until. Connection PREPROVISIONED.
+  Erwartung: op_status=RESTRICTED, Walled Garden aktiv.
+  Panel/DNS/NTP erreichbar für Self-Heal.
+  Auch bei NOW() = unclaimed_grace_until: Grace ist abgelaufen.
+
+T-ONB-18: Hard-Stop → DISABLED
+  NOW() >= claim_deadline. Connection PREPROVISIONED.
+  Erwartung: op_status=DISABLED, kein Tunnelaufbau mehr möglich, kein VPN.
+  Auch bei NOW() = claim_deadline: Hard-Stop gilt.
+
+T-ONB-19: Claim innerhalb Grace, ohne andere Restrict-Gründe
+  Customer claimt vor Grace-Ablauf. Keine anderen Restrict-Gründe aktiv.
+  Erwartung: CLAIMED + ACTIVE (Full Tunnel).
+
+Admin-Aktionen Tests:
+
+T-ONB-20: Grace Reset
+  Admin setzt unclaimed_grace_until neu. claim_deadline unverändert.
+  Falls RESTRICTED(UNCLAIMED_OVERDUE): Re-Evaluation → ggf. ACTIVE.
+
+T-ONB-21: Token-Rotation
+  Admin rotiert Claim-Token. Neuer Hash, alte Deadlines unverändert.
+  Alter Token funktioniert nicht mehr, neuer Token funktioniert.
+
+T-ONB-22: Neuer PREPROVISIONED nach Hard-Stop
+  Connection DISABLED (Hard-Stop). Admin erstellt neuen Datensatz.
+  Erwartung: Neuer Record mit frischen Deadlines. Alter bleibt DISABLED.
+
+Race-Tests:
+
+T-ONB-RACE-01: Claim vs Hard-Stop-Job
+  Claim-Versuch und claim_deadline-Job greifen gleichzeitig.
+  Row-Lock entscheidet. Erwartung: Einer gewinnt, Endzustand konsistent.
+
+T-ONB-RACE-02: Claim vs Grace-Timeout-Job
+  Claim-Versuch und unclaimed_grace-Timeout laufen parallel.
+  Erwartung: Wenn Claim gewinnt und keine anderen Restrict-Gründe
+  aktiv → CLAIMED + ACTIVE. Wenn Claim gewinnt aber andere Gründe
+  aktiv → CLAIMED + RESTRICTED (§4.2 Fall 2).
+  Wenn Timeout gewinnt → RESTRICTED. Claim danach immer noch möglich.
+
+IP-Autorisierungs-Tests:
+
+T-ONB-IP-01: Claim von falscher IP → Ablehnung
+  Request-IP ist NICHT fixed_ip und NICHT fixed_ipv6 der Ziel-Connection
+  und NICHT in der Tunnel-IP-Allowlist des Customers.
+  Claim wird verweigert.
+
+T-ONB-IP-02: Claim von korrekter IP (MODERN/AWG, Dualstack)
+  Request-IP kommt aus AWG-Session (kann fixed_ip oder fixed_ipv6 sein).
+  IP-Ermittlung über vpn_sessions oder Runtime.
+  Erwartung: Claim funktioniert über IPv4 und IPv6 gleichrangig.
+
+Invarianten-Test:
+
+T-ONB-INV-01: ONB-01 bis ONB-23 gegen DB prüfen
+  Alle Invarianten werden nach jeder Onboarding-Operation validiert.
+
+================================================================================
+11) OFFENE PUNKTE
+================================================================================
+
+OPEN-ONB-01: Verify-Code Kryptographie
+  Hash-Algorithmus (Argon2id? HMAC-SHA256?), Code-Format (6 Ziffern?
+  alphanumerisch?), TTL, Max-Attempts, Lockout-Dauer.
+  Wird in BASE-110_WEBSTACK_CORE oder MOD-06_PANEL_FEATURES spezifiziert.
+
+OPEN-ONB-02: Resend-Mechanik
+  Rate-Limit (max N Resends pro Stunde?), Cooldown zwischen Resends,
+  alten Code bei Resend invalidieren (ja/nein).
+  Wird in MOD-06_PANEL_FEATURES spezifiziert.
+
+OPEN-ONB-03: Login-Allowlist Modi
+  B155 erwähnt "Mode ALL oder SELECT" für Panel-Login-IP-Bindung.
+  Wie genau die Allowlist funktioniert (initial nur aktuelle IP,
+  später alle Customer-IPs?) ist noch offen.
+  Wird in MOD-06_PANEL_FEATURES spezifiziert.
+
+OPEN-ONB-04: AWG Claim-IP Ermittlung (technisch)
+  Wie genau die Request-IP bei MODERN-Clients serverseitig ermittelt
+  wird (vpn_sessions.client_ipv4? Runtime-Query an awg0? Andere
+  Mechanik?) ist konzeptionell klar (serverseitig, aus VPN-Tunnel),
+  aber die technische Implementierung ist noch offen.
+  Wird in BASE-30_TUNNEL_AWG / BASE-110_WEBSTACK_CORE spezifiziert.
+
+OPEN-ONB-05: Self-Service Connection-Limits (D003 teilweise geschlossen)
+  Weg B ist konzeptionell definiert. Connection-Limits leben jetzt im
+  Policy-System (D003): role_policy_defaults + customer_policy_overrides.
+  Auflösung: Customer-Override > Plan (USER) > Rollen-Default.
+  Zählregel: DOMAIN_MODEL §6.5 (Slot-Relevanz, D003-E06).
+  Offen: Plan-System (MOD-10_PLANS) für USER-Differenzierung.
+  Offen: Panel-UI für Limit-Check bei Self-Service-Erstellung.
+
+OPEN-ONB-06: Config-Versand bei Weg B
+  Bei Self-Service: Wird die AWG-Config per E-Mail gesendet oder
+  im Panel zum Download angeboten? Oder beides?
+  Wird in MOD-06_PANEL_FEATURES spezifiziert.
+
+OPEN-ONB-07: Claim-Token Format
+  [F-ONB-005 v0.2: OPEN-Punkt ergänzt]
+  Länge, Zeichensatz und Kodierung des Claim-Tokens sind noch nicht
+  spezifiziert. Empfehlung: CSPRNG, 16 Bytes, hex-kodiert = 32 Zeichen
+  (analog session_token). Muss benutzerfreundlich sein (Sticker/Eingabe).
+  Alternative: Kürzeres Format (z.B. 8 alphanumerische Zeichen) für
+  einfachere manuelle Eingabe, aber mit höherem Brute-Force-Risiko.
+  Wird in BASE-10_IDENTITY_CORE spezifiziert.
+
+================================================================================
+CHANGELOG
+================================================================================
+v0.9 (2026-04-15): ChatGPT Audit #5 Pre-Fix (F-010).
+  §4 Claim-Semantik: Beispiel-IP 10.77.8.5 → 10.77.16.42 korrigiert
+  (10.77.8.x lag im FREI-Bereich, 10.77.16.42 ist im USER-Pool).
+v0.8 (2026-04-14): D003 Zählregel-Referenz.
+  OPEN-ONB-05 aktualisiert: Connection-Limits jetzt im Policy-System
+  (D003). Zählregel → DOMAIN_MODEL §6.5. Slot-Relevanz kanonisch.
+v0.7 (2026-04-12): ChatGPT-Review #5 v0.6 — PATCH-REIF bestätigt.
+  Keine MAJORs. Letzter Feinschliff:
+  F-ONB-027: T-ONB-18 auf >= Semantik angehoben.
+  F-ONB-028: T-09 aus Abhängigkeitsliste entfernt (nicht referenziert).
+  X-ONB-002: SM_CONNECTION Cross-File bereits umgesetzt.
+  23 Invarianten. 27 Tests. 7 Review-Runden. Status: PATCH-REIF.
+  Vollständige Review-Historie (v0.2–v0.6, 7 Reviews):
+  siehe 03_CHANGELOG.txt bzw. dateieigene Git-History.
+v0.1 (2026-04-12): Initiale Onboarding State Machine.
+  Überführung aus altem Konzept (B155 v1.3, D008 v1.0, B150 v1.0).
+  23 Invarianten (ONB-01..ONB-23). 27 Tests. 7 offene Punkte.
+================================================================================

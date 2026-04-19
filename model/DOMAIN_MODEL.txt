@@ -1,0 +1,1221 @@
+================================================================================
+RetroTunnel — DOMAIN MODEL
+================================================================================
+VERSION: v1.5
+DATUM: 2026-04-16
+STATUS: DEPRECATED (siehe Deprecation-Hinweis unten)
+PFAD: model/DOMAIN_MODEL.txt
+
+================================================================================
+DEPRECATION-HINWEIS (2026-04-16)
+================================================================================
+
+Diese Datei ist TEILWEISE AUFGELOEST durch BASE-010_IDENTITY_CORE
+(fertiggestellt 2026-04-17).
+
+AUFGELOESTE SECTIONS (leben jetzt in BASE-010, NICHT mehr hier gueltig):
+  §2 CUSTOMER             → BASE-010_010_WEB_CUSTOMERS
+  §3 VPN_CONNECTION        → BASE-010_020_VPN_CONNECTIONS + _030_AUTH_SPLIT
+  §7 WRITE-PATH            → BASE-010_080_WRITE_PATH_MATRIX
+  §7A REASON_REGISTRY      → BASE-010_050_REASON_REGISTRY
+  §7B LIFECYCLE_LOG         → BASE-010_060_LIFECYCLE_LOG
+
+NOCH NICHT AUFGELOESTE SECTIONS (bleiben hier bis Ziel-Base fertig):
+  §4 SESSION_LOCKS         → wartet auf BASE-070_SESSION_CORE
+  §5 DERIVED_POLICY        → wartet auf BASE-080_POLICY_APPLY_CORE
+  §6 POLICY-SYSTEM         → wartet auf BASE-100_POLICY_CORE
+  §8 BEZIEHUNGEN           → Cross-cutting (mehrere Bases)
+  §9 VERIFY/CLAIM          → wartet auf MOD-001_ONBOARDING
+  §10 OFFENE PUNKTE        → gemischt (mehrere Bases)
+  §11 TESTS                → gemischt (mehrere Bases)
+
+Bei Widerspruechen in aufgeloesten Sections gilt BASE-010.
+
+DIE FOLGENDEN BEGRIFFE IM INNEREN INHALT SIND UEBERHOLT. Beim Lesen
+mental auf die neuen Begriffe uebersetzen (Begriffs-Bruecke):
+
+  Alt (in dieser Datei)               Neu (Kanon ab 2026-04-16)
+  ----------------------------------  -----------------------------------
+  tunnel_type='LEGACY'                tunnel_type='L2TP_IPSEC'
+  tunnel_type='MODERN'                tunnel_type='WIREGUARD'
+  "customers" Tabelle                 "web_customers" (BASE-000 K-01)
+  "active_session_locks" Tabelle      "vpn_session_locks" (K-02)
+  "reason_registry" Tabelle           "vpn_reason_registry" (K-03)
+  "connection_lifecycle_log" Tabelle  "log_connection_lifecycle" (K-04)
+  "role_policy_defaults" Tabelle      "policy_role_defaults" (K-05)
+  "customer_policy_overrides" Tabelle "policy_customer_overrides" (K-06)
+  "plan_policy_values" Tabelle        "policy_plan_values" (K-07)
+  vpn_connections.subaccount_login    vpn_connection_l2tp_ipsec_auth (K-08)
+  vpn_connections.subaccount_nt_hash  vpn_connection_l2tp_ipsec_auth (K-08)
+  vpn_connections.wg_public_key       wg_connection_auth (K-08)
+  vpn_connections.wg_preshared_key    wg_connection_auth (K-08)
+  BASE-01..BASE-11 (2-stellig)        BASE-010..BASE-110 (3-stellig)
+  MOD-01..MOD-10 (2-stellig)          MOD-001..MOD-010 (3-stellig)
+  "vpn_connection_legacy_auth" (§5.6) "vpn_connection_l2tp_ipsec_auth" (K-08)
+                                      (Zwischenname aus v0.8, vor Tag-3-Rename)
+
+BEGRUENDUNG FUER DEPRECATION STATT VOLLSTAENDIGEM LINE-FUER-LINE REWRITE:
+Die Datei wird ohnehin bei BASE-010 aufgeloest. Ein vollstaendiger
+Rewrite wuerde doppelte Buchhaltung erzeugen (Model + Base), was genau
+das Drift-Risiko ist das BASE-000 R-14 (KEINE FREMD-VERSIONIERUNG)
+und BASE-000 Kanonik verhindern sollen. Der Deprecation-Header stellt
+sicher dass jeder Leser die Begriffs-Bruecke anwendet.
+
+KANONISCHER NEU-STAND fuer schnelle Orientierung:
+  - tunnel_type ENUM-Werte: L2TP_IPSEC | WIREGUARD
+  - Auth-Split: vpn_connection_l2tp_ipsec_auth (RADIUS liest)
+                wg_connection_auth (RADIUS sieht NICHT)
+  - BASE-000 definiert ALLE kanonischen Tabellennamen
+  - BASE-010 wird Schema + Entities + Status-Lifecycle enthalten
+  - BASE-005 definiert Plattform-Contract (OS, Endpoints, Users)
+
+REFERENZ ALTES KONZEPT:
+  B055_DB_SCHEMA_CORE.txt — Core Schema (customers, vpn_connections, locks)
+  B058_CONN_GROUP_POLICYKEY_DETERMINISTIC_DERIVATIONS.txt — Policy-Key
+  B345_WRITE_PATH_MATRIX_CONTRACT.txt — Write-Rechte pro Akteur
+  B050_SQL_AAA_RADIUS.txt — AAA Überblick
+
+DELTA ZUM ALTEN KONZEPT (historisch, vor 2026-04-16):
+  - conn_group (1 Feld, 3 Werte) → tunnel_type + access_role (2 Felder)
+  - 4 Rollen statt 3 conn_groups
+  - WireGuard-spezifische Felder neu (wg_public_key, wg_preshared_key)
+    Prefix wg_ statt awg_: WireGuard ist die Konstante, nicht der Fork
+  - derived_policy reagiert auf 2 Achsen statt 1
+  - Zwei-Ebenen-Modell: Ownership (abgeleitet aus customer_id) +
+    op_status (ACTIVE|RESTRICTED|DISABLED) ersetzt altes status-Feld
+  - op_reason_code über kanonische reason_registry (FK)
+  - reason_registry + connection_lifecycle_log als neue Entitäten
+  - Materialisierte Deadlines: restrict_finalize_at, quarantine_until
+
+================================================================================
+1) ENTITÄTEN-ÜBERSICHT
+================================================================================
+
+Das System kennt folgende Kern-Entitäten:
+
+  CUSTOMER           Panel-Account (Mensch)
+    ↓ besitzt 0..n
+  VPN_CONNECTION      Technische Verbindung (pro Gerät/Subaccount)
+    ↓ hat 0..1
+  ACTIVE_SESSION_LOCK Atomarer SimUse-Guard (kurzlebig, kein Lifecycle)
+    ↓ hat 0..n
+  VPN_SESSION         Session-Truth (offen/closed, SM_SESSION §3)
+
+Getrennt davon (Extensions, nicht Core):
+  SETTINGS_CATALOG    Key-Definitionen (Typ, Range, Fail-Class)
+  SETTINGS_GLOBAL     Baseline-Werte
+  SETTINGS_CUSTOMER   Override pro Kunde
+  SETTINGS_CONNECTION Override pro Connection
+  REASON_REGISTRY     Kanonische op_reason_codes mit Policy-Attributen
+  CONNECTION_LIFECYCLE_LOG  Audit/Historie aller Lifecycle-Events
+  RADACCT             RADIUS Accounting (LEGACY Accounting/Forensik,
+                       NICHT mehr Session-Truth. Session-Truth ist
+                       vpn_sessions für LEGACY + MODERN, SM_SESSION §1)
+
+================================================================================
+2) CUSTOMER (Panel-Account)
+================================================================================
+
+Zweck: Repräsentiert einen menschlichen Benutzer im Webpanel.
+       Ein Customer kann mehrere VPN-Connections besitzen.
+
+Tabelle: customers
+SoT: SQL (MariaDB)
+
+2.1) Felder
+
+  Feld                 Typ               Constraint          Beschreibung
+  ──────────────────── ───────────────── ─────────────────── ─────────────────────────
+  id                   BIGINT UNSIGNED   PK AUTO_INCREMENT   Primärschlüssel
+  email                VARCHAR(255)      UNIQUE, NOT NULL    Login-Identität
+  password_hash        VARCHAR(255)      NOT NULL            Argon2id Hash
+  display_name         VARCHAR(40)       NULL                UI-only (Panel-Anrede)
+  created_at           TIMESTAMP         NOT NULL            Erstellungszeitpunkt
+  email_verified_at    TIMESTAMP         NULL                NULL = PENDING (unverified)
+  status               ENUM              NOT NULL            PENDING|ACTIVE|SUSPENDED|DELETED
+  access_role          ENUM              NOT NULL            USER|VIP|MODERATOR|ADMIN
+                                                             DEFAULT 'USER'.
+                                                             SoT für die Rolle des Kunden.
+                                                             Alle Connections erben diesen
+                                                             Wert (D003-E02).
+                                                             Schreibbar nur durch ADMIN
+                                                             (Panel-Rollenänderung, D002 §7).
+  plan_id              INT UNSIGNED      NULL, FK→plans      Aktiver Plan des Kunden.
+                                                             NULL = kein Plan, nur
+                                                             Rollen-Defaults (D003-E04).
+                                                             Nur USER hat Plans.
+                                                             VIP/MOD/ADMIN: immer NULL.
+
+2.2) Invarianten (MUST)
+
+  CI-01  email ist UNIQUE (DB-Constraint).
+  CI-02  email_verified_at ist monotonic: einmal gesetzt, nie zurück auf NULL.
+         "Unverify" existiert nicht. Reset = neuer Customer.
+  CI-03  status=ACTIVE setzt email_verified_at IS NOT NULL voraus.
+         email_verified_at IS NULL → status kann NICHT ACTIVE sein.
+  CI-04  Verify-Transition: SYSTEM setzt email_verified_at UND status=ACTIVE
+         in derselben Transaktion.
+  CI-05  display_name wird escaped gerendert (XSS-Safety). Max 40 Zeichen.
+  CI-06  USER kann status NIE direkt ändern.
+
+2.3) Status-Lifecycle
+
+  PENDING → ACTIVE (bei erfolgreicher E-Mail-Verifikation)
+  ACTIVE → SUSPENDED (Admin-Aktion, z.B. Abuse)
+  ACTIVE → DELETED (Admin-Aktion)
+  SUSPENDED → ACTIVE (Admin-Aktion, nur wenn email_verified_at gesetzt)
+
+  Kein Rückweg von DELETED.
+
+2.4) Status-Verhalten (Panel / Auth / VPN)
+
+  Status      Login   Panel-Inhalt    Claim   VPN-Connections
+  ─────────── ─────── ─────────────── ─────── ──────────────────
+  PENDING     Ja      Verify-Wall     Nein    Nicht betroffen
+                      (nur Code/Resend)        (noch kein Claim)
+  ACTIVE      Ja      Volles Panel    Ja      Normal (Full/Restr.)
+  SUSPENDED   Nein    Fehlerseite     Nein    Alle Connections
+                      "Account gesperrt"       werden DISABLED
+                      + Support-Kontakt        (DISABLE_CUSTOMER_
+                                               SUSPENDED, Kaskade)
+  DELETED     Nein    Keine Antwort   Nein    Alle Connections
+                      (Account existiert       werden GELOESCHT
+                      nicht mehr)              (nicht DISABLED):
+                                               Credentials vernichtet,
+                                               IP ins Recycling,
+                                               nur forensische Daten
+                                               bleiben (ID, IP-History).
+                                               KEIN Restore moeglich.
+
+================================================================================
+3) VPN_CONNECTION (Technische Verbindung pro Gerät)
+================================================================================
+
+Zweck: Repräsentiert eine einzelne VPN-Verbindung pro Gerät/Subaccount.
+       Trägt Credentials, IP-Zuordnung, Tunnel-Typ, Rolle, Lifecycle-State.
+
+Tabelle: vpn_connections
+SoT: SQL (MariaDB)
+
+3.1) Felder — IDENTITÄT
+
+  Feld                 Typ               Constraint          Beschreibung
+  ──────────────────── ───────────────── ─────────────────── ─────────────────────────
+  id                   BIGINT UNSIGNED   PK AUTO_INCREMENT   Primärschlüssel
+  customer_id          BIGINT UNSIGNED   FK→customers.id     NULL bis Claim
+                                         NULL
+  subaccount_login     VARCHAR(64)       UNIQUE, NOT NULL    PPP/RADIUS Username
+                                                             Format: vpn_[a-z2-7]{16}
+                                                             Server-generiert, immutable
+  created_at           TIMESTAMP         NOT NULL            Erstellungszeitpunkt
+  updated_at           TIMESTAMP         NOT NULL            Letzte Änderung
+
+3.2) Felder — KLASSIFIKATION (NEU: ersetzt conn_group)
+
+  Feld                 Typ               Constraint          Beschreibung
+  ──────────────────── ───────────────── ─────────────────── ─────────────────────────
+  tunnel_type          ENUM              NOT NULL            LEGACY | MODERN
+                                                             Bestimmt: Protokoll, Auth,
+                                                             Daemon, IPv6-Fähigkeit
+  access_role          ENUM              NOT NULL            USER | VIP | MODERATOR | ADMIN
+                                                             Bestimmt: IP-Pool, Rechte,
+                                                             Speed-Limits, Panel-Zugriff.
+                                                             ABGELEITET vom Customer-Rang
+                                                             (Webpanel). Nicht unabhängig
+                                                             gesetzt. Alle Connections eines
+                                                             Customers haben dieselbe Rolle.
+                                                             (D003-E02)
+
+  MIGRATION VON conn_group:
+  Altes Feld conn_group (LEGACY|MODERN|ADMIN) ist ableitbar:
+    tunnel_type=LEGACY  + access_role=USER  → entspricht altem LEGACY
+    tunnel_type=MODERN  + access_role=USER  → entspricht altem MODERN
+    tunnel_type=MODERN  + access_role=ADMIN → entspricht altem ADMIN
+  conn_group existiert in RetroTunnel NICHT mehr als Feld.
+
+  SoT-REGEL (MUST, übernommen aus B058, angepasst):
+  - tunnel_type + access_role sind SQL-first SoT (NOT NULL).
+  - Niemals "aus IP-Ranges ableiten/erraten" (kein Hidden Inference).
+  - Niemals "aus UI-Buttons ableiten" (UI kann anzeigen, nicht definieren).
+  - Niemals "aus Protocol ableiten" (Protocol ist Stack-Detail, nicht SoT).
+  - Änderung von access_role = Rollenwechsel (Promotion/Demotion),
+    erfordert neue IPs + Config-Versand per E-Mail.
+  - Änderung von tunnel_type = Tunnel-Wechsel (selten),
+    erfordert neue Connection (andere Auth-Mechanik).
+
+3.3) Felder — AUTHENTIFIZIERUNG
+
+  Feld                 Typ               Constraint          Beschreibung
+  ──────────────────── ───────────────── ─────────────────── ─────────────────────────
+  subaccount_nt_hash   VARCHAR(255)      NULL                MSCHAPv2 NT-Hash (Legacy)
+                                                             NULL bei tunnel_type=MODERN
+  wg_public_key       VARCHAR(64)       NULL, UNIQUE        WireGuard PublicKey (Modern)
+                                                             NULL bei tunnel_type=LEGACY
+  wg_preshared_key    VARCHAR(64)       NULL                WireGuard PresharedKey (opt.)
+                                                             NULL bei tunnel_type=LEGACY
+
+  AUTH-REGEL (MUST):
+  - tunnel_type=LEGACY  → subaccount_nt_hash MUSS gesetzt sein
+                          wg_public_key MUSS NULL sein
+  - tunnel_type=MODERN  → wg_public_key MUSS gesetzt sein
+                          subaccount_nt_hash MUSS NULL sein
+  HINWEIS: Hybrid (beide Auth-Methoden pro Connection) ist aktuell NICHT
+  vorgesehen (OPEN-DOM-03). Falls Hybrid später eingeführt wird, ist das
+  ein explizites Domänen-Upgrade mit eigener Decision.
+
+3.3b) Felder — ANZEIGE / PANEL
+
+  display_name          VARCHAR(100)      NULL                Frei wählbarer Anzeigename
+                                                               im Panel ("Mein PC", "Laptop").
+                                                               Rein kosmetisch.
+                                                               NULL = Panel zeigt subaccount_login.
+                                                               Kein Einfluss auf Auth/Policy/IP.
+                                                               Kein UNIQUE-Constraint.
+
+3.4) Felder — IP-ZUORDNUNG
+
+  Feld                 Typ               Constraint          Beschreibung
+  ──────────────────── ───────────────── ─────────────────── ─────────────────────────
+  v6_addr_policy       ENUM              NOT NULL            NONE | FIXED_SQL
+                                                             LEGACY=NONE, MODERN=FIXED_SQL
+  ip_slot              INTEGER UNSIGNED  NULL                SoT für IP-Ableitung
+                                                             NULL bis Provisionierung
+  fixed_ip             VARCHAR(15)       INDEX               Materialisiert aus ip_slot
+                                                             Immutable im Normalbetrieb
+                                                             (Reallokation bei Rollenwechsel,
+                                                              D002)
+  fixed_ipv6           VARCHAR(45)       INDEX               Materialisiert aus ip_slot
+                                                             NULL wenn v6_addr_policy=NONE
+                                                             Immutable im Normalbetrieb
+                                                             (Reallokation bei Rollenwechsel,
+                                                              D002)
+
+  IP-REGEL (MUST):
+  - IP-Pool wird aus access_role abgeleitet (NICHT aus tunnel_type)
+  - ip_slot → fixed_ip Formel: pool_base_v4 + ip_slot
+  - ip_slot → fixed_ipv6 Formel: pool_prefix_v6 :: ip_slot
+  - fixed_ip/fixed_ipv6 sind IMMUTABLE nach Materialisierung
+    (kein Update, nur Neu-Allokation bei Rollenwechsel)
+
+3.5) Felder — OPERATIVER ZUSTAND (ZWEI-EBENEN-MODELL)
+
+  Das alte status-Feld (PREPROVISIONED|CLAIMED|DISABLED) wird ersetzt
+  durch ein Zwei-Ebenen-Modell. Details: SM_CONNECTION (FINAL).
+
+  Feld                    Typ             Constraint          Beschreibung
+  ─────────────────────── ─────────────── ─────────────────── ─────────────────────────
+  op_status                ENUM            NOT NULL            ACTIVE|RESTRICTED|DISABLED
+  op_reason_code           FK→reason_reg.  NULL                NULL bei ACTIVE,
+                                                               RESTRICT_* oder DISABLE_*
+  claim_token_hash         VARCHAR(255)    UNIQUE, NULL        Hash des Claim-Tokens
+  claimed_at               TIMESTAMP       NULL                Zeitpunkt des Claims
+  unclaimed_grace_until    TIMESTAMP       NULL                Full-Tunnel bis Grace abläuft
+                                                               NULL bei Self-Service (Weg B)
+  claim_deadline           TIMESTAMP       NULL                Hard-Stop für Unclaimed
+                                                               NULL bei Self-Service (Weg B)
+  expiry_date              TIMESTAMP       NULL                Laufzeit-Ende der Connection.
+                                                               NULL = kein Ablauf (unbegrenzt).
+                                                               NOW() > expiry_date →
+                                                               RESTRICT_EXPIRY_PASSED.
+                                                               Gesetzt durch Plan-Engine oder
+                                                               Admin-Override. Verlängerbar
+                                                               (Plan-Renewal, Admin-Aktion).
+                                                               Siehe SM_CONNECTION §5.4.
+  restricted_at            TIMESTAMP       NULL                Eintritt in RESTRICTED
+                                                               NULL wenn op_status!=RESTRICTED
+  restrict_finalize_at     TIMESTAMP       NULL                Materialisiert: wann
+                                                               RESTRICTED→DISABLED (Auto)
+                                                               NULL wenn keine Auto-Final.
+  disabled_at              TIMESTAMP       NULL                Eintritt in DISABLED
+                                                               NULL wenn op_status!=DISABLED
+  restore_until            TIMESTAMP       NULL                Admin-Restore-Fenster
+                                                               NULL bei nicht-restorebaren
+                                                               Reasons oder op_status!=DISABLED
+  revoked_at               TIMESTAMP       NULL                Revocation-Start (Quarantäne)
+  quarantine_until         TIMESTAMP       NULL                Materialisiert, eingefroren
+                                                               bei Revocation
+  customer_paused_at       TIMESTAMP       NULL                Source Fact: Customer hat
+                                                               deaktiviert (unabhängig von
+                                                               op_reason_code)
+  admin_manual_restricted_at TIMESTAMP     NULL                Source Fact: Admin hat manuell
+                                                               restricted (unabhängig von
+                                                               op_reason_code)
+
+  OWNERSHIP (abgeleitet, KEIN eigenes Feld):
+    PREPROVISIONED := customer_id IS NULL  (nie geclaimt, ownerlos)
+    CLAIMED        := customer_id IS NOT NULL (gehört einem Customer)
+    Einmal CLAIMED = immer CLAIMED.
+
+  RESTRICTED-REGEL (MUST):
+  - op_status + op_reason_code werden NUR durch SYSTEM gesetzt
+    (Apply/Reconcile/Jobs). Niemals user-supplied, niemals UI-direkt.
+  - access_role=ADMIN kann NICHT restricted werden (R-08 aus RULES).
+  - USER, VIP, MODERATOR können restricted werden.
+
+3.6) Indices
+
+  UNIQUE(subaccount_login)
+  UNIQUE(claim_token_hash)
+  UNIQUE(wg_public_key)
+  INDEX(op_status)
+  INDEX(op_reason_code)
+  INDEX(customer_id)
+  INDEX(tunnel_type)
+  INDEX(access_role)
+  INDEX(tunnel_type, access_role)
+  INDEX(fixed_ip)
+  INDEX(unclaimed_grace_until)
+  INDEX(claim_deadline)
+  INDEX(expiry_date)
+  INDEX(restricted_at)
+  INDEX(restrict_finalize_at)
+  INDEX(disabled_at)
+  INDEX(restore_until)
+  INDEX(revoked_at)
+  INDEX(quarantine_until)
+  INDEX(customer_paused_at)
+  INDEX(admin_manual_restricted_at)
+
+3.7) Connection-Invarianten (MUST)
+
+  VC-01  subaccount_login ist UNIQUE und immutable nach Erstellung.
+  VC-02  customer_id ist monotonic (Claim einmalig). Unclaim = neue Connection.
+  VC-03  claim_deadline ist immutable (Hard-Stop, darf nicht verlängert werden).
+  VC-04  fixed_ip/fixed_ipv6 sind immutable im Normalbetrieb.
+         Mutation nur bei kanonisch definierten Reallokationsereignissen
+         (aktuell: Rollenwechsel D002, VC-07).
+  VC-05  tunnel_type + access_role zusammen bestimmen die derived_policy.
+  VC-06  wg_public_key ist UNIQUE (ein PublicKey = genau eine Connection).
+  VC-07  Rollenwechsel erzeugt neue IP-Allokation (alter Slot → Quarantäne).
+  VC-08  expiry_date kann NULL sein (unbegrenzte Laufzeit).
+         Wenn gesetzt: NOW() > expiry_date → RESTRICT_EXPIRY_PASSED.
+         Verlängerbar durch Plan-Engine oder Admin-Override.
+  VC-09  tunnel_type ist unveränderlich nach INSERT (SES-23).
+         "Wechsel" = alte Connection löschen + neue erstellen.
+
+3.8) Lifecycle-Invarianten (MUST, aus SM_CONNECTION)
+
+  Vollständige Invariantenliste siehe SM_CONNECTION.txt §9
+  (31 INV + 3 LR = 34 Gesamt; INV-22/23 existieren nicht,
+  Lücke durch Umstrukturierung zu LR-01..LR-03).
+  Hier die wichtigsten:
+
+  INV-01  customer_id IS NOT NULL ↔ claimed_at IS NOT NULL
+  INV-02  customer_id darf nach Claim nie wieder NULL werden
+  INV-03  claimed_at darf nach Claim nie wieder NULL werden
+  INV-04  op_status=ACTIVE → op_reason_code IS NULL
+  INV-05  op_status=RESTRICTED → op_reason_code IS NOT NULL
+  INV-06  op_status=DISABLED → op_reason_code IS NOT NULL
+  INV-07  op_status=RESTRICTED → reason_registry.allowed_op_status=RESTRICTED
+  INV-08  op_status=DISABLED → reason_registry.allowed_op_status=DISABLED
+  INV-10  op_status=ACTIVE → restricted_at IS NULL AND disabled_at IS NULL
+  INV-13  op_status != RESTRICTED → restrict_finalize_at IS NULL
+  INV-15  reason.is_restoreable=false → restore_until IS NULL
+  INV-16  op_status != DISABLED → restore_until IS NULL
+  INV-17  revoked_at IS NOT NULL → op_status=DISABLED
+  INV-18  revoked_at IS NOT NULL → restore_until IS NULL
+  INV-19  quarantine_until IS NOT NULL ↔ revoked_at IS NOT NULL
+  LR-01   revocation_mode=IMMEDIATE + DISABLED → revoked_at + quarantine_until atomar
+  INV-24  PREPROVISIONED = customer_id IS NULL (abgeleitet)
+  INV-25  ip_slot bleibt auf Row nach DISABLED/Revocation (historisch)
+
+3.9) IP-Slot Validität (MUST)
+
+  IP-INV-01  ip_slot MUSS innerhalb des durch access_role definierten
+             Pool-Bereichs liegen (2..max_slot, siehe NETWORK_MODEL 5.1).
+  IP-INV-02  ip_slot=0 ist verboten (Netzadresse).
+  IP-INV-03  ip_slot=1 ist SYSTEM-RESERVED (Gateway-Anchor) und darf
+             NIEMALS an eine VPN-Connection vergeben werden — auch
+             nicht per Break-Glass oder Admin-Override. Die .1 Adresse
+             jedes Pools ist systemreserviert, unabhängig vom Pool.
+             Break-Glass nutzt ausschließlich die Tail-Reserve.
+             [G-02 v0.7: Break-Glass auf Slot 1 entfernt — Marco-Entscheidung]
+  IP-INV-04  Slots in der Tail-Reserve (letzte N Slots) dürfen nur per
+             Break-Glass (ADMIN) alloziert werden.
+  IP-INV-05  Materialisierung fixed_ip/fixed_ipv6 ist NUR gültig wenn
+             ip_slot domänenseitig validiert wurde.
+  IP-INV-06  Keine zwei AKTIVEN Connections dürfen denselben ip_slot
+             innerhalb desselben Pools haben.
+
+3.10) IP-Eindeutigkeit für aktive Connections (MUST)
+
+  IP-UQ-01  Eine aktive fixed_ip darf systemweit nur genau einer aktiven
+            Connection gehören. "Aktiv" = op_status != DISABLED AND
+            revoked_at IS NULL.
+  IP-UQ-02  Enforcement-Mechanik wird in BASE-10_IDENTITY_CORE festgelegt.
+            Optionen: Partial UNIQUE Index, Allocation-Registry-Tabelle,
+            oder atomare Slot-Reservation im Provisioner.
+  IP-UQ-03  Historische/deaktivierte Connections dürfen dieselbe fixed_ip
+            tragen (nach Quarantäne-Ablauf und Neu-Vergabe).
+
+================================================================================
+4) ACTIVE_SESSION_LOCKS (SimUse Guard)
+================================================================================
+
+Zweck: Atomarer Mutex gegen SimUse-Race. NICHT ein Session-Lifecycle.
+       Session-Truth ist vpn_sessions für LEGACY + MODERN (SM_SESSION §1).
+       Locks sind Guard, nicht Truth.
+
+Tabelle: active_session_locks
+SoT: SQL (MariaDB)
+Übernahme: Semantik aus altem Konzept (B055 §2.3), Guard-Release
+           aktualisiert gemäß SM_SESSION SES-25.
+
+4.1) Felder
+
+  Feld                 Typ               Constraint          Beschreibung
+  ──────────────────── ───────────────── ─────────────────── ─────────────────────────
+  id                   BIGINT UNSIGNED   PK AUTO_INCREMENT   Primärschlüssel
+  vpn_connection_id    BIGINT UNSIGNED   FK, UNIQUE          SimUse=1 Guard
+  session_key          VARCHAR(255)      NULL                Diagnostisch (NAS+User)
+  acquired_at          DATETIME          NOT NULL            Lock-Zeitpunkt
+  expires_at           DATETIME          NOT NULL            NOW()+Lock-TTL
+  state                ENUM              NULL                held|released (diagnostisch)
+  release_reason       VARCHAR(255)      NULL                Diagnostisch
+
+4.2) Verhalten (MUST, aktualisiert gemäß SM_SESSION SES-25)
+
+  - Acquire: Am Ende von authorize/attach → INSERT lock
+    expires_at = NOW() + vpn_active_session_lock_ttl_seconds (Settings)
+    [B-03: Key mit kanonischem vpn_-Prefix]
+  - Release: Nach committed vpn_sessions INSERT (SES-25).
+    Acct-Start allein ist KEIN ausreichender Truth-Commit.
+    Guard schützt das Fenster zwischen Auth-Accept und Session-INSERT.
+    [B-02: Guard-Release korrigiert — nicht mehr bei Acct-Start]
+  - Expired: Dürfen im Auth-Pfad ignoriert/gelöscht werden (idempotent)
+  - UNIQUE(vpn_connection_id) erzwingt SimUse=1 auf DB-Ebene
+
+================================================================================
+5) DERIVED POLICY (deterministisch aus tunnel_type + access_role)
+================================================================================
+
+Zweck: Aus den beiden Klassifikationsfeldern wird eine derived_policy
+       deterministisch abgeleitet. Das ersetzt das alte B058 Konzept
+       (conn_group → derived_policy), operiert aber auf 2 Achsen.
+
+DERIVED POLICY IST KEIN DB-FELD. Es ist eine deterministische Funktion,
+die zur Laufzeit berechnet wird. Sie kann in /diag angezeigt werden.
+
+5.1) Achse 1: tunnel_type → Tunnel-Ableitungen
+
+  tunnel_type  → ip_stack    → auth_method      → daemon
+  ──────────── ─ ─────────── ─ ───────────────── ─ ──────────────
+  LEGACY         v4_only       MSCHAPv2/RADIUS     accel-ppp
+  MODERN         dualstack     PublicKey/AWG        amneziawg
+
+5.2) Achse 2: access_role → Policy-Ableitungen
+
+  access_role → ip_pool     → speed_limit  → restricted  → panel_access
+  ─────────── ─ ─────────── ─ ──────────── ─ ─────────── ─ ──────────────
+  USER          POOL_USER     per Plan       Ja            Kein Admin
+  VIP           POOL_VIP      Nein           Ja            Kein Admin
+  MODERATOR     POOL_MOD      Nein           Ja            Teilweise Admin
+  ADMIN         POOL_ADMIN    Nein           Nein          Voller Admin
+
+5.3) Kombinierte Ableitung (Kreuzprodukt)
+
+  tunnel_type × access_role → vollständige derived_policy
+
+  Beispiel: tunnel_type=MODERN, access_role=VIP
+    ip_stack      = dualstack
+    auth_method   = PublicKey/AWG
+    ip_pool       = POOL_VIP (10.77.4.0/22 + fd77:0:0:4::/62)
+    speed_limit   = Nein
+    restricted    = Ja (möglich)
+    panel_access  = Kein Admin
+    nft_scope     = VIP-Range (CIDR 10.77.4.0/22)
+    dns_enforce   = Ja (ALLE, keine Ausnahmen)
+
+  Beispiel: tunnel_type=LEGACY, access_role=ADMIN
+    ip_stack      = v4_only
+    auth_method   = MSCHAPv2/RADIUS
+    ip_pool       = POOL_ADMIN (10.77.2.0/24, KEIN IPv6)
+    speed_limit   = Nein
+    restricted    = Nein (ADMIN nie restricted)
+    panel_access  = Voller Admin
+    nft_scope     = ADMIN-Range (CIDR 10.77.2.0/24)
+    dns_enforce   = Ja (ALLE, keine Ausnahmen)
+
+5.4) Ableitungs-Regeln (MUST)
+
+  DP-01  Ableitungen sind TOTAL: Für jede Kombination tunnel_type ×
+         access_role existiert eine vollständige derived_policy.
+  DP-02  Ableitungen sind DETERMINISTISCH: Gleiche Inputs → gleiche
+         Outputs. Keine Hidden Branching, keine Zufallselemente.
+  DP-03  Ableitungen sind NICHT USER-EDITABLE: Nur SYSTEM/ADMIN
+         können tunnel_type oder access_role ändern.
+  DP-04  derived_policy ist KEIN DB-Feld: Es wird berechnet, nicht
+         gespeichert. /diag kann es anzeigen.
+  DP-05  Negative Test: Manipulation an fixed_ip oder Protocol darf
+         derived_policy NICHT ändern (SoT bleibt SQL-Feld).
+
+5.5) Settings vs Policy — Zwei getrennte SQL-first Domänen (D003)
+
+  SETTINGS-SYSTEM = operationale Parameter (Systemverhalten)
+    Beispiele: Lock-TTL, Retry-Counter, Timeouts, Failsafe-Werte.
+    Auflösung: CONNECTION > CUSTOMER > GLOBAL.
+    Lebt in: settings_catalog + settings_global/customer/connection.
+
+  POLICY-SYSTEM = Kunden-/Rollenrechte und Limits (Kundenrechte)
+    Beispiele: max_active_connections, Quota, Feature-Zugriffe.
+    Auflösung: Customer-Override > Plan (nur USER) > Rollen-Default.
+    Lebt in: policy_catalog + role_policy_defaults +
+             customer_policy_overrides + (später) plan_policy_values.
+
+  Beides ist SQL-first. Beides hat Audit, Explain, Reconcile.
+  Aber es sind zwei getrennte Domänen mit eigener Auflösungslogik.
+
+  Begründung: "Was darf dieser Kunde?" ist konzeptionell nicht
+  dasselbe wie "Wie verhält sich das System intern?". Beides in
+  einem System zu pressen, erzeugt ein Omnibus-System das zwei
+  völlig verschiedene Dinge tut. (D003-E01)
+
+================================================================================
+6) CONNECTION-LIMITS UND POLICY-SYSTEM (D003)
+================================================================================
+
+6.1) Zielarchitektur: Weg 4 — Eigenes Policy-System
+
+  Connection-Limits und andere Kundenrechte leben im Policy-System
+  (getrennt vom Settings-System, siehe §5.5).
+
+  Drei Tabellen:
+
+  a) policy_catalog
+     Definiert welche Policy-Parameter existieren.
+     Felder: policy_key (PK), Datentyp, allows_unlimited (BOOL),
+     Validierungsgrenzen (min/max), Beschreibung, Panel-Sichtbarkeit.
+     Beispiele: max_active_connections,
+     max_connection_creates_per_hour, max_storage_gb.
+
+  b) role_policy_defaults
+     Default-Wert pro Rolle pro Parameter. ALLE vier Rollen:
+
+     access_role   policy_key              value  Begründung
+     ───────────── ──────────────────────── ────── ──────────────────
+     USER          max_active_connections   2      Basis-Default (Plan
+                                                   kann übersteuern)
+     VIP           max_active_connections   3      Kein Speed-Limit
+     MODERATOR     max_active_connections   3      Kein Speed-Limit
+     ADMIN         max_active_connections   NULL   unlimited (Owner)
+
+     Diese Tabelle VERGIBT KEINE Rolle — sie beschreibt nur,
+     welche Default-Werte für eine Rolle gelten.
+     Neuer Parameter = neue Zeilen, kein Schema-Change.
+
+  c) customer_policy_overrides
+     Individuelle Ausnahmen pro Kunde.
+     Felder: customer_id (FK), policy_key (FK → policy_catalog),
+     value (NULL = unlimited), created_by, override_reason,
+     created_at.
+     Beispiel: Kunde 47, max_active_connections = 4, reason="Sonderwunsch".
+
+  d) plan_policy_values (optional, später, MOD-10_PLANS)
+     Wenn Plans eigene Policy-Werte tragen (USER-Differenzierung).
+
+6.2) Auflösungsreihenfolge (MUST)
+
+  Für die Frage "Welcher Wert gilt für diesen Kunden bei diesem
+  Policy-Parameter?":
+
+    1. customer_policy_overrides (individuell)
+       → Wenn Override existiert: dieser Wert gilt.
+    2. plan_policy_values (nur USER, wenn Plan vorhanden)
+       → Wenn Plan den Parameter definiert: Planwert gilt.
+    3. role_policy_defaults (Basis-Default für die Rolle)
+       → Immer vorhanden, Fallback für alle Rollen.
+
+  Ein Codepfad, eine Lookup-Logik, keine Sonderbehandlung pro Rolle.
+
+6.3) Unlimited-Semantik (MUST)
+
+  NULL = unlimited. Keine Magic Numbers (nicht 9999, nicht INT_MAX).
+  Unlimited-Checkbox im Panel nur dort, wo
+  policy_catalog.allows_unlimited = true.
+  Kein Consumer darf NULL als 0, leer oder Fehler interpretieren.
+
+6.4) Rolle gehört zum Customer (D003-E02)
+
+  Ein Kunde ist USER oder VIP oder MODERATOR oder ADMIN.
+  Das wird im Webpanel bestimmt (Customer-Rang).
+  Alle Connections eines Customers erben dieselbe Rolle.
+  Ein USER kann keine VIP-Connection haben.
+
+  access_role bleibt als Feld auf vpn_connections (für Queries,
+  nftables-Range-Enforcement, Logging), ist aber ABGELEITET vom
+  Customer-Rang, nicht unabhängig gesetzt.
+  Constraint: vpn_connections.access_role = customer.access_role.
+
+  AUSNAHME PREPROVISIONED (customer_id IS NULL):
+  Ownerlose Connections haben keinen Customer. Ihre access_role
+  wird beim Erstellen vom ADMIN gesetzt (Panel-UI: Rolle wählen).
+  Das bestimmt den IP-Pool. Nach Claim wird access_role auf den
+  Customer-Rang des claimenden Kunden überschrieben (Kaskade).
+
+  CONNECTION-ERSTELLUNG IM PANEL (zwei Wege):
+
+  Weg "Preprovisioned": Admin wählt Rolle im UI → Connection
+    entsteht mit customer_id=NULL, access_role=gewählte Rolle.
+    EINSCHRÄNKUNG: access_role=ADMIN ist bei Weg "Preprovisioned"
+    NICHT zulässig. ADMIN-Connections entstehen nur über Weg
+    "Für User" mit sofortiger customer_id-Bindung (ONB-13, R-08).
+    Zählt NICHT gegen ein Customer-Budget (kein Customer).
+    Zählt erst nach Claim gegen das Budget des Claimers.
+
+  Weg "Für User": Admin wählt Ziel-Customer per Dropdown/Suche
+    (Name, Email, ID) → Connection entsteht mit customer_id=
+    gewählter Customer, access_role=customer.access_role.
+    Zählt SOFORT gegen das Budget des gewählten Customers.
+    Budget-Prüfung (Aktiv + Gesamt) MUSS VOR Erstellung stattfinden.
+
+  In BEIDEN Fällen: Alle Rahmenbedingungen (Rolle, Pool-Verfügbarkeit,
+  Budget-Prüfung bei "Für User") müssen VOLLSTÄNDIG erfüllt sein, bevor
+  die Connection materialisiert wird (subaccount_login, nt_hash, ip_slot).
+
+  Keine parallelen Rollen-Budgets im steady state.
+  Budget-Subjekt ist CUSTOMER, nicht CUSTOMER+ROLE.
+
+6.5) Zählregel — Aktiv-Budget + Ableitungsregel (MUST, D003-E06)
+
+  Connection-Limits bestehen aus EINEM Policy-Parameter + einer
+  Ableitungsregel (Pattern aus B057/B155: Basis-Wert + Regel).
+
+  a) AKTIV-BUDGET (max_active_connections) — Policy-System
+     Wie viele Connections darf der Kunde GLEICHZEITIG NUTZEN?
+     Pro Rolle in role_policy_defaults, individualisierbar via
+     customer_policy_overrides. Plan kann für USER übersteuern.
+
+     Zählt: ACTIVE, RESTRICTED.
+     Zählt NICHT: DISABLED, PREPROVISIONED, revoked.
+
+  b) GESAMT-BUDGET — ABGELEITET, nicht gespeichert
+     max_total = max_active_connections + vpn_disabled_connection_buffer
+
+     vpn_disabled_connection_buffer ist ein Settings-Key (global,
+     Systemverhalten, nicht Kundenrecht). Default: 2.
+     Bestimmt, wie viele deaktivierte Connections ein Kunde
+     zusätzlich zu seinen aktiven im Account behalten darf.
+
+     Zählt: ACTIVE, RESTRICTED, DISABLED (user + admin-restoreable),
+     direkt zugewiesene Connections (Weg "Für User",
+     customer_id bei Erstellung gesetzt).
+     Zählt NICHT: Terminal revoked/recycled,
+     ownerlose PREPROVISIONED (customer_id IS NULL, Weg "Preprovisioned").
+     Ownerlose Connections zählen erst nach Claim gegen das
+     Budget des claimenden Customers.
+
+  ZUSAMMENSPIEL (Beispiel VIP, max_active=3, buffer=2):
+  - max_total = 3 + 2 = 5 Connections insgesamt erlaubt
+  - 3 aktive + 2 deaktivierte = 5 total ✓
+  - User deaktiviert 1 → 2 aktive, 1 deakt. → neue anlegen ✓
+  - Er nutzt NIE mehr als 3 gleichzeitig
+  - Bei Gesamt=5 erschöpft: Panel-Meldung
+
+  PANEL-MELDUNG bei Gesamt-Budget erschöpft:
+  "Du hast N Verbindungen (X aktive, Y deaktivierte).
+  Maximum: [max_active] aktive, [max_total] gesamt."
+
+  RATE-LIMIT (zusätzlicher Schutz):
+  max_connection_creates_per_hour verhindert Rapid-Create Abuse.
+
+  PATTERN-REFERENZ: Gleiche Ableitungslogik wie B057/B155:
+  unclaimed_grace_until = NOW() + vpn_unclaimed_grace_days
+  claim_deadline        = created_at + vpn_claim_deadline_days
+  max_total             = max_active_connections + buffer
+
+6.6) SimUse (unverändert)
+
+  SimUse=1 gilt PRO CONNECTION (nicht pro Customer).
+  Ein VIP mit 3 Connections kann 3 Geräte GLEICHZEITIG nutzen,
+  aber jede Connection hat maximal 1 aktive Session.
+
+6.7) Interim-Regelung (Settings-Keys, D003-E08)
+
+  Die bestehenden Settings-Keys vpn_vip_max_connections und
+  vpn_moderator_max_connections bleiben als INTERIM funktionsfähig
+  bis das Policy-System in M2 implementiert wird.
+  Für die Interim-Phase: allowed_override_scope = CUSTOMER
+  (statt NONE), damit individuelle Ausnahmen sofort möglich sind.
+  Siehe TRUTH_MODEL §7.3 für Key-Details.
+
+6.8) Plans — Grundarchitektur (Marco-Entscheidung, M3-Scope)
+
+  plan_id gehört zum CUSTOMER (nicht zur Connection).
+  Ein Customer hat maximal EINEN aktiven Plan.
+  Connections erben die Plan-Eigenschaften vom Customer.
+
+  Plans existieren in ZWEI Varianten (plan_quota_scope):
+
+  a) SHARED (pro Account)
+     Quota/Traffic-Volumen gilt für den GESAMTEN Kunden.
+     Alle Connections teilen sich ein Budget.
+     Beispiel: Customer hat 500 GB, verteilt auf 3 Connections.
+     Enforcement: SUM(traffic) aller Connections des Customers.
+
+  b) DEDICATED (pro Connection)
+     Quota/Traffic-Volumen gilt PRO CONNECTION.
+     Jede Connection hat ihr eigenes Budget, unabhängig
+     von anderen Connections desselben Customers.
+     Beispiel: Jede Connection hat 200 GB, wie ein eigener
+     gemieteter Server mit eigenem Traffic.
+     Enforcement: traffic pro Connection einzeln geprüft.
+
+  Welche Variante gilt, bestimmt der gewählte Plan.
+  Beide Varianten können als Plans im System koexistieren.
+
+  BANDWIDTH/QoS: Immer PRO CONNECTION (technische Notwendigkeit,
+  Shaping passiert am Interface/Peer). Der Speed-Wert kommt
+  aber vom Plan des Customers.
+
+  CONCURRENCY (max_active_connections): Immer PRO CUSTOMER.
+  Bereits im Policy-System modelliert (D003).
+
+  CUSTOMER-SCHEMA: customers.plan_id (FK auf plans, NULL erlaubt).
+  NULL = kein Plan, nur Rollen-Defaults aus role_policy_defaults.
+  Plan kann Rollen-Defaults für USER übersteuern (D003-E04).
+
+  Plans DÜRFEN differenzieren über (aus altem Kanon B030):
+    QoS, Concurrency, Quota, Laufzeit, Preis.
+
+  Plans DÜRFEN NICHT differenzieren über:
+    DNS-Zwang, Filterung, Abuse-Blocks, Peer-Isolation,
+    Sicherheitsfeatures.
+
+  DETAILSCHEMA (plans-Tabelle, Quota-Felder, Laufzeitmodell)
+  wird in M3 (MOD-10_PLANS) ausgearbeitet. Diese Grundarchitektur
+  ist aber ab jetzt kanonisch.
+
+================================================================================
+7) WRITE-PATH GRUNDREGELN
+================================================================================
+
+Akteure:
+  SYSTEM  = Server-Komponenten (Provisioner, Reconcile, Janitor, AAA)
+  ADMIN   = Panel-Admin (privilegiert, auditpflichtig)
+  USER    = Endnutzer im Panel (KEIN direkter DB-Write)
+
+Grundsätze (übernommen aus B345, angepasst):
+  WP-01  USER schreibt NIE direkt in Core-Tabellen.
+         USER triggert Workflows (Verify/Claim), SYSTEM führt aus.
+  WP-02  Atomare Writes bei Provisioning/Rotation (Transaktion, kein Halbzustand).
+  WP-03  Policy-Zeiten (unclaimed_grace_until, claim_deadline) werden aus
+         Settings-Keys materialisiert (B057), keine Magic Numbers.
+  WP-04  ADMIN-Writes auf Enforcement-Felder (access_role, tunnel_type,
+         op_status, disabled_at, revoked_at) sind auditpflichtig.
+         access_role wird NUR über Customer-Rollenänderung geschrieben
+         (Kaskade, D002 §7), nicht direkt pro Connection. (D003-E02)
+
+Kurzmatrix (Details in BASE-10_IDENTITY_CORE):
+
+  Feldgruppe                       SYSTEM  ADMIN  USER
+  ────────────────────────────────── ─────── ────── ──────
+  customers.*                       W       W!     (REQ)
+  vc.identity (subaccount_login)    W       R      R
+  vc.classification (tunnel_type,   W       W!     R
+    access_role)
+  vc.auth (nt_hash, wg_*)           W       W!     R
+  vc.ip (ip_slot, fixed_ip/v6)      W       R      R
+  vc.operative (op_status,          W       R      (REQ)
+    op_reason_code, restricted_at,
+    disabled_at, restore_until,
+    restrict_finalize_at)
+  vc.ownership (customer_id,        W       W!     (REQ)
+    claimed_at)
+  vc.revocation (revoked_at,        W       R      R
+    quarantine_until)
+  vc.source_facts (customer_paused_  W       W!     (REQ)
+    at, admin_manual_restricted_at)
+  vc.policy (expiry_date)            W       W!     R
+  reason_registry.*                 W       W!     R
+  active_session_locks.*            W       R      R
+  connection_lifecycle_log.*        W       R      R
+  settings_*.*                      W       W!     R
+
+  Legende: W=Write, R=Read-only, (REQ)=User triggert Request/SYSTEM schreibt,
+           !=auditpflichtig, vc=vpn_connections
+
+  KRITISCHE REGEL:
+  - vc.operative ist SYSTEM-ONLY. ADMIN darf lesen, NICHT direkt schreiben.
+    Enforcement läuft über Apply/Reconcile/Jobs. Admin triggert Aktionen
+    (Disable/Restrict/Restore) die SYSTEM dann ausführt.
+  - ACTOR-SEMANTIK (Cross-File-Klarstellung zu SM_CONNECTION):
+    "Akteur" in SM_CONNECTION Transitionen = AUSLÖSENDER Actor (wer triggert).
+    Der persistente Write auf vpn_connections.op_status/op_reason_code etc.
+    erfolgt IMMER über den SYSTEM-Workflow (Apply/Reconcile/Provisioner).
+    ADMIN/CUSTOMER lösen Aktionen aus, SYSTEM schreibt. Keine Ausnahmen.
+  - vc.ip ist SYSTEM-ONLY. Allokation läuft über den Provisioner.
+  - vc.revocation ist SYSTEM-ONLY. Revocation läuft über Jobs.
+  - subaccount_login ist SYSTEM-ONLY und immutable nach Erstellung.
+
+================================================================================
+7A) REASON_REGISTRY (Kanonische Reason-Codes)
+================================================================================
+
+Zweck: Kanonische Registry aller op_reason_codes mit Policy-Attributen.
+       Bestimmt welcher Reason-Code bei welchem op_status erlaubt ist,
+       ob Restore möglich ist, wie Revocation abläuft, und ob/wann
+       RESTRICTED automatisch zu DISABLED finalisiert.
+
+Tabelle: reason_registry
+SoT: SQL (MariaDB)
+FK-Referenz: vpn_connections.op_reason_code → reason_registry.reason_code
+
+7A.1) Felder
+
+  Feld                          Typ          Constraint     Beschreibung
+  ────────────────────────────── ──────────── ────────────── ────────────────────
+  reason_code                    VARCHAR(64)  PK             Kanonischer Code
+  allowed_op_status              ENUM         NOT NULL       RESTRICTED|DISABLED
+  is_restoreable                 TINYINT(1)   NOT NULL       Admin-Restore erlaubt?
+  precedence_rank                INT          NOT NULL       Priorität bei Multi-Reason
+                                                             (1=höchste, nur RESTRICT_*)
+  default_restore_window_days    INT          NULL           Restore-Fenster in Tagen
+  revocation_mode                ENUM         NOT NULL       NONE|IMMEDIATE|
+                                                             AFTER_RESTORE_WINDOW|
+                                                             MANUAL_ONLY
+  auto_finalize_to_reason_code   FK→self      NULL           Ziel-DISABLE-Reason bei
+                                                             Restrict-Timeout
+  default_restrict_window_days   INT          NULL           Restrict-Timeout in Tagen
+  description                    TEXT         NOT NULL       Admin-facing Beschreibung
+
+  Naming-Konvention: RESTRICT_* für allowed_op_status=RESTRICTED,
+  DISABLE_* für allowed_op_status=DISABLED. Die Prefixe sind
+  Lesbarkeitskonvention, NICHT Enforcement-Logik. Enforcement läuft
+  über allowed_op_status.
+
+7A.2) Kanonische Codes (Initial-Set)
+
+  Siehe SM_CONNECTION.txt §5.2 für die vollständige Tabelle.
+
+7A.3) Invarianten
+
+  RR-01  allowed_op_status=RESTRICTED → is_restoreable irrelevant
+         (Restricted ist per se reversibel)
+  RR-02  auto_finalize_to_reason_code → Zielcode muss
+         allowed_op_status=DISABLED haben
+  RR-03  auto_finalize_to_reason_code gesetzt →
+         default_restrict_window_days MUSS gesetzt sein
+  RR-04  revocation_mode=AFTER_RESTORE_WINDOW →
+         default_restore_window_days MUSS gesetzt sein
+  RR-05  precedence_rank ist UNIQUE innerhalb aller RESTRICT_*-Codes
+         (Determinismus bei Multi-Reason Precedence)
+
+================================================================================
+7B) CONNECTION_LIFECYCLE_LOG (Audit/Historie)
+================================================================================
+
+Zweck: Vollständiges Audit-Log aller Lifecycle-Events einer Connection.
+       Scope: Gesamter Lifecycle, nicht nur op_status-Wechsel.
+       Ersetzt disabled_by auf der Haupttabelle.
+
+Tabelle: connection_lifecycle_log
+SoT: SQL (MariaDB)
+
+7B.1) Felder
+
+  Feld                 Typ              Constraint     Beschreibung
+  ──────────────────── ──────────────── ────────────── ────────────────────
+  id                   BIGINT UNSIGNED  PK AUTO_INCR  Primärschlüssel
+  vpn_connection_id    BIGINT UNSIGNED  FK, INDEX      Referenz
+  event_type           ENUM             NOT NULL       STATUS_CHANGE|CLAIM|
+                                                       RESTORE|REVOCATION|
+                                                       QUARANTINE_END|
+                                                       POOL_RETURN|SLOT_CHANGE|
+                                                       SESSION_START|
+                                                       SESSION_END|
+                                                       SESSION_HARDCUT|
+                                                       SESSION_JANITOR_CLOSE|
+                                                       SESSION_SIMUSE_REJECT|
+                                                       ROLE_CHANGE
+                                                       [v0.6: Session-Events]
+                                                       [v0.8: ROLE_CHANGE, D002]
+  old_op_status        ENUM             NULL           ACTIVE|RESTRICTED|DISABLED
+  new_op_status        ENUM             NULL           ACTIVE|RESTRICTED|DISABLED
+  old_reason_code      FK               NULL           Vorheriger Reason
+  new_reason_code      FK               NULL           Neuer Reason
+  old_customer_id      BIGINT UNSIGNED  NULL           Für Claim-Events
+  new_customer_id      BIGINT UNSIGNED  NULL           Für Claim-Events
+  actor_type           ENUM             NOT NULL       SYSTEM|ADMIN|CUSTOMER|
+                                                       JOB|RECONCILE
+  actor_id             BIGINT UNSIGNED  NULL           Admin-ID, Customer-ID etc.
+  source               VARCHAR(64)      NOT NULL       PANEL|API|JOB|RECONCILE|HOOK
+  event_at             TIMESTAMP        NOT NULL       Event-Zeitpunkt
+  comment              TEXT             NULL           Optionaler Freitext
+  session_token        VARCHAR(64)      NULL           Session-Referenz (nur bei
+                                                       Session-Events). NULL bei
+                                                       reinen Connection-Events.
+                                                       [v0.6: ergänzt für SM_SESSION
+                                                        Cross-File-Konsistenz]
+
+7B.2) Scope (was wird geloggt, MUST)
+
+  - Jeder op_status-Wechsel (ACTIVE↔RESTRICTED↔DISABLED)
+  - Reason-Wechsel innerhalb RESTRICTED (ohne op_status-Wechsel)
+  - Claim (customer_id gesetzt)
+  - Restore (DISABLED → ACTIVE | RESTRICTED, nach Policy-Re-Evaluation)
+  - Revocation (revoked_at gesetzt)
+  - Quarantäne-Ende (quarantine_until erreicht)
+  - Pool-Rückführung (Slot für Allocator freigegeben)
+  - Slot-Wechsel (wenn ip_slot sich ändert, z.B. Rollenwechsel)
+  - Session-Start (neue Session in vpn_sessions angelegt)
+  - Session-Ende (Session normal geschlossen)
+  - Session-Hardcut (Admin oder System Hardcut einer Session)
+  - Session-Janitor-Close (Janitor hat Ghost/Stale-Session geschlossen)
+  - Session-SimUse-Reject (SimUse=1 hat zweiten Attach abgewiesen)
+  [v0.6: Session-Events ergänzt, Quelle: SM_SESSION §14]
+
+7B.3) Invarianten
+
+  CLL-01  Jeder op_status-Wechsel MUSS einen Log-Eintrag erzeugen.
+  CLL-02  actor_type + actor_id + source müssen bei jedem Event gesetzt sein.
+  CLL-03  Log-Einträge sind APPEND-ONLY (kein UPDATE, kein DELETE).
+  CLL-04  Session-Events (SESSION_*) MÜSSEN session_token IS NOT NULL haben.
+          Connection-Events (STATUS_CHANGE, CLAIM, etc.) haben session_token=NULL.
+          [v0.6: ergänzt für SM_SESSION Cross-File-Konsistenz]
+
+================================================================================
+8) BEZIEHUNGEN (Entity Relationships)
+================================================================================
+
+  customers (1) ←──── (0..n) vpn_connections
+    Ein Customer kann 0 bis n Connections haben.
+    customer_id ist NULL bis Claim (PREPROVISIONED Connections existieren
+    ohne zugeordneten Customer).
+
+  vpn_connections (1) ←──── (0..1) active_session_locks
+    Pro Connection maximal 1 Lock (SimUse=1 Guard).
+    Lock existiert nur während Auth→Accounting-Start Fenster.
+
+  vpn_connections (1) ←──── (0..n) vpn_sessions
+    Session-Truth (EINZIGE Quelle für "Session aktiv", SM_SESSION §1).
+    Offene Session = closed_at IS NULL. SimUse=1 pro Connection.
+    Mehrere historische Sessions pro Connection möglich.
+    [v0.6: vpn_sessions als primäre Session-Truth ergänzt]
+
+  vpn_connections (1) ←──── (0..n) radacct
+    LEGACY Accounting/Forensik. NICHT MEHR alleinige Session-Truth.
+    Session-Truth ist vpn_sessions (SM_SESSION §1).
+    radacct bleibt für LEGACY als zusätzliche Accounting-Quelle.
+    [v0.6: Rolle klargestellt — nicht mehr "Session-Truth"]
+
+  vpn_connections (1) ←──── (0..n) settings_connection
+    Optional: per-Connection Settings-Overrides.
+
+  customers (1) ←──── (0..n) settings_customer
+    Optional: per-Customer Settings-Overrides.
+
+  settings_catalog (1) ←──── (0..n) settings_global
+  settings_catalog (1) ←──── (0..n) settings_customer
+  settings_catalog (1) ←──── (0..n) settings_connection
+    Jeder Settings-Wert referenziert einen Catalog-Key.
+
+  reason_registry (1) ←──── (0..n) vpn_connections
+    op_reason_code referenziert reason_registry.reason_code.
+    NULL bei op_status=ACTIVE.
+
+  reason_registry (1) ←──── (0..1) reason_registry (self-ref)
+    auto_finalize_to_reason_code referenziert den Ziel-DISABLE-Code
+    für automatische RESTRICTED→DISABLED Finalisierung.
+
+  vpn_connections (1) ←──── (0..n) connection_lifecycle_log
+    Vollständige Lifecycle-Historie pro Connection.
+    Append-only, kein UPDATE/DELETE.
+
+================================================================================
+9) VERIFY / CLAIM / RESTRICTED — EBENENTRENNUNG (MUST)
+================================================================================
+
+Drei unabhängige Ebenen, die sich NICHT gegenseitig beeinflussen dürfen:
+
+9.1) VERIFY (Panel-Ebene, App-Layer)
+  - Betrifft: customers.email_verified_at + customers.status
+  - Wirkung: PENDING-User sieht nach Login nur Verify-Wall
+  - Hat KEINE Auswirkung auf RADIUS/AAA oder Kernel-Enforcement
+  - Claim ist erst nach Verify möglich
+
+9.2) CLAIM (App-Layer, Zuordnung Connection → Customer)
+  - Betrifft: vpn_connections.customer_id + claimed_at
+  - Wirkung: Connection wird einem Customer zugeordnet
+  - PREPROVISIONED (customer_id IS NULL) = nie geclaimt
+  - CLAIMED (customer_id IS NOT NULL) = gehört einem Customer
+  - Einmal CLAIMED = immer CLAIMED
+  - UNCLAIMED_OVERDUE (Grace abgelaufen) → op_status=RESTRICTED
+  - claim_deadline abgelaufen → op_status=DISABLED
+
+9.3) RESTRICTED / WALLED GARDEN (Kernel-Ebene, nftables)
+  - Betrifft: vpn_connections.op_status + op_reason_code
+  - Wirkung: Walled Garden (nur SERVICE_NET erreichbar, kein Internet)
+  - op_status=RESTRICTED → nftables Restricted-Set → Walled Garden
+  - op_status=DISABLED → Auth reject (kein Tunnel)
+  - Trigger über reason_registry (RESTRICT_* Codes)
+  - ADMIN ist NICHT restricted-fähig (R-08, Not-Aus = DISABLE)
+  - Hard-Cut bei Statuswechsel (Conntrack-Flush)
+
+9.4) Zusammenspiel der Ebenen
+
+  Die drei Ebenen sind hierarchisch unabhängig:
+
+  VERIFY → Panel-only, hat KEINEN Einfluss auf VPN-Auth oder nftables
+  CLAIM  → Ownership-only, beeinflusst op_status nur indirekt
+          (UNCLAIMED_OVERDUE/Deadline sind zeitgesteuert, nicht Claim-gesteuert)
+  op_status → Operativer Zustand, bestimmt VPN-Auth und nftables
+
+  REGEL (MUST):
+  - Verify (Panel) darf NIE op_status=RESTRICTED auslösen
+  - Claim-Requirement (Panel) darf NIE op_status=RESTRICTED auslösen
+  - Nur zeitgesteuerte Events (Grace/Deadline/Quota/Expiry) oder
+    Admin/Customer-Aktionen dürfen op_status ändern
+  - Diese Trennung war bereits im alten Konzept (B058/B155) kanonisch
+
+================================================================================
+10) OFFENE PUNKTE (OPEN)
+================================================================================
+
+OPEN-DOM-01: [CLOSED] Moderator Max-Connections
+  ENTSCHIEDEN: Default = 3, flexibel (Policy-System, D003).
+  Interim: Settings-Key vpn_moderator_max_connections (CUSTOMER scope).
+  Ziel: role_policy_defaults Tabelle (D003-E03).
+  Marco-Entscheidung 2026-04-13, Architektur D003 2026-04-14.
+
+OPEN-DOM-02: AWG-Auth-Brücke → SQL-first AAA
+  WireGuard authentifiziert per PublicKey (kein Username/Password).
+  Wie wird die Brücke zu FreeRADIUS/SQL-first AAA hergestellt?
+  Optionen:
+    A) AWG-Hook prüft PublicKey gegen DB, RADIUS bleibt für Accounting
+    B) AWG-Hook generiert synthetischen RADIUS Auth-Request
+    C) AWG-Auth ist standalone (nur DB), RADIUS nur für Legacy
+  Wird in BASE-30_TUNNEL_AWG + BASE-20_AAA_CORE entschieden.
+
+OPEN-DOM-03: Hybrid-Connection (Legacy + Modern gleichzeitig)
+  Kann eine vpn_connection theoretisch beide tunnel_types haben?
+  Annahme: NEIN. Eine Connection hat exakt einen tunnel_type.
+  Ein Customer kann aber Connections beider Typen besitzen.
+
+OPEN-DOM-04: AWG-spezifische Session-Felder [TEILWEISE BEANTWORTET]
+  WireGuard hat kein natives Session-Start/Stop Event.
+  Welche Felder braucht die Session-Erkennung?
+  KONZEPTIONELL BEANTWORTET durch SM_SESSION:
+    - vpn_sessions Schema (§3): 14 Felder inkl. session_token,
+      last_seen_at, runtime_ref, truth_source
+    - MODERN Session Controller (§7): Handshake-basierte Erkennung
+    - VALID-Definition (§8.2): Peer + AllowedIPs + Handshake-Freshness
+  NOCH OFFEN: Operative Implementierung in BASE-70_SESSION_CORE
+    (Controller-Daemon, Polling-Mechanik, Runtime-Mapping-Format).
+
+OPEN-DOM-05: Admin/Mod-Aktionslog + E-Mail-Benachrichtigung
+  Jede ADMIN- und MODERATOR-Interaktion im Panel wird:
+  1. Geloggt (Webpanel-Log): Wer, Was, Wann, welche Connection/Customer
+  2. Automatisch per E-Mail an den Owner (Marco) zugestellt
+  Die E-Mail enthält einen detaillierten Log der Aktion.
+  Zweck: Sofortige Transparenz über alle privilegierten Aktionen.
+  Betrifft: Alle schreibenden Panel-Operationen von ADMIN/MODERATOR
+  (Connection erstellen/disablen/restricten, Rolle ändern, Customer
+  suspenden, Settings ändern, Token rotieren, etc.)
+  Scope: MOD-06_PANEL_FEATURES + MOD-07_LOGGING_MONITORING (M3).
+
+================================================================================
+11) TESTS / VALIDIERUNG (DoD)
+================================================================================
+
+T-DOM-01: Schema-Konsistenz
+  - Alle Felder in vpn_connections existieren mit korrektem Typ/Constraint.
+  - tunnel_type + access_role haben die definierten ENUM-Werte.
+  - op_status hat die Werte ACTIVE|RESTRICTED|DISABLED.
+  - UNIQUE Constraints greifen (subaccount_login, wg_public_key, claim_token_hash).
+
+T-DOM-02: Derived Policy Determinismus
+  - Für jede Kombination tunnel_type × access_role wird die erwartete
+    derived_policy berechnet.
+  - Negative Test: Manipulation an fixed_ip ändert derived_policy NICHT.
+
+T-DOM-03: Auth-Feld-Konsistenz
+  - tunnel_type=LEGACY → subaccount_nt_hash NOT NULL, wg_public_key NULL
+  - tunnel_type=MODERN → wg_public_key NOT NULL
+
+T-DOM-04: Zwei-Ebenen-Modell
+  - Ownership korrekt abgeleitet: customer_id NULL=PREPROVISIONED, NOT NULL=CLAIMED
+  - op_status + op_reason_code konsistent mit reason_registry
+  - INV-01 bis INV-32 + LR-01..03 werden gegen DB geprüft
+
+T-DOM-05: Ebenentrennung Verify/Claim/Restricted
+  - Verify pending → kein op_status-Wechsel
+  - Claim required → kein op_status-Wechsel
+  - UNCLAIMED_OVERDUE → op_status=RESTRICTED
+  - ADMIN → nie restricted
+
+T-DOM-06: Connection-Limits
+  - VIP Customer kann maximal 3 Connections provisioniert haben
+  - USER Connection-Limit entspricht Plan-Definition
+
+T-DOM-07: Rollenwechsel Atomicity (D002)
+  - access_role Änderung + IP-Neuallokation + Hard-Cut in einer Transaktion
+  - In-place Mutation derselben Connection (kein DISABLE+INSERT)
+  - LEGACY: subaccount_login + nt_hash bleiben gleich
+  - MODERN: wg_public_key bleibt gleich, neue Config-Ausgabe
+  - Lifecycle-Log: ROLE_CHANGE Event mit altem+neuem Zustand
+  - Bei Fehler: alter Zustand bleibt erhalten (Fail-Closed)
+
+T-DOM-08: reason_registry Integrität
+  - Alle op_reason_codes in vpn_connections existieren in reason_registry
+  - allowed_op_status stimmt mit aktuellem op_status überein
+  - auto_finalize_to_reason_code referenziert gültigen DISABLE-Code
+
+T-DOM-09: connection_lifecycle_log Vollständigkeit
+  - Jeder op_status-Wechsel erzeugt Log-Eintrag
+  - Claim erzeugt Log-Eintrag
+  - actor_type/source sind immer gesetzt
+
+================================================================================
+CHANGELOG
+================================================================================
+v1.5 (2026-04-16): F-FRESH-M02 Fix.
+  Begriffs-Bruecke erweitert: Zwischenname "vpn_connection_legacy_auth"
+  (aus §5.6 DELETE, v0.8-Aera) auf kanonischen Namen
+  "vpn_connection_l2tp_ipsec_auth" (K-08) gemappt.
+v1.3 (2026-04-15): Frische-Augen-Review F-FRESH-001 + F-FRESH-N01.
+  §3.8: INV-21 → LR-01 (stale Cross-File-Referenz, INV-21 existiert
+  nicht in SM_CONNECTION §9, wurde zu LR-01 umstrukturiert).
+  §3.8: Header korrigiert — "31 INV + 3 LR = 34 Gesamt"
+  statt "INV-01 bis INV-34" (Lücke bei 22/23 sichtbar gemacht).
+v1.2 (2026-04-15): R-14 Bereinigung + Invariantenzählung.
+  §3.5: "SM_CONNECTION v1.4 (FINAL)" → versionslos (R-14).
+  §3.8: "SM_CONNECTION v1.4 FINAL" → versionslos (R-14).
+  §3.8: "INV-01 bis INV-32" → "INV-01 bis INV-34" (INV-33/34 aus D003).
+v1.1 (2026-04-15): ChatGPT Audit #5 Fixes (3 Befunde).
+  F-003: VC-04 präzisiert — "immutable im Normalbetrieb, Mutation nur
+  bei kanonisch definierten Reallokationsereignissen (Rollenwechsel D002)".
+  Feld-Beschreibungen fixed_ip/fixed_ipv6 analog angepasst.
+  F-004: §6.4 Weg "Preprovisioned" — ADMIN-Ausschluss ergänzt.
+  access_role=ADMIN bei Weg A nicht zulässig (ONB-13, R-08).
+  F-005: §6.5 Zählregel — "PREPROVISIONED mit customer_id" durch
+  korrekte Formulierung ersetzt ("direkt zugewiesene Connections,
+  customer_id bei Erstellung gesetzt").
+v1.0 (2026-04-15): D003-Propagation abgeschlossen, DATUM-Sync.
+  Keine semantischen Änderungen gegenüber v0.9. Version auf v1.0
+  angehoben: Domain Model erreicht erste stabile Gesamtversion
+  nach vollständiger D003-Integration.
+v0.9 (2026-04-14): D003 Policy-System + Rolle am Customer.
+  §5.5 NEU: Settings vs Policy — zwei getrennte SQL-first Domänen.
+  §6 KOMPLETT NEU: Weg 4 Architektur (policy_catalog,
+  role_policy_defaults, customer_policy_overrides). Auflösungsreihenfolge.
+  Unlimited-Semantik (NULL). Rolle gehört zum Customer (D003-E02).
+  Zählregel / Slot-Relevanz (D003-E06). Interim-Regelung Settings-Keys.
+  OPEN-DOM-01 aktualisiert auf D003-Referenz.
+v0.8.1 (2026-04-13): Kosmetischer Fix F-CC-001.
+  §3 Abschnittsnummerierung bereinigt: §3.7→§3.6, §3.8→§3.7,
+  §3.9→§3.8, §3.10→§3.9, §3.11→§3.10. Lücke nach §3.5 geschlossen.
+  Keine semantische Änderung.
+v0.8 (2026-04-13): Rollenwechsel als In-Place Mutation (D002).
+  T-DOM-07 erweitert: In-place Mutation, LEGACY Login gleich,
+  MODERN Key gleich, Lifecycle-Log ROLE_CHANGE.
+  ChatGPT-Audit Fix: IP-INV-03 Referenz (bereits v0.7).
+v0.7 (2026-04-12): Gemini Cross-Over Review Fix.
+  - IP-INV-03: Slot 1 = SYSTEM-RESERVED. Break-Glass auf Slot 1
+    entfernt. Die .1 jedes Pools ist systemreserviert, NIEMALS
+    allokierbar. Break-Glass nutzt Tail-Reserve. Marco-Entscheidung.
+  Vollständige Review-Historie (v0.2–v0.6):
+  siehe 03_CHANGELOG.txt bzw. dateieigene Git-History.
+v0.5 (2026-04-11): Fundamentale Neukonzeption (15 Review-Runden).
+  Zwei-Ebenen-Modell, reason_registry, connection_lifecycle_log.
+v0.1 (2026-04-10): Initiales Domain Model.
+================================================================================

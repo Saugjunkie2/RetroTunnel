@@ -1,0 +1,190 @@
+================================================================================
+BASE-020 — WIREGUARD ADMISSION (Abweichendes Zugangsmodell)
+================================================================================
+DATEI: BASE-020_040_WIREGUARD_ADMISSION.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Beschreibt wie WireGuard den gemeinsamen Admission-Vertrag
+  (BASE-020_020) erfuellt — OHNE RADIUS, OHNE Username/Passwort,
+  OHNE synchronen Login-Flow.
+
+  WICHTIG: Dies ist KEIN Pseudo-Login-Flow. WireGuard hat eine
+  fundamental andere Autorisierungs-Mechanik als L2TP/IPsec.
+  Die konkrete Implementierung (Peer-Add/Remove, Controller,
+  Polling) lebt in BASE-040_TUNNEL_WIREGUARD.
+
+================================================================================
+1) WAS WIREGUARD-ADMISSION BEDEUTET
+================================================================================
+
+  Bei WireGuard gibt es keinen "Login-Versuch" im klassischen Sinn.
+  Stattdessen:
+
+  AUTORISIERUNG = PEER-PRAESENZ
+    Ein Client ist autorisiert WENN sein PublicKey in der Server-
+    Config steht (wg set peer ...). Das ist die gesamte "Auth".
+    Es gibt keinen Passwort-Dialog, keinen RADIUS-Roundtrip.
+
+  SESSION-DETEKTION = ERSTER GUELTIGER HANDSHAKE
+    Wenn ein autorisierter Peer einen Handshake durchfuehrt,
+    detektiert der AWG Session Controller (Polling) dies ueber
+    last_handshake_time. Das ist kein "Login" — es ist eine
+    Detektion eines kryptographischen Ereignisses.
+
+================================================================================
+2) WIE WIREGUARD DEN ADMISSION-VERTRAG ERFUELLT
+================================================================================
+
+  Der Admission-Vertrag (§3 in BASE-020_020) definiert 6 Schritte.
+  WireGuard erfuellt sie ANDERS als L2TP/IPsec:
+
+  Schritt 1 IDENTITAET: wg_public_key → Lookup vpn_connection_id
+    (ueber wg_connection_auth, BASE-010_030)
+
+  Schritt 2 STATUS: op_status-Pruefung vor Peer-Add.
+    DISABLED → Peer wird NICHT zur Config hinzugefuegt (oder entfernt).
+    ACTIVE/RESTRICTED → Peer darf in der Config sein.
+    ENTSCHEIDEND: Diese Pruefung passiert BEIM PEER-ADD (SYSTEM-Aktion),
+    NICHT beim Handshake (Client-Aktion). Das System entscheidet
+    vorab, nicht reaktiv.
+
+  Schritt 3 CREDENTIAL: Kryptographischer Handshake.
+    Implizit erfuellt — wenn der Peer in der Config steht, ist
+    der Handshake die Credential-Verifikation.
+
+  Schritt 4 SIMUSE: vpn_sessions Check + On-Demand Janitor.
+    Wird beim Session-Start-Signal geprueft (AWG Controller),
+    NICHT beim Handshake selbst.
+    AUSNAHME: Fall A (Roaming) — kein neuer Session-Start,
+    kein SimUse-Check. Detail → BASE-070.
+
+  Schritt 5 GUARD: vpn_session_locks Acquire.
+    Wird beim echten neuen Session-Start (Fall B/C) durch den
+    AWG Session Controller ausgefuehrt. NICHT beim Handshake.
+
+  Schritt 6 ACCEPT: Session-Start-Signal an BASE-070.
+    truth_source = AWG_CONTROLLER.
+
+================================================================================
+3) FAIL-CLOSED FUER WIREGUARD (Hybrid-Loesung, Marco 2026-04-18)
+================================================================================
+
+  WireGuard hat keinen RADIUS der in Echtzeit DENY antworten kann.
+  Fail-Closed wird daher ANDERS erreicht als bei L2TP/IPsec —
+  verschiedene Systeme brauchen verschiedene Best-Practice-Wege
+  zum gleichen Ergebnis.
+
+  PRINZIP: Peers werden bei Stoerung NICHT aus der Config entfernt.
+  Stattdessen wird der WireGuard-DIENST gestoppt.
+
+  DB-DOWN BEI PEER-ADD:
+    Wenn die DB nicht erreichbar ist und SYSTEM versucht einen
+    Peer hinzuzufuegen → Peer wird NICHT hinzugefuegt. Fail-Closed.
+
+  DB-DOWN BEI LAUFENDEM BETRIEB (Grace-Periode):
+    Phase 1 — Grace (0..wg_failclosed_grace_seconds, Default 300s):
+      Bestehende Peers bleiben in der Config (Kernel-State intakt).
+      Neue Peers koennen nicht hinzugefuegt werden (DB nicht lesbar).
+      AWG Session Controller kann vpn_sessions nicht schreiben →
+      Session-Detektion ist degraded. Timer zaehlt DB-Fehler.
+    Phase 2 — Dienst-Stop (nach Ablauf von wg_failclosed_grace_seconds):
+      WireGuard-Dienst wird GESTOPPT (systemctl stop).
+      ALLE WG-Sessions sterben. Kein Config-Churn, kein Peer-Remove.
+      Dienst ist down → keine neuen Handshakes moeglich.
+    Phase 3 — Recovery:
+      DB ist wieder stabil → WireGuard-Dienst wird neu gestartet.
+      Peers sind noch in der Config → Clients reconnecten automatisch.
+      Session-Detektion laeuft normal.
+
+  BEGRUENDUNG HYBRID-ANSATZ:
+    Kein Config-Churn: Ständiges Peer-Add/Remove bei DB-Flapping
+    waere fragil und fehleranfaellig.
+    Grace-Periode: Kurze DB-Ausfaelle (MariaDB Restart, 5 Sekunden)
+    toeten nicht sofort 50+ WG-Sessions.
+    Fail-Closed am Ende: Nach Grace-Periode ist der Dienst DOWN.
+    Keine ungeprüften Verbindungen moeglich.
+
+  TIMER-/HEALTH-CHECK-MECHANISMUS (MUST, Marco-Entscheidung):
+    BASE-040_TUNNEL_WIREGUARD MUSS einen DB-Health-Check
+    implementieren der:
+    a) DB-Erreichbarkeit periodisch prueft
+    b) DB-Fehler zaehlt und Grace-Periode startet
+       (wg_failclosed_grace_seconds, Settings-Key, Default 300s,
+       BASE-090)
+    c) WG-Dienst stoppt wenn Grace-Periode ablaeuft
+    d) WG-Dienst startet wenn DB wieder stabil ist
+    Realisierung: systemd-Timer, Health-Check-Service oder
+    integriert in den AWG Session Controller.
+    Dies ist eine PFLICHT-ANFORDERUNG aus BASE-020, nicht optional.
+
+  DISABLED CONNECTION MIT AKTIVEM PEER:
+    Wenn op_status auf DISABLED wechselt (T-04/T-07) waehrend
+    der Peer in der Config steht → Reconcile/Policy-Apply
+    entfernt den Peer (Hard-Cut = Peer-Remove). Detail → BASE-040.
+    HINWEIS: Das ist KEIN Widerspruch zum "kein Peer-Remove bei
+    DB-Down" — DISABLE ist eine aktive DB-gestuetzte Entscheidung,
+    nicht ein DB-Ausfall.
+
+================================================================================
+4) WG-KEY-ROTATION WAEHREND AKTIVER SESSION
+   (Marco + Claude + ChatGPT konvergiert, 2026-04-18)
+================================================================================
+
+  ENTSCHEIDUNG: Key-Rotation erzwingt eine NEUE SESSION-GRENZE.
+  Keine In-Place-Rotation innerhalb einer offenen Session.
+  Keine parallelen Peers (alter + neuer Key gleichzeitig).
+
+  BEGRUENDUNG:
+  a) runtime_ref = wg_public_key muss pro Session stabil bleiben.
+     In-Place-Key-Wechsel wuerde die Session-Identitaet mutieren.
+  b) SimUse=1 wird durch parallele Peers (alter + neuer Key)
+     mehrdeutig — ist das dieselbe Connection oder zwei?
+  c) Session-Truth, Forensik und Debug bleiben sauber wenn
+     eine Session genau einen stabilen Key hat.
+
+  ABLAUF BEI KEY-ROTATION:
+
+  FALL A — Keine aktive Session:
+    Key kann direkt rotiert werden.
+    Alter Peer entfernen, neuer Peer provisionieren.
+    Kein Session-Folgeschritt noetig.
+
+  FALL B — Aktive Session vorhanden:
+    1. Alter Peer wird entfernt (wg set peer remove)
+    2. Bestehende Session wird sauber beendet:
+       vpn_sessions.closed_at = NOW()
+       close_reason = AUTH_KEY_ROTATED
+    3. vpn_session_locks fuer diese connection_id freigeben
+    4. Neuer Peer wird mit neuem Key provisioniert
+    5. Client bekommt neue Config (passwortgeschuetzte ZIP, Email)
+    6. Naechster gueltiger Handshake unter neuem Key =
+       neuer Session-Start-Kandidat (durchlaeuft Pruefkette §3)
+
+  NICHT ERLAUBT:
+  - In-Place-Key-Wechsel in derselben offenen Session
+  - Grace-Overlap mit zwei Keys gleichzeitig gueltig
+  - Stille Key-Rotation ohne Session-Schnitt
+
+  EXECUTION: Die konkreten Peer-Remove/Add-Kommandos und der
+  Profilversand gehoeren in BASE-040_TUNNEL_WIREGUARD.
+  Die Session-Close-Semantik gehoert in BASE-070_SESSION_CORE.
+  BASE-020 definiert hier nur den VERTRAG.
+
+================================================================================
+5) WAS BASE-020 FUER WIREGUARD NICHT DEFINIERT
+================================================================================
+
+  Die folgenden Aspekte gehoeren NICHT in BASE-020:
+
+  - wg set / wg show / wg-quick Kommandos → BASE-040
+  - AWG Session Controller Polling-Logik → BASE-040 / BASE-070
+  - AllowedIPs Konfiguration → BASE-040
+  - Config-Render / Profilversand → BASE-040
+  - Endpoint-Update / Roaming-Semantik → BASE-040 / BASE-070
+  - vpn_sessions INSERT/UPDATE/DELETE → BASE-070
+  - vpn_session_locks TTL / Janitor → BASE-070
+  - Connect-Gate (connect_pending) → BASE-050 / BASE-080
+
+  BASE-020 sagt NUR: "WireGuard muss diesen Vertrag erfuellen."
+  WIE es den Vertrag erfuellt, sagen BASE-040 und BASE-070.

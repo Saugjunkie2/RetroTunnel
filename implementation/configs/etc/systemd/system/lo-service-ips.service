@@ -1,0 +1,101 @@
+# /etc/systemd/system/lo-service-ips.service
+#
+# Adds dedicated Service IPs to loopback (lo), IPv4 + IPv6
+# IPv4 uses labels (lo:dns, lo:web...) for better visibility in 'ifconfig'.
+#
+# IPv4:
+#   10.77.0.1  = SERVICE_DNS
+#   10.77.0.2  = SERVICE_RESOLVER
+#   10.77.0.3  = SERVICE_WEB
+#   10.77.0.4  = SERVICE_NTP
+#   10.77.0.5  = SERVICE_SSH
+#   10.77.0.6  = SERVICE_PMA
+#   10.77.0.10 = SERVICE_GW_PPP
+# IPv6:
+#   fd77:0:0:0::1  = SERVICE_DNS
+#   fd77:0:0:0::2  = SERVICE_RESOLVER
+#   fd77:0:0:0::3  = SERVICE_WEB
+#   fd77:0:0:0::4  = SERVICE_NTP
+#   fd77:0:0:0::5  = SERVICE_SSH
+#   fd77:0:0:0::6  = SERVICE_PMA
+#   fd77:0:0:0::10 = SERVICE_GW_PPP
+
+[Unit]
+Description=RetroTunnel Service IPs on Loopback (lo)
+DefaultDependencies=no
+Conflicts=shutdown.target
+
+# sehr früh im Boot, bevor "normales" Networking losläuft
+After=local-fs.target
+Before=network.target network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+# lo sicher "up" (ist es i.d.R. sowieso, aber das ist driftfrei)
+ExecStartPre=/usr/sbin/ip link set lo up
+
+# ---- IPv4 service IPs on lo (mit Labels für Übersicht) ----
+# SERVICE_DNS
+ExecStart=/usr/sbin/ip addr replace 10.77.0.1/32 dev lo label lo:dns
+# SERVICE_RESOLVER
+ExecStart=/usr/sbin/ip addr replace 10.77.0.2/32 dev lo label lo:res
+# SERVICE_WEB
+ExecStart=/usr/sbin/ip addr replace 10.77.0.3/32 dev lo label lo:web
+# SERVICE_NTP
+ExecStart=/usr/sbin/ip addr replace 10.77.0.4/32 dev lo label lo:ntp
+# SERVICE_SSH
+ExecStart=/usr/sbin/ip addr replace 10.77.0.5/32 dev lo label lo:ssh
+# SERVICE_PMA
+ExecStart=/usr/sbin/ip addr replace 10.77.0.6/32 dev lo label lo:pma
+# SERVICE_GW_PPP
+ExecStart=/usr/sbin/ip addr replace 10.77.0.10/32 dev lo label lo:gw
+
+# ---- IPv6 service IPs on lo ----
+# SERVICE_DNS
+ExecStart=/usr/sbin/ip -6 addr replace fd77:0:0:0::1/128 dev lo
+# SERVICE_RESOLVER
+ExecStart=/usr/sbin/ip -6 addr replace fd77:0:0:0::2/128 dev lo
+# SERVICE_WEB
+ExecStart=/usr/sbin/ip -6 addr replace fd77:0:0:0::3/128 dev lo
+# SERVICE_NTP
+ExecStart=/usr/sbin/ip -6 addr replace fd77:0:0:0::4/128 dev lo
+# SERVICE_SSH
+ExecStart=/usr/sbin/ip -6 addr replace fd77:0:0:0::5/128 dev lo
+# SERVICE_PMA
+ExecStart=/usr/sbin/ip -6 addr replace fd77:0:0:0::6/128 dev lo
+# SERVICE_GW_PPP
+ExecStart=/usr/sbin/ip -6 addr replace fd77:0:0:0::10/128 dev lo
+
+# ---- Remove addresses on stop (Fehler ignorieren, damit Stop nie "failed") ----
+# IPv4
+ExecStop=-/usr/sbin/ip addr del 10.77.0.1/32 dev lo
+ExecStop=-/usr/sbin/ip addr del 10.77.0.2/32 dev lo
+ExecStop=-/usr/sbin/ip addr del 10.77.0.3/32 dev lo
+ExecStop=-/usr/sbin/ip addr del 10.77.0.4/32 dev lo
+ExecStop=-/usr/sbin/ip addr del 10.77.0.5/32 dev lo
+ExecStop=-/usr/sbin/ip addr del 10.77.0.6/32 dev lo
+ExecStop=-/usr/sbin/ip addr del 10.77.0.10/32 dev lo
+
+# IPv6
+ExecStop=-/usr/sbin/ip -6 addr del fd77:0:0:0::1/128 dev lo
+ExecStop=-/usr/sbin/ip -6 addr del fd77:0:0:0::2/128 dev lo
+ExecStop=-/usr/sbin/ip -6 addr del fd77:0:0:0::3/128 dev lo
+ExecStop=-/usr/sbin/ip -6 addr del fd77:0:0:0::4/128 dev lo
+ExecStop=-/usr/sbin/ip -6 addr del fd77:0:0:0::5/128 dev lo
+ExecStop=-/usr/sbin/ip -6 addr del fd77:0:0:0::6/128 dev lo
+ExecStop=-/usr/sbin/ip -6 addr del fd77:0:0:0::10/128 dev lo
+
+# Hardening (minimal + passend)
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+RestrictAddressFamilies=AF_NETLINK AF_INET AF_INET6
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_ADMIN
+
+[Install]
+# sysinit stellt sicher, dass IPs VOR allen normalen Diensten da sind.
+WantedBy=sysinit.target

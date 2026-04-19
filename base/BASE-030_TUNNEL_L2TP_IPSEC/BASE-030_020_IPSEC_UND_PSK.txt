@@ -1,0 +1,199 @@
+================================================================================
+BASE-030 — IPsec UND PSK-VERWALTUNG
+================================================================================
+DATEI: BASE-030_020_IPSEC_UND_PSK.txt
+STATUS: ACTIVE
+
+================================================================================
+1) ARCHITEKTUR: STRONGSWAN ALS IPSEC-LAYER
+================================================================================
+
+  strongSwan liefert den IPsec-Layer fuer L2TP/IPsec. Es nutzt
+  ausschliesslich das swanctl/vici-Modell (NICHT ipsec.conf/starter).
+
+  KONFIGURATIONSMODELL:
+    Daemon:       charon-systemd
+    Service:      strongswan.service
+    Config:       /etc/swanctl/swanctl.conf (Verbindungen + Secrets)
+    Plugins:      /etc/strongswan.d/charon/*.conf
+    Global:       /etc/strongswan.conf
+
+  BEGRUENDUNG SWANCTL:
+  - Debian 13 liefert strongSwan 6.0.1
+  - Das Legacy-Starter-Modell (ipsec.conf) ist upstream deprecated
+  - Das stroke-Plugin wird seit strongSwan 6.0 nicht mehr per
+    Default kompiliert
+  - swanctl/vici ist die empfohlene und zukunftssichere Schnittstelle
+
+  ABGRENZUNG ZU ACCEL-PPP:
+  strongSwan und accel-ppp kennen einander NICHT. Sie kommunizieren
+  ausschliesslich implizit ueber den Linux-XFRM-Stack:
+
+    Eingehend:
+    Client → ESP(UDP/4500) → Kernel XFRM dekapselt → Klartext L2TP
+    auf UDP/1701 → accel-ppp Socket
+
+    Ausgehend:
+    accel-ppp → Klartext L2TP auf UDP/1701 → Kernel XFRM matcht
+    SA-Policy dynamic[udp/1701] → ESP verschluesselt → Client
+
+  strongSwan installiert per Netlink die IPsec-Policies (SPD) und
+  Security-Associations (SAD). Der Kernel fuehrt die eigentliche
+  Ver-/Entschluesselung durch.
+
+================================================================================
+2) VERBINDUNGSDEFINITION (swanctl.conf)
+================================================================================
+
+  connections {
+    l2tp-psk {
+      version = 1               IKEv1 (XP/Vista koennen kein IKEv2)
+      proposals = 3des-sha1-modp1024,aes128-sha1-modp1024
+                                XP: 3DES/SHA1/MODP1024 (Pflicht)
+                                Vista: kann auch AES128 (bevorzugt)
+      dpd_delay = 30s           Dead Peer Detection Intervall
+      dpd_timeout = 90s         DPD Timeout (Session-Kill bei Ausfall)
+      fragmentation = yes       IKE-Fragmentierung (Mobilfunk/NAT)
+      rekey_time = 0            IKE SA Rekeying deaktiviert.
+                                Default waere ~4h. Server-initiiertes
+                                IKE-Rekey verursacht bei XP/Vista hinter
+                                NAT Verbindungsabbrueche. Client rekey't
+                                bei Bedarf selbst (oder Session laeuft
+                                einfach bis zum naechsten Reconnect).
+                                ACHTUNG: Gilt fuer IKE-Ebene zusaetzlich
+                                zum CHILD rekey_time=0 weiter unten.
+
+      local {
+        auth = psk
+        # KEIN id hier. Begruendung:
+        # Der Client traegt im VPN-Dialog den FQDN ein
+        # (rt-gw-001.v6.rocks), aber das ist NUR fuer die
+        # DNS-Aufloesung (→ WAN-IP). Die DNS-Anfrage laeuft
+        # ueber den eigenen DNS des Clients — der Server-DNS
+        # (AdGuard/Unbound) greift erst NACH VPN-Aufbau.
+        # Die IKEv1-Identitaet ist davon getrennt und wird
+        # bei PSK automatisch aus der IP abgeleitet.
+        # Eine explizite id wuerde XP verwirren.
+      }
+      remote {
+        auth = psk
+      }
+      children {
+        l2tp {
+          mode = transport      MUSS Transport-Mode sein (RFC 3193)
+          esp_proposals = 3des-sha1,aes128-sha1
+          local_ts = dynamic[udp/1701]
+                                Traffic-Selector: nur L2TP-Pakete
+                                werden ver-/entschluesselt
+          remote_ts = dynamic[udp/%any]
+          rekey_time = 0        Client rekey't (Server-Rekey
+                                verursacht NAT-Probleme)
+          dpd_action = clear    SA entfernen bei DPD-Timeout
+          start_action = none   Passiv (wartet auf Client)
+        }
+      }
+    }
+  }
+
+  KRITISCHE PARAMETER:
+  - version = 1: IKEv2 ist NICHT kompatibel mit XP/Vista
+  - mode = transport: Tunnel-Mode wuerde nicht funktionieren
+    (L2TP braucht Transport-Mode, RFC 3193)
+  - local_ts = dynamic[udp/1701]: Ohne diesen Traffic-Selector
+    weiss der Kernel nicht welche Pakete verschluesselt werden sollen
+  - rekey_time = 0: Verhindert Server-initiierte Rekeys die bei
+    Clients hinter NAT Verbindungsabbrueche verursachen.
+    MUSS sowohl auf Connection-Ebene (IKE SA, Default ~4h) als auch
+    auf CHILD-Ebene (ESP SA, Default ~1h) auf 0 stehen. Ohne das
+    Connection-Level rekey_time=0 koennen Langzeit-Sessions (XP-
+    Rechner der den ganzen Tag laeuft) nach ~4h ungeplant abbrechen.
+
+================================================================================
+3) PSK-VERWALTUNG
+================================================================================
+
+  Die IPsec-PSK wird AUSSCHLIESSLICH von strongSwan verwaltet.
+  accel-ppp hat KEIN IPsec-Modul und kennt keine PSKs.
+
+  secrets {
+    ike-l2tp {
+      secret = "<PSK>"
+    }
+  }
+
+  KEINE ID-BINDUNG: Die secrets-Sektion hat KEINE id-Zeile.
+  Begruendung: Bei IKEv1 Main Mode (das was XP nutzt) werden die
+  Identitaeten erst NACH dem Key Exchange ausgetauscht. Zum Zeitpunkt
+  wo strongSwan den PSK braucht, kennt er nur die IP-Adressen,
+  nicht die Client-IDs. Eine id-Bindung wuerde dazu fuehren dass
+  strongSwan keinen passenden PSK findet.
+  Sicherheit: IKEv2 nutzt Zertifikats-Auth, nicht PSK. Der PSK
+  gilt daher nur fuer IKEv1-Verbindungen.
+
+  GROUP-PSK: Alle L2TP/IPsec-Clients teilen denselben PSK.
+  Das ist eine inherente Einschraenkung von IKEv1-PSK: Die
+  Nutzer-Separierung erfolgt erst auf PPP-Ebene (MS-CHAPv2
+  gegen FreeRADIUS, individuelles Login pro Connection).
+
+  PSK-STAERKE: Mindestens 32 Zeichen, kryptographisch zufaellig.
+  Generierung: dd if=/dev/urandom bs=1 count=32 | base64
+  Der PSK muss auf JEDEM XP-Client identisch konfiguriert sein.
+
+  PSK-ROTATION:
+  - PSK-Wechsel erfordert Aenderung in swanctl.conf + swanctl --load-creds
+  - ALLE Clients muessen den neuen PSK erhalten (Client-seitig)
+  - Bestehende IPsec-SAs bleiben bis zum naechsten Rekey/Reconnect
+    mit dem alten PSK aktiv
+  - Kein automatischer Mechanismus — PSK-Rotation ist ein manueller
+    Betriebsvorgang
+  - PSK-Aenderung ist NICHT Teil von RADIUS/PPP-Auth (Abgrenzung
+    aus BASE-020_030 §8: PSK ist IPsec-Layer, RADIUS ist PPP-Layer)
+
+  PSK IN SQL: Der PSK lebt NICHT in der Datenbank. Er lebt in
+  /etc/swanctl/swanctl.conf (Dateisystem). Das ist eine bewusste
+  Abweichung von SQL-first: PSK via RADIUS ist bei IKEv1 technisch
+  nicht moeglich (Main Mode leitet Schluessel aus dem PSK ab BEVOR
+  die Peer-Identity bekannt ist). Die Datei ist root:root 0600.
+
+================================================================================
+4) STRONGSWAN GLOBALE EINSTELLUNGEN
+================================================================================
+
+  /etc/strongswan.conf:
+    charon {
+      load_modular = yes
+      plugins { include strongswan.d/charon/*.conf }
+      install_routes = yes
+    }
+
+  Plugin-Konfiguration (relevante Dateien):
+    /etc/strongswan.d/charon/openssl.conf:
+      openssl { load = yes; load_legacy = yes }
+    /etc/strongswan.d/charon/stroke.conf:
+      stroke { load = no }      Kein Legacy-Starter
+    /etc/strongswan.d/charon/xauth-generic.conf:
+      xauth-generic { load = no }  L2TP nutzt kein XAuth
+
+================================================================================
+5) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  - swanctl --list-sas: Panel zeigt aktive IPsec-SAs
+    (Peer-IP, Proposals, Rekey-Timer, Bytes transferiert)
+  - PSK-Einsicht: Panel zeigt Klartext-PSK fuer ADMIN.
+    Begruendung: User brauchen den PSK fuer selbstaendigen
+    VPN-Aufbau (Connection-Infos sind fundamental fuer User).
+    Jede Einsichtnahme wird im Audit-Log protokolliert.
+    Bewusste Security-Ausnahme: Group-PSK, nicht individuell.
+    Bei Leak: PSK rotieren + Massen-Email an alle L2TP-Clients.
+  - PSK-Rotations-Status: Panel zeigt Aenderungsdatum der
+    swanctl.conf (stat-basiert) als Hinweis auf letzten Wechsel
+  - DPD-Status: Panel zeigt DPD-Zustand pro SA (alive/dead/unknown)
+  - Proposal-Monitoring: Panel zeigt welche Algorithmen tatsaechlich
+    verhandelt wurden (aus SA-Details, nicht aus Config)
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

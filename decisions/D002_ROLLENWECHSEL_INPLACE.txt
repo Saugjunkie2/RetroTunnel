@@ -1,0 +1,267 @@
+================================================================================
+RetroTunnel — DECISION D002: ROLLENWECHSEL ALS IN-PLACE MUTATION
+================================================================================
+VERSION: v1.0
+DATUM: 2026-04-19
+STATUS: ENTSCHIEDEN (bleibt historisches ADR)
+ENTSCHEIDER: Marco
+AUSLÖSER: ChatGPT Full-Spectrum-Audit #2 F-004, 3-Wege-Widerspruch
+           (MANIFEST vs SM_CONNECTION T-09/T-10 vs DOMAIN_MODEL T-DOM-07)
+
+================================================================================
+TERMINOLOGIE-HINWEIS (2026-04-16)
+================================================================================
+
+Diese Datei verwendet die urspruengliche Terminologie vom Zeitpunkt
+der Entscheidung. Ab 2026-04-16 gelten folgende neue Begriffe:
+
+  Alt (in dieser Datei)               Neu (Kanon ab 2026-04-16)
+  ----------------------------------  -----------------------------------
+  tunnel_type='LEGACY'                tunnel_type='L2TP_IPSEC'
+  tunnel_type='MODERN'                tunnel_type='WIREGUARD'
+  MODERN Config-Versand               WIREGUARD Config-Versand
+
+ENTSCHEIDUNG BLEIBT GUELTIG: Rollenwechsel als in-place Mutation
+(nicht DISABLE+INSERT) ist unveraendert kanonisch. Die Datei bleibt
+als historisches ADR stehen — ADRs werden bewusst nicht rueckwirkend
+umgeschrieben.
+
+================================================================================
+1) KONTEXT UND PROBLEM
+================================================================================
+
+Im Kanon existierte ein 3-Wege-Widerspruch zum Rollenwechsel:
+
+  MANIFEST:     "Credentials bleiben gleich, neue IP automatisch" (LEGACY)
+  SM_CONNECTION: T-09 DISABLE alte Connection + T-10 INSERT neue Connection
+                 mit subaccount_login = NEU
+  DOMAIN_MODEL:  T-DOM-07 "access_role Änderung + IP-Neuallokation +
+                 Hard-Cut in einer Transaktion" (klingt in-place)
+
+2 von 3 Quellen beschrieben in-place Mutation. SM_CONNECTION war der
+Ausreißer mit dem DISABLE+INSERT-Modell.
+
+================================================================================
+2) GRUNDSATZENTSCHEIDUNG
+================================================================================
+
+  vpn_connection = dauerhafte Geräte-/Subaccount-Identität.
+
+  Ein Rollenwechsel ändert nicht die Identität der Connection,
+  sondern nur Rolle, Policy und IP-Zuweisung.
+
+  Rollenwechsel erfolgt als IN-PLACE MUTATION:
+    - access_role wird geändert (mutable mit Transaktionsschutz)
+    - ip_slot wird neu vergeben (aus dem Pool der neuen Rolle)
+    - fixed_ip / fixed_ipv6 werden neu materialisiert
+    - Hard-Cut (Session-Kill)
+    - Lifecycle-Log: Event ROLE_CHANGE mit altem + neuem Zustand
+    - Alles in EINER atomaren Transaktion (Fail-Closed)
+
+  NICHT mehr: alte Connection DISABLE + neue Connection INSERT.
+  T-09/T-10 als Zwei-Schritt-Modell wird durch einen einzigen
+  Rollenwechsel-Transition-Pfad ersetzt.
+
+================================================================================
+3) KONSEQUENZEN PRO TUNNEL-TYP
+================================================================================
+
+  LEGACY (L2TP / Windows XP):
+    - subaccount_login: GLEICH (vom bestehenden Record)
+    - subaccount_nt_hash: GLEICH (vom bestehenden Record)
+    - ip_slot: NEU (aus Pool der neuen Rolle)
+    - Kundensicht: Reconnect → neue IP automatisch → fertig
+    - Kein E-Mail-Versand nötig
+    - Kein Eingriff in Windows-VPN-Profil nötig
+    - RADIUS authentifiziert weiter mit demselben Login
+
+  MODERN (AmneziaWireGuard):
+    - wg_public_key: GLEICH (Key identifiziert Gerät, nicht Rolle)
+    - ip_slot: NEU (aus Pool der neuen Rolle)
+    - AllowedIPs: NEU (neue IP des Clients)
+    - Kundensicht: Neue Config per E-Mail importieren
+    - Key-Rotation nur bei explizitem Security-/Reset-Ereignis,
+      NICHT automatisch beim Rollenwechsel
+    - Hard-Cut + Config-Neuausgabe per E-Mail
+
+================================================================================
+4) HISTORIE / AUDIT-TRAIL
+================================================================================
+
+  Die Zuordnungshistorie (welche IP gehörte wann zu welchem Kunden)
+  wird NICHT über alte DISABLED-Connection-Records erzwungen,
+  sondern über den connection_lifecycle_log (DOMAIN_MODEL §7B).
+
+  Bei Rollenwechsel wird ein ROLE_CHANGE-Event geloggt mit:
+    - connection_id
+    - actor (ADMIN)
+    - old_role, new_role
+    - old_ip, new_ip
+    - timestamp
+
+  Damit ist die vollständige Historie rekonstruierbar ohne
+  Ghost-Records in vpn_connections.
+
+================================================================================
+5) ÄNDERUNGEN AN BESTEHENDEN DATEIEN
+================================================================================
+
+  SM_CONNECTION:
+    - T-09 wird zu: Rollenwechsel in-place (ACTIVE→ACTIVE, Mutation)
+    - T-10 entfällt (kein INSERT mehr)
+    - access_role: mutable (mit Transaktionsschutz)
+    - Übersichtstabelle §4.1 anpassen
+    - Invarianten prüfen (INV-xx zu access_role immutability)
+    - State-Diagramm §10 anpassen
+
+  DOMAIN_MODEL:
+    - §6 Write-Path: access_role von "immutable" auf "mutable
+      (nur via Rollenwechsel-Transaktion)" ändern
+    - T-DOM-07: bestätigt (bereits in-place formuliert)
+    - event_type ENUM: ROLE_CHANGE ergänzen
+
+  00_MANIFEST:
+    - §4.4 Rollenwechsel: LEGACY/MODERN getrennt beschreiben
+    - "Credentials bleiben gleich" → gilt für LEGACY (korrekt)
+    - MODERN: "Neue Config per E-Mail" (korrekt)
+    - Kein Verweis mehr auf "neue Connection(s) erstellt"
+
+  SM_SESSION:
+    - Prüfen ob Rollenwechsel neue connection_id voraussetzt
+    - Falls ja: anpassen auf gleiche connection_id
+
+  SM_ONBOARDING:
+    - Prüfen ob Config-/Delivery-Logik an "neue Connection" gekoppelt
+
+================================================================================
+6) RISIKEN UND MITIGATIONEN
+================================================================================
+
+  RISIKO 1: Race Condition bei Policy-Apply während Rollenwechsel
+  MITIGATION: Rollenwechsel als atomare DB-Transaktion + Hard-Cut
+              stellt sicher, dass nach Commit kein alter Zustand aktiv ist.
+
+  RISIKO 2: IP-Quarantäne für alten IP-Slot
+  MITIGATION: Bei Rollenwechsel ist der Kunde derselbe. Die alte IP
+              wird frei, kann aber über Quarantäne-Eintrag im
+              Lifecycle-Log oder separaten Timer geschützt werden.
+              Entscheidung: M2 (BASE-80_POLICY_APPLY_CORE).
+
+  RISIKO 3: Alte Sessions referenzieren geänderte Connection
+  MITIGATION: vpn_sessions-Records haben Timestamps. Lifecycle-Log
+              hat ROLE_CHANGE-Timestamp. Daraus ist rekonstruierbar
+              welche Rolle zum Zeitpunkt der Session galt.
+
+================================================================================
+7) KASKADE: ROLLE GEHÖRT ZUM CUSTOMER (D003-E02, v0.2)
+================================================================================
+
+  D003-E02 entscheidet: Rolle gehört zum Customer, nicht zur Connection.
+  Alle Connections eines Customers erben dieselbe Rolle.
+  access_role auf vpn_connections ist ABGELEITET vom Customer-Rang.
+
+  Das ändert den Rollenwechsel von einer EINZELNEN Connection-Mutation
+  zu einer CUSTOMER-OPERATION MIT KASKADE.
+
+7.1) Auslöser
+
+  Admin ändert die Rolle eines Customers im Webpanel.
+  Beispiel: Customer 47 wechselt von USER auf VIP.
+
+7.2) Kaskade — Was passiert
+
+  Schritt 1: Customer-Rang ändern
+    Customer.access_role = VIP (oder Webpanel-Äquivalent)
+
+  Schritt 2: ALLE Connections des Customers durchlaufen D002 §2
+    Für JEDE Connection des Customers:
+    a) access_role → neue Rolle (VIP)
+    b) ip_slot → NEU (aus Pool der neuen Rolle)
+    c) fixed_ip / fixed_ipv6 → NEU (materialisiert aus neuem Slot)
+    d) Hard-Cut (Session-Kill) — NUR für ACTIVE/RESTRICTED
+    e) Lifecycle-Log: ROLE_CHANGE Event pro Connection
+
+  Schritt 3: Config-Versand (nur MODERN)
+    Neue Configs per E-Mail an verifizierte Kunden-E-Mail.
+    Eine E-Mail mit allen aktualisierten Configs, nicht pro Connection.
+
+7.3) Sonderfälle
+
+  DISABLED Connections:
+    access_role wird trotzdem geändert (D003-E02 Constraint).
+    ip_slot wird neu vergeben.
+    Kein Hard-Cut nötig (keine aktive Session).
+    Kein Config-Versand (Connection ist deaktiviert).
+
+  PREPROVISIONED (ownerlos):
+    Nicht betroffen — hat keinen Customer.
+
+  RESTRICTED Connections:
+    Werden wie ACTIVE behandelt (access_role ändern, neuer Pool,
+    Hard-Cut). Der Restricted-Grund bleibt bestehen — die Rolle
+    ändert sich, der Enforcement-Status nicht.
+
+7.4) Atomarität (MUST)
+
+  Die GESAMTE Kaskade ist EINE atomare Transaktion.
+  Wenn eine Connection scheitert (z.B. neuer Pool voll),
+  wird die GESAMTE Transaktion zurückgerollt. Kein Teilzustand.
+
+  Fail-Closed: Keine Connection hat die neue Rolle, solange
+  nicht ALLE Connections erfolgreich migriert sind.
+
+  Reihenfolge innerhalb der Transaktion:
+    1. Pool-Verfügbarkeit prüfen (genug Slots für ALLE?)
+    2. Alle Connections mutieren (access_role + ip_slot)
+    3. Alle fixed_ips materialisieren
+    4. Alle Lifecycle-Logs schreiben
+    5. COMMIT
+    6. Hard-Cuts ausführen (nach Commit, nicht vorher)
+    7. Policy-Apply (SM_POLICY_RESTRICT)
+    8. Config-Versand (MODERN, async nach Commit)
+
+  PROPAGATIONSDELAY-HINWEIS (Klarstellung):
+    Zwischen Schritt 5 (COMMIT) und Schritt 6 (Hard-Cut) existiert
+    ein kurzes Fenster, in dem die DB bereits den neuen Zustand
+    sieht (neue Rolle, neue IP), aber die Runtime noch alte Sessions
+    auf alten IPs transportiert. Das ist KEIN Widerspruch, sondern
+    das Standard-Propagationsmodell des Systems: SQL ist Truth,
+    Kernel ist abgeleiteter Zustand (TRUTH_MODEL §2.2, GR-01).
+    Dasselbe Fenster existiert bei jeder Policy-Änderung (T-03,
+    T-04, T-05 etc.). Abdeckung:
+      - Alte IPs liegen noch im alten Rollen-Pool → nftables CIDR
+        greift weiterhin korrekt auf alte IPs.
+      - Hard-Cut (Schritt 6) beendet alte Sessions deterministisch.
+      - Falls Reconnect VOR Hard-Cut: Connect-Gate fängt ab.
+      - Falls Hard-Cut scheitert: Reconcile repariert.
+
+7.5) Pool-Prüfung VOR Kaskade
+
+  Bevor die Transaktion startet: Prüfe ob der Ziel-Pool genug
+  freie Slots hat für ALLE Connections die migriert werden müssen.
+
+  Zählung: Alle Connections des Customers die einen ip_slot brauchen
+  (ACTIVE + RESTRICTED + DISABLED mit ip_slot).
+
+  Wenn nicht genug Slots: Rollenwechsel wird ABGELEHNT.
+  Panel-Meldung: "Pool [ROLLE] hat nicht genug freie IPs für
+  [N] Connections. Bitte erst Connections reduzieren."
+
+7.6) Budget-Prüfung bei Rollenwechsel
+
+  Der Customer bringt seine bestehenden Connections mit in die
+  neue Rolle. Die Zählregel (DOMAIN_MODEL §6.5) wird gegen das
+  Budget der NEUEN Rolle geprüft:
+
+  Beispiel: Customer hat 4 aktive USER-Connections (Plan erlaubt 4).
+  Wechsel auf VIP (max_active=3). 4 > 3 → Rollenwechsel ABGELEHNT.
+  Panel-Meldung: "Bitte erst auf [max_active] Connections reduzieren."
+
+  Beispiel: Customer hat 2 aktive USER-Connections.
+  Wechsel auf VIP (max_active=3). 2 < 3 → Rollenwechsel ERLAUBT.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

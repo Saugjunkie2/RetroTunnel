@@ -1,0 +1,1116 @@
+================================================================================
+RetroTunnel — STATE MACHINE: CONNECTION LIFECYCLE
+================================================================================
+VERSION: v2.0
+DATUM: 2026-04-16
+STATUS: DEPRECATED (siehe Deprecation-Hinweis unten)
+PFAD: model/state_machines/SM_CONNECTION.txt
+
+================================================================================
+DEPRECATION-HINWEIS (2026-04-16)
+================================================================================
+
+Diese Datei ist inhaltlich AUFGELOEST durch BASE-010_IDENTITY_CORE
+(fertiggestellt 2026-04-17). Alle Inhalte leben jetzt in BASE-010:
+- Connection-Lifecycle → BASE-010_070
+- Transitionen T-01..T-09 → BASE-010_070
+- Reason-Codes → BASE-010_050
+- Invarianten INV-01..35 + LR-01..03 → BASE-010_090 (Mapping-Tabelle)
+- Tests → BASE-010_095
+Die Datei bleibt als historische Referenz erhalten, ist aber
+KEINE gueltige Quelle mehr. Bei Widerspruechen gilt BASE-010.
+
+Grund: Entscheidung 2026-04-16 "model/ wird aufgeloest sobald
+zustaendige Base fertig ist — eine Wahrheit, ein Ort".
+
+BEGRIFFS-BRUECKE (beim Lesen mental uebersetzen):
+
+  Alt (in dieser Datei)               Neu (Kanon ab 2026-04-16)
+  ----------------------------------  -----------------------------------
+  tunnel_type='LEGACY'                tunnel_type='L2TP_IPSEC'
+  tunnel_type='MODERN'                tunnel_type='WIREGUARD'
+  "customers" Tabelle                 "web_customers" (BASE-000 K-01)
+  "active_session_locks" Tabelle      "vpn_session_locks" (K-02)
+  "reason_registry" Tabelle           "vpn_reason_registry" (K-03)
+  "connection_lifecycle_log" Tabelle  "log_connection_lifecycle" (K-04)
+  legacy-spezifische Auth-Felder      vpn_connection_l2tp_ipsec_auth (K-08)
+  wg-spezifische Auth-Felder          wg_connection_auth (K-08)
+  BASE-04_NFT_CORE (falls referenziert) BASE-050_FIREWALL_CORE
+  BASE-07_POLICY_APPLY_CORE           BASE-080_POLICY_APPLY_CORE
+
+STATE-MACHINE BLEIBT GUELTIG:
+Die Zustandslogik selbst (Zwei-Ebenen-Modell, T-01..T-09, Invarianten,
+Reason-Code-Matrix) ist unveraendert kanonisch — sie wird 1:1 in
+BASE-010 wandern. Nur die Tabellennamen-Referenzen in den Invarianten
+und Test-Texten sind veraltet (siehe Bruecke oben).
+
+BEGRUENDUNG FUER DEPRECATION STATT FULL-REWRITE:
+Die Datei hat ~1400 Zeilen mit sehr feingliedriger Invarianten-
+Nummerierung (INV-01..INV-35) und Test-Nummerierung (T-SM-01..T-SM-47).
+Ein Rename von Tabellennamen muesste an hunderten Stellen durchgezogen
+werden und erzeugt doppelte Buchhaltung bis BASE-010 die Datei ablöst.
+Stattdessen: Bruecke oben, Logik bleibt lesbar.
+
+REFERENZ ALTES KONZEPT:
+  B055_DB_SCHEMA_CORE.txt — Schema, vpn_connections
+  B064_IP_LIFECYCLE_DRIFT_GUARDS_RECONCILE.txt — Quarantaene, Reuse
+  B150_Walled_Garden_Restricted_Mode_(QuotaExpiryManual).txt — Walled Garden
+  B155_Onboarding_Verify-Wall_Claim_Token.txt — Lifecycle, Claim
+
+DELTA ZUM ALTEN KONZEPT (historisch):
+  - Zwei-Ebenen-Modell: Ownership (abgeleitet) + op_status (persistiert)
+  - Altes status-Feld (PREPROVISIONED|CLAIMED|DISABLED) wird ersetzt durch
+    op_status (ACTIVE|RESTRICTED|DISABLED) + Ownership aus customer_id
+  - op_reason_code ueber kanonische reason_registry (FK)
+  - Materialisierte Deadlines: restrict_finalize_at, quarantine_until
+  - Revocation als mehrstufiger Policy-Modus (nicht nur BOOL)
+  - connection_lifecycle_log statt disabled_by auf der Haupttabelle
+  - Zwei Erstellungswege (Laptop-Provisioning + Self-Service)
+  - ENTFERNT: Re-enable nach PREPROVISIONED (DISABLED ist operativer Stop)
+
+ERARBEITET DURCH:
+  15 Review-Runden (Marco + ChatGPT + Claude). Konvergiert.
+
+================================================================================
+1) ZWEI-EBENEN-MODELL
+================================================================================
+
+Das Connection-Lifecycle trennt zwei orthogonale Dimensionen:
+
+  EBENE A — OWNERSHIP (abgeleitet, kein eigenes Feld)
+    Beantwortet: "Wem gehört die Connection?"
+    PREPROVISIONED := customer_id IS NULL  (nie geclaimt, ownerlos)
+    CLAIMED        := customer_id IS NOT NULL (gehört einem Customer)
+
+    PREPROVISIONED bedeutet "nie geclaimt", unabhängig vom operativen
+    Zustand. Eine nie geclaimte DISABLED Connection ist immer noch
+    PREPROVISIONED (ownerlos). Der Begriff stammt aus dem alten Konzept
+    und beschreibt ausschließlich den Besitzstatus.
+
+    Einmal CLAIMED = immer CLAIMED. customer_id und claimed_at dürfen
+    nach dem Claim nie wieder NULL werden.
+
+  EBENE B — OPERATIVER ZUSTAND (persistiert als op_status)
+    Beantwortet: "Was kann die Connection gerade?"
+    ACTIVE     = Full Tunnel, normal nutzbar
+    RESTRICTED = Walled Garden, connectbar aber nur SERVICE_NET
+    DISABLED   = Operativer Hard-Stop, kein Tunnel, kein Panel
+
+  Die beiden Ebenen sind orthogonal. Alle 6 Kombinationen sind gültig:
+    PREPROVISIONED + ACTIVE      (vorbereitete Connection, Grace läuft)
+    PREPROVISIONED + RESTRICTED  (Grace abgelaufen, UNCLAIMED_OVERDUE)
+    PREPROVISIONED + DISABLED    (Deadline abgelaufen oder Admin-Disable)
+    CLAIMED + ACTIVE             (normaler Betrieb)
+    CLAIMED + RESTRICTED         (Quota/Expiry/Plan/Pause/Manual)
+    CLAIMED + DISABLED           (Customer-Delete/Abuse/Timeout)
+
+================================================================================
+2) ERSTELLUNGSWEGE
+================================================================================
+
+2.1) Weg A: Laptop-Provisioning (ADMIN erstellt bei Geräteeinrichtung)
+
+  EINSCHRÄNKUNG: Nur für access_role USER, VIP, MODERATOR.
+  access_role=ADMIN ist bei Weg A NICHT zulässig — ADMIN-Connections
+  entstehen nur über Weg "Für User" (DOMAIN_MODEL §6.4) mit
+  sofortiger customer_id-Bindung (ONB-13, R-08).
+
+  Ergebnis:
+    customer_id = NULL (→ Ownership: PREPROVISIONED)
+    op_status = ACTIVE, op_reason_code = NULL
+    claim_token_hash = gesetzt
+    unclaimed_grace_until = NOW() + vpn_unclaimed_grace_days
+    claim_deadline = created_at + vpn_claim_deadline_days
+    ip_slot = alloziert bei INSERT (CSPRNG, aus access_role Pool)
+    fixed_ip/fixed_ipv6 = materialisiert aus ip_slot (atomar)
+    Bei Pool-Full: INSERT scheitert fail-closed (kein Halbzustand)
+
+2.2) Weg B: Self-Service im Panel (Customer erstellt selbst)
+
+  Vorbedingungen:
+    - Customer.status = ACTIVE, Plan erlaubt Self-Service
+
+  Ergebnis:
+    customer_id = Customer.id (→ Ownership: CLAIMED)
+    claimed_at = NOW()
+    op_status = ACTIVE, op_reason_code = NULL
+    claim_token_hash = NULL, unclaimed_grace_until = NULL, claim_deadline = NULL
+    ip_slot = alloziert bei INSERT (CSPRNG, aus access_role Pool)
+    fixed_ip/fixed_ipv6 = materialisiert aus ip_slot (atomar)
+    Bei Pool-Full: INSERT scheitert fail-closed (kein Halbzustand)
+
+================================================================================
+3) OPERATIVE ZUSTÄNDE (op_status)
+================================================================================
+
+3.1) ACTIVE
+  - VPN-Auth wird akzeptiert (RADIUS accept / WG-Auth accept)
+  - Full Tunnel (Internet-Zugang)
+  - Panel-Zugriff grundsätzlich möglich, sofern per-Connection
+    Panel-Login-Policy dies erlaubt (OPEN-SM-01)
+  - op_reason_code = NULL
+  - restricted_at = NULL, disabled_at = NULL
+
+3.2) RESTRICTED
+  - VPN-Auth wird akzeptiert (Tunnel kommt hoch)
+  - NUR Walled Garden (SERVICE_NET: Panel, DNS, NTP)
+  - Kein Internet, kein WAN-Forward
+  - Hard-Cut bei Eintritt (Conntrack-Flush)
+  - Panel-Zugriff grundsätzlich möglich (Self-Heal), sofern
+    Panel-Login-Policy dies erlaubt (OPEN-SM-01)
+  - op_reason_code = RESTRICT_* (NOT NULL, aus reason_registry)
+
+3.3) DISABLED
+  - VPN-Auth wird abgelehnt (RADIUS reject / WG-Auth reject)
+  - Kein Tunnel, kein Walled Garden, kein Panel über diese Connection
+  - Operativer Hard-Stop. Hard-Cut bei Eintritt (Session-Kill)
+  - op_reason_code = DISABLE_* (NOT NULL, aus reason_registry)
+  - Ggf. Restore-Fenster (reason-abhängig)
+  - Danach: Revocation → Quarantäne → Pool-Rückführung
+
+================================================================================
+4) TRANSITIONEN
+================================================================================
+
+4.1) Übersicht
+
+  ID    Von         Nach         Trigger                    Akteur
+  ───── ─────────── ──────────── ────────────────────────── ──────────
+  T-01  ACTIVE      ACTIVE       Claim (Ownership-Wechsel)  USER(REQ)
+        RESTRICTED  ACTIVE       Claim + Unrestrict
+  T-02  ACTIVE      RESTRICTED   Grace abgelaufen           JOB
+  T-03  ACTIVE      RESTRICTED   Quota/Expiry/Plan/Pause    SYSTEM/ADMIN/CUST
+  T-04  ACTIVE      DISABLED     Disable (reason-param.)    ADMIN/CUST
+  T-05  RESTRICTED  ACTIVE|RESTR Restricted Re-Evaluation   ADMIN/CUST/SYSTEM
+                                 (policy-re-eval bestimmt Ziel)
+  T-06  RESTRICTED  DISABLED     Restrict-Timeout (Auto)    JOB
+  T-07  RESTRICTED  DISABLED     Disable (reason-param.)    ADMIN/CUST
+  T-08  DISABLED    ACTIVE|RESTR Admin Restore (policy-eval) ADMIN
+  T-09  ACTIVE      ACTIVE       Rollenwechsel (in-place)   ADMIN
+        RESTRICTED  RESTRICTED   Customer-Kaskade (D002 §7, D003-E02)
+        DISABLED    DISABLED     access_role + ip_slot Mutation
+
+  WICHTIG: T-04 und T-07 sind REASON-PARAMETRISIERT. Der op_reason_code
+  bestimmt die Effekte (Restore-Fenster, Revocation-Timing etc.), nicht
+  die Transitions-ID. Siehe Abschnitt 4.5/4.8.
+
+4.2) T-01: Claim (Ownership: PREPROVISIONED → CLAIMED)
+
+  Vorbedingungen (MUST):
+    - customer_id IS NULL (PREPROVISIONED)
+    - op_status IN (ACTIVE, RESTRICTED)
+    - Customer.status = ACTIVE (email_verified_at IS NOT NULL)
+    - claim_token_hash Match
+    - Claim-IP-Autorisierung (B155)
+    - NOW() < claim_deadline
+
+  Effekte (atomar):
+    - customer_id = Customer.id
+    - claimed_at = NOW()
+    - Falls op_status=RESTRICTED wegen UNCLAIMED_OVERDUE:
+      op_status → ACTIVE, op_reason_code → NULL,
+      restricted_at → NULL, restrict_finalize_at → NULL
+
+  Race-Schutz: Row-Lock (SELECT ... FOR UPDATE)
+  Lifecycle-Log: Event CLAIM
+
+4.3) T-02: Grace abgelaufen (ACTIVE → RESTRICTED)
+
+  Vorbedingungen:
+    - customer_id IS NULL, op_status = ACTIVE
+    - NOW() > unclaimed_grace_until
+
+  Effekte (atomar):
+    - op_status = RESTRICTED
+    - op_reason_code = RESTRICT_UNCLAIMED_OVERDUE
+    - restricted_at = NOW()
+    - restrict_finalize_at = NOW() + default_restrict_window_days
+    - Hard-Cut (Conntrack-Flush)
+    - Lifecycle-Log: Event STATUS_CHANGE
+
+4.4) T-03: Policy-Triggered Restrict (ACTIVE → RESTRICTED)
+
+  Vorbedingungen:
+    - op_status = ACTIVE
+    - Trigger-Grund liegt vor
+    - access_role ≠ ADMIN (R-08: ADMIN ist nicht restricted-fähig)
+
+  Effekte (atomar):
+    - op_status = RESTRICTED
+    - op_reason_code = RESTRICT_* (höchstpriorer aktiver Grund)
+    - restricted_at = NOW()
+    - restrict_finalize_at = NOW() + default_restrict_window_days
+      (aus reason_registry; NULL wenn Reason keine Auto-Finalisierung hat)
+    - Source-Fact Verdrahtung (je nach Trigger):
+      CUSTOMER_PAUSED:     customer_paused_at = NOW()
+      ADMIN_MANUAL:        admin_manual_restricted_at = NOW()
+      (Alle anderen Gründe: kein Source-Fact-Feld, da berechnet)
+    - Hard-Cut (Conntrack-Flush)
+    - Lifecycle-Log: Event STATUS_CHANGE
+
+4.5) T-04: Disable aus ACTIVE (ACTIVE → DISABLED, reason-parametrisiert)
+
+  Vorbedingungen:
+    - op_status = ACTIVE
+    - Gültiger DISABLE_* Reason
+
+  Effekte (atomar, REASON-ABHÄNGIG):
+    - op_status = DISABLED
+    - op_reason_code = <DISABLE_*> (vom Aufrufer bestimmt)
+    - disabled_at = NOW()
+    - customer_paused_at = NULL, admin_manual_restricted_at = NULL
+      (Source Facts löschen, auch wenn aus ACTIVE kommend normalerweise
+       bereits NULL — explizit für Konsistenz)
+    - Hard-Cut (Session-Kill)
+    - Lifecycle-Log: Event STATUS_CHANGE
+
+  Reason-abhängige Effekte (aus reason_registry):
+
+    revocation_mode=IMMEDIATE (z.B. DISABLE_ADMIN_ABUSE):
+      restore_until = NULL
+      revoked_at = NOW()
+      quarantine_until = NOW() + vpn_quarantine_days (materialisiert)
+
+    revocation_mode=AFTER_RESTORE_WINDOW (z.B. DISABLE_CUSTOMER_SUSPENDED,
+      DISABLE_ADMIN_MANUAL):
+      restore_until = NOW() + default_restore_window_days
+      revoked_at = NULL (wird erst nach Fristablauf durch Job gesetzt)
+      quarantine_until = NULL
+
+    revocation_mode=MANUAL_ONLY:
+      restore_until = NULL
+      revoked_at = NULL
+      quarantine_until = NULL
+      (Revocation nur per expliziter Admin-Aktion)
+
+4.6) T-05: Restricted Re-Evaluation (RESTRICTED → ACTIVE oder RESTRICTED)
+
+  Vorbedingungen:
+    - op_status = RESTRICTED
+    - Ein Restrict-Grund wurde behoben oder ein neuer ist hinzugekommen
+
+  Effekte (atomar):
+    - Reconcile re-evaluiert ALLE aktiven Bedingungen (INV-27)
+    - Source-Fact Verdrahtung (Löschung bei Akteur-Aktion):
+      Customer Reaktivieren: customer_paused_at = NULL
+      Admin hebt Manual Restrict auf: admin_manual_restricted_at = NULL
+    - KANONISCHE EINGANGSMENGE für aktive Restrict-Gründe:
+      Die Gesamtmenge der aktuell gültigen RESTRICT-Bedingungen wird
+      durch den Policy-Evaluator bestimmt (BASE-80_POLICY_APPLY_CORE).
+      Dieser liest aus folgenden kanonischen Quellen:
+        Quota-Stand       → vpn_connections + Accounting-Deltas
+        Expiry            → vpn_connections.expiry_date vs NOW()
+        Plan-Limits       → Plan-Engine (MOD-10_PLANS)
+        Customer-Pause    → customer_paused_at IS NOT NULL (Source Fact)
+        Admin-Manual      → admin_manual_restricted_at IS NOT NULL (Source Fact)
+        Unclaimed-Overdue → customer_id IS NULL + unclaimed_grace_until
+      Der Evaluator gibt eine geordnete Liste aktiver Gründe zurück.
+      Reconcile wählt den höchstprioren (niedrigster precedence_rank).
+    - Wenn KEIN Grund mehr aktiv:
+      op_status = ACTIVE, op_reason_code = NULL
+      restricted_at = NULL, restrict_finalize_at = NULL
+    - Wenn ein ANDERER Grund noch aktiv:
+      op_reason_code = nächsthöchster Grund (Precedence §5.3)
+      restrict_finalize_at wird ggf. neu materialisiert
+    - HARD-CUT UND LOGGING NUR BEI DELTA:
+      Wenn die Re-Evaluation ein Delta erzeugt (Status- oder Reason-
+      Wechsel): Hard-Cut (Conntrack-Flush) + Lifecycle-Log STATUS_CHANGE.
+      Wenn KEIN Delta (identische Eingaben, identisches Ergebnis):
+      KEIN Hard-Cut, KEIN Lifecycle-Log, KEINE Schreiboperation.
+      (INV-31: Idempotenz gilt für den gesamten Effekt, nicht nur DB.)
+
+4.7) T-06: JOB-Timeout (RESTRICTED → DISABLED, Auto-/Deadline-Disable)
+
+  T-06 ist der kanonische JOB-initiierte Timeout-Pfad aus RESTRICTED.
+  Er deckt ZWEI unabhängige Trigger ab:
+
+  TRIGGER A: restrict_finalize_at Timeout (Auto-Finalisierung)
+    Vorbedingung: restrict_finalize_at IS NOT NULL AND
+                  NOW() >= restrict_finalize_at
+    Reason: auto_finalize_to_reason_code (aus reason_registry)
+
+  TRIGGER B: claim_deadline Timeout (SM_ONBOARDING §5.2)
+    Vorbedingung: customer_id IS NULL AND NOW() >= claim_deadline
+                  AND op_status = RESTRICTED
+    Reason: DISABLE_UNCLAIMED_TIMEOUT (direkt)
+    [v1.5: Trigger B ergänzt — claim_deadline aus RESTRICTED nutzt
+     T-06 als JOB-Timeout-Pfad, nicht T-07 (Admin-Pfad)]
+
+  Gemeinsame Vorbedingung:
+    - op_status = RESTRICTED
+
+  Effekte (atomar, für beide Trigger identisch):
+    - op_status = DISABLED
+    - op_reason_code = (trigger-abhängig, siehe oben)
+    - disabled_at = NOW()
+    - restricted_at = NULL, restrict_finalize_at = NULL
+    - customer_paused_at = NULL, admin_manual_restricted_at = NULL
+      (Source Facts löschen per INV-32, auch im Job-Pfad)
+    - Reason-abhängige Effekte (basierend auf dem neuen
+      DISABLE_*-Reason und dessen revocation_mode, wie T-04)
+    - Hard-Cut (Session-Kill)
+    - Lifecycle-Log: Event STATUS_CHANGE
+
+4.8) T-07: Disable aus RESTRICTED (RESTRICTED → DISABLED, reason-param.)
+
+  Vorbedingungen:
+    - op_status = RESTRICTED
+    - Gültiger DISABLE_* Reason
+
+  Effekte (atomar):
+    - Wie T-04, aber zusätzlich:
+    - restricted_at = NULL, restrict_finalize_at = NULL (aufräumen)
+    - customer_paused_at = NULL (Source Fact löschen)
+    - admin_manual_restricted_at = NULL (Source Fact löschen)
+    - Rest identisch zu T-04 (reason-abhängige Effekte)
+
+  REGEL: Source Facts werden bei Eintritt in DISABLED IMMER gelöscht.
+  Begründung: DISABLED = operativ tot. Nach eventuellem Restore (T-08)
+  startet die Connection ohne alte Source Facts; der Zielzustand wird
+  durch die Policy-Re-Evaluation bestimmt (ACTIVE oder RESTRICTED).
+  Will der Customer danach wieder pausieren → neue Pause-Aktion nötig.
+
+4.9) T-08: Admin Restore (DISABLED → ACTIVE | RESTRICTED)
+
+  Vorbedingungen (MUST, alle gleichzeitig):
+    - op_status = DISABLED
+    - reason_registry.is_restoreable = true
+    - restore_until IS NOT NULL AND NOW() < restore_until
+    - revoked_at IS NULL (Revocation hat noch nicht begonnen)
+    - ADMIN-Aktion im Panel
+
+  Effekte (atomar):
+    - disabled_at = NULL
+    - restore_until = NULL
+    - customer_paused_at bleibt NULL (wurde bei T-04/T-07 gelöscht)
+    - admin_manual_restricted_at bleibt NULL (dto.)
+    - POLICY-RE-EVALUATION (MUST):
+      Nach Löschung der Disable-Felder wird der Policy-Evaluator
+      (BASE-80) sofort ausgeführt. Dieser prüft alle berechneten
+      Restrict-Gründe (Quota, Expiry, Plan-Limit, Unclaimed-Overdue):
+      a) Kein berechneter Grund aktiv:
+         op_status = ACTIVE, op_reason_code = NULL
+      b) Berechneter Grund aktiv (z.B. Quota noch erschöpft):
+         op_status = RESTRICTED, op_reason_code = höchstpriorer Grund
+         restricted_at = NOW(), restrict_finalize_at materialisiert
+      Restore ist KEIN Bypass aktueller Policy-Realität.
+    - Lifecycle-Log: Event RESTORE (actor=ADMIN, Zielstatus dokumentiert)
+
+  NICHT ERLAUBT wenn:
+    - Reason ist nicht restorebar (z.B. DISABLE_ADMIN_ABUSE)
+    - restore_until abgelaufen
+    - revoked_at bereits gesetzt
+
+4.10) T-09: Rollenwechsel — in-place Mutation (D002, Customer-Kaskade)
+
+  Vorbedingungen:
+    - customer_id IS NOT NULL (CLAIMED)
+    - ADMIN ändert access_role des CUSTOMERS auf neue Rolle
+    - ALLE Connections des Customers durchlaufen T-09 (D003-E02)
+    - op_status kann ACTIVE, RESTRICTED oder DISABLED sein
+
+  GEMEINSAME Effekte (atomar, EINE Transaktion über alle Connections):
+    - access_role = NEUE Rolle
+    - ip_slot = NEU (aus Pool der neuen Rolle)
+    - fixed_ip = NEU (materialisiert aus neuem ip_slot)
+    - fixed_ipv6 = NEU (materialisiert, falls v6_addr_policy != NONE)
+    - Lifecycle-Log: Event ROLE_CHANGE
+      (old_role, new_role, old_ip, new_ip, actor=ADMIN)
+
+  SUBPFAD A — Connection ist ACTIVE:
+    - op_status bleibt ACTIVE (kein Statuswechsel)
+    - Hard-Cut (Session-Kill, erzwingt Reconnect)
+    - Config-Versand bei MODERN (siehe unten)
+
+  SUBPFAD B — Connection ist RESTRICTED:
+    - op_status bleibt RESTRICTED (Restrict-Grund bleibt bestehen)
+    - op_reason_code bleibt unverändert
+    - restrict_finalize_at bleibt unverändert
+    - Hard-Cut (Session-Kill, erzwingt Reconnect)
+    - Config-Versand bei MODERN (siehe unten)
+    (D002 §7.3: "Werden wie ACTIVE behandelt")
+
+  SUBPFAD C — Connection ist DISABLED:
+    - op_status bleibt DISABLED
+    - access_role + ip_slot werden trotzdem geändert (D003-E02
+      Constraint: alle Connections erben Customer-Rang)
+    - KEIN Hard-Cut (keine aktive Session)
+    - KEIN Config-Versand (Connection ist deaktiviert)
+    (D002 §7.3)
+
+  LEGACY-spezifisch:
+    - subaccount_login: GLEICH (übernommen, kein neuer Login)
+    - subaccount_nt_hash: GLEICH (übernommen)
+    - Kundensicht: Reconnect → neue IP automatisch → fertig
+    - KEIN E-Mail-Versand nötig, KEIN Profil-Änderung nötig
+
+  MODERN-spezifisch:
+    - wg_public_key: GLEICH (Key identifiziert Gerät, nicht Rolle)
+    - Neue AllowedIPs → neue Config nötig
+    - Aktualisierte Config per E-Mail an verifizierte Kunden-E-Mail
+    - Key-Rotation nur bei explizitem Security-Ereignis, NICHT bei
+      Rollenwechsel
+
+  Fail-Closed: Pool-Full → gesamte Transaktion Rollback,
+  alter Zustand bleibt erhalten.
+
+  KASKADE (D003-E02, D002 §7): T-09 wird nicht einzeln ausgelöst,
+  sondern als Teil einer Customer-Rollenänderung. ALLE Connections
+  des Customers durchlaufen T-09 in EINER atomaren Transaktion.
+  Siehe D002 §7 für Kaskade-Logik, Pool-/Budget-Prüfung.
+
+================================================================================
+5) REASON REGISTRY
+================================================================================
+
+5.1) Schema: Siehe DOMAIN_MODEL §7A.
+
+5.2) Kanonische Reason-Codes
+
+  RESTRICT-Codes (op_status=RESTRICTED):
+
+  Code                          Finalisiert zu              Window
+  ───────────────────────────── ─────────────────────────── ──────
+  RESTRICT_UNCLAIMED_OVERDUE    DISABLE_UNCLAIMED_TIMEOUT   Settings
+  RESTRICT_QUOTA_EXHAUSTED      DISABLE_QUOTA_TIMEOUT       Settings
+  RESTRICT_EXPIRY_PASSED        DISABLE_EXPIRY_TIMEOUT      Settings
+  RESTRICT_PLAN_LIMIT_EXCEEDED  DISABLE_PLAN_LIMIT_TIMEOUT  Settings
+  RESTRICT_CUSTOMER_PAUSED      (keine Auto-Finalisierung)  NULL
+  RESTRICT_ADMIN_MANUAL         (keine Auto-Finalisierung)  NULL
+
+  KLARSTELLUNG RESTRICT_ADMIN_MANUAL (R-08):
+    "ADMIN" im Code-Namen = der AKTEUR (Admin der restrictet),
+    NICHT das Ziel. Ein Admin restrictet eine USER/VIP/MOD Connection.
+    ADMIN-Connections selbst können NICHT restricted werden (R-08).
+    Not-Aus für kompromittierte Admin-Connections = DISABLE (IMMEDIATE).
+    Vorbedingung T-02: access_role ≠ ADMIN verhindert Anwendung auf ADMIN.
+
+  DISABLE-Codes (op_status=DISABLED):
+
+  Code                          Restorebar  Revocation-Mode
+  ───────────────────────────── ─────────── ──────────────────
+  DISABLE_UNCLAIMED_TIMEOUT     Nein        IMMEDIATE
+  DISABLE_QUOTA_TIMEOUT         Nein        IMMEDIATE
+  DISABLE_EXPIRY_TIMEOUT        Nein        IMMEDIATE
+  DISABLE_PLAN_LIMIT_TIMEOUT    Nein        IMMEDIATE
+  DISABLE_CUSTOMER_SUSPENDED    Ja          AFTER_RESTORE_WINDOW
+  DISABLE_ADMIN_MANUAL          Ja          AFTER_RESTORE_WINDOW
+  DISABLE_ADMIN_ABUSE           Nein        IMMEDIATE
+
+  (DISABLE_ROLE_CHANGE entfällt — Rollenwechsel ist in-place
+  Mutation per D002, kein DISABLE-Event mehr.)
+
+  ENTFALLENE CODES:
+  DISABLE_CUSTOMER_DELETE existiert NICHT. Löschen ist keine
+  Deaktivierung sondern eine eigene Operation (→ §5.4 DELETE).
+  Gelöschte Connections haben keinen DISABLE-Reason.
+
+  HINWEIS: RESTRICT_CUSTOMER_PAUSED und RESTRICT_ADMIN_MANUAL haben
+  KEINE Auto-Finalisierung. Sie bleiben RESTRICTED bis explizite
+  Reaktivierung oder manuelles Disable.
+
+5.3) Multi-Reason Precedence (F-001 Fix)
+
+  Problem: Mehrere RESTRICT-Gründe können gleichzeitig gelten (z.B.
+  Quota erschöpft UND Expiry abgelaufen). op_reason_code ist ein
+  einzelnes Feld. Es braucht eine deterministische Auswahlregel.
+
+  PRECEDENCE-REGEL (MUST):
+  Wenn mehrere RESTRICT-Gründe gleichzeitig gelten, wird der Grund
+  mit der HÖCHSTEN Priorität als op_reason_code gespeichert.
+
+  Prioritätsreihenfolge (höchste zuerst):
+    1. RESTRICT_ADMIN_MANUAL        (Admin hat explizit restricted)
+    2. RESTRICT_UNCLAIMED_OVERDUE   (nie geclaimt, Grace abgelaufen)
+    3. RESTRICT_PLAN_LIMIT_EXCEEDED (Plan-Downgrade)
+    4. RESTRICT_EXPIRY_PASSED       (Laufzeit abgelaufen)
+    5. RESTRICT_QUOTA_EXHAUSTED     (Datenvolumen erschöpft)
+    6. RESTRICT_CUSTOMER_PAUSED     (Customer hat deaktiviert)
+
+  SoT FÜR PRECEDENCE: reason_registry.precedence_rank (INT, NOT NULL).
+  Die obige Textliste ist illustrativ. Im Betrieb entscheidet
+  ausschließlich der niedrigste precedence_rank-Wert (1 = höchste
+  Priorität). Neue RESTRICT-Codes MÜSSEN einen eindeutigen
+  precedence_rank erhalten.
+
+  RECONCILE-REGEL (MUST):
+  T-05 (Restricted Re-Evaluation) setzt NICHT blind op_status=ACTIVE.
+  Stattdessen: Reconcile re-evaluiert ALLE aktiven Bedingungen.
+  Wenn nach Wegfall eines Grundes ein anderer Grund noch aktiv ist,
+  bleibt op_status=RESTRICTED mit dem nächsthöchsten Reason.
+
+  Beispiel:
+    Connection ist RESTRICTED wegen QUOTA + EXPIRY.
+    op_reason_code = RESTRICT_EXPIRY_PASSED (Prio 4 > Prio 5)
+    Admin erneuert Quota → QUOTA fällt weg.
+    Reconcile prüft: EXPIRY ist noch aktiv → bleibt RESTRICTED.
+    Admin verlängert Expiry → EXPIRY fällt weg.
+    Reconcile prüft: Keine Gründe mehr → op_status=ACTIVE.
+
+  INVARIANTE:
+  INV-26  op_reason_code bei RESTRICTED ist immer der höchstpriore
+          aktuell gültige Grund gemäß Precedence-Reihenfolge.
+  INV-27  T-05 darf op_status=ACTIVE nur setzen wenn KEIN
+          RESTRICT-Grund mehr aktiv ist (Reconcile-Ergebnis).
+
+5.4) Unabhängige Restrict-Quellen (F-001 v0.7 Fix)
+
+  PROBLEM: op_reason_code ist der ausgewählte höchstpriore Grund,
+  nicht die vollständige Menge aller aktiven Gründe. Wenn ein
+  niedrigpriorer aktorgetriebener Grund (CUSTOMER_PAUSED, ADMIN_MANUAL)
+  durch einen höherprioren Grund verdrängt wird, geht die
+  Quellinformation verloren.
+
+  LÖSUNG: Aktorgetriebene Restrict-Quellen werden als eigene
+  persistente Source Facts auf vpn_connections geführt, getrennt
+  vom aktuellen op_reason_code:
+
+    customer_paused_at          TIMESTAMP, NULL
+      Gesetzt wenn Customer "Deaktivieren" klickt.
+      Gelöscht wenn Customer "Reaktivieren" klickt.
+      Unabhängig von op_reason_code.
+
+    admin_manual_restricted_at  TIMESTAMP, NULL
+      Gesetzt wenn Admin eine Connection manuell restricted.
+      ("admin" = AKTEUR, nicht Ziel. ADMIN-Connections selbst
+      sind nicht restricted-fähig, siehe R-08. Not-Aus für
+      kompromittierte Admin-Connections = DISABLE (IMMEDIATE).)
+      Gelöscht wenn Admin die Restriction aufhebt.
+      Unabhängig von op_reason_code.
+
+  BERECHNETE Restrict-Quellen (keine eigenen Felder nötig):
+    UNCLAIMED_OVERDUE:   customer_id IS NULL AND NOW() > unclaimed_grace_until
+    QUOTA_EXHAUSTED:     Quota-Stand aus Accounting (berechnet)
+    EXPIRY_PASSED:       expiry_date < NOW() (berechnet)
+    PLAN_LIMIT_EXCEEDED: Plan-Engine Ergebnis (berechnet)
+
+  POLICY-EVALUATOR-VERTRAG:
+  Der Policy-Evaluator (BASE-80) sammelt ALLE sechs Quellen:
+    1. customer_paused_at IS NOT NULL → RESTRICT_CUSTOMER_PAUSED aktiv
+    2. admin_manual_restricted_at IS NOT NULL → RESTRICT_ADMIN_MANUAL aktiv
+    3. customer_id IS NULL AND NOW()>grace → RESTRICT_UNCLAIMED_OVERDUE aktiv
+    4. Quota erschöpft → RESTRICT_QUOTA_EXHAUSTED aktiv
+    5. Expiry abgelaufen → RESTRICT_EXPIRY_PASSED aktiv
+    6. Plan-Limit überschritten → RESTRICT_PLAN_LIMIT_EXCEEDED aktiv
+  Aus der Menge aktiver Gründe wählt er den mit niedrigstem
+  precedence_rank und schreibt diesen als op_reason_code.
+
+  INVARIANTEN:
+  INV-28  customer_paused_at: Setzen nur Customer, Löschen Customer ODER Lifecycle (INV-32)
+  INV-29  admin_manual_restricted_at: Setzen nur Admin, Löschen Admin ODER Lifecycle (INV-32)
+  INV-30  op_reason_code ist IMMER der höchstpriore aus der aktuellen
+          Gesamtmenge aktiver Gründe (keine veralteten Werte).
+
+5.5) RESTRICTED→RESTRICTED Reason-Re-Evaluation (F-002 v0.7 Fix)
+
+  PROBLEM: Eine Connection kann bereits RESTRICTED sein, und ein neuer
+  höherpriorer Grund tritt hinzu (oder ein Grund fällt weg, aber ein
+  anderer bleibt). Das ist kein Statuswechsel, aber ein Reason-Wechsel.
+
+  REGEL: Reconcile/Policy-Evaluator führt bei jeder Evaluation eine
+  vollständige Re-Evaluation durch, unabhängig davon ob op_status sich
+  ändert oder gleich bleibt.
+
+  Wenn op_status=RESTRICTED und die Re-Evaluation ergibt:
+    a) Höherpriorer Grund ist neu aktiv:
+       - op_reason_code wird auf den neuen höchstprioren Grund gesetzt
+       - restrict_finalize_at wird ggf. NEU materialisiert
+         (aus dem neuen Reason, nicht dem alten)
+       - Lifecycle-Log: Event STATUS_CHANGE (mit old/new reason)
+
+    b) Aktueller Grund fällt weg, aber anderer bleibt:
+       - op_reason_code wechselt zum nächsthöchsten aktiven Grund
+       - restrict_finalize_at wird ggf. neu materialisiert
+       - Lifecycle-Log: Event STATUS_CHANGE (Reason-Wechsel)
+
+    c) Alle Gründe fallen weg:
+       - op_status → ACTIVE, op_reason_code → NULL (T-05)
+
+    d) Gleicher Grund bleibt, keine Änderung:
+       - Keine Schreiboperation (Idempotenz)
+
+  Beispiel:
+    1. Connection ist RESTRICTED, op_reason_code=RESTRICT_QUOTA_EXHAUSTED
+    2. Admin setzt admin_manual_restricted_at (manueller Restrict)
+    3. Policy-Evaluator: QUOTA(Prio 5) + ADMIN_MANUAL(Prio 1) aktiv
+    4. op_reason_code → RESTRICT_ADMIN_MANUAL (Prio 1 gewinnt)
+    5. restrict_finalize_at → NULL (ADMIN_MANUAL hat keine Auto-Final.)
+    6. Admin hebt manuellen Restrict auf (admin_manual_restricted_at=NULL)
+    7. Policy-Evaluator: nur QUOTA(Prio 5) noch aktiv
+    8. op_reason_code → RESTRICT_QUOTA_EXHAUSTED
+    9. restrict_finalize_at → neu materialisiert
+
+  INVARIANTE:
+  INV-31  Reason-Re-Evaluation ist idempotent: mehrfaches Ausführen
+          mit gleichen Eingaben erzeugt denselben Endzustand.
+
+5.6) DELETE — Verbindung löschen (KEINE Deaktivierung)
+
+  DELETE ist eine eigene Operation, KEIN DISABLE-Variant.
+  Löschen ≠ Deaktivieren. Die Unterschiede:
+
+  DISABLE:                          DELETE:
+  - Credentials bleiben erhalten    - Credentials werden VERNICHTET
+  - IP bleibt zugeordnet            - IP geht ins Recycling
+  - Kann restored werden            - KEIN Restore möglich
+  - op_status = DISABLED            - op_status = DELETED (terminal)
+  - Reason-Code in reason_registry  - Kein Reason-Code nötig
+
+  DELETE-Ablauf:
+  1. Auth-Material wird vernichtet:
+     LEGACY: subaccount_login + subaccount_nt_hash gelöscht
+             (Row in vpn_connection_legacy_auth entfernt)
+     MODERN: wg_public_key + wg_preshared_key gelöscht
+             (Row in wg_connection_auth entfernt)
+  2. IP-Adresse wird für Recycling freigegeben
+  3. Connection-Row bleibt im System (Soft-Delete):
+     op_status = DELETED, deleted_at = NOW()
+     Nur noch für forensische/Log-Zwecke verfügbar
+  4. Aktive Session wird beendet (Hard-Kill wenn online)
+
+  DELETE-Auslöser:
+  - User löscht eigene Connection im Panel
+  - Admin löscht Connection
+  - Customer wird DELETED → alle Connections werden DELETED
+
+  SCHUTZ: LETZTE-AKTIVE-CONNECTION-REGEL (INV-35)
+  Wenn ein Customer nur noch EINE Connection mit op_status=ACTIVE
+  hat, kann diese Connection NICHT gelöscht und NICHT deaktiviert
+  werden (durch User-Aktion). Verhindert Selbstaussperrung.
+  Admin-Aktionen (DISABLE_ADMIN_ABUSE) sind von diesem Schutz
+  AUSGENOMMEN — Missbrauch muss immer stoppbar sein.
+
+================================================================================
+6) RECYCLING-KETTE (DISABLED → Revocation → Quarantäne → Pool)
+================================================================================
+
+6.1) Revocation-Modi: Siehe Sektion 4.5 (T-04, reason-abhängig).
+
+6.2) Restore-Fenster (nur bei AFTER_RESTORE_WINDOW)
+  - restore_until = disabled_at + default_restore_window_days
+  - Innerhalb: Admin kann Connection wiederherstellen (T-08)
+  - Nach Ablauf: Job setzt revoked_at + quarantine_until
+
+6.3) Quarantäne
+  - quarantine_until = revoked_at + vpn_quarantine_days (materialisiert)
+  - Während Quarantäne: Slot/IP nicht neu vergebbar
+
+6.4) Pool-Rückführung
+  - Nach NOW() >= quarantine_until: Slot für den Allocator freigegeben
+  - Kein physisches DELETE des Connection-Datensatzes
+  - Lifecycle-Log: Event POOL_RETURN
+
+6.5) IP-Slot Retention bei historischen Connections (F-002 Fix)
+
+  ENTSCHEIDUNG: ip_slot BLEIBT auf der alten Row (historischer Snapshot).
+
+  Begründung:
+  - Forensik/Haftung: "Welcher Account hatte IP x.x.x.x am Datum Y?"
+    muss ohne Lifecycle-Log beantworbar sein (direkter SQL-Query).
+  - Slot-Eindeutigkeit wird über den AKTIVEN Zustand geregelt:
+    Nur Connections mit op_status != DISABLED AND revoked_at IS NULL
+    zählen als aktive Slot-Owner.
+  - Der Allocator prüft bei Vergabe:
+    ip_slot NOT IN (SELECT ip_slot FROM vpn_connections
+      WHERE access_role = ? AND op_status != 'DISABLED'
+      AND revoked_at IS NULL)
+    AND ip_slot NOT IN (SELECT ip_slot FROM vpn_connections
+      WHERE access_role = ? AND revoked_at IS NOT NULL
+      AND quarantine_until > NOW())
+  - Historische Rows (DISABLED + revoked + quarantine abgelaufen) stören
+    den Allocator NICHT, da sie weder aktiv noch in Quarantäne sind.
+
+================================================================================
+7) CUSTOMER-PANEL-AKTIONEN
+================================================================================
+
+  Aktion           Transition  Reason-Code                  Effekt
+  ──────────────── ────────── ──────────────────────────── ─────────────────
+  Deaktivieren     T-03       RESTRICT_CUSTOMER_PAUSED     → RESTRICTED
+                                                            Walled Garden
+                                                            customer_paused_at = NOW()
+                                                            Reversibel
+                                                            Keine Auto-Final.
+
+  Reaktivieren     T-05       (Reason wird entfernt)       → Re-Evaluation
+                                                            customer_paused_at = NULL
+                                                            → ACTIVE wenn keine anderen
+                                                              Gründe aktiv
+                                                            → RESTRICTED wenn berechneter
+                                                              Grund noch aktiv
+
+  Löschen          §5.6       (kein Reason-Code)            → DELETED
+  (aus ACTIVE      (je nach                                 Restore-Fenster
+   oder RESTR.)    Ausgangs-                                AFTER_RESTORE
+                   status)                                  Kein Tunnel mehr
+
+================================================================================
+8) ADMIN-AKTIONEN
+================================================================================
+
+  Aktion              Transition  Reason-Code               Effekt
+  ──────────────────── ────────── ─────────────────────────  ───────────────
+  Grace Reset          —          —                          grace_until neu
+  Rotate Claim-Token   —          —                          Token neu
+  Manual Restrict      T-03       RESTRICT_ADMIN_MANUAL      → RESTRICTED
+                                  admin_manual_restricted_at = NOW()
+  Manual Restrict      T-05       (aufheben)                 → Re-Evaluation
+  aufheben                        admin_manual_restricted_at = NULL
+  Manual Disable       T-04/T-07  DISABLE_ADMIN_MANUAL       → DISABLED
+                                                              AFTER_RESTORE
+  Hard-Disable (Abuse) T-04/T-07  DISABLE_ADMIN_ABUSE        → DISABLED
+                                                              IMMEDIATE
+  Restore              T-08       —                          → ACTIVE|RESTRICTED
+                                                              (policy-re-eval)
+  Rollenwechsel        T-09       —                          In-place Mutation
+                                                              (access_role+IP, D002)
+  Neue Connection      INSERT     —                          Weg A oder B
+
+================================================================================
+9) INVARIANTEN (MUST)
+================================================================================
+
+  Ownership:
+  INV-01  customer_id IS NOT NULL ↔ claimed_at IS NOT NULL
+  INV-02  customer_id darf nach Claim nie wieder NULL werden
+  INV-03  claimed_at darf nach Claim nie wieder NULL werden
+
+  Status-Reason-Konsistenz (F-003 Fix):
+  INV-04  op_status=ACTIVE → op_reason_code IS NULL
+  INV-05  op_status=RESTRICTED → op_reason_code IS NOT NULL
+  INV-06  op_status=DISABLED → op_reason_code IS NOT NULL
+  INV-07  op_status=RESTRICTED → reason_registry.allowed_op_status=RESTRICTED
+  INV-08  op_status=DISABLED → reason_registry.allowed_op_status=DISABLED
+  INV-09  Enforcement über reason_registry (FK), nicht über String-Prefixe
+
+  Timestamp-Konsistenz:
+  INV-10  op_status=ACTIVE → restricted_at IS NULL AND disabled_at IS NULL
+  INV-11  op_status=RESTRICTED → restricted_at IS NOT NULL AND disabled_at IS NULL
+  INV-12  op_status=DISABLED → disabled_at IS NOT NULL
+
+  Restrict-Finalisierung:
+  INV-13  op_status != RESTRICTED → restrict_finalize_at IS NULL
+  INV-14  Reason ohne Auto-Finalisierung → restrict_finalize_at IS NULL
+
+  Restore:
+  INV-15  reason.is_restoreable=false → restore_until IS NULL
+  INV-16  op_status != DISABLED → restore_until IS NULL
+
+  Revocation/Quarantäne:
+  INV-17  revoked_at IS NOT NULL → op_status=DISABLED
+  INV-18  revoked_at IS NOT NULL → restore_until IS NULL
+  INV-19  quarantine_until IS NOT NULL ↔ revoked_at IS NOT NULL
+  INV-20  quarantine_until IS NOT NULL → quarantine_until > revoked_at
+
+  Revocation-Mode Lifecycle-Regeln (F-004: zeit-/jobabhängig, nicht
+  rein statisch — werden durch Jobs/Transitionen erzwungen, nicht
+  durch DB-Constraints allein):
+  LR-01  revocation_mode=IMMEDIATE + Eintritt in DISABLED
+         → revoked_at UND quarantine_until MÜSSEN im selben
+           atomaren Write materialisiert werden
+  LR-02  revocation_mode=AFTER_RESTORE_WINDOW + Eintritt in DISABLED
+         → revoked_at IS NULL bis restore_until abgelaufen
+         → Job setzt revoked_at + quarantine_until nach Fristablauf
+  LR-03  revocation_mode=MANUAL_ONLY + DISABLED
+         → Nur explizite Admin-Aktion darf revoked_at setzen
+           (kein Job, kein Reconcile)
+
+  Ownership-Klarstellung:
+  INV-24  PREPROVISIONED = customer_id IS NULL (abgeleitet, kein Feld)
+          Bedeutet "nie geclaimt/ownerlos", unabhängig von op_status
+
+  Slot-Retention (F-002 Fix):
+  INV-25  ip_slot bleibt auf der Row auch nach DISABLED/Revocation
+          (historischer Snapshot)
+
+  Weitere Invarianten (definiert in §5.3–5.5):
+  INV-26  op_reason_code bei RESTRICTED ist der höchstpriore Grund
+          gemäß reason_registry.precedence_rank
+  INV-27  T-05 darf ACTIVE nur setzen wenn KEIN Grund mehr aktiv ist
+  INV-28  customer_paused_at: Setzen nur Customer, Löschen Customer ODER Lifecycle (INV-32)
+  INV-29  admin_manual_restricted_at: Setzen nur Admin, Löschen Admin ODER Lifecycle (INV-32)
+  INV-30  op_reason_code ist IMMER der höchstpriore aktive Grund
+  INV-31  Reason-Re-Evaluation ist idempotent: mehrfaches Ausführen
+          mit gleichen Eingaben erzeugt denselben Endzustand
+  INV-32  Source Facts (customer_paused_at, admin_manual_restricted_at)
+          werden bei Eintritt in DISABLED IMMER gelöscht (T-04/T-06/T-07).
+          Nach Restore (T-08) startet die Connection ohne alte Source Facts.
+
+  Slot-Relevanz / Connection-Limits (D003-E06, Ableitungsregel):
+  INV-33  Aktiv-Budget: ACTIVE + RESTRICTED zählen gegen
+          max_active_connections (Policy-System).
+          Gesamt-Budget: max_active + vpn_disabled_connection_buffer
+          (abgeleitet, Settings-Key). Alle nicht-terminal-revoked
+          Connections MIT customer_id zählen gegen Gesamt.
+          Ownerlose PREPROVISIONED zählen erst nach Claim.
+          Siehe DOMAIN_MODEL §6.5 für vollständige Zählregel.
+  INV-34  access_role ist ABGELEITET vom Customer-Rang (Webpanel).
+          Alle Connections eines Customers haben dieselbe access_role.
+          Constraint: vpn_connections.access_role = customer.access_role.
+          Siehe D003-E02.
+  INV-35  Letzte-aktive-Connection-Schutz: Wenn ein Customer nur
+          noch EINE Connection mit op_status=ACTIVE hat, kann diese
+          NICHT geloescht und NICHT deaktiviert werden (User-Aktion).
+          Admin-Aktionen (DISABLE_ADMIN_ABUSE) sind ausgenommen.
+          Verhindert Selbstaussperrung.
+
+================================================================================
+10) STATE-DIAGRAMM (ASCII)
+================================================================================
+
+  Weg A (Laptop)               Weg B (Self-Service)
+  INSERT → PREPROVISIONED      INSERT → CLAIMED + ACTIVE
+  + ACTIVE                            │
+       │                              │
+       ▼                              ▼
+  ┌─────────────────────────────────────────────────┐
+  │                 ACTIVE                          │
+  │  Full Tunnel, normal nutzbar                    │
+  │  T-01: Claim (PREPROVISIONED → CLAIMED)         │
+  │  T-09: Rollenwechsel (Kaskade, alle Zustände)    │
+  └──────┬─────────────────────────────────┬────────┘
+         │ T-02/T-03                       │ T-04 (reason-param.)
+         ▼                                 ▼
+  ┌──────────────┐                ┌─────────────────────┐
+  │  RESTRICTED  │  T-06/T-07    │    DISABLED          │
+  │  Walled Gard.│ ────────────► │    Hard-Stop         │
+  │  T-09: Rollen│ Timeout/      │  T-09: Rollenwechsel │
+  │  wechsel     │ Disable       │  (ip_slot neu, kein  │
+  │  (ip_slot+HC)│               │   Hard-Cut)          │
+  │  T-05: Re-   │               │  T-08: Restore       │
+  │  Evaluation  │               │  (policy-re-eval)    │
+  │  →ACTIVE oder│               │  → ACTIVE oder       │
+  │   RESTRICTED │               │    RESTRICTED         │
+  └──────────────┘               └──────────┬───────────┘
+                                            │ Recycling-Kette
+                                            ▼
+                                   Revocation → Quarantäne → Pool
+
+================================================================================
+11) CONNECTION LIFECYCLE LOG
+================================================================================
+
+Siehe DOMAIN_MODEL §7B für Schema und Scope-Definition.
+Gesamter Lifecycle wird geloggt, nicht nur op_status-Wechsel.
+
+================================================================================
+12) OFFENE PUNKTE
+================================================================================
+
+HINWEIS: [CLOSED]-Einträge bleiben als Entscheidungsreferenz erhalten.
+
+OPEN-SM-01: Panel-Login IP-Restriction (MOD-06_PANEL_FEATURES)
+OPEN-SM-02: Tunnel-Wechsel LEGACY→MODERN (folgt Rollenwechsel-Pattern)
+OPEN-SM-03: Self-Service Connection-Limits per Plan (MOD-10_PLANS)
+OPEN-SM-04: Konkrete Timeout-Werte (BASE-90_SETTINGS_CORE)
+OPEN-SM-05: Customer-Panel "Löschen" vs "Deaktivieren" UX (MOD-06)
+OPEN-SM-06: [CLOSED] expiry_date Feld
+  Definiert in DOMAIN_MODEL §3.5 (v0.5+):
+  vpn_connections.expiry_date TIMESTAMP NULL.
+  NULL = kein Ablauf. NOW() > expiry_date → RESTRICT_EXPIRY_PASSED.
+  Gesetzt durch Plan-Engine (MOD-10_PLANS) oder Admin-Override.
+
+================================================================================
+13) TESTS / VALIDIERUNG (DoD)
+================================================================================
+
+Funktionale Tests:
+
+T-SM-01: Claim Happy Path → CLAIMED+ACTIVE
+T-SM-02: Grace abgelaufen → RESTRICTED (UNCLAIMED_OVERDUE)
+T-SM-03: Claim aus RESTRICTED (UNCLAIMED_OVERDUE) → CLAIMED+ACTIVE
+T-SM-04: Restrict-Timeout → DISABLED (auto_finalize)
+T-SM-04b: Claim-Deadline aus RESTRICTED → DISABLED (T-06 Trigger B)
+  PREPROVISIONED + RESTRICTED (UNCLAIMED_OVERDUE). claim_deadline
+  erreicht → T-06 Trigger B → DISABLED (DISABLE_UNCLAIMED_TIMEOUT).
+  Separat von T-SM-04 (Trigger A = restrict_finalize_at Timeout).
+T-SM-05: Customer Deaktivieren → RESTRICTED (CUSTOMER_PAUSED)
+T-SM-06: Customer Reaktivieren (kein anderer Grund aktiv) → ACTIVE
+T-SM-07: Customer Löschen aus ACTIVE → DELETED
+         Credentials vernichtet, IP ins Recycling, deleted_at gesetzt.
+         KEIN Restore möglich.
+T-SM-08: Customer Löschen aus RESTRICTED → DELETED
+         Source-Facts aufgeräumt, Credentials vernichtet, deleted_at gesetzt.
+T-SM-09: Admin Manual Disable → DISABLED (ADMIN_MANUAL)
+         restore_until gesetzt, revoked_at NULL (AFTER_RESTORE)
+T-SM-10: Admin Abuse Disable → DISABLED (ADMIN_ABUSE)
+         restore_until NULL, revoked_at sofort (IMMEDIATE)
+T-SM-11: Admin Restore (kein berechneter Grund aktiv) → ACTIVE
+T-SM-12: Admin Restore verweigert (Abuse/nicht-restorebar)
+T-SM-13: Admin Restore verweigert (Fenster abgelaufen)
+T-SM-14: Admin Restore verweigert (revoked_at bereits gesetzt)
+T-SM-15: Revocation nach Restore-Fenster → Job setzt revoked_at
+T-SM-16: Quarantäne-Ende → Pool-Rückführung
+T-SM-17: Rollenwechsel In-Place Atomicity (D002)
+  access_role + ip_slot Mutation, Pool-Full → Rollback, alter Zustand erhalten.
+  LEGACY: Login+Hash unverändert. MODERN: Key unverändert, neue Config.
+T-SM-18: Invarianten-Test
+  DB-Invarianten INV-01 bis INV-20 + INV-24..INV-32 gegen DB prüfen.
+  Lifecycle-Regeln LR-01..LR-03 gegen Job-/Transitions-Verhalten prüfen.
+  Precedence-Invarianten INV-26/INV-27 gegen Reconcile-Ergebnis prüfen.
+T-SM-19: Lifecycle-Log Vollständigkeit
+
+Multi-Reason / Precedence Tests (F-001 Fix):
+
+T-SM-MR-01: Quota + Expiry gleichzeitig
+  Beide Gründe aktiv → op_reason_code = RESTRICT_EXPIRY_PASSED (Prio 4).
+
+T-SM-MR-02: Grund A fällt weg, Grund B bleibt
+  EXPIRY + QUOTA aktiv. Admin verlängert Expiry.
+  Erwartung: op_reason_code wechselt zu RESTRICT_QUOTA_EXHAUSTED.
+  op_status bleibt RESTRICTED (nicht ACTIVE).
+
+T-SM-MR-03: Alle Gründe fallen weg
+  QUOTA + EXPIRY waren aktiv, beide behoben.
+  Erwartung: op_status = ACTIVE, op_reason_code = NULL.
+
+T-SM-MR-04: Customer Pause + Admin Manual gleichzeitig
+  Beide aktiv → op_reason_code = RESTRICT_ADMIN_MANUAL (Prio 1).
+
+Allokation / Pool-Full Tests (F-002 Fix):
+
+T-SM-ALLOC-01: Weg A mit Pool verfügbar
+  INSERT erfolgreich, ip_slot + fixed_ip materialisiert.
+
+T-SM-ALLOC-02: Weg A mit Pool-Full
+  INSERT scheitert fail-closed. Kein Halbzustand in DB.
+
+T-SM-ALLOC-03: Weg B mit Pool verfügbar
+  INSERT erfolgreich, ip_slot + fixed_ip materialisiert.
+
+T-SM-ALLOC-04: Weg B mit Pool-Full
+  INSERT scheitert fail-closed. Kein Halbzustand in DB.
+
+Source-Facts / Reason-Re-Evaluation Tests (v0.8):
+
+T-SM-SRC-01: Customer-Pause + Quota, dann Quota weg
+  customer_paused_at gesetzt + Quota erschöpft.
+  op_reason_code = RESTRICT_QUOTA_EXHAUSTED (Prio 5 > Prio 6).
+  Quota wird erneuert → op_reason_code = RESTRICT_CUSTOMER_PAUSED.
+  op_status bleibt RESTRICTED (nicht ACTIVE).
+
+T-SM-SRC-02: Admin-Manual + Expiry, dann Expiry weg
+  admin_manual_restricted_at gesetzt + Expiry abgelaufen.
+  op_reason_code = RESTRICT_ADMIN_MANUAL (Prio 1).
+  Expiry verlängert → op_reason_code bleibt RESTRICT_ADMIN_MANUAL.
+
+T-SM-SRC-03: Admin-Manual + Customer-Pause, Admin hebt auf
+  Beide aktiv → op_reason_code = RESTRICT_ADMIN_MANUAL.
+  Admin hebt auf → op_reason_code = RESTRICT_CUSTOMER_PAUSED.
+
+T-SM-SRC-04: Reason-Wechsel innerhalb RESTRICTED
+  RESTRICTED by QUOTA. Dann EXPIRY tritt ein.
+  op_reason_code wechselt zu RESTRICT_EXPIRY_PASSED (höhere Prio).
+  restrict_finalize_at wird neu materialisiert.
+
+T-SM-SRC-05: Reason-Re-Evaluation Idempotenz (no-op)
+  Reconcile läuft zweimal mit gleichen Eingaben.
+  Erwartung: Keine Schreiboperation, KEIN Hard-Cut, KEIN Lifecycle-Log
+  STATUS_CHANGE beim zweiten Lauf. Bestehende Sessions bleiben stabil.
+
+T-SM-SRC-06: Source-Fact Löschung durch Lifecycle (T-06 Job-Pfad)
+  CUSTOMER_PAUSED + QUOTA aktiv. T-06 läuft wegen Quota-Timeout.
+  Erwartung: customer_paused_at wird gelöscht (INV-32, Lifecycle-Regel).
+  Kein Widerspruch zu INV-28 (Löschen durch Lifecycle erlaubt).
+
+Source-Fact Lifecycle bei DISABLED/RESTORE (v1.0):
+
+T-SM-SFL-01: CUSTOMER_PAUSED → DELETE → Credentials weg
+  customer_paused_at war gesetzt. Connection wird geloescht (§5.6).
+  Erwartung: Auth-Material vernichtet, op_status=DELETED, deleted_at gesetzt.
+  KEIN Restore moeglich. Source-Facts irrelevant (Connection ist weg).
+
+T-SM-SFL-02: ADMIN_MANUAL → DISABLE_ADMIN_MANUAL → RESTORE
+  admin_manual_restricted_at war gesetzt. T-07 löscht es. T-08 Restore.
+  Erwartung: Nach Restore ist Connection ACTIVE, kein Geister-Restrict.
+
+T-SM-SFL-03: ADMIN_MANUAL → DISABLE_ADMIN_ABUSE
+  admin_manual_restricted_at war gesetzt. T-07 mit ABUSE → IMMEDIATE.
+  Erwartung: Source Fact gelöscht, kein Restore möglich.
+
+Restore + berechnete Gründe Tests (v1.1):
+
+T-SM-RST-01: Restore während Expiry noch abgelaufen
+  DISABLE_CUSTOMER_SUSPENDED → RESTORE, aber expiry_date < NOW().
+  Erwartung: Policy-Re-Eval → RESTRICTED (EXPIRY), nicht ACTIVE.
+
+T-SM-RST-02: Restore ohne aktive berechnete Gründe
+  DISABLE_ADMIN_MANUAL → RESTORE, alle berechneten Gründe clean.
+  Erwartung: Policy-Re-Eval → ACTIVE.
+
+T-SM-RST-03: Restore während Quota erschöpft
+  DISABLE_CUSTOMER_SUSPENDED → RESTORE, Quota weiterhin erschöpft.
+  Erwartung: Policy-Re-Eval → RESTRICTED (QUOTA), nicht ACTIVE.
+
+Race-/Idempotenz-Tests (F-006 Fix):
+
+T-SM-RACE-01: Claim vs Restrict-Job gleichzeitig
+  Zwei Prozesse greifen auf dieselbe PREPROVISIONED Connection:
+  Claim (T-01) und Grace-Timeout (T-02). Row-Lock entscheidet.
+  Erwartung: Einer gewinnt, Endzustand ist invariant-konform.
+
+T-SM-RACE-02: Restore vs Revocation-Job gleichzeitig
+  Admin klickt Restore (T-08) während Revocation-Job (nach
+  restore_until) dieselbe Connection revoken will.
+  Erwartung: revoked_at NULL = Restore gewinnt.
+  revoked_at gesetzt = Restore wird verweigert.
+
+T-SM-RACE-03: Customer Delete vs Admin Restore gleichzeitig
+  Customer löscht (T-04/T-07) während Admin Restore (T-08)
+  auf dieselbe Connection zugreift.
+  Erwartung: Row-Lock, einer gewinnt deterministisch.
+
+T-SM-IDEM-01: Revocation-Job doppelt
+  Revocation-Job läuft zweimal für dieselbe Connection.
+  Erwartung: Idempotent — revoked_at bleibt gleich, kein Fehler.
+
+T-SM-IDEM-02: Pool-Return-Job doppelt
+  Pool-Return-Job markiert denselben Slot zweimal als frei.
+  Erwartung: Idempotent — kein doppelter Freigabe-Effekt.
+
+T-SM-IDEM-03: Restrict-Timeout-Job doppelt
+  Restrict-Timeout-Job verarbeitet dieselbe Connection zweimal.
+  Erwartung: Zweiter Lauf findet op_status=DISABLED, no-op.
+
+T-SM-SLOT-01: Slot-Reuse nach Quarantäne
+  Connection A wird disabled+revoked+quarantine_until abgelaufen.
+  Neue Connection B bekommt denselben ip_slot.
+  Erwartung: Kein Unique-Conflict, Allocator-Query korrekt.
+
+================================================================================
+CHANGELOG
+================================================================================
+v1.9 (2026-04-15): ChatGPT Befundbericht Fix F-VB-N03.
+  §13: T-SM-04b NEU — Test für T-06 Trigger B (claim_deadline
+  aus RESTRICTED → DISABLED). Separat von T-SM-04 (Trigger A).
+  34 Invarianten (unverändert). 48 Tests (+1).
+v1.8 (2026-04-15): ChatGPT Audit #5 Pre-Fix (F-002).
+  T-09 erweitert: Kaskade-Subpfade A (ACTIVE), B (RESTRICTED),
+  C (DISABLED) explizit modelliert. Vorbedingung auf alle
+  op_status-Werte erweitert. Übersichtstabelle §4.1 auf drei
+  Zeilen für T-09 angepasst (D002 §7.3 formalisiert).
+v1.7 (2026-04-14): D003 Slot-Relevanz + Rolle am Customer.
+  INV-33 NEU: Slot-Relevanz / Zählregel (D003-E06).
+  INV-34 NEU: access_role abgeleitet vom Customer-Rang (D003-E02).
+  34 Invarianten + 3 LR. 47 Tests.
+v1.6 (2026-04-13): Rollenwechsel als In-Place Mutation (D002).
+  T-09/T-10 (DISABLE+INSERT) ersetzt durch T-09 (in-place Mutation).
+  T-10 entfällt. DISABLE_ROLE_CHANGE entfällt als Reason-Code.
+  LEGACY: Login+Hash bleiben gleich. MODERN: Key bleibt, neue Config.
+  State-Diagramm: T-09 als ACTIVE→ACTIVE Self-Transition.
+  ChatGPT-Audit Fixes: T-03 ADMIN-Exemption (R-08/GR-08),
+  admin_manual_restricted_at Akteur-Klarstellung, B150 voller Name.
+v1.5 (2026-04-12): T-06 erweitert — claim_deadline aus RESTRICTED.
+  T-06 deckt jetzt zwei Trigger ab:
+    Trigger A: restrict_finalize_at (Auto-Finalisierung, wie bisher)
+    Trigger B: claim_deadline aus RESTRICTED (SM_ONBOARDING §5.2)
+  Begründung: Beide sind JOB-initiierte Timeouts aus RESTRICTED.
+  T-07 bleibt Admin-/explizit-parametrisierter Pfad.
+  Cross-File: SM_ONBOARDING v0.4 referenziert T-06 für claim_deadline.
+  32 Invarianten + 3 LR. 47 Tests. Status: PATCH-REIF.
+  Vollständige Review-Historie (v0.2–v1.4, 15 Review-Runden):
+  siehe 03_CHANGELOG.txt bzw. dateieigene Git-History.
+v0.4 (2026-04-11): Fundamentale Neukonzeption (5 Review-Runden).
+  Zwei-Ebenen-Modell eingeführt: Ownership + op_status.
+v0.1 (2026-04-10): Initiale Connection State Machine.
+================================================================================

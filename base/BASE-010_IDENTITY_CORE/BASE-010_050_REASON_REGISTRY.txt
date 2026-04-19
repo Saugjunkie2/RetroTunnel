@@ -1,0 +1,117 @@
+================================================================================
+BASE-010 — REASON REGISTRY (vpn_reason_registry)
+================================================================================
+DATEI: BASE-010_050_REASON_REGISTRY.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Kanonische Registry aller op_reason_codes mit Policy-Attributen.
+  Bestimmt welcher Reason-Code bei welchem op_status erlaubt ist,
+  ob Restore moeglich ist, wie Revocation ablaeuft, und ob/wann
+  RESTRICTED automatisch zu DISABLED finalisiert.
+
+VORGAENGER: DOMAIN_MODEL §7A, SM_CONNECTION §5
+  Tabellenname: vpn_reason_registry (BASE-000 K-03)
+
+================================================================================
+1) SCHEMA: vpn_reason_registry
+================================================================================
+
+  Feld                           Typ          Constraint     Beschreibung
+  ────────────────────────────── ──────────── ────────────── ──────────────────
+  reason_code                    VARCHAR(64)  PK             Kanonischer Code
+  allowed_op_status              ENUM         NOT NULL       RESTRICTED|DISABLED
+  is_restoreable                 TINYINT(1)   NOT NULL       Admin-Restore erlaubt?
+  precedence_rank                INT          NOT NULL       Prioritaet bei Multi-Reason
+                                                             (1=hoechste, nur RESTRICT_*)
+  default_restore_window_days    INT          NULL           Restore-Fenster in Tagen
+  revocation_mode                ENUM         NOT NULL       NONE|IMMEDIATE|
+                                                             AFTER_RESTORE_WINDOW|
+                                                             MANUAL_ONLY
+  auto_finalize_to_reason_code   VARCHAR(64)  FK→self, NULL  Ziel-DISABLE-Reason
+                                                             bei Restrict-Timeout
+  default_restrict_window_days   INT          NULL           Restrict-Timeout in Tagen
+  description                    TEXT         NOT NULL       Admin-facing Beschreibung
+
+================================================================================
+2) KANONISCHE RESTRICT-CODES (op_status=RESTRICTED)
+================================================================================
+
+  Code                          Prio  Finalisiert zu              Window
+  ───────────────────────────── ───── ─────────────────────────── ──────
+  RESTRICT_ADMIN_MANUAL         1     (keine Auto-Finalisierung)  NULL
+  RESTRICT_UNCLAIMED_OVERDUE    2     DISABLE_UNCLAIMED_TIMEOUT   Settings
+  RESTRICT_PLAN_LIMIT_EXCEEDED  3     DISABLE_PLAN_LIMIT_TIMEOUT  Settings
+  RESTRICT_EXPIRY_PASSED        4     DISABLE_EXPIRY_TIMEOUT      Settings
+  RESTRICT_QUOTA_EXHAUSTED      5     DISABLE_QUOTA_TIMEOUT       Settings
+  RESTRICT_CUSTOMER_PAUSED      6     (keine Auto-Finalisierung)  NULL
+
+  KLARSTELLUNG RESTRICT_ADMIN_MANUAL (R-08):
+  "ADMIN" im Code-Namen = der AKTEUR (Admin der restrictet),
+  NICHT das Ziel. ADMIN-Connections koennen NICHT restricted werden.
+  Not-Aus fuer ADMIN = DISABLE (IMMEDIATE).
+
+================================================================================
+3) KANONISCHE DISABLE-CODES (op_status=DISABLED)
+================================================================================
+
+  Code                          Restorebar  Revocation-Mode
+  ───────────────────────────── ─────────── ──────────────────
+  DISABLE_UNCLAIMED_TIMEOUT     Nein        IMMEDIATE
+  DISABLE_QUOTA_TIMEOUT         Nein        IMMEDIATE
+  DISABLE_EXPIRY_TIMEOUT        Nein        IMMEDIATE
+  DISABLE_PLAN_LIMIT_TIMEOUT    Nein        IMMEDIATE
+  DISABLE_CUSTOMER_SUSPENDED    Ja          AFTER_RESTORE_WINDOW
+  DISABLE_ADMIN_MANUAL          Ja          AFTER_RESTORE_WINDOW
+  DISABLE_ADMIN_ABUSE           Nein        IMMEDIATE
+  DISABLE_SECURITY_COMPROMISE   Nein        IMMEDIATE
+
+  KLARSTELLUNG DISABLE_ADMIN_ABUSE vs DISABLE_SECURITY_COMPROMISE:
+  DISABLE_ADMIN_ABUSE = nachgewiesener Missbrauch (Schuldzuweisung).
+  DISABLE_SECURITY_COMPROMISE = Sicherheitsvorfall ohne Schuldzuweisung
+  (z.B. Credential-Leak vermutet, Geraet gestohlen, verdaechtige
+  Login-Muster, praeventive Massnahme auf Kundenwunsch).
+
+  ENTFALLENE CODES:
+  DISABLE_CUSTOMER_DELETE existiert NICHT. Loeschen ist keine
+  Deaktivierung sondern eine eigene Operation.
+  DISABLE_ROLE_CHANGE entfaellt — Rollenwechsel ist in-place
+  Mutation (D002), kein DISABLE-Event.
+
+================================================================================
+4) MULTI-REASON PRECEDENCE (MUST)
+================================================================================
+
+  Wenn mehrere RESTRICT-Gruende gleichzeitig gelten, wird der Grund
+  mit dem NIEDRIGSTEN precedence_rank als op_reason_code gespeichert
+  (1 = hoechste Prioritaet).
+
+  SoT: vpn_reason_registry.precedence_rank (INT, UNIQUE ueber alle
+  RESTRICT_*-Codes). Die Textliste oben ist illustrativ — im Betrieb
+  entscheidet ausschliesslich der precedence_rank-Wert.
+
+================================================================================
+5) INVARIANTEN
+================================================================================
+
+  RR-01  allowed_op_status=RESTRICTED → Restricted ist per se
+         reversibel (unabhaengig von is_restoreable)
+  RR-02  auto_finalize_to_reason_code → Zielcode muss
+         allowed_op_status=DISABLED haben
+  RR-03  auto_finalize_to_reason_code gesetzt →
+         default_restrict_window_days MUSS gesetzt sein
+  RR-04  revocation_mode=AFTER_RESTORE_WINDOW →
+         default_restore_window_days MUSS gesetzt sein
+  RR-05  precedence_rank ist UNIQUE innerhalb aller RESTRICT_*-Codes
+
+================================================================================
+6) PANEL-CONSUMABILITY
+================================================================================
+
+  Panel zeigt: op_reason_code als Badge mit Farbe/Icon.
+  Mouseover: description aus vpn_reason_registry.
+  Admin sieht zusaetzlich: is_restoreable, revocation_mode,
+  restrict_finalize_at (materialisiert aus restrict_window_days).
+  SOLL/IST: Projection zeigt ob Kernel-Enforcement mit
+  op_reason_code uebereinstimmt (DP-07c).
+================================================================================

@@ -1,0 +1,86 @@
+================================================================================
+BASE-010 — IDENTITY CORE (INDEX)
+================================================================================
+DATEI: BASE-010_INDEX.txt
+VERSION: v1.0
+DATUM: 2026-04-19
+STATUS: ACTIVE
+
+ZWECK:
+  Kanonisches Schema und Lifecycle fuer die Kern-Entitaeten des Systems:
+  Customers, Connections, Auth-Material, Reason-Codes, Lifecycle-Log.
+  Loest DOMAIN_MODEL.txt und SM_CONNECTION.txt (deprecated model/) auf.
+  "Eine Wahrheit, ein Ort" — Schema, Invarianten und Lifecycle leben
+  ab jetzt hier, nicht mehr im Model-Layer.
+
+VORGAENGER (Altkonzept):
+  B055_DB_SCHEMA_CORE.txt — Core Schema
+  B058_CONN_GROUP_POLICYKEY_DETERMINISTIC_DERIVATIONS.txt — Policy-Key
+  B345_WRITE_PATH_MATRIX_CONTRACT.txt — Write-Rechte pro Akteur
+  B050_SQL_AAA_RADIUS.txt — AAA Ueberblick
+
+VORGAENGER (neues Konzept, deprecated):
+  model/DOMAIN_MODEL.txt — Entitaeten, Felder, Invarianten
+  model/state_machines/SM_CONNECTION.txt — Connection Lifecycle
+  Beide Dateien werden durch BASE-010 aufgeloest.
+
+ENTSCHEIDUNGEN DIE IN DIESE BASE EINGEFLOSSEN SIND:
+  - Auth-Split: Shared Base + getrennte Kindtabellen
+    (Marco + Claude + ChatGPT konvergiert, 2026-04-15)
+  - connection_ref Format: con_[a-z2-7]{12}
+    (Marco-Entscheidung 2026-04-17)
+  - wg_connection_name: deterministisch aus connection_ref
+    (Marco-Entscheidung 2026-04-17)
+  - Provisioning atomar (Marco-Entscheidung 2026-04-17)
+  - DOMAIN_MODEL Felder §3.5 uebernommen (Marco 2026-04-17)
+  - SoT fuer Auth in BASE-010, RADIUS-Mechanik in BASE-020
+    (Marco-Entscheidung 2026-04-17)
+
+DATEIEN IN DIESEM MODUL:
+
+  010  WEB_CUSTOMERS          Customer-Schema (Panel-Account)
+  020  VPN_CONNECTIONS         Connection-Schema (nach Auth-Split)
+  030  AUTH_SPLIT              Auth-Kindtabellen (L2TP/IPsec + WG)
+  040  IDENTIFIER_KLASSEN     connection_ref, wg_connection_name,
+                               display_name — Formate und Regeln
+  050  REASON_REGISTRY         vpn_reason_registry Schema + Codes
+  060  LIFECYCLE_LOG           log_connection_lifecycle Schema
+  070  CONNECTION_LIFECYCLE    Zwei-Ebenen-Modell, Transitionen,
+                               op_status, op_reason_code
+  080  WRITE_PATH_MATRIX      Wer darf was schreiben (SYSTEM/ADMIN/USER)
+  090  INVARIANTEN            Cross-Cutting Invarianten
+  095  TESTS                  Acceptance Tests
+
+ABHAENGIGKEITEN:
+  REQUIRES:
+    BASE-000_SQL_FIRST (Naming, Prefixe, Registry, Tabellen-Kanon)
+    BASE-005_PLATFORM_CORE (OS-Baseline, Service-User)
+  INFLUENCES:
+    BASE-020_AAA_CORE (RADIUS liest aus Auth-Kindtabellen)
+    BASE-030_TUNNEL_L2TP_IPSEC (nutzt vpn_connection_l2tp_ipsec_auth)
+    BASE-040_TUNNEL_WIREGUARD (nutzt wg_connection_auth)
+    BASE-050_FIREWALL_CORE (nftables Sets aus op_status)
+    BASE-070_SESSION_CORE (vpn_sessions referenziert vpn_connections)
+    BASE-080_POLICY_APPLY_CORE (Apply/Reconcile schreibt op_status)
+    BASE-090_SETTINGS_CORE (Settings referenzieren Customer/Connection)
+    BASE-100_POLICY_CORE (Policy referenziert access_role)
+    BASE-110_WEBSTACK_CORE (Panel liest/schreibt Customer/Connection)
+    MOD-001_ONBOARDING (Verify, Claim)
+    MOD-006_PANEL_FEATURES (SOLL/IST, Admin-Aktionen)
+
+PANEL-CONSUMABILITY (DP-07):
+  Alle Entitaeten in BASE-010 muessen Panel-faehig sein:
+  - web_customers: Panel zeigt Account-Status, Rolle, Plan
+  - vpn_connections: Panel zeigt Status, IP, Tunnel-Typ, Deadlines
+  - Auth-Kindtabellen: User sieht eigene Credentials vollstaendig
+    (Login, Passwort, Config, QR-Code). Admin sieht alle Credentials
+    aller Connections. Ausnahme: nt_hash nicht direkt (technisches
+    DB-Artefakt). Detail: INV-75, INV-80.
+  - vpn_reason_registry: Panel zeigt Reason-Beschreibung (Mouseover)
+  - log_connection_lifecycle: Panel-Log-Viewer liest diese Tabelle
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

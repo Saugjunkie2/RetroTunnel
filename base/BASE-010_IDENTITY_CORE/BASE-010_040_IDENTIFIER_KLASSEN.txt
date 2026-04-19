@@ -1,0 +1,120 @@
+================================================================================
+BASE-010 — IDENTIFIER-KLASSEN
+================================================================================
+DATEI: BASE-010_040_IDENTIFIER_KLASSEN.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Kanonische Definition der 4 Identifier-Klassen im System.
+  Verhindert Verwechslung zwischen Auth-Credentials, Connection-
+  Referenzen, UI-Anzeigenamen und DB-Primaerschluesseln.
+
+VORGAENGER: BASE-000_030_IDENTIFIER_KLASSEN.txt (Grundlagen),
+  DISKUSSION_IDENTITY_SCHEMA §3 (Detail-Diskussion)
+
+================================================================================
+1) CREDENTIAL (Auth-Material, tunnelspezifisch)
+================================================================================
+
+  L2TP_IPSEC:
+    subaccount_login + subaccount_nt_hash
+    Tabelle: vpn_connection_l2tp_ipsec_auth
+    RADIUS liest. Format: vpn_[a-z2-7]{16}
+
+  WIREGUARD:
+    wg_public_key + wg_preshared_key
+    Tabelle: wg_connection_auth
+    RADIUS sieht NIE.
+
+  GLOBAL:
+    ipsec_psk (Datei, nicht DB — BASE-005_060)
+
+================================================================================
+2) CONNECTION-REFERENZ (tunnelneutral, generiert)
+================================================================================
+
+  Feld: vpn_connections.connection_ref
+  Format: con_[a-z2-7]{12}
+  Beispiel: con_a3bk7qm2wxyz
+
+  EIGENSCHAFTEN:
+  - Server-generiert (SYSTEM, bei Provisioning)
+  - Immutable nach INSERT
+  - UNIQUE (DB-Constraint)
+  - Tunnelneutral (gleich fuer L2TP_IPSEC und WIREGUARD)
+  - Supporttauglich (kurz genug fuer Tickets, lang genug fuer
+    Eindeutigkeit)
+  - KEIN Auth-Credential (darf nicht fuer Login verwendet werden)
+
+  WARUM con_ UND NICHT vpn_ ODER cx_:
+  - con_ ist lesbarer als cx_ (sofort verstaendlich)
+  - con_ verwechselt sich nicht mit vpn_[a-z2-7]{16}
+    (Legacy-Login-Format), weder im Laengen- noch im Prefix-Muster
+  - vpn_ waere doppeldeutig (Login vs Referenz)
+
+  WARUM 12 ZEICHEN (NICHT 8):
+  - 8 Zeichen = 40 Bit Entropie → Birthday-Collision bei 100k
+    Connections ~0,45%: zu riskant fuer einen Dauer-Identifier.
+  - 12 Zeichen = 60 Bit Entropie → Birthday-Collision bei 1M
+    Connections ~4,3e-7: praktisch ausgeschlossen.
+  - 16 waere fuer Support/UI unnoetig lang.
+
+================================================================================
+3) WG_CONNECTION_NAME (deterministisch aus connection_ref)
+================================================================================
+
+  Feld: wg_connection_auth.wg_connection_name
+  Ableitung: wg_ + connection_ref Payload (12 Zeichen)
+  Beispiel: connection_ref = con_a3bk7qm2wxyz
+            wg_connection_name = wg_a3bk7qm2wxyz
+
+  WARUM DETERMINISTISCH (NICHT zweite Zufalls-ID):
+  - Kein zweiter unabhaengiger Zufallsraum
+  - Kein Drift zwischen zwei verschiedenen Random-Namen
+  - Supporttauglich: Aus connection_ref kann man sofort
+    wg_connection_name ableiten (und umgekehrt)
+
+  HIERARCHIE (Identitaets-Rangfolge, MUST):
+  1. Technische Peer-Identitaet = wg_public_key
+  2. Panelweiter Fallback = connection_ref
+  3. Tunnelspezifischer Hilfsname = wg_connection_name
+  wg_connection_name darf NICHT wichtiger werden als wg_public_key.
+  Es ist ein Profil-/Export-/Panel-Name, keine Primaeridentitaet.
+
+================================================================================
+4) ANZEIGENAME (optional, User-waehlbar)
+================================================================================
+
+  Feld: vpn_connections.display_name
+  Typ: VARCHAR(100), NULL erlaubt
+  Zweck: Frei waehlbarer Name im Panel ("Mein PC", "Laptop").
+  Kein Einfluss auf Auth/Policy/IP. Kein UNIQUE.
+
+  FALLBACK BEI NULL (ENTSCHIEDEN, OFFEN-ID-03):
+  connection_ref ist der EINZIGE Fallback — fuer beide Tunneltypen.
+  Keine tunnelspezifischen Fallbacks.
+  Panel-Logik: display_name ?? connection_ref
+
+================================================================================
+5) PRIMAERSCHLUESSEL (DB-intern)
+================================================================================
+
+  vpn_connections.id (BIGINT UNSIGNED, AUTO_INCREMENT)
+  Nicht fuer Panel, nicht fuer Support, nicht fuer Logs.
+  Nur fuer DB-interne Joins/FKs.
+  connection_ref ist der externe Identifier.
+
+================================================================================
+6) ZUSAMMENFASSUNG: Prefix-Systematik
+================================================================================
+
+  Prefix    Kontext           Beispiel              Laenge
+  ───────── ───────────────── ───────────────────── ──────
+  vpn_      L2TP/IPsec Login  vpn_a3bk7qm2wxyz1234  20 (4+16)
+  con_      Connection-Ref    con_a3bk7qm2wxyz       16 (4+12)
+  wg_       WG Profilname     wg_a3bk7qm2wxyz        15 (3+12)
+
+  Keine Verwechslungsgefahr: Unterschiedliche Prefixe UND
+  unterschiedliche Laengen. Support kann am Prefix sofort
+  erkennen was es ist.
+================================================================================

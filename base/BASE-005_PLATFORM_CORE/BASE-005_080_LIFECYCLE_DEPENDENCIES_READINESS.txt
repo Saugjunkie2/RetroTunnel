@@ -1,0 +1,222 @@
+================================================================================
+BASE-005 — LIFECYCLE DEPENDENCIES READINESS
+================================================================================
+DATEI: BASE-005_080_LIFECYCLE_DEPENDENCIES_READINESS.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Plattform-weiter Vertrag fuer Dienst-Lifecycle. Adressiert
+  nicht nur "Startreihenfolge" sondern den gesamten Betriebs-
+  lebenszyklus.
+
+KERNPUNKT:
+  "After=MariaDB" loest nicht alles. Ein Dienst kann laut systemd
+  gestartet sein, aber fachlich noch nicht bereit. Dieser Vertrag
+  definiert was "bereit" bedeutet und wer worauf wartet.
+
+================================================================================
+1) DEPENDENCY-TYPEN
+================================================================================
+
+  HART (Requires= / Requisite=)
+    Dienst A kann ohne B nicht arbeiten. B-Failure = A-Failure.
+    Beispiel: FreeRADIUS benoetigt MariaDB fuer Auth-Lookups.
+
+  WEICH (Wants= / After=)
+    Dienst A profitiert von B, kann aber ohne funktionieren.
+    Beispiel: Panel will Monitoring, laeuft aber auch ohne.
+
+  ASYNC (After= ohne Requires=)
+    Ordnungsbeziehung ohne zwingende Abhaengigkeit.
+
+================================================================================
+2) READINESS-VERTRAG (pro Dienst-Kategorie)
+================================================================================
+
+  "Ein Dienst ist BEREIT wenn er seine fachliche Rolle erfuellen kann."
+
+  A) Netzwerk-Helper (lo-service-ips)
+     Bereit wenn: IPs auf lo gebunden (ip addr show lo).
+
+  B) Datenbank (MariaDB)
+     Bereit wenn: Socket offen UND Schema erreichbar UND
+     DB-User koennen sich verbinden.
+
+  C) AAA (FreeRADIUS)
+     Bereit wenn: Prozess laeuft UND DB-Verbindung etabliert.
+
+  D) Tunnel-Dienste (strongSwan, accel-ppp, AmneziaWG)
+     Bereit wenn: Interface existiert UND Config geladen UND
+     bereit Peers/Sessions anzunehmen.
+
+  E) Firewall (nftables)
+     Bereit wenn: Ruleset geladen UND Default-Policies aktiv.
+
+  F) DNS (Unbound, AdGuardHome)
+     Bereit wenn: Port offen UND Test-Query erfolgreich.
+
+  G) Panel (OpenResty, PHP-FPM)
+     Bereit wenn: Port offen UND PHP-FPM Socket antwortet UND
+     DB-Verbindung im Pool.
+
+  H) Jobs (Janitor, Reconcile, Accounting)
+     Bereit wenn: Timer aktiv.
+
+================================================================================
+3) KALTSTART-SEQUENZ (Host-Reboot, kanonisch aus B167 §7.2-§7.3)
+================================================================================
+
+  Phase 1: NETZWERK-FUNDAMENT
+    - network-online.target erreicht
+    - lo-service-ips.service: Service-IPs auf lo bereitstellen
+      (WantedBy=sysinit.target, VOR allen Diensten)
+
+  Phase 2: DATENBASIS
+    - mariadb.service starten
+    - Warten auf Readiness (Socket + Schema erreichbar)
+
+  Phase 3: AUTH + TUNNEL
+    - freeradius.service (After: mariadb)
+    - strongswan.service + accel-ppp.service (After: network-online)
+    - awg-quick@awg0.service (After: network-online)
+
+  Phase 4: FIREWALL + NETZWERK-SERVICES
+    - nftables.service laden
+      HINWEIS BOOT-REIHENFOLGE: Tunnel-Dienste starten in Phase 3
+      VOR nftables in Phase 4. Das ist BEWUSST so weil:
+      a) Tunnel-Interfaces muessen existieren bevor nft-Regeln
+         sie referenzieren koennen (awg0, ppp*)
+      b) Fail-Closed wird durch connect_pending Sets garantiert
+         (D009, B167 §3): Jede neue Session landet SOFORT im
+         Pending-Set (DROP ALL) BEVOR Policy-Apply laeuft.
+         Es gibt kein unpoliced Window durch die Boot-Reihenfolge.
+      c) nftables Default-Policy ist DROP — also ist auch ohne
+         geladenes Ruleset kein offener Forward-Pfad vorhanden.
+    - unbound.service + AdGuardHome.service starten
+
+  Phase 5: PANEL
+    - openresty.service + php-fpm.service (After: mariadb)
+
+  Phase 6: BOOT-RECOVERY
+    - boot-reconcile.service (oneshot):
+      After=network-online strongswan accel-ppp awg-quick@awg0 freeradius
+      ExecStart: vpn-policy-apply --reconcile-all
+      Ziel: nft/tc Soll-Zustand fuer aktive Interfaces herstellen
+    - boot-janitor.service (oneshot, verzoegert):
+      After=boot-reconcile
+      Delay: boot_janitor_delay_seconds (SQL-first, Fallback=0)
+      HINWEIS: Keyname vorlaeufig. Kanonischer Prefix (vpn_/...) und
+      Fail-Class werden in BASE-090_SETTINGS_CORE festgelegt.
+      Ziel: Stale Sessions schliessen ohne aktive zu treffen
+
+  Phase 7: TIMER
+    - vpn-policy-reconcile.timer aktivieren
+    - vpn-accounting-collector.timer aktivieren
+    - vpn-stale-session-janitor.timer aktivieren
+
+================================================================================
+4) DB-DOWN VERHALTEN (kanonisch aus B167 §7.4 + B052)
+================================================================================
+
+  Services DUERFEN starten, auch wenn DB temporaer down ist.
+  Kein Boot-Deadlock.
+
+  AUTH: STRICT FAIL-CLOSED (B050)
+    DB down → Login MUSS scheitern. Kein Accept ohne SQL.
+
+  COLLECTOR/JANITOR: BEST-EFFORT
+    DB down → skip/fail (kurzer Timeout), loggen, naechster Lauf
+    holt nach. Kein Loop, kein Log-Spam.
+
+  BOOT-RECONCILE: BEST-EFFORT
+    DB down → reconcile laeuft "no-op" oder bricht ab.
+    Keine Ratespielchen ohne SQL.
+
+================================================================================
+5) SERVICE-RESTART (einzelner Dienst, aus B180)
+================================================================================
+
+  RESTART-POLICY:
+    Alle Core-Dienste: Restart=on-failure (oder Restart=always)
+    mit StartLimitBurst + StartLimitIntervalSec zur
+    Restart-Loop-Verhinderung.
+
+  HEALTHCHECKS (B180):
+    "Prozess laeuft" reicht nicht. Healthcheck muss pruefen:
+    - MariaDB: Socket + Query moeglich
+    - FreeRADIUS: DB-Verbindung intakt
+    - OpenResty: SERVICE_WEB (.3) antwortet
+    - Tunnel: Interfaces existieren + Config geladen
+
+  UEBERSCHREIBUNG: Immer via systemctl edit (Override in
+  /etc/systemd/system/), NICHT via /lib/-Aenderung.
+
+================================================================================
+6) CONTROLLED SHUTDOWN (Entscheidung Marco 2026-04-16, Claude+ChatGPT)
+================================================================================
+
+  AKTUELLE STRATEGIE: systemd-Default
+
+  systemd handled die Reihenfolge ueber Dependencies.
+  Sessions sterben wenn ihr Tunnel-Dienst stoppt.
+  Kein Custom-Script, keine Grace-Semantik.
+
+  EHRLICHE AUSSAGE:
+  Kontrollierter Shutdown ist aktuell KEIN graceful session
+  preservation event. Neue und bestehende Logins sterben mit
+  systemd-Stop der Tunnel-Dienste. Das ist fuer den aktuellen
+  Stand ausreichend und robust.
+
+  SPAETERE ERWEITERUNG:
+  Grace Period / Drain / Quiesce ist bewusst als spaeteres
+  Modul vorgesehen (kein stillschweigendes Versprechen).
+  Relevant erst bei 3000+ Usern oder SLA-Anforderungen.
+
+================================================================================
+7) CRASH-RECOVERY
+================================================================================
+
+  Was passiert wenn ein kritischer Dienst crasht:
+
+  MariaDB Crash:
+    → Alle Auth scheitert (Fail-Closed)
+    → Bestehende Tunnel bleiben (Kernel-State intakt)
+    → Collector/Janitor → Best-Effort skip
+    → systemd Restart=on-failure startet DB neu
+    → Nach Restart: Boot-Reconcile Logik greift
+
+  nftables Crash / Regelverlust:
+    → SICHERHEITSKRITISCH: Enforcement weg
+    → Reconcile-Job erkennt nft-Drift und rebuilt
+    → Worst Case bis Reconcile: unpoliced Window fuer BESTEHENDE
+      Sessions (connect_pending/restricted Sets sind weg, aber
+      Tunnel-Interfaces laufen weiter mit offenen Flows).
+      UNTERSCHIED ZUM BOOT (§3 Phase 4): Beim Boot sind keine
+      Clients verbunden, daher kein unpoliced Window moeglich.
+      Beim Crash sind Clients verbunden, daher ist das Window real.
+    → Empfehlung: nftables-Reload Monitoring + sofort-Alert
+
+  AmneziaWG/strongSwan Crash:
+    → Tunnel-Interface weg → alle Sessions dieser Art down
+    → Andere Tunnel-Art laeuft weiter
+    → systemd Restart + Reconcile nach Neustart
+
+================================================================================
+8) DEGRADED MODE (abgeleitet aus Fail-Closed Prinzip)
+================================================================================
+
+  ERLAUBT (System laeuft weiter):
+    - Panel down, VPN laeuft weiter: OK fuer User
+    - AmneziaWG down, L2TP_IPSEC laeuft: OK fuer L2TP-User
+    - strongSwan down, AmneziaWG laeuft: OK fuer WG-User
+    - Monitoring/Backup down: OK (kein Security-Impact)
+
+  NICHT ERLAUBT (Fail-Closed, muss hart stoppen/reparieren):
+    - Policy-Enforcement down waehrend User verbunden sind
+      → Reconcile muss sofort greifen, sonst unpoliced Window
+    - DB down UND neue Logins werden akzeptiert
+      → Verletzung von Fail-Closed (R-04)
+
+================================================================================
+KEINE OFFENEN INPUT-FRAGEN — alle Punkte geklaert.
+================================================================================

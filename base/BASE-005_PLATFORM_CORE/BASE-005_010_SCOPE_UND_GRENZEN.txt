@@ -1,0 +1,130 @@
+================================================================================
+BASE-005 — SCOPE UND GRENZEN
+================================================================================
+DATEI: BASE-005_010_SCOPE_UND_GRENZEN.txt
+
+ZWECK:
+  Verhindert dass BASE-005 zum Sammelplatz fuer "irgendwas Zentrales"
+  wird. Jedes Thema muss die Aufnahme-Regel bestehen bevor es hier
+  landet. Sonst gehoert es in eine Fach-Base oder ein Modul.
+
+================================================================================
+1) AUFNAHME-REGEL (alle 4 Punkte MUESSEN erfuellt sein)
+================================================================================
+
+Ein Thema gehoert in BASE-005 wenn UND NUR WENN:
+
+  1. Es betrifft mehrere Bases/Dienste gleichzeitig.
+     Ein Thema das nur EINEN Dienst betrifft gehoert in dessen
+     Fach-Base, nicht hierher.
+
+  2. Es braucht eine zentrale Single Source of Truth.
+     Wenn verschiedene Bases den Wert unterschiedlich definieren
+     wuerden, entsteht Drift mit echten Betriebs-/Sicherheits-Folgen.
+
+  3. Divergenz haette echte Betriebs-/Sicherheits-/Drift-Folgen.
+     Nicht "waere haesslich" — sondern "Server bootet nicht" oder
+     "Dienst laeuft unter falschem User und kann Secrets lesen die
+     er nicht lesen darf" oder "Ports kollidieren".
+
+  4. Fach-Bases sollen referenzieren, nicht neu definieren.
+     Die Fach-Base sagt "mein Pfad ist X (siehe BASE-005)", nicht
+     "mein Pfad ist /etc/foo/bar.conf".
+
+Wenn auch nur einer dieser 4 Punkte NICHT erfuellt ist:
+  -> Thema gehoert NICHT in BASE-005.
+
+================================================================================
+2) WAS GEHOERT HINEIN
+================================================================================
+
+  A) OS-/Kernel-/systemd-Baseline
+     Debian-Version, Pflicht-Kernel-Module, systemd-Features.
+     Alle Dienste haengen davon ab.
+
+  B) Service-Endpunkt-/Bind-/Port-Registry
+     Welcher Dienst bindet an welche IP (Service-IPs auf lo), welcher
+     Port, welches Interface. Vermeidet Bind-Konflikte.
+
+  C) Filesystem-/Path-Registry
+     Config-Pfade (/etc/), persistenter State (/var/lib/), Runtime
+     (/run/), generierte Artefakte. Log-Orte und Rotation.
+
+  D) Linux-User / Gruppen / Permissions
+     Welcher Dienst laeuft unter welchem User. Least-Privilege-Regeln
+     fuer File-Ownership.
+
+  E) Secret-Management
+     Wo leben Secrets (Pfade), wer darf lesen, Rotation-Prinzipien,
+     Backup-Regeln.
+
+  F) Service-Inventar
+     Alle systemd-Units mit Owner-Base. Einzige Quelle fuer
+     "welche Units existieren ueberhaupt".
+
+  G) Lifecycle-/Dependency-/Readiness-Modell
+     Start/Stop/Restart/Reload/Recovery. Dependency-Typen (hart,
+     weich, async). Readiness-Vertrag.
+
+================================================================================
+3) WAS GEHOERT NICHT HINEIN
+================================================================================
+
+  NICHT HIER (gehoert in andere Base/Modul):
+
+  SQL-Naming, Tabellen, Keys                -> BASE-000
+  Tabellen-Schemata                          -> jeweilige Fach-Base
+  Settings-Resolution                        -> BASE-090
+  Policy-Resolution                          -> BASE-100
+  Fachliche Tunnel-/Auth-Details             -> BASE-020/030/040
+  Session-Truth / Accounting                 -> BASE-070
+  Firewall-Regellogik                        -> BASE-050
+  DNS-Regellogik                             -> BASE-060
+  Panel-/Business-States                     -> BASE-110
+  Backup-Orchestrierung                      -> MOD-008
+  Monitoring-/Alerting-Fachlogik             -> MOD-007
+  Peak-Mode-Logik                            -> MOD-009
+
+  WICHTIG: Jede Fach-Base hat ihren eigenen Plattform-Contract-
+  Abschnitt in dem sie BASE-005-Registries REFERENZIERT. Der Inhalt
+  (konkrete Pfade, User, Ports) lebt HIER, nicht dort.
+
+================================================================================
+4) ANTI-MUSTER (was BASE-005 NIE werden darf)
+================================================================================
+
+  ANTI-1: "Zentrale Sammlung von allem was irgendwie plattformnah ist"
+    -> BASE-005 ist keine Ablage fuer Querschnittsthemen die nirgendwo
+       sonst hinpassen. Wenn ein Thema nur eine Fach-Base betrifft,
+       gehoert es in DIESE Fach-Base, auch wenn es "technisch" ist.
+
+  ANTI-2: "Fach-Base dupliziert BASE-005-Inhalte"
+    -> Fach-Bases sollen REFERENZIEREN, nicht neu definieren. Wenn
+       eine Fach-Base "meine IP ist 10.0.0.1" sagt statt "siehe
+       BASE-005_030 Endpoint X", entsteht Drift.
+
+  ANTI-3: "BASE-005 beschreibt Fachlogik"
+    -> BASE-005 sagt: MariaDB bindet an Endpoint X. Was MariaDB
+       INHALTLICH tut (Schemas, Queries, Tabellen) steht in BASE-000
+       und den Fach-Bases, nicht hier.
+
+  ANTI-4: "Alles was Admin-Ops betrifft landet hier"
+    -> Operationen wie Backup, Monitoring, Health-Checks sind Module
+       (MOD-007, MOD-008). BASE-005 beschreibt nur die Plattform-
+       Grundlage auf der diese Module arbeiten.
+
+================================================================================
+5) PRUEFFRAGE FUER NEUE INHALTE
+================================================================================
+
+Wenn du ueberlegst ob ein Thema in BASE-005 gehoert, frage:
+
+  "Muss dieses Thema zentral entschieden werden, damit mehrere
+   Dienste konsistent funktionieren? Oder betrifft es nur einen
+   Dienst?"
+
+  Nur-ein-Dienst -> gehoert in dessen Fach-Base.
+  Mehrere-Dienste + Drift-Risiko -> BASE-005 pruefen gegen die
+  4-Punkte-Regel in §1.
+
+================================================================================

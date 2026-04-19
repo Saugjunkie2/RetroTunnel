@@ -1,0 +1,103 @@
+================================================================================
+BASE-010 — LIFECYCLE LOG (log_connection_lifecycle)
+================================================================================
+DATEI: BASE-010_060_LIFECYCLE_LOG.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Vollstaendiges Audit-Log aller Lifecycle-Events einer Connection.
+  Scope: Gesamter Lifecycle, nicht nur op_status-Wechsel.
+  Ersetzt disabled_by auf der Haupttabelle.
+
+VORGAENGER: DOMAIN_MODEL §7B
+  Tabellenname: log_connection_lifecycle (BASE-000 K-04)
+
+================================================================================
+1) SCHEMA: log_connection_lifecycle
+================================================================================
+
+  Feld                  Typ              Constraint     Beschreibung
+  ───────────────────── ──────────────── ────────────── ──────────────────
+  id                    BIGINT UNSIGNED  PK AUTO_INCR   Primaerschluessel
+  vpn_connection_id     BIGINT UNSIGNED  FK, INDEX      Referenz (SET NULL
+                                                        bei physischer
+                                                        Loeschung der
+                                                        Connection)
+  connection_ref        VARCHAR(20)      NOT NULL       Snapshot: connection_ref
+                                                        zum Zeitpunkt des Events.
+                                                        Bleibt nach Loeschung
+                                                        als forensische Referenz.
+  customer_id           BIGINT UNSIGNED  NULL           Snapshot: customer_id
+                                                        zum Zeitpunkt des Events.
+                                                        NULL bei PREPROVISIONED
+                                                        oder nach Loeschung des
+                                                        Customers.
+  event_type            ENUM             NOT NULL       Siehe §2
+  old_op_status         ENUM             NULL           Vorheriger Zustand
+  new_op_status         ENUM             NULL           Neuer Zustand
+  old_reason_code       VARCHAR(64)      NULL           Vorheriger Reason
+  new_reason_code       VARCHAR(64)      NULL           Neuer Reason
+  actor                 ENUM             NOT NULL       SYSTEM|ADMIN|USER|JOB
+  actor_detail          VARCHAR(255)     NULL           z.B. admin_customer_id,
+                                                        job_name, system_component
+  source_ip             VARCHAR(45)      NULL           VPN-IP des Akteurs
+  metadata              JSON             NULL           Zusaetzliche Details
+                                                        (z.B. alter/neuer ip_slot)
+  created_at            TIMESTAMP        NOT NULL       Event-Zeitpunkt
+
+  Indices:
+    INDEX(vpn_connection_id, created_at)
+    INDEX(event_type)
+    INDEX(created_at)
+
+================================================================================
+2) EVENT-TYPEN
+================================================================================
+
+  STATUS_CHANGE          op_status Wechsel (T-01..T-09)
+  CLAIM                  Connection einem Customer zugeordnet
+  RESTORE                Admin-Restore aus DISABLED
+  REVOCATION             Revocation gestartet
+  QUARANTINE_END         Quarantaene abgelaufen
+  POOL_RETURN            IP-Slot zurueck in Pool
+  SLOT_CHANGE            IP-Slot geaendert (Rollenwechsel)
+  ROLE_CHANGE            access_role geaendert (T-09)
+  SESSION_START          VPN-Session gestartet
+  SESSION_END            VPN-Session normal beendet
+  SESSION_HARDCUT        VPN-Session per Hard-Cut beendet
+  SESSION_JANITOR_CLOSE  Stale Session durch Janitor geschlossen
+  SESSION_SIMUSE_REJECT  SimUse-Guard hat Login abgelehnt
+  CONNECTION_DELETED     Connection physisch geloescht
+                         (CASCADE nach Customer-DELETE oder
+                         einzelne Connection-Loeschung).
+                         Snapshot-Felder tragen Identitaet.
+  CUSTOMER_DELETED       Customer-Account physisch geloescht.
+                         Loest CONNECTION_DELETED fuer alle
+                         zugehoerigen Connections aus.
+
+================================================================================
+3) WRITE-PATH
+================================================================================
+
+  Nur SYSTEM schreibt in diese Tabelle. Kein ADMIN/USER Direct-Write.
+  Events werden automatisch bei Lifecycle-Transitionen erzeugt.
+  INSERT-only: Keine UPDATEs, keine DELETEs (Audit-Trail).
+
+  FK-STRATEGIE BEI PHYSISCHER LOESCHUNG (OPEN-010-01 CLOSED):
+    vpn_connection_id FK: ON DELETE SET NULL.
+    Bei Loeschung der Connection wird vpn_connection_id auf NULL
+    gesetzt, aber die Log-Row bleibt erhalten.
+    connection_ref (Snapshot) traegt die forensische Identitaet.
+    customer_id (Snapshot) traegt die Customer-Zuordnung.
+    → Log ist nach Loeschung weiterhin auswertbar ueber
+      connection_ref + customer_id Snapshots.
+
+================================================================================
+4) PANEL-CONSUMABILITY
+================================================================================
+
+  Panel-Log-Viewer (DP-07a) liest diese Tabelle.
+  Filter: Zeitraum, Customer/Connection, event_type.
+  Alle Eintraege escaped gerendert (XSS-Schutz, Bf-04).
+  Retention: Definiert in MOD-007_LOGGING_MONITORING.
+================================================================================

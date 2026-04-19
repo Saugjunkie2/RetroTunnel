@@ -1,0 +1,232 @@
+================================================================================
+BASE-030 — PPP INTERFACE LIFECYCLE
+================================================================================
+DATEI: BASE-030_040_PPP_INTERFACE_LIFECYCLE.txt
+STATUS: ACTIVE
+
+================================================================================
+1) INTERFACE-ERSTELLUNG
+================================================================================
+
+  accel-ppp erstellt pro L2TP-Session ein PPP-Interface.
+  Default-Namensschema: ppp0, ppp1, ppp2, ... (Kernel-Nummerierung)
+
+  Konfigurierbar ueber [l2tp] ifname oder [ppp] ifname:
+    ifname = ppp%d     (Default, sequentiell)
+    ifname = l2tp%d    (Alternative mit L2TP-Prefix)
+
+  RetroTunnel nutzt das Default-Schema (ppp%d), weil:
+  - nftables-Regeln matchen auf "ppp*" (iifname/oifname)
+  - Konsistenz mit pppd-Kompatibilitaets-Hooks (IFNAME=$1)
+  - Alle PPP-Interfaces gehoeren zu L2TP_IPSEC (kein Verwechslungs-
+    risiko — es gibt keinen zweiten PPP-basierten Tunneltyp)
+
+  INTERFACE-PARAMETER:
+  - MTU/MRU: 1400 (aus [ppp] Sektion, Detail → _060)
+  - Lokale IP: 10.77.0.10 (SERVICE_GW_PPP, aus [radius] gw-ip-address)
+  - Remote IP: Framed-IP-Address aus RADIUS-Reply (fixed_ip)
+  - IPv6: deaktiviert (ipv6 = deny, L2TP_IPSEC ist IPv4-only)
+
+  UNIT-CACHE:
+  accel-ppp kann PPP-Interfaces nach Session-Ende im Kernel-Cache
+  halten (unit-cache=1 in [ppp]). Das reduziert Kernel-Overhead
+  bei haeufigen Reconnects. Cached Interfaces werden fuer die
+  naechste Session wiederverwendet.
+
+================================================================================
+2) PRE-TRAFFIC-SPERRE (DEFAULT-DENY AUF PPP*)
+================================================================================
+
+  SICHERHEITSMODELL (Entscheidung aus ChatGPT-Drittreview F-030-001):
+  Jede neue PPP-Session ist per Default vollstaendig gesperrt.
+  Traffic ueber ppp* Interfaces ist NUR moeglich wenn die Client-IP
+  explizit in ein Freigabe-Set eingetragen wird.
+
+  ENFORCEMENT-ORT: nftables (BASE-050, Firewall-Owner).
+  BASE-050 implementiert eine permanente Regel:
+    iifname "ppp*" → DROP (Default fuer allen VPN-Client-Traffic)
+  Ausnahme: Client-IP ist im Freigabe-Set (z.B. allowed_l2tp_v4).
+
+  WARUM NICHT IM HOOK:
+  accel-ppp forkt ip-up als Child-Prozess. Der Session-Start wartet
+  NICHT auf den Abschluss des Hooks. Traffic kann fliessen BEVOR
+  der Hook fertig ist. Daher kann der Hook NICHT als Pre-Traffic-
+  Sperre dienen. Die Sperre muss VOR dem Hook bereits aktiv sein.
+
+  Das Default-Deny-Modell dreht die Sicherheitslogik um:
+  - ALT (falsch): "Hook muss schnell genug sperren" → Race-Condition
+  - NEU (korrekt): "Traffic ist per Default gesperrt, erst Release
+    gibt frei" → kein Zeitfenster ohne Schutz
+
+  FAIL-CLOSED (DP-04):
+  Wenn der ip-up Hook crasht, haengt oder zu langsam ist:
+  → Client-IP ist NICHT im Freigabe-Set
+  → Traffic bleibt gesperrt
+  → Fail-Closed automatisch, ohne Hook-Abhaengigkeit
+
+  IP-PRE-UP HOOK (OPTIONALER FRUEH-GUARD):
+  accel-ppp kennt neben ip-up auch ip-pre-up: Wird ausgefuehrt
+  BEVOR das PPP-Interface hochkommt. Geeignet fuer:
+  - fruehe per-Interface Firewall-Registrierung
+  - defensive Vorbedingungen pruefen
+  - Session beim Pre-Setup bewusst terminieren (Exit-Code ≠ 0)
+  ip-pre-up wird bewusst NICHT fuer Session-Truth oder radacct-
+  Korrelation genutzt (dafuer ist es zu frueh — Accounting laeuft
+  noch nicht). Aber es ist ein nuetzlicher Hebel fuer technische
+  Guards die VOR dem Interface-Up greifen muessen.
+  Konfiguration: [pppd-compat] ip-pre-up = /etc/accel-ppp/ip-pre-up
+
+================================================================================
+3) IP-UP HOOK (SESSION-START TRIGGER)
+================================================================================
+
+  TRIGGER: Nach abgeschlossener IPCP-Verhandlung (IP zugewiesen)
+  PFAD: /etc/accel-ppp/ip-up (konfiguriert in [pppd-compat])
+  AUSFUEHRUNG: Als root, ASYNCHRON (accel-ppp forkt den Hook als
+               Child-Prozess, wartet NICHT auf Abschluss)
+
+  ROLLE: ip-up ist ein TRIGGER und RUNNER, NICHT der Enforcement-Ort.
+  Die Pre-Traffic-Sperre ist bereits aktiv (§2). Der Hook arbeitet
+  UNTER dieser Sperre und gibt am Ende frei — wenn alles erfolgreich.
+
+  UMGEBUNGSVARIABLEN (stock accel-ppp 1.13.0 pppd_compat Modul):
+
+  | Position | Env-Var      | Inhalt                              |
+  |----------|------------- |-------------------------------------|
+  | $1       | IFNAME       | Interface (z.B. ppp0)               |
+  | $2       | —            | tty ("none" bei L2TP)               |
+  | $3       | —            | speed ("0" bei L2TP)                |
+  | $4       | IPLOCAL      | Server-IP (10.77.0.10)              |
+  | $5       | IPREMOTE     | Client-IP (Framed-IP-Address)       |
+  | $6       | CALLING_SID  | Calling-Station-Id (public Client-IP)|
+  | —        | PEERNAME     | Auth-Username (subaccount_login)     |
+  | —        | CALLED_SID   | Called-Station-Id                    |
+
+  NICHT VERFUEGBAR im ip-up Hook (stock accel-ppp 1.13.0):
+  - Acct-Session-Id ($SID): Wird intern von accel-ppp generiert,
+    aber von pppd_compat NICHT als Env-Var exportiert.
+    Die Session-ID muss ueber radacct-Korrelation geholt werden
+    (Detail → _050 Session-Bridge).
+  (Quelle: accel-ppp pppd_compat.c fill_env(), verifiziert durch
+   ChatGPT + Gemini Quellcode-Pruefung, 2026-04-18)
+
+  RADATTR-DATEI:
+  Das pppd_compat Modul schreibt eine Datei
+  /var/run/radattr.<IFNAME> mit den RADIUS-Reply-Attributen.
+  Format: ein Attribut pro Zeile (Key = Value), parsebar mit awk.
+  Inhalt: Framed-IP-Address, Filter-Id, Session-Timeout etc.
+  HINWEIS: radattr enthaelt RADIUS-Reply-Attribute (Access-Accept),
+  NICHT die Acct-Session-Id (die ist ein NAS-generierter Wert,
+  nicht ein Reply-Attribut).
+
+  IP-UP AUFGABEN (Reihenfolge MUSS eingehalten werden):
+  1. Session-Mapping: /run/vpn-sessions/<IFNAME>.env schreiben
+     (Laufzeitdaten fuer Reconcile/Janitor/Policy-Apply)
+  2. Session-Bridge: radacct-Korrelation + vpn_sessions INSERT
+     + vpn_session_locks DELETE (Detail → _050, R-15)
+  3. Policy-Apply Trigger: vpn-policy-apply aufrufen
+     (BASE-080, liest vpn_connections Status, setzt nftables)
+  4. Release: Client-IP in Freigabe-Set eintragen
+     (erst NACH erfolgreichem Session-Bridge + Policy-Apply)
+
+  ZUSTAENDIGKEITEN (Entscheidung aus F-030-001):
+  - BASE-030: Runner fuer Hook-Execution, Session-Mapping, Bridge-Trigger
+  - BASE-050: Owner des Default-Deny und des Freigabe-Sets
+  - BASE-080: Owner der Policy-Evaluation und des Release-Triggers
+  - BASE-070: Owner der Session-Truth (vpn_sessions Schema)
+
+  FAIL-CLOSED BEI IP-UP:
+  Wenn ein Schritt fehlschlaegt (z.B. DB nicht erreichbar):
+  - Client-IP wird NICHT ins Freigabe-Set eingetragen
+  - kein Release → Traffic bleibt gesperrt (Default-Deny)
+  - Session wird NICHT in vpn_sessions eingetragen
+  - accel-ppp Session laeuft weiter (PPP-Link steht), aber der
+    Client hat keine Internet-Konnektivitaet (Fail-Closed, DP-04)
+  - Kein Zeitfenster: Die Sperre ist NICHT vom Hook-Timing abhaengig
+
+================================================================================
+4) IP-DOWN HOOK (SESSION-ENDE)
+================================================================================
+
+  TRIGGER: Bei PPP-Session-Terminierung (LCP-Term, DPD-Timeout,
+           Admin-Kill, accel-ppp Shutdown)
+  PFAD: /etc/accel-ppp/ip-down
+  AUSFUEHRUNG: Als root, asynchron (wie ip-up)
+
+  ZUSAETZLICHE ENV-VARS BEI IP-DOWN:
+  | Env-Var       | Inhalt                         |
+  |---------------|--------------------------------|
+  | CONNECT_TIME  | Session-Dauer in Sekunden      |
+  | BYTES_SENT    | Gesendete Bytes (Server→Client)|
+  | BYTES_RCVD    | Empfangene Bytes (Client→Server)|
+
+  IP-DOWN AUFGABEN:
+  1. vpn_sessions UPDATE: closed_at = NOW(), close_reason setzen
+  2. vpn_session_locks: DELETE fuer vpn_connection_id
+  3. nftables Cleanup: Client-IP aus Freigabe-Set entfernen
+     (+ restricted, custom Sets falls vorhanden)
+  4. /run/vpn-sessions/<IFNAME>.env entfernen (Session-Mapping)
+
+  RADATTR-CLEANUP:
+  /var/run/radattr.<IFNAME> wird von accel-ppp automatisch entfernt
+  wenn die Session endet.
+
+  FRUEHES DISCONNECT:
+  Wenn die Session endet WAEHREND ip-up noch laeuft (z.B. Client
+  trennt sofort wieder), wird der ip-up Child-Prozess von accel-ppp
+  terminiert. In diesem Fall:
+  - ip-up ist nicht fertig → kein Release erfolgt → kein Problem
+  - ip-down muss trotzdem aufraumen (Mapping, ggf. partielle
+    vpn_sessions-Eintraege, Sets)
+  - Dieser Randfall MUSS in der Implementation abgesichert werden
+
+================================================================================
+5) SESSION-MAPPING (/run/vpn-sessions/)
+================================================================================
+
+  Pro aktive L2TP-Session existiert eine Mapping-Datei:
+  /run/vpn-sessions/<IFNAME>.env
+
+  Inhalt (Key=Value, Shell-sourced):
+    IFNAME=ppp0
+    PEERNAME=vpn_a2b3c4d5e6f7g8h9
+    IPREMOTE=10.77.16.5
+    CALLING_SID=92.209.149.76
+    VPN_CONNECTION_ID=42
+    TUNNEL_TYPE=L2TP_IPSEC
+    STARTED_AT=2026-04-18T14:30:00Z
+
+  KEIN SID in der Mapping-Datei: Die Acct-Session-Id steht erst
+  nach erfolgreicher radacct-Korrelation in vpn_sessions
+  (session_token Feld). Die Mapping-Datei enthaelt nur die
+  Laufzeitdaten die der Hook direkt kennt.
+
+  ZWECK:
+  - Reconcile-Loop (BASE-080) kann alle aktiven Sessions auflisten
+  - Janitor (BASE-070) kann Stale-Sessions identifizieren
+  - Policy-Apply kann Interface↔Connection Mapping aufloesen
+  - Debugging: ls /run/vpn-sessions/ zeigt alle aktiven Sessions
+
+  ERSTELLUNG: ip-up Hook schreibt die Datei (Schritt 1)
+  LOESCHUNG: ip-down Hook entfernt die Datei
+  PERSISTENZ: /run/ ist tmpfs — bei Reboot leer (gewollt)
+
+================================================================================
+6) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  - Aktive PPP-Interfaces: Panel zeigt Liste aus accel-cmd show sessions
+    oder ls /run/vpn-sessions/
+  - Session-Details: Interface, Username, Client-IP, VPN-IP, Uptime
+  - Hook-Fehler: Panel zeigt fehlgeschlagene ip-up/ip-down Ausfuehrungen
+    (aus accel-ppp Log oder dediziertem Hook-Error-Log)
+  - Radattr-Inhalt: Panel kann /var/run/radattr.<IFNAME> anzeigen
+    (RADIUS-Reply-Attribute der aktiven Session)
+  - Default-Deny Status: Panel zeigt ob Client-IP im Freigabe-Set
+    ist (freigeschaltet) oder nicht (gesperrt)
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

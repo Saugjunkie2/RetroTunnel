@@ -1,0 +1,137 @@
+================================================================================
+BASE-005 — FILESYSTEM UND LOG LAYOUT
+================================================================================
+DATEI: BASE-005_040_FILESYSTEM_UND_LOG_LAYOUT.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Zentrale Path-Registry. Jede Fach-Base referenziert ihre Pfade
+  hier statt sie selbst zu definieren. Vermeidet Pfad-Drift zwischen
+  Bases.
+
+================================================================================
+1) KONFIGURATIONS-PFADE (/etc/)
+================================================================================
+
+  Dienst              Config-Pfad                   Owner-Base
+  ------------------- ----------------------------- ----------
+  MariaDB             /etc/mysql/                   BASE-020
+  FreeRADIUS          /etc/freeradius/               BASE-020
+  strongSwan          /etc/swanctl/                  BASE-030
+  accel-ppp           /etc/accel-ppp/                BASE-030
+  AmneziaWG           /etc/wireguard/                BASE-040
+  nftables            /etc/nftables.conf             BASE-050
+  Unbound             /etc/unbound/                  BASE-060
+  AdGuardHome         /opt/AdGuardHome/               BASE-060
+                      (Standalone Binary, Config:
+                       AdGuardHome.yaml im Work-Dir)
+  OpenResty           /etc/openresty/                BASE-110
+  PHP-FPM             /etc/php/8.x/fpm/             BASE-110
+
+================================================================================
+2) VPN-TOOLING PFADE (kanonisch aus B167)
+================================================================================
+
+  TOOLS (Ausfuehrbare Dateien):
+    /usr/local/bin/vpn-policy-apply         Zentrales Policy-Tool (B166)
+    /usr/local/bin/vpn-accounting-collector  Batch Accounting (B165)
+    /usr/local/bin/vpn-session-kill          Admin Hardcut (D012)
+    /usr/local/bin/vpn-stale-session-janitor Stale-Session Cleanup (B168)
+
+  PPP HOOKS:
+    /etc/ppp/ip-up.d/99-vpn-hooks           Connect-Trigger (B167 §3)
+    /etc/ppp/ip-down.d/99-vpn-hooks         Disconnect-Trigger (B167 §4)
+
+================================================================================
+3) RUNTIME (/run/ — volatil, tmpfs)
+================================================================================
+
+  /run/vpn-sessions/<ppp_if>.env      Session-Mapping L2TP_IPSEC (B165)
+                                      Inhalt: CONNECTION_ID, PPP_IF,
+                                      CLIENT_IP, START_TS, PPPD_PID
+  /run/vpn-policy-apply.lock          Single-Writer Lock (flock, B167 §8)
+  /run/vpn-accounting-collector.lock  Accounting Lock (flock)
+
+  HINWEIS: /run ist tmpfs und nach Reboot LEER. Boot-Reconcile (B167
+  §7.2) stellt den Soll-Zustand nach dem Start wieder her.
+
+================================================================================
+4) PERSISTENTER STATE (/var/lib/)
+================================================================================
+
+  /var/lib/mysql/                   MariaDB Data (BASE-020)
+  /var/lib/vpn-accounting/          Durable Accounting Spool (B165)
+                                    Haelt Deltas wenn DB down ist.
+  /var/lib/unbound/                 Unbound State/Cache
+  /var/lib/AdGuardHome/             AdGuardHome Data + Filterregeln
+
+================================================================================
+5) LOG-LOCATIONS UND STRATEGIE
+================================================================================
+
+  STRATEGIE: HYBRID (Entscheidung Marco 2026-04-16, Claude+ChatGPT)
+
+  Drei Ebenen, sauber getrennt:
+
+  JOURNAL (systemd-journal, Storage=persistent):
+    Dienst-/Lifecycle-/Failure-Logs aller systemd-Units.
+    Filterbar per journalctl -u <unit>. Boot-/Crash-Kontext
+    automatisch verfuegbar. Debian-13-Standardweg.
+
+  FILE-SPOOL (Dateien unter /var/lib/):
+    High-Frequency Accounting-Deltas (/var/lib/vpn-accounting/).
+    Pipeline-/Spool-Charakter, nicht klassische Service-Logs.
+    Eigene Rotation, Backpressure, Crash-Recovery-Regeln.
+
+  DB (log_*-Tabellen in retrotunnel_main_db):
+    Audit-/fachliche Ereignisse: Policy-Apply, Restrict/Unrestrict,
+    Panel-Admin-Actions, Lifecycle-Events.
+    Filterbar per SQL, korrelierbar, kontrolliert exportierbar.
+
+  EBENEN-ZUORDNUNG (was geht wohin):
+    Journal: Service-Starts/Stops, Fehler, Boot, Crash
+    File-Spool: Accounting-Deltas, radacct-Bridging
+    DB: connection_lifecycle, Policy-Apply, Admin-Actions
+
+  RETENTION-SETTINGS (SQL-first, aus B330):
+    log_detailed_retention_days       Ziel-Aufbewahrung Detail-Logs
+    log_detailed_max_total_bytes      Max Speicher fuer Detail-Logs
+    log_aggregate_retention_months    Monatsaggregate (Heavy-User etc.)
+
+  LOKALE SAFETY CEILINGS (Physik > Policy, IMMER aktiv):
+    LOG_HARD_MAX_BYTES               Max Gesamtspeicher Logs
+    SPOOL_HARD_MAX_BYTES             Max Gesamtspeicher Spool
+    Bei Ceiling-Hit: drop-oldest + Alert (B330 §3)
+
+================================================================================
+6) LOG-REGELN (kanonisch aus B330)
+================================================================================
+
+  VERBOTEN in Logs:
+    - Passwoerter, PSKs, Tokens, NT-Hashes (Sanitizing ist Pflicht)
+    - DNS-Ziel-IPs oder DNS-Target-Domains (nur Counters erlaubt)
+    - Kernel-Log pro DNS-Paket/Request
+
+  ERLAUBT in Logs:
+    - RADIUS Auth Events (Success/Fail + Reason, KEIN Klartext-Passwort)
+    - Accounting Start/Stop (radacct)
+    - Policy Apply/Reconcile Events (State-Changes, Restricted/Unrestricted)
+    - Panel Admin Actions (Audit Trail: Login/Claim/Lock/Unlock)
+    - Janitor-Aktionen (Stale-Session-Cleanup)
+
+  ZUGRIFF: Log-Views nur aus ADMIN-Pool (10.77.2.0/24, Kernel-ACL).
+
+================================================================================
+7) GENERIERTE ARTEFAKTE
+================================================================================
+
+  WireGuard-Configs fuer User-Download:
+    Deferred auf BASE-040_TUNNEL_WIREGUARD. Die Entscheidung ob
+    Configs persistent gespeichert oder on-the-fly generiert werden
+    ist ein Fach-Detail der Tunnel-Base, kein Plattform-Vertrag.
+    BASE-005 registriert den Pfad sobald BASE-040 ihn festlegt.
+
+================================================================================
+OFFENE PUNKTE (bewusst deferred, kein Closure-Blocker):
+  [1] WG-Config Download Pfad → BASE-040 Scope
+================================================================================

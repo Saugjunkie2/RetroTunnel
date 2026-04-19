@@ -1,0 +1,109 @@
+================================================================================
+BASE-020 — INVARIANTEN (MUST)
+================================================================================
+DATEI: BASE-020_090_INVARIANTEN.txt
+STATUS: ACTIVE
+
+Diese Invarianten sind harter Vertrag. Jede Verletzung ist ein Fehler.
+
+================================================================================
+1) ADMISSION-INVARIANTEN (tunnelneutral)
+================================================================================
+
+  AAA-01  Jeder NEUE SESSION-KANDIDAT durchlaeuft die Pruefkette §3
+          (BASE-020_020). Kein Zugang ohne Status-Pruefung.
+          WG Fall A (Roaming) ist KEIN neuer Session-Kandidat.
+  AAA-02  op_status=DISABLED → REJECT. Keine Ausnahme, kein Bypass.
+  AAA-03  Fail-Closed bei DB-Down: Kein ACCEPT ohne DB-Verbindung.
+  AAA-04  SimUse=1 pro vpn_connection_id. Maximal EINE aktive
+          Session pro Connection. Kein Takeover durch User.
+  AAA-05  On-Demand Janitor MUSS vor SimUse-Check laufen. Kein
+          SimUse-REJECT ohne vorherigen Ghost-Check.
+  AAA-06  Session-Start-Signal an BASE-070 ist PFLICHT nach ACCEPT.
+          Kein ACCEPT ohne nachfolgendes vpn_sessions INSERT.
+          Signal MUSS enthalten: vpn_connection_id, tunnel_type,
+          client_ipv4, client_ipv6 (WG immer, L2TP nullable),
+          truth_source, session_token,
+          runtime_ref, source_event_at.
+  AAA-07  Backend-Fehler (DB-Down, SQL-Fehler) duerfen NIEMALS
+          Bans triggern (B340/B341). Eigener Reason-Code.
+  AAA-08  vpn_session_locks ist tunnelneutral. Beide Tunnel-Typen
+          nutzen denselben Guard-Mechanismus an unterschiedlicher
+          Triggerstelle. Owner: BASE-070.
+
+================================================================================
+2) L2TP/IPSEC RADIUS-INVARIANTEN
+================================================================================
+
+  AAA-09  RADIUS liest Auth-Daten DIREKT aus
+          vpn_connection_l2tp_ipsec_auth. radcheck/radreply sind
+          NICHT operative Auth-Truth.
+  AAA-10  RADIUS-DB-User hat KEINEN Zugriff auf wg_* Tabellen
+          (physische Trennung, SQL-09/SQL-10).
+  AAA-11  Auth-Type ist MSCHAPv2. Kein PAP, kein EAP, kein CHAP.
+  AAA-12  Framed-IP-Address in Reply MUSS vpn_connections.fixed_ip
+          sein. Keine Random-Leases.
+  AAA-13  Guard-Release bei Acct-Start ist PFLICHT.
+          vpn_session_locks Row wird bei Acct-Start geloescht.
+  AAA-14  Wenn Acct-Start nie kommt: Guard laeuft nach TTL ab.
+          Kein dauerhafter Lock-Deadlock.
+  AAA-15  radpostauth loggt JEDEN Auth-Versuch (ACCEPT und REJECT).
+          Keine Secrets in Logs (R-12).
+  AAA-16  tunnel_type-Plausibilitaet: RADIUS prueft dass die
+          Connection tunnel_type=L2TP_IPSEC hat. Ein WIREGUARD-
+          subaccount_login (falls moeglich) wird rejected.
+
+================================================================================
+3) WIREGUARD-ADMISSION-INVARIANTEN
+================================================================================
+
+  AAA-17  WIREGUARD hat KEINEN RADIUS-Auth-Flow. Kein RADIUS-
+          Aufruf, kein MSCHAPv2, kein Access-Request.
+  AAA-18  WireGuard-Autorisierung = Peer-Praesenz in Server-Config.
+          Nur SYSTEM kontrolliert Peer-Add/Remove.
+  AAA-19  WireGuard-Session-Detektion ist KEIN Login.
+          Erster gueltiger Handshake = Detektionsereignis.
+  AAA-20  WireGuard Fall A (Roaming/Endpoint-Update) ist KEIN
+          neuer Session-Start und KEIN SimUse-REJECT-Fall.
+
+================================================================================
+4) ACCOUNTING-INVARIANTEN
+================================================================================
+
+  AAA-21  vpn_sessions ist die EINZIGE Session-Truth.
+          radacct ist Legacy-Forensik, nicht Truth.
+  AAA-22  WIREGUARD erzeugt KEINE radacct-Eintraege. Kein
+          FreeRADIUS-Involvement fuer WireGuard-Traffic.
+  AAA-23  radacct darf von keinem Consumer als SimUse-Quelle
+          oder Session-Truth verwendet werden.
+  AAA-24  radacct bleibt fuer L2TP_IPSEC als Forensik-Quelle
+          aktiv (Traffic-Volumina, Verbindungshistorie).
+
+================================================================================
+5) OWNER-GRENZEN-INVARIANTEN
+================================================================================
+
+  AAA-25  BASE-020 definiert WANN vpn_sessions/vpn_session_locks
+          beschrieben werden. BASE-070 definiert WAS und WIE.
+          vpn_session_locks INSERT durch RADIUS ist Runner-Rolle
+          fuer BASE-070, nicht Owner-Anspruch.
+  AAA-26  BASE-020 beschreibt WireGuard NUR als Vertrag, NICHT
+          als Implementierung. Implementierung → BASE-040.
+  AAA-27  Keine FreeRADIUS-Businesslogik in unlang. Komplexe
+          Entscheidungslogik lebt in SQL/Script, nicht in
+          FreeRADIUS-internen Ausdruecken.
+  AAA-28  FreeRADIUS-Standard-SQL-Nebenpfade (radgroupcheck,
+          radgroupreply, usergroup, huntgroups, SimUse-Attribut)
+          sind NICHT autoritativ und muessen deaktiviert oder
+          leer bleiben. Nur direct-read Queries sind aktiv.
+  AAA-29  WireGuard Fail-Closed bei DB-Down: Hybrid-Loesung.
+          Peers werden NICHT aus Config entfernt. Nach Grace-
+          Periode (wg_failclosed_grace_seconds, Settings-Key,
+          Default 300s, BASE-090) wird der
+          WireGuard-Dienst gestoppt. Bei DB-Recovery Neustart.
+          Kein Config-Churn, keine Peer-Manipulation bei Stoerung.
+  AAA-30  WireGuard Key-Rotation erzwingt NEUE SESSION-GRENZE.
+          Keine In-Place-Rotation innerhalb einer offenen Session.
+          Keine parallelen Peers (alter + neuer Key gleichzeitig).
+          runtime_ref bleibt pro Session stabil.
+          close_reason = AUTH_KEY_ROTATED.

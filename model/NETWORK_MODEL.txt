@@ -1,0 +1,508 @@
+================================================================================
+RetroTunnel — NETWORK MODEL
+================================================================================
+VERSION: v0.7
+DATUM: 2026-04-16
+STATUS: DEPRECATED (siehe Deprecation-Hinweis unten)
+PFAD: model/NETWORK_MODEL.txt
+
+================================================================================
+DEPRECATION-HINWEIS (2026-04-16)
+================================================================================
+
+Diese Datei ist inhaltlich UEBERHOLT und wird bei Ausarbeitung der
+zustaendigen Bases aufgeloest. Der Inhalt wandert in zwei Richtungen:
+
+  BASE-010_IDENTITY_CORE   (IP-Pools, Slot-Mapping, access_role -> Pool)
+  BASE-005_PLATFORM_CORE   (Service-Net Anchors, Service-Endpoints,
+                            Loopback-Bindung, awg0/pppX Interfaces)
+
+Grund: Entscheidung 2026-04-16 "model/ wird aufgeloest sobald zustaendige
+Base fertig ist — eine Wahrheit, ein Ort".
+
+BEGRIFFS-BRUECKE (beim Lesen mental uebersetzen):
+
+  Alt (in dieser Datei)               Neu (Kanon ab 2026-04-16)
+  ----------------------------------  -----------------------------------
+  tunnel_type='LEGACY'                tunnel_type='L2TP_IPSEC'
+  tunnel_type='MODERN'                tunnel_type='WIREGUARD'
+  BASE-01..BASE-11 (2-stellig)        BASE-010..BASE-110 (3-stellig)
+  BASE-30 (AWG-Ref im Body, §2)      BASE-040_TUNNEL_WIREGUARD
+                                      (Tunnel-Tausch 2026-04-16: L2TP=030, AWG=040)
+  "customers" Tabelle                 "web_customers" (BASE-000 K-01)
+  "active_session_locks" Tabelle      "vpn_session_locks" (BASE-000 K-02)
+  "reason_registry" Tabelle           "vpn_reason_registry" (BASE-000 K-03)
+
+NAMESPACE-KOLLISION (WICHTIG):
+Diese Datei verwendet "PR-xx" (NET-PR-01..05) fuer Netzwerk-Policy-Regeln.
+BASE-000 verwendet "PR-xx" fuer Prefix-Zonen (PR-01..PR-09). Bei
+Referenzen aus/auf diese Datei die NET-PR-Variante explizit kennzeichnen
+um Verwechslung mit den BASE-000-PR-Zonen zu vermeiden.
+
+BEGRUENDUNG FUER DEPRECATION STATT FULL-REWRITE:
+Die Datei wird ohnehin aufgeloest. Pool-Strukturen und Service-Anchors
+sind im GLOSSARY v1.1 kanonisch dokumentiert, die Mapping-Regeln landen
+in BASE-010 (Pool-Allocation) und BASE-005 (Endpoints). Ein Rewrite
+hier erzeugt doppelte Buchhaltung — genau das was BASE-000-Kanonik
+(R-14 KEINE FREMD-VERSIONIERUNG) verhindern soll.
+
+KANONISCHER NEU-STAND fuer schnelle Orientierung:
+  - 5 Pools: SERVICE_NET, ADMIN, MODERATOR, VIP, USER
+  - Service-Anchors: .1 DNS, .2 RESOLVER, .3 WEB, .4 NTP, .5 SSH,
+    .6 PMA, .7 FREI, .10 GW_PPP (SERVICE_RADIUS entfaellt, FreeRADIUS
+    auf localhost)
+  - awg0 fuer WIREGUARD, pppX pro Peer fuer L2TP_IPSEC
+  - DNS-Zwang via DNAT53, DoT/DoQ (Port 853) DROP
+  - WireGuard WAN-Port: OFFEN (Entscheidung in BASE-040)
+
+REFERENZ ALTES KONZEPT:
+  B060_NETPLAN_IPS_SEGMENTS.txt — Segmente, Pools, Service-IPs
+  B061_DUALSTACK_SLOT_MAPPING_PANEL_STATS.txt — ip_slot, Materialisierung
+  B064_IP_LIFECYCLE_DRIFT_GUARDS_RECONCILE.txt — Quarantaene, Reuse
+  docs/nft_service_ip_scopes.txt — Service-Net Port/Scope Matrix
+
+DELTA ZUM ALTEN KONZEPT (historisch, vor 2026-04-16):
+  - 4 Rollen-Pools statt 3 conn_group-Pools (+ SERVICE_NET)
+  - Pools sind per access_role (USER/VIP/MOD/ADMIN), nicht per tunnel_type
+  - WIREGUARD-Pool entfaellt — USER-Pool uebernimmt
+  - SERVICE_PMA (.6) neu, SERVICE_RADIUS (.7) entfaellt
+  - awg0 als neuer Tunnel-Pfad neben pppX
+  - DoT/DoQ Blocking (Port 853) jetzt in-scope
+  - WireGuard WAN-Port noch OPEN
+
+================================================================================
+1) NETZWERK-ÜBERSICHT
+================================================================================
+
+Der Server hat drei Netzwerk-Schichten:
+
+  WAN       ens18         Öffentliches Internet (1x IPv4 + 1x IPv6 GUA)
+  LOOPBACK  lo            Service-IPs (interne Dienste, nicht routbar)
+  VPN       pppX + awg0   Client-Tunnel-Interfaces
+
+Kein Client hat eine öffentliche IP. Alle Clients bekommen private IPv4
+(10.77.x.x) und/oder ULA IPv6 (fd77:x:x:x::x). Internet-Egress läuft
+über NAT (IPv4 MASQUERADE) und NAT66 (IPv6 MASQUERADE).
+
+================================================================================
+2) WAN-SCHICHT
+================================================================================
+
+Interface:     ens18
+IPv4:          185.150.28.184
+IPv6 (GUA):    2a07:6d80:1e01:145d::1
+FQDN:          rt-gw-001.v6.rocks
+Bandbreite:    1 Gbit/s (Drosselung auf 100 Mbit/s nach 40 TB/Monat)
+Standort:      Schweiz
+
+WAN-EXPOSURE (Minimal, Binding-First):
+  OFFEN (Eingehend):
+  - UDP <AWG_PORT>  — AmneziaWireGuard (Port: OPEN, wird in BASE-30 festgelegt)
+  - UDP 500         — IKEv1/NAT-T (für LEGACY L2TP/IPsec)
+  - UDP 4500        — IKEv1/NAT-T (für LEGACY L2TP/IPsec)
+  - ESP (Proto 50)  — IPsec (für LEGACY L2TP/IPsec)
+
+  NICHT OFFEN (Eingehend):
+  - TCP/UDP 53      — DNS nur intern (SERVICE_DNS auf lo)
+  - TCP 80/443      — Webpanel nur intern (SERVICE_WEB auf lo)
+  - TCP 22          — SSH nur intern (SERVICE_SSH auf lo)
+  - UDP 1701        — L2TP NUR via XFRM/IPsec, NICHT als Plain-L2TP
+
+  Server-eigene Ausgänge (OUTPUT):
+  - Uneingeschränkt (apt, DNS-Resolution via Google DNS, Let's Encrypt etc.)
+
+================================================================================
+3) VPN-INTERFACES
+================================================================================
+
+3.1) LEGACY (L2TP/IPsec via accel-ppp)
+  Interface-Typ:   pppX (ein Interface pro Client-Session)
+  Beispiel:        ppp0, ppp1, ppp2, ...
+  Erzeugt durch:   accel-ppp bei L2TP-Connect
+  IPv4:            Ja (Client-IP aus Rollen-Pool)
+  IPv6:            Nein (LEGACY ist IPv4-only)
+  QoS:             tc direkt auf pppX möglich (dediziertes Interface pro Client)
+  DNS-Enforcement: iifname "ppp*" → DNAT53
+  Peer-Isolation:  iifname "ppp*" oifname "ppp*" → DROP
+  Lebensdauer:     Existiert nur solange Session aktiv
+
+3.2) MODERN (AmneziaWireGuard)
+  Interface-Typ:   awg0 (EIN Interface für ALLE Modern-Clients)
+  Erzeugt durch:   AmneziaWireGuard Daemon beim Start
+  IPv4:            Ja (Client-IP aus Rollen-Pool, per AllowedIPs zugewiesen)
+  IPv6:            Ja (ULA fd77:... aus Rollen-Pool)
+  QoS:             tc auf awg0 betrifft ALLE Peers gemeinsam — per-Peer
+                   Shaping erfordert nftables-Marking + tc-Klassen oder
+                   alternative Mechanik (wird in BASE-30/MOD-03 spezifiziert)
+  DNS-Enforcement: iifname "awg0" → DNAT53
+  Peer-Isolation:  iifname "awg0" oifname "awg0" → DROP
+  Lebensdauer:     Persistent (Interface existiert auch ohne aktive Peers)
+
+WICHTIGER UNTERSCHIED:
+  Legacy: 1 Interface pro Client → tc/QoS pro Interface trivial
+  Modern: 1 Interface für alle → tc/QoS pro Peer braucht Zusatzlogik
+
+PEER-ISOLATION (MUST, PI-01 — GLOBAL, TUNNELÜBERGREIFEND):
+  Client-zu-Client Traffic ist GLOBAL verboten, unabhängig vom Tunnel-Typ.
+  Das gilt für alle 4 Kombinationen:
+    ppp*  → ppp*   (Legacy ↔ Legacy)     → DROP
+    awg0  → awg0   (Modern ↔ Modern)     → DROP
+    ppp*  → awg0   (Legacy → Modern)      → DROP
+    awg0  → ppp*   (Modern → Legacy)      → DROP
+  Einzige erlaubte Ziele für VPN-Clients: SERVICE_NET + WAN (via Forward).
+  Keine Ausnahmen, keine Rollen-Sonderrechte.
+
+================================================================================
+4) SERVICE_NET (Loopback-gebundene Dienste)
+================================================================================
+
+Netz:      10.77.0.0/28 (IPv4) + fd77:0:0:0::/64 (IPv6)
+Gebunden:  lo (Loopback) via systemd oneshot (lo-service-ips.service)
+Boot:      WantedBy=sysinit.target (vor allen Netzwerk-Diensten)
+
+4.1) Service-Anchors (SoT)
+
+  IP v4       IP v6              Label   Dienst                Scope
+  ─────────── ────────────────── ─────── ───────────────────── ──────────────
+  10.77.0.1   fd77:0:0:0::1     lo:dns  SERVICE_DNS           Alle Clients
+              AdGuardHome DNS (Port 53 UDP+TCP)
+              AdGuardHome UI  (Port 2000 TCP, ADMIN-only)
+
+  10.77.0.2   fd77:0:0:0::2     lo:res  SERVICE_RESOLVER      Server-intern
+              Unbound (Port 53 UDP+TCP)
+              NICHT für Clients — nur AdGuard als Upstream
+
+  10.77.0.3   fd77:0:0:0::3     lo:web  SERVICE_WEB           Alle Clients
+              OpenResty/Panel/Portal/Blockpage (Port 80+443 TCP)
+              /diag Endpoint (Port 80+443 TCP)
+              DESIGN-ENTSCHEIDUNG: Panel, Blockpage und /diag teilen sich
+              eine IP. Trennung erfolgt per OpenResty-Pfad/vhost, nicht per
+              IP. Begründung: Alle drei müssen für alle Clients (inkl.
+              Restricted) erreichbar sein — separate IPs würden keinen
+              Sicherheitsgewinn bringen. SERVICE_PMA (.6) hat eine eigene
+              IP, weil phpMyAdmin NUR für ADMIN erreichbar sein darf und
+              das per Kernel-Level (nftables) erzwungen wird.
+
+  10.77.0.4   fd77:0:0:0::4     lo:ntp  SERVICE_NTP           Alle Clients
+              NTP (Port 123 UDP)
+              Auch im Restricted Mode erreichbar (XP Zeitfix)
+
+  10.77.0.5   fd77:0:0:0::5     lo:ssh  SERVICE_SSH           ADMIN-only
+              SSH (Port 22 TCP)
+
+  10.77.0.6   fd77:0:0:0::6     lo:pma  SERVICE_PMA           ADMIN-only
+              phpMyAdmin via OpenResty (Port 443 TCP)
+              Eigene IP für Kernel-Level Zugriffskontrolle per nftables
+
+  10.77.0.7   —                  —       FREI (reserviert)     —
+              War SERVICE_RADIUS, entfernt.
+              FreeRADIUS läuft auf localhost (127.0.0.1:1812/1813).
+
+  10.77.0.10  fd77:0:0:0::10    lo:gw   SERVICE_GW_PPP        Legacy-intern
+              PPP Gateway-Anchor (keine Ports, kein Service)
+              Wird als local-IP/Gateway für accel-ppp PPP-Sessions genutzt
+
+================================================================================
+5) IP-POOLS (pro access_role)
+================================================================================
+
+Grundregel: Pools werden nach access_role vergeben, NICHT nach tunnel_type.
+Ein Admin mit einem XP-Gerät (Legacy) und einem Android (Modern) bekommt
+beide IPs aus dem ADMIN-Pool. tunnel_type bestimmt nur das Protokoll.
+
+5.1) Pool-Übersicht
+
+  Pool        CIDR             Hosts  Reserv. Slots  Allokierbar  IPv6 Bereich         Rolle
+  ─────────── ──────────────── ────── ────────────── ──────────── ──────────────────── ──────
+  ADMIN       10.77.2.0/24      254   Slot 0, Slot 1  2..254 (253) fd77:0:0:2::/64     Admin
+  MODERATOR   10.77.3.0/24      254   Slot 0, Slot 1  2..254 (253) fd77:0:0:3::/64     Mod
+  VIP         10.77.4.0/22     1022   Slot 0, Slot 1  2..1022(1021)fd77:0:0:4::/62     VIP
+  USER        10.77.16.0/20    4094   Slot 0, Slot 1  2..4094(4093)fd77:0:0:10::/60    User
+
+  Legende:
+    Hosts     = Gesamte IPv4-Hostkapazität des CIDR (ohne Netz-/Broadcastadresse)
+    Reserv. Slots = Reservierte Slot-Nummern: Slot 0 = Netzadresse,
+                    Slot 1 = Gateway/System-Anchor (nicht allokierbar,
+                    IP-INV-02/IP-INV-03)
+    Allokierbar = Slot-Bereich für Client-IPs (first..last + Anzahl)
+
+  Reserviert (nicht als Pool nutzbar):
+  SERVICE_NET 10.77.0.0/28        14    —       fd77:0:0:0::/64      Dienste
+  10.77.1.0/24                   254    —       —                     FREI (Zukunft)
+  10.77.8.0/21                  2046    —       —                     FREI (Zukunft)
+
+5.2) Pool-Regeln (MUST)
+
+  PR-01  KEIN POOL-SHARING: Jede access_role hat exklusiv eigene Bereiche.
+         Eine IP gehört immer genau einer Rolle.
+
+  PR-02  CIDR-ENFORCEMENT: nftables-Regeln nutzen CIDR-Ranges für
+         Rollen-Enforcement. O(1), kein Sync, kein Drift.
+
+  PR-03  IPv6 NUR FÜR MODERN: Clients mit tunnel_type=LEGACY bekommen
+         KEINE IPv6-Adresse, auch wenn ihr Pool einen v6-Bereich hat.
+         v6_addr_policy=NONE für LEGACY, v6_addr_policy=FIXED_SQL für MODERN.
+
+  PR-04  SLOT-BASIERT: IPs werden nicht direkt vergeben, sondern über
+         ip_slot (Ganzzahl). fixed_ip und fixed_ipv6 werden deterministisch
+         aus ip_slot materialisiert. Details in DOMAIN_MODEL/TRUTH_MODEL.
+
+  PR-05  STICKY: Einmal zugewiesene IPs ändern sich nur bei Rollenwechsel
+         oder Revoke. Kein Random-Lease, kein DHCP-Style Rotation.
+
+  PR-06  QUARANTÄNE: Entzogene/revoked IPs gehen für QUARANTINE_DAYS
+         in Quarantäne bevor sie neu vergeben werden können.
+
+  PR-07  TAIL-RESERVE: Jeder Pool reserviert die letzten N Slots als
+         Notpuffer (Break-Glass). Nur ADMIN darf aus der Reserve allozieren.
+
+5.3) Slot-zu-IP Ableitung (Konzept, Details in TRUTH_MODEL)
+
+  Für jeden Pool gilt eine deterministische Formel:
+    fixed_ip   = pool_base_v4 + ip_slot
+    fixed_ipv6 = pool_prefix_v6 :: ip_slot  (nur wenn v6_addr_policy=FIXED_SQL)
+
+  Beispiele:
+    ADMIN Pool, ip_slot=5:
+      fixed_ip   = 10.77.2.0 + 5 = 10.77.2.5
+      fixed_ipv6 = fd77:0:0:2::5
+
+    USER Pool, ip_slot=42:
+      fixed_ip   = 10.77.16.0 + 42 = 10.77.16.42
+      fixed_ipv6 = fd77:0:0:10::42 (nur MODERN)
+
+  Slot 0 ist reserviert (Netzadresse, nicht allokierbar).
+  Slot 1 ist SYSTEM-RESERVED (Gateway-Anchor, NIEMALS allokierbar —
+  auch nicht per Break-Glass. Die .1 jedes Pools ist systemreserviert).
+  Allokierbare Client-Slots: 2 bis (Host-Kapazität des Pools).
+  Break-Glass-Allokation nutzt die Tail-Reserve, nicht Slot 1.
+  Maximaler Slot = Host-Kapazität (z.B. 254 bei /24, 4094 bei /20).
+  Tail-Reserve (PR-07) reduziert die allokierbaren Slots zusätzlich.
+
+================================================================================
+6) IPv6-MODELL
+================================================================================
+
+6.1) Grundsatz
+  - Alle VPN-Clients bekommen intern ULA-Adressen (fd77:...), KEINE GUA
+  - IPv6-Egress läuft über NAT66/MASQUERADE: Source am WAN ist Server-GUA
+  - Am WAN darf NIEMALS eine Client-ULA (fd77:...) als Source auftauchen
+
+6.2) IPv6 pro tunnel_type
+  - LEGACY (L2TP/PPP):   IPv6 = NEIN (v6_addr_policy=NONE)
+    XP/Vista unterstützen kein IPv6 über PPP/L2TP
+  - MODERN (AWG):         IPv6 = JA (v6_addr_policy=FIXED_SQL)
+    Dualstack: Client bekommt IPv4 + IPv6 aus dem Rollen-Pool
+
+6.3) IPv6 pro access_role
+  Alle Rollen haben IPv6-Bereiche definiert (Abschnitt 5.1).
+  Ob IPv6 tatsächlich zugewiesen wird, hängt NUR an tunnel_type:
+  - ADMIN mit Legacy-Gerät: kein IPv6 (trotz fd77:0:0:2::/64 im Pool)
+  - USER mit Modern-Gerät:  IPv6 aus fd77:0:0:10::/60
+
+6.4) NAT66/MASQUERADE
+  - nftables POSTROUTING: ip6 saddr fd77::/16 oifname ens18 → masquerade
+  - Alle Client-ULA-Prefixe werden über die Server-WAN-GUA geroutet
+  - Negative Guard: Kein ULA-Source am WAN (tcpdump Proof, wie im alten B310)
+
+================================================================================
+7) SERVICE-NET SCOPE-MATRIX (Wer darf auf welchen Dienst zugreifen)
+================================================================================
+
+Grundregel: Traffic zu SERVICE_* (dst ∈ 10.77.0.0/28) ist LOKALES ZIEL
+und wird per nftables filter INPUT geregelt (nicht FORWARD).
+
+Legende:
+  ✓ = erlaubt    ✗ = verboten    R = auch im Restricted Mode erlaubt
+
+7.1) Normale Clients (nicht restricted)
+
+  Dienst             Port          USER   VIP    MOD    ADMIN
+  ────────────────── ───────────── ────── ────── ────── ──────
+  SERVICE_DNS (.1)   53 UDP+TCP    ✓      ✓      ✓      ✓
+  AdGuard UI (.1)    2000 TCP      ✗      ✗      ✗      ✓
+  SERVICE_RESOLVER(.2) 53 UDP+TCP   ✗      ✗      ✗      ✗  (server-only)
+  SERVICE_WEB (.3)   80+443 TCP    ✓      ✓      ✓      ✓
+  SERVICE_NTP (.4)   123 UDP       ✓      ✓      ✓      ✓
+  SERVICE_SSH (.5)   22 TCP        ✗      ✗      ✗      ✓
+  SERVICE_PMA (.6)   443 TCP       ✗      ✗      ✗      ✓
+  SERVICE_GW_PPP(.10) —            —      —      —      —  (kein Dienst)
+
+  DoT/DoQ            853 TCP+UDP   ✗      ✗      ✗      ✗  (DROP für ALLE)
+
+7.2) Restricted Mode (saddr ∈ restricted_v4/v6 Sets)
+
+  Dienst             Port          Restricted-Client
+  ────────────────── ───────────── ──────────────────
+  SERVICE_DNS (.1)   53 UDP+TCP    R (DNS muss immer funktionieren)
+  AdGuard UI (.1)    2000 TCP      ✗
+  SERVICE_RESOLVER(.2) 53 UDP+TCP   ✗
+  SERVICE_WEB (.3)   80+443 TCP    R (Panel muss erreichbar sein für Self-Service)
+  SERVICE_NTP (.4)   123 UDP       R (Zeitfix muss im Restricted Mode funktionieren)
+  SERVICE_SSH (.5)   22 TCP        ✗
+  SERVICE_PMA (.6)   443 TCP       ✗
+
+  WAN-Forward:       ALLES         ✗ (kein Internet im Restricted Mode)
+
+7.3) nftables Enforcement-Pattern
+
+  Rollen-Enforcement (CIDR-Range, statisch):
+    ip saddr 10.77.2.0/24  → ADMIN  (alle Admin-Rechte)
+    ip saddr 10.77.3.0/24  → MOD    (Moderator-Rechte)
+    ip saddr 10.77.4.0/22  → VIP    (VIP-Rechte, kein Admin-Panel)
+    ip saddr 10.77.16.0/20 → USER   (User-Rechte, plan-gebunden)
+
+  Zustands-Enforcement (dynamische Sets):
+    restricted_v4 / restricted_v6   → Walled Garden Allowlist
+    connect_pending_v4/v6           → Connect-Gate (kein WAN vor Policy-Apply)
+    banned_v4 / banned_v6           → Fail2ban Banset
+
+  Reihenfolge in nftables:
+    1. Banned-Check (frühester Drop)
+    2. Connect-Pending-Check (kein WAN bis Apply)
+    3. Restricted-Check (Walled Garden Allowlist)
+    4. Rollen-basierte Regeln (ADMIN/MOD/VIP/USER Differenzierung)
+    5. Forward-Regeln (Full-Tunnel, NAT)
+
+================================================================================
+8) DNS-ENFORCEMENT (DNAT53 + DoT/DoQ BLOCK)
+================================================================================
+
+8.1) DNAT53 (Port 53 Umleitung)
+  Alle DNS-Anfragen von VPN-Clients werden auf SERVICE_DNS umgeleitet:
+
+  IPv4:  iifname {"ppp*","awg0"} udp dport 53 → dnat to 10.77.0.1:53
+         iifname {"ppp*","awg0"} tcp dport 53 → dnat to 10.77.0.1:53
+  IPv6:  iifname {"ppp*","awg0"} udp dport 53 → dnat to fd77:0:0:0::1:53
+         iifname {"ppp*","awg0"} tcp dport 53 → dnat to fd77:0:0:0::1:53
+
+  Gilt für ALLE Rollen (USER, VIP, MODERATOR, ADMIN). Keine Ausnahmen.
+  Gilt in ALLEN Zuständen (normal, restricted, pending).
+
+  Nach DNAT ist dst=10.77.0.1:53 → Traffic geht in nft filter INPUT
+  → Dort muss Port 53 erlaubt sein (Abschnitt 7).
+
+  Server-eigene DNS (OUTPUT): NICHT betroffen. Server nutzt Google DNS
+  (resolv.conf). AdGuard nutzt Unbound als Upstream.
+
+8.2) DoT Blocking (Port 853 TCP)
+  iifname {"ppp*","awg0"} tcp dport 853 → DROP
+
+8.3) DoQ Blocking (Port 853 UDP)
+  iifname {"ppp*","awg0"} udp dport 853 → DROP
+
+8.4) DoH (Port 443)
+  Kann nicht per Port geblockt werden (teilt sich Port 443 mit normalem
+  HTTPS). Wird über AdGuard-Blocklisten gefiltert (bekannte DoH-Domains).
+
+8.5) DNS-ARCHITEKTUR AUSNAHME (DNS-EX-01, BEWUSSTE ENTSCHEIDUNG)
+  Server-OUTPUT ist NICHT Teil des Client-DNS-Enforcement-Pfads.
+
+  Client-DNS-Pfad:    Client → DNAT53 → SERVICE_DNS (AdGuard) → Unbound
+  Server-DNS-Pfad:    Server OUTPUT → resolv.conf → Google DNS (8.8.8.8)
+
+  Begründung: Der Server braucht externe DNS-Auflösung für seinen eigenen
+  Betrieb (apt, Let's Encrypt ACME, E-Mail-Versand). Dieser Traffic läuft
+  über OUTPUT (nicht PREROUTING) und wird daher nicht von DNAT53 erfasst.
+  Das ist kein Fehler, sondern bewusste Architektur.
+
+  AdGuard nutzt Unbound (SERVICE_RESOLVER .2) als Upstream, nicht Google
+  DNS direkt. Unbound wiederum nutzt die Root-Hints / rekursive Auflösung.
+
+================================================================================
+9) OFFENE PUNKTE (OPEN)
+================================================================================
+
+OPEN-NET-01: AWG WAN-Port
+  Der UDP-Port für AmneziaWireGuard auf der WAN-Seite ist noch nicht
+  festgelegt. Wird in BASE-30_TUNNEL_AWG entschieden.
+  Typisch: 51820 (WG Default) oder ein Custom-Port (DPI-Umgehung).
+  Impact: WAN-Exposure (Abschnitt 2), Firewall-Regeln (BASE-50).
+
+OPEN-NET-02: AWG Interface-Name
+  awg0 ist der angenommene Name. AmneziaWG könnte einen anderen Default
+  verwenden. Wird in BASE-30_TUNNEL_AWG verifiziert und hier nachgezogen.
+
+OPEN-NET-03: QoS auf awg0 (per-Peer Shaping)
+  Ein WireGuard-Interface ist shared (alle Peers). Per-Peer tc/QoS
+  erfordert Zusatzlogik (nftables-Marking, tc-Klassen, oder IFB).
+  Wird in BASE-30_TUNNEL_AWG + MOD-03_QOS spezifiziert.
+
+OPEN-NET-04: Moderator Service-Zugriffe
+  Welche Service-IPs der Moderator zusätzlich erreichen darf (z.B.
+  Teilzugriff auf AdGuard-UI?) ist noch nicht entschieden.
+  Impact: Scope-Matrix (Abschnitt 7.1).
+
+================================================================================
+10) TESTS / VALIDIERUNG (DoD für dieses Modell)
+================================================================================
+
+T-NET-01: Pool-Isolation
+  - Ein Client im USER-Pool (10.77.16.x) darf NICHT auf Admin-Only
+    Services zugreifen (SSH, PMA, AdGuard-UI).
+  - Nachweis: nftables counters + curl/nc Tests.
+
+T-NET-02: Rollen-Range korrekt
+  - Jede IP aus einem Pool wird von nftables der richtigen Rolle zugeordnet.
+  - Nachweis: Test pro Pool mit bekannter Test-IP.
+
+T-NET-03: DNS-Zwang funktioniert für beide Tunnel-Typen
+  - Client setzt DNS auf 8.8.8.8 → DNS wird trotzdem auf 10.77.0.1
+    umgeleitet (tcpdump / dig Nachweis).
+  - Test für pppX (Legacy) UND awg0 (Modern).
+
+T-NET-04: DoT/DoQ geblockt
+  - dig +tls @1.1.1.1 (Port 853 TCP) → Timeout/Rejected.
+  - Test für beide Tunnel-Typen.
+
+T-NET-05: Peer-Isolation
+  - Client A → Client B (ICMP/TCP/UDP): DROP.
+  - Test innerhalb und zwischen Rollen.
+  - Test für pppX↔pppX, awg0↔awg0, und pppX↔awg0 (Cross-Tunnel).
+
+T-NET-06: NAT66 Egress
+  - IPv6 Egress am WAN zeigt Server-GUA als Source, niemals Client-ULA.
+  - Nachweis: tcpdump auf ens18.
+
+T-NET-07: Restricted Mode
+  - Restricted Client erreicht SERVICE_WEB, SERVICE_DNS, SERVICE_NTP.
+  - Restricted Client erreicht NICHT das Internet (WAN forward DROP).
+  - Restricted Client erreicht NICHT SSH/PMA/AdGuard-UI.
+
+T-NET-08: WAN Stealth
+  - Port-Scan von extern zeigt NUR die offenen VPN-Ports.
+  - Kein Panel, kein DNS, kein SSH von außen erreichbar.
+
+================================================================================
+CHANGELOG
+================================================================================
+v0.7 (2026-04-16): F-FRESH-M01 + F-FRESH-N01 Fix.
+  Begriffs-Bruecke erweitert: Tunnel-Tausch (BASE-30 im Body -> BASE-040),
+  kanonische Tabellennamen (web_customers, vpn_session_locks,
+  vpn_reason_registry). Verhindert falsche Zuordnung durch generisches
+  2-zu-3-stellig Mapping bei vertauschten Tunnel-Ordnern.
+v0.5 (2026-04-15): ChatGPT Befundbericht Fix F-VB-N02.
+  §5.1 Pool-Tabelle: "Reserv." → "Reserv. Slots", Werte "0,1" →
+  "Slot 0, Slot 1". Legende mit IP-INV-02/IP-INV-03 Referenz.
+v0.4 (2026-04-15): ChatGPT Audit #6 Fix F-013.
+  §7.1/§7.2: Service-Label-Drift bereinigt. SERVICE_RES → SERVICE_RESOLVER,
+  SERVICE_GW → SERVICE_GW_PPP. Kanonische Labels aus §4.1 durchgezogen.
+v0.3 (2026-04-12): Gemini Cross-Over Review Fix.
+  - §5.3: Slot 1 = SYSTEM-RESERVED, NIEMALS allokierbar (auch nicht
+    per Break-Glass). Break-Glass nutzt Tail-Reserve. Klarstellung
+    konsistent mit DOMAIN_MODEL IP-INV-03. Marco-Entscheidung.
+v0.2 (2026-04-10): Review-Korrekturen nach externem Feedback.
+  - Pool-Tabelle präzisiert: CIDR + Hosts + Reservierte Slots + Allokierbare
+    Slots (statt unprziser "Größe"). Slot-Ableitung korrigiert.
+  - Peer-Isolation als explizite MUST-Norm (PI-01): alle 4 Tunnel-
+    Kombinationen (ppp*↔ppp*, awg0↔awg0, ppp*↔awg0) als DROP normiert.
+  - Server-DNS Ausnahme (DNS-EX-01) als bewusste Architektur-Entscheidung
+    dokumentiert: Server-OUTPUT nutzt Google DNS, Clients nutzen internen
+    Stack via DNAT53.
+  - SERVICE_WEB Bündelung als Design-Entscheidung dokumentiert: Panel,
+    Blockpage, /diag auf einer IP, Trennung per OpenResty-Pfad.
+v0.1 (2026-04-10): Initiales Netzwerkmodell. 5 Rollen-Pools, 7 Service-
+  Anchors, IPv6-Modell, Scope-Matrix (4 Rollen + Restricted), DNS-
+  Enforcement (DNAT53 + DoT/DoQ), WAN-Exposure, VPN-Interfaces
+  (pppX + awg0), 4 offene Punkte, 8 Validierungstests.
+================================================================================

@@ -1,0 +1,155 @@
+================================================================================
+BASE-010 — AUTH SPLIT (L2TP/IPsec + WireGuard Kindtabellen)
+================================================================================
+DATEI: BASE-010_030_AUTH_SPLIT.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Auth-Credentials leben in separaten Kindtabellen, NICHT auf
+  vpn_connections. Physische Trennung = GRANT-Trennung = Sicherheitszonen.
+
+ARCHITEKTUR-ENTSCHEIDUNG (3 Parteien konvergiert, 2026-04-15):
+  Marco + Claude + ChatGPT: Shared Base + getrennte Auth-Kindtabellen.
+  NICHT: eine breite Mischtabelle mit NULL-Feldern.
+  NICHT: zwei komplett getrennte Haupttabellen.
+
+BEGRUENDUNG:
+  a) Sicherheitszonen: vpn_connection_l2tp_ipsec_auth lebt in vpn_-Zone
+     (RADIUS darf lesen). wg_connection_auth lebt in wg_-Zone
+     (RADIUS darf NICHT lesen). Physische Trennung = GRANT-Trennung.
+  b) RADIUS-Flooding-Schutz: AWG-Keys in vpn_*-Zone wuerden RADIUS
+     ermoeglichen fuer jede Connection einen DB-Lookup + Hash-Vergleich
+     zu machen. Mit wg_-Zone sieht RADIUS diese Daten physisch nicht.
+  c) Semantische Klarheit: L2TP_IPSEC hat 2 Auth-Felder (login + hash).
+     WIREGUARD hat 3 Auth-Felder (pubkey + psk + name).
+  d) Kein NULL-Muell: Jede Tabelle hat nur die Felder die sie braucht.
+
+================================================================================
+1) SCHEMA: vpn_connection_l2tp_ipsec_auth
+================================================================================
+
+  Tabelle fuer L2TP/IPsec-spezifische Auth-Daten.
+  RADIUS darf diese Tabelle lesen (vpn_-Zone GRANT).
+
+  Feld                  Typ             Constraint          Beschreibung
+  ───────────────────── ─────────────── ─────────────────── ────────────────────
+  id                    BIGINT UNSIGNED PK AUTO_INCREMENT   Primaerschluessel
+  vpn_connection_id     BIGINT UNSIGNED FK, UNIQUE          1:1 zu vpn_connections
+  subaccount_login      VARCHAR(64)     UNIQUE, NOT NULL    PPP/RADIUS Username
+
+  HINWEIS EIGENER PK: Beide Auth-Kindtabellen haben ein eigenes id
+  (AUTO_INCREMENT) statt vpn_connection_id als PK. Das ist eine
+  bewusste Entscheidung: MariaDB-Konvention fuer ORM-Kompatibilitaet
+  und Migrations-Flexibilitaet. vpn_connection_id ist UNIQUE (1:1),
+  aber nicht PK.
+                                                            Format: vpn_[a-z2-7]{16}
+                                                            Server-generiert, immutable.
+                                                            Nicht enumerierbar.
+  subaccount_nt_hash    VARCHAR(255)    NOT NULL            MSCHAPv2 NT-Hash.
+                                                            Kein Klartext-SoT.
+  created_at            TIMESTAMP       NOT NULL            Erstellungszeitpunkt
+  rotated_at            TIMESTAMP       NULL                Letzte Credential-Rotation
+                                                            NULL = nie rotiert
+
+  Indices:
+    UNIQUE(vpn_connection_id)
+    UNIQUE(subaccount_login)
+
+  SoT-REGEL:
+  - Diese Tabelle ist die kanonische Quelle fuer L2TP/IPsec Auth.
+  - radcheck/radreply sind NICHT Truth-Quelle (abgeleitet/materialisiert).
+  - Sync-Mechanik (wie RADIUS die Daten bekommt) → BASE-020_AAA_CORE.
+
+================================================================================
+2) SCHEMA: wg_connection_auth
+================================================================================
+
+  Tabelle fuer WireGuard-spezifische Auth/Profil-Daten.
+  RADIUS darf diese Tabelle NICHT lesen (wg_-Zone, kein GRANT).
+
+  Feld                  Typ             Constraint          Beschreibung
+  ───────────────────── ─────────────── ─────────────────── ────────────────────
+  id                    BIGINT UNSIGNED PK AUTO_INCREMENT   Primaerschluessel
+  vpn_connection_id     BIGINT UNSIGNED FK, UNIQUE          1:1 zu vpn_connections
+  wg_public_key         VARCHAR(64)     UNIQUE, NOT NULL    WireGuard PublicKey
+                                                            Technische Peer-Identitaet.
+  wg_preshared_key      VARCHAR(64)     NULL                WireGuard PresharedKey
+                                                            Optional (Extra-Layer).
+  wg_connection_name    VARCHAR(20)     UNIQUE, NOT NULL    Generierter Profilname.
+                                                            Deterministisch aus
+                                                            connection_ref abgeleitet:
+                                                            wg_ + gleicher Payload.
+                                                            Siehe BASE-010_040 §3.
+                                                            NICHT die technische
+                                                            Peer-Identitaet (das ist
+                                                            wg_public_key).
+  created_at            TIMESTAMP       NOT NULL            Erstellungszeitpunkt
+  rotated_at            TIMESTAMP       NULL                Letzte Credential-Rotation
+                                                            NULL = nie rotiert
+
+  Indices:
+    UNIQUE(vpn_connection_id)
+    UNIQUE(wg_public_key)
+    UNIQUE(wg_connection_name)
+
+================================================================================
+3) AUTH-SPLIT INVARIANTE (MUST)
+================================================================================
+
+  AS-01  Fuer jede Row in vpn_connections MUSS gelten:
+         tunnel_type='L2TP_IPSEC'
+           → GENAU EINE Row in vpn_connection_l2tp_ipsec_auth
+           → KEINE Row in wg_connection_auth
+         tunnel_type='WIREGUARD'
+           → GENAU EINE Row in wg_connection_auth
+           → KEINE Row in vpn_connection_l2tp_ipsec_auth
+
+  AS-02  Auth-Kindtabelle wird ATOMAR mit vpn_connections erstellt
+         (eine Transaktion). Kein Halbzustand (Connection ohne Auth).
+         SYSTEM schreibt (Provisioning-Job).
+
+  AS-03  subaccount_login ist immutable nach Erstellung (INV-45).
+  AS-04  wg_public_key kann durch User-Aktion rotiert werden
+         (neue Config generieren, Panel-Passwort als Bestaetigung).
+         SYSTEM generiert neues Keypair und aktualisiert die Row.
+         Alte Config wird ungueltig. Neue wird per Email zugesandt
+         (passwortgeschuetzte ZIP). Siehe Entwurf Panel-Credential.
+  AS-05  subaccount_login Format: vpn_[a-z2-7]{16} (Legacy-Kanon).
+  AS-06  wg_connection_name ist deterministisch aus connection_ref
+         abgeleitet: wg_ + connection_ref Payload (12 Zeichen).
+
+================================================================================
+4) GRANT-TRENNUNG (DB-Level Enforcement)
+================================================================================
+
+  DB-User         vpn_connection_l2tp_ipsec_auth   wg_connection_auth
+  ─────────────── ──────────────────────────────── ───────────────────
+  radius_user     SELECT (lesen, Auth-Pruefung)    KEIN ZUGRIFF
+  system_user     SELECT, INSERT, UPDATE, DELETE   SELECT, INSERT,
+                                                   UPDATE, DELETE
+  webpanel_user   SELECT (read-only Anzeige)       SELECT (read-only)
+
+  Begruendung: RADIUS sieht WireGuard-Auth physisch nicht.
+  Ein Angreifer der RADIUS-DB-Credentials erbeutet, kann keine
+  WireGuard-Keys lesen.
+
+  PANEL-READ-PFAD (Marco-Entscheidung 2026-04-18):
+  Das Panel IST die Sicherheitsgrenze (Panel-im-VPN).
+  USER sieht SEINE EIGENEN Credentials vollstaendig:
+  - L2TP: Login-Name (subaccount_login) + Passwort fuer
+    Geraete-Einrichtung, Neuinstallation, Zweitgeraet-Setup
+  - WG: Vollstaendige Config-Datei + QR-Code (inkl. Keys)
+  ADMIN sieht ALLE Credentials ALLER Connections:
+  - Vollzugriff fuer Support, Debugging, Abuse-Pruefung
+  - Alle Login-Daten, Passwoerter, Configs, Keys, QR-Codes
+  - Credential-Status (erstellt, rotiert, wann)
+  Credential-Schutz obliegt dem User. Server ist durch DNS-Zwang
+  gesichert. Panel kann Quell-IP-Vergleich implementieren und
+  bei Verdacht auf Leak warnen (Empfehlung, kein Zwang).
+  Detail Features → MOD-006_PANEL_FEATURES.
+  Technische Umsetzung → BASE-110_WEBSTACK_CORE.
+  Nicht-normative Vorstudie: BASE-110_WEBSTACK_CORE/entwuerfe/
+  panel-zentrale/ENTWURF_PANEL_CREDENTIAL_ZUGRIFF.txt (KR-01).
+  Admin-Dashboard Anforderungen: BASE-110_WEBSTACK_CORE/entwuerfe/
+  admin-dashboard/ENTWURF_ADMIN_DASHBOARD.txt (KR-01).
+================================================================================

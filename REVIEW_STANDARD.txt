@@ -1,0 +1,406 @@
+================================================================================
+RetroTunnel — REVIEW-STANDARD (NUR FÜR CLAUDE)
+================================================================================
+VERSION: v1.0
+DATUM: 2026-04-19
+STATUS: ACTIVE
+
+ZWECK:
+  Dieses Dokument definiert Claudes verbindlichen Review- und
+  Arbeitsstandard für das RetroTunnel-Projekt. Es adressiert
+  konkrete Schwächen die in der Praxis aufgetreten sind und
+  definiert den Qualitätsmaßstab für jede Arbeit an Konzeptdateien.
+
+  Dieses Dokument ist bei jedem neuen Chat zu lesen.
+
+================================================================================
+1) GRUNDHALTUNG
+================================================================================
+
+GRÜNDLICHKEIT VOR GESCHWINDIGKEIT (MUST):
+  Marco braucht keine schnellen Antworten. Er braucht richtige.
+  Gründlichkeit hat Vorrang vor Geschwindigkeit.
+  Jede Änderung, jeder Review, jeder Fix braucht so lange wie nötig.
+  Lieber 10 Minuten nachdenken als 10 Runden nachbessern.
+
+GEGNER-PERSPEKTIVE (MUST):
+  Claude reviewt NICHT wie ein Autor der sieht was er gemeint hat.
+  Claude reviewt wie ein Gegner der sieht was DASTEHT.
+  Bei jedem Eigenreview: "Wie würde ein externer Prüfer das lesen?"
+
+KEINE ANNAHME VON KORREKTHEIT (MUST):
+  Nur weil eine Stelle in der letzten Runde nicht beanstandet wurde,
+  ist sie nicht automatisch korrekt. Jede Version wird VOLLSTÄNDIG
+  geprüft, nicht nur das Delta.
+
+LEBENDES DOKUMENT:
+  Dieser Standard wird erweitert wenn neue Schwächen oder Muster
+  in der Praxis auftreten. Er ist nicht statisch.
+
+VORRANG-HIERARCHIE:
+  Bei Widersprüchen zwischen Steuerungsdokumenten gilt:
+    1. Marcos direkte Anweisung (höchste Autorität)
+    2. CLAUDE_BRIEFING.txt (Projekt- und Arbeitsrahmen)
+    3. REVIEW_STANDARD.txt (Review- und Fix-Methodik)
+  Die Dokumente ergänzen sich. Bei Konflikten gilt die
+  höhere Ebene.
+
+================================================================================
+2) BEKANNTE SCHWÄCHEN — GEGENMASSNAHMEN
+================================================================================
+
+Die folgenden Schwächen wurden in der SM_POLICY_RESTRICT Session
+(v0.1→v1.6, 15 Review-Runden) identifiziert. Sie sind KEINE
+theoretischen Risiken, sondern nachgewiesene Fehlerquellen.
+
+SCHWÄCHE 1: Propagationsfehler beim Schreiben
+  Problem: Claude ändert eine Stelle aber vergisst abhängige Stellen.
+  Beispiel: §6.2 auf Linie A geändert, aber POL-15 / POL-21 / GR-05
+  nicht nachgezogen. 5 ChatGPT-Runden für dasselbe Problem.
+  
+  GEGENMASSNAHME (MUST):
+  Bei JEDER inhaltlichen Änderung SOFORT einen Propagations-Check:
+  a) Alle Stellen im Dokument finden die dasselbe Konzept erwähnen
+  b) Alle abhängigen Stellen nachziehen IN DEMSELBEN EDIT
+  c) Propagations-Check als Tabelle im Output dokumentieren
+  d) Erst NACH dem Check die Änderung als fertig melden
+
+SCHWÄCHE 2: Delta-Review statt Vollprüfung
+  Problem: Claude nimmt an "der Rest ist ja schon geprüft" und
+  prüft nur die geänderten Stellen.
+  
+  GEGENMASSNAHME (MUST):
+  Nach jeder Änderung: Datei NEU LESEN und VOLLSTÄNDIG prüfen.
+  Kein mentales Caching von "das war beim letzten Mal OK".
+
+SCHWÄCHE 3: Autor-Perspektive statt Gegner-Perspektive
+  Problem: Claude sieht was er gemeint hat, nicht was dasteht.
+  
+  GEGENMASSNAHME (MUST):
+  Bei jedem Eigenreview explizit fragen:
+  - "Was steht hier WÖRTLICH? Nicht was ich gemeint habe."
+  - "Kann ein Leser der nur DIESE Datei liest, das falsch verstehen?"
+  - "Widerspricht dieser Satz einem anderen Satz in der Datei?"
+
+================================================================================
+3) REVIEW-METHODIK (8 PRÜFEBENEN)
+================================================================================
+
+Jeder Review (Eigen oder Fremd) MUSS diese 8 Ebenen abdecken.
+Keine Ebene darf übersprungen werden.
+
+EBENE A — Form / Terminologie / Redaktion
+  - Gleiche Begriffe = gleiche Bedeutung (keine Synonyme ohne Definition)
+  - Stale Formulierungen aus älteren Versionen
+  - Ursachenbezogen vs zustandsbezogen (→ Lehre 5, §8)
+
+EBENE B — Interne Konsistenz
+  - Widersprüche zwischen Abschnitten
+  - Inkonsistenzen zwischen Normtext ↔ Invarianten ↔ Tests ↔ Changelog
+  - Scope-Drift (Inhalte am falschen Ort)
+
+EBENE C — Logik / State-Machine / Flows / Gates
+  - Zustände, Übergänge, Trigger vollständig?
+  - Reihenfolgegarantien nachweisbar?
+  - Deadlines / TTL / Grace: < vs <= vs > vs >= klar?
+  - Failure-Pfade: Jeder hat einen definierten Endzustand?
+  - "Was passiert als Nächstes?" muss IMMER eindeutig sein
+
+EBENE D — Randfälle / Stabilität / Recovery
+  - Race Conditions
+  - Crash / Restart / verpasste Hooks
+  - Cleanup / Reconcile / stale State
+  - Fail-closed vs fail-open (jeder Zweig prüfen)
+  - Temporäre Restzustände: harmlos vs kritisch klar unterschieden?
+
+EBENE E — Security / Isolation
+  - Leckfenster / No-Unpoliced-Window
+  - Sichere Fehlerpfade (kein silent failure)
+  - Verhalten bei SQL-Down / Runtime-Ausfall
+
+EBENE F — Implementierungsnähe
+  - Ist das mit dem Stack realistisch umsetzbar?
+  - Fehlen zwingende technische Details?
+  - Wo behauptet das Konzept eine Garantie die es nicht beweisen kann?
+
+EBENE G — Tests / DoD
+  - Decken die Tests die Norm wirklich ab?
+  - Fehlen Gegenfälle / Grenzfälle / Failure-Zweige?
+  - Invarianten und Tests beschreiben dieselbe Wirklichkeit?
+
+EBENE H — Propagationsprüfung (KRITISCHSTE EBENE)
+  - Wurde jeder Fix in ALLEN betroffenen Stellen nachgezogen?
+    - Normtext
+    - Invarianten
+    - Tests
+    - Diagramme
+    - Changelog
+    - Cross-File-Verweise
+  - Ein lokal gefixter Punkt gilt NICHT automatisch als global geschlossen.
+  - METHODE: Konzept-Tracing — jedes geänderte Konzept durch ALLE
+    Erwähnungen in der Datei verfolgen und in einer Tabelle dokumentieren.
+
+================================================================================
+4) PROJEKT-SPEZIFISCHE CHECKLISTE (10 PUNKTE)
+================================================================================
+
+Zusätzlich zu den 8 Prüfebenen prüft Claude bei RetroTunnel-Dateien
+EXPLIZIT diese projekt-spezifischen Punkte:
+
+  a) BOUNDARY-CHECKS: Jede Deadline/Schwelle/Zeitvergleich:
+     < vs <= vs > vs >= prüfen. Gleichheitszeitpunkt definiert?
+  b) DUALSTACK-DURCHZUG: Jede IP-Referenz in Text, Invarianten
+     UND Tests: fixed_ip UND fixed_ipv6 erwähnt?
+  c) CROSS-FILE-TRANSITION: Jede referenzierte T-xx gegen
+     SM_CONNECTION verifizieren (Nummer, Actor, Vorbedingung).
+  d) TERMINOLOGIE-KONSISTENZ: Gleiche Begriffe in Überblick,
+     Detail, Invarianten, Tests und Diagramm?
+  e) TOP-LEVEL vs DETAIL: Zusammenfassung/Überblick muss mit
+     der Detaillogik in späteren Sektionen deckungsgleich sein.
+  f) DIAGRAMM ↔ FLIESSTEXT ↔ INVARIANTEN ↔ TESTS: Alle vier
+     müssen dasselbe sagen. Kein stale Diagramm.
+  g) TUNNELNEUTRALITÄT: Keine L2TP_IPSEC-zentrierte Sprache wenn
+     WIREGUARD ebenfalls betroffen ist. "Peer/Session" statt nur "Peer".
+     (Altwerte LEGACY/MODERN wurden 2026-04-16 durch L2TP_IPSEC/
+     WIREGUARD ersetzt, siehe 03_CHANGELOG v0.10.)
+  h) TESTANZAHL: Gezählte Tests == Changelog-Angabe?
+  i) INVARIANTEN-REFERENZEN: Tests referenzieren korrekte Nummern?
+  j) OFFLINE/CLEANUP-PFADE: Was passiert nach Session-Ende oder Kill
+     mit Enforcement-State, Sets, tc-Regeln?
+
+================================================================================
+5) VERBINDLICHER WORKFLOW (Schreiben + Review)
+================================================================================
+
+5.1) Beim SCHREIBEN / FIXEN (MUST):
+
+  GILT FÜR: Änderungen an bestehenden Dateien UND neu erstellte Dateien.
+  Neu erstellte Dateien durchlaufen zusätzlich den Eigenreview-Loop
+  (§5.2) BEVOR sie Marco präsentiert werden.
+
+  1. VOR dem Schreiben: Alle betroffenen Stellen identifizieren
+  2. ALLE Stellen in EINEM Durchgang ändern (nicht einzeln)
+  3. NACH dem Schreiben: Propagations-Check als Tabelle
+  4. Cross-File-Nachzüge identifizieren:
+     - Sicher semantikneutral UND im aktuellen Scope → durchführen
+     - Alles andere → als Befund dokumentieren, nicht still ändern
+     (Autonomie-Grenze §5.4 gilt auch cross-file)
+  5. Datei NEU LESEN (nicht aus dem Gedächtnis arbeiten)
+  6. Erst dann "fertig" melden
+
+5.2) Beim EIGENREVIEW (MUST):
+
+  CONTEXT-COVERAGE (MUST, vor jedem Multi-Datei-Review):
+  Vor einem Review mit mehr als 3 Dateien deklariert Claude den
+  Lesegrad pro Datei:
+    (a) vollständig gelesen
+    (b) Kernabschnitte gelesen, Rest per Suche
+    (c) nur per Suche/Referenz geprüft
+    (d) nicht gelesen
+  Keine Datei darf als "geprüft" gemeldet werden die nur
+  Kategorie (c) oder (d) hat. Wenn eine Datei nur per Suche
+  gestreift wurde, muss das offen deklariert werden — nicht
+  als vollständige Prüfung dargestellt.
+  Begründung: Großer Kontext (1M Tokens) erzeugt das Risiko von
+  Scheinvollständigkeit. Claude kann "global sicher klingen" obwohl
+  nicht jeder Bereich gleich tief gelesen wurde.
+
+  LOOP (Review-Konvergenz, §5.3):
+  Der folgende Ablauf wird WIEDERHOLT bis Schritt 8 greift.
+  Nach jedem Fix-Durchgang: zurück zu Schritt 1. Kein vorzeitiges
+  Abbrechen. Erst wenn ein vollständiger Durchgang null Befunde
+  ergibt, ist der Review abgeschlossen.
+
+  1. Datei KOMPLETT frisch lesen (auch wenn gerade erst geschrieben)
+  2. 8 Prüfebenen (§3) systematisch durchgehen
+  3. 10-Punkte-Checkliste (§4) abarbeiten
+  4. Konzept-Tracing: Jedes Schlüsselkonzept durch ALLE Erwähnungen
+  5. Adversarial Denken: "Wo kann ein externer Prüfer etwas finden?"
+  6. Befunde strukturiert ausgeben mit Fund-IDs
+  7. Fixes umsetzen MIT Propagations-Check:
+     - Autonome Fixes (siehe §5.4 AUTONOMIE-GRENZE): sofort
+     - Design-Entscheidungen (siehe §5.4): Befund dokumentieren,
+       Marco entscheiden lassen (Briefing Regel 6)
+  8. Wenn KEINE FEHLER (BLOCKER/MAJOR/MINOR) im aktuellen
+     Durchgang: LOOP ENDET. NICE-Befunde werden dokumentiert,
+     blockieren aber nicht (§5.3). Explizit sagen wie viele
+     Durchgänge nötig waren.
+
+5.3) Review-Konvergenz-Standard (Marco-Regel):
+
+  Eine Datei gilt als FERTIG wenn ein vollständiger Durchgang
+  NULL FEHLER findet: BLOCKER=0, MAJOR=0, MINOR=0.
+  Reviews laufen so lange bis diese Bedingung erfüllt ist.
+  Es gibt keinen "gut genug" Status.
+
+  NICE-Befunde blockieren den Loop NICHT. Sie werden im letzten
+  Durchgang dokumentiert und als Empfehlungen ausgegeben, verhindern
+  aber nicht den Abschluss des Reviews.
+
+5.4) AUTONOMIE-GRENZE (Was darf Claude allein, was entscheidet Marco?)
+
+  AUTONOM (Claude darf allein):
+
+    - Semantikneutrale Terminologie-Fixes
+    - Propagations-Nachzüge
+    - Stale Formulierungen / Faktenkorrekturen
+    - Test-Nachzug an bereits entschiedenen Normtext
+    - Cross-File-Referenzkorrekturen
+    - Changelog-/Versions-/Label-/Nummerierungsbereinigung
+    - Tunnelneutralitäts-/Dualstack-Nachzug, wenn dadurch keine
+      neue Semantik entsteht
+
+  DESIGN-ENTSCHEIDUNG (Marco entscheidet):
+
+    - Wahl zwischen Alternativen
+    - Neue/entfernte Zustände oder Transitionen
+    - Neue/geänderte Invarianten
+    - Neue/geänderte Felder, Constraints, Enums, Registry-Codes
+    - Scope-Entscheidungen
+    - Neue Konzepte
+    - Bewusste Abweichung vom alten Konzept
+    - Failure-Strategie
+    - Exit-Codes, Alerting, Logging-Schwere, Retry-/Abbruch-Strategie
+    - Tests, die neues Verhalten oder neue DoD-Anforderungen festschreiben
+    - Alles, was nicht sicher semantikneutral ist
+
+  OBERREGEL:
+    Im Zweifel nicht nach Form, sondern nach Wirkung entscheiden:
+    Ändert es nur die Darstellung → Claude darf allein.
+    Ändert es Verhalten, Bedeutung, Garantie oder Modellgrenze
+    → Marco entscheidet.
+
+  ANTI-OVERREACH (MUST):
+    Bei Review-Modus keine autonome Mehrdatei-Umbauaktion ohne
+    explizites Signal von Marco. Scope-Erweiterungen ("das fixe ich
+    gleich überall mit") sind ein Befund, kein stiller Fix.
+    Claude darf Cross-File-Propagation nur für semantikneutrale
+    Nachzüge autonom durchführen (siehe AUTONOM oben). Jede
+    Aktion die über den beauftragten Scope hinausgeht, wird als
+    Befund dokumentiert und Marco zur Entscheidung vorgelegt.
+
+================================================================================
+6) REVIEW-OUTPUT-FORMAT (MUST)
+================================================================================
+
+Jeder Review (Eigen oder auf externe Reviews) wird in dieser
+Struktur ausgegeben:
+
+  1. GESAMTURTEIL — 2-3 Sätze, klar und direkt
+
+  2. FAKTEN — was die Datei tatsächlich sagt, welche Stärken oder
+     Änderungen objektiv sichtbar sind
+
+  3. ANNAHMEN — offen benennen, falls etwas angenommen werden musste.
+     Keine verdeckten Annahmen.
+
+  4. SCHLUSSFOLGERUNGEN — abgeleitet aus Fakten + Annahmen
+
+  5. BEFUNDE — vollständig nach Schweregrad:
+     - BLOCKER = verhindert jede weitere Arbeit (fundamentaler
+       Widerspruch, Gate-Bruch, Security-Loch, State-Machine-Deadlock)
+     - MAJOR = patch-blockierend (Korrektheit, Sicherheit, interner
+       Widerspruch, fehlender Failure-Pfad, Invarianten-Drift)
+     - MINOR = fix-pflichtig aber nicht blockierend (Terminologie,
+       Testlücke, Formrest, Cross-File-Referenz)
+     - NICE = Verbesserungsvorschlag, kein Fehler (Lesbarkeit,
+       Struktur, Ergänzung die Mehrwert bringt aber nicht fehlt)
+     - Auch LEERE Kategorien ausdrücklich benennen
+     - Jeder Befund hat:
+       - Fund-ID (F-XXX-NNN)
+       - Kategorie (welche Prüfebene A-H)
+       - Stelle (Datei + Abschnitt)
+       - Problem (was steht da falsch)
+       - Warum relevant
+       - Fix-Intention (Ziel + Delta + Constraints)
+       - Validierung (wie wird der Fix verifiziert)
+
+  6. PROPAGATIONS-CHECK — wenn Fixes umgesetzt werden:
+     Tabelle aller betroffenen Stellen (within-file + cross-file)
+
+  7. PATCH-REIFE-STATUS — klare Aussage:
+     - patch-reif / nicht patch-reif / patch-reif mit Notes
+     - patch-blockierende vs nachrangige Punkte
+     - Einzelfile-Reife vs Paket-/Cross-File-Reife benennen
+
+  8. KURZFASSUNG — 1 kompakter Abschlussabschnitt der den Kernbefund
+     präzise zusammenfasst (max 3-4 Sätze)
+
+  Wenn KEINE Befunde gefunden werden:
+  Das MUSS explizit gesagt werden mit Begründung welche Prüfungen
+  durchgeführt wurden. "Keine Befunde" ohne Nachweis ist inakzeptabel.
+
+KEIN STILLES PATCHEN (MUST):
+  Solange Marco nicht ausdrücklich Patch-/Einfüge-Anweisungen verlangt,
+  liefert Claude ein REVIEW und keinen Patch. Keine Copy&Paste-Blöcke,
+  keine finalen Replace-/Insert-Blöcke, keine stillschweigende
+  Textumschreibung. Erlaubt sind nur präzise Änderungsintentionen.
+
+VORVERSIONS-VERGLEICH (MUST):
+  Wenn eine Vorversion bekannt ist, prüft Claude zusätzlich aktiv:
+  a) Welche früheren Funde jetzt sauber geschlossen wurden
+  b) Welche Funde nur teilweise geschlossen wurden
+  c) Ob neue Nebenwirkungen oder Propagationsfehler entstanden sind
+  Eine neue Version ist IMMER erneut vollständig zu prüfen.
+  Kein bloßes Delta-Review anhand früherer Befunde.
+
+================================================================================
+7) DRITTPRÜFUNGS-MODUS
+================================================================================
+
+  Wenn Marco externe Reviews (von ChatGPT, Gemini, anderen) einbringt:
+
+  AUTORITÄTS-HIERARCHIE (MUST):
+    1. Marcos Ziel und Entscheidung (höchste Autorität)
+    2. Altes Konzept (8 Monate Entwicklungszeit)
+    3. Neuer Kanonstand (aktuelle RetroTunnel-Dateien)
+    4. Drittreview als Prüfimpuls (niedrigste Autorität)
+  Ein Drittreview darf NIEMALS stillschweigend höher gewichtet
+  werden als Marcos Ziele oder der bestehende Kanonstand.
+
+  VERARBEITUNG:
+  a) Jeden Punkt fachlich klassifizieren:
+     korrekt / teilweise korrekt / falsch / kontextabhängig / offen
+  b) Nicht nur abarbeiten — eigene Zusatzbefunde liefern
+  c) Vor jeder Revision: betroffene Datei NEU LESEN
+  d) Nachbardateien auf Drift prüfen
+  e) Offen benennen wenn ein Reviewpunkt lokal plausibel ist aber
+     global Widersprüche erzeugt
+  f) Kein passiver Modus: Wenn keine eigenen Befunde → das explizit sagen
+
+================================================================================
+8) LEHREN AUS DER PRAXIS (SM_POLICY_RESTRICT v0.1→v1.6)
+================================================================================
+
+Diese Lehren sind nicht theoretisch. Sie stammen aus 15 Review-Runden
+in einer einzigen Session.
+
+LEHRE 1: Propagation ist das Hauptproblem
+  17+ MAJORs in SM_POLICY_RESTRICT. Davon waren ~12 Propagationsfehler.
+  Claude hat das Verhalten geändert aber nicht alle abhängigen Stellen.
+  → Propagations-Check ist die WICHTIGSTE einzelne Maßnahme.
+
+LEHRE 2: Konzept-Tracing ist effektiver als Checklisten
+  Die 10-Punkte-Checkliste fand 4 MINORs in v0.4.
+  Konzept-Tracing fand 6 stale Referenzen in v1.0.
+  → Beides zusammen nutzen, Konzept-Tracing priorisieren.
+
+LEHRE 3: "Bereit für Review" war meistens gelogen
+  Fast jede Version die als "bereit" markiert wurde hatte MAJORs.
+  → Vor "bereit" IMMER vollständigen Eigenreview durchführen.
+
+LEHRE 4: Ein Fix der neue Fixes erzeugt ist kein Fix
+  Die connect_pending Linie-A-Kaskade (v0.6→v1.0, 5 Runden) war
+  im Grunde EIN Fix der in v0.6 hätte komplett sein müssen.
+  → Bei jeder Designentscheidung sofort ALLE Konsequenzen durchdenken.
+
+LEHRE 5: Zustandsbezogen denken, nicht ursachenbezogen
+  Kritische Zustände definieren sich durch WAS SIE SIND,
+  nicht durch WIE SIE ENTSTANDEN SIND.
+  → Invarianten immer zustandsbezogen formulieren.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

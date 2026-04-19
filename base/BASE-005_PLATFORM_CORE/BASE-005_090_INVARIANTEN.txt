@@ -1,0 +1,80 @@
+================================================================================
+BASE-005 — INVARIANTEN (MUST)
+================================================================================
+DATEI: BASE-005_090_INVARIANTEN.txt
+STATUS: ACTIVE (PF-01..PF-17 definiert, waechst mit Content)
+
+ZWECK:
+  Harter Vertrag. Jede Verletzung ist ein Fehler. Invarianten
+  werden PF-01..PF-xx nummeriert (PF = Plattform).
+
+================================================================================
+1) SERVICE-/BIND-INVARIANTEN
+================================================================================
+
+  PF-01  Zwei Dienste binden NIE auf die gleiche IP+Port-Kombination.
+  PF-02  Service-IPs auf lo existieren BEVOR abhaengige Dienste binden.
+  PF-03  Port-Registry in BASE-005_030 ist die EINZIGE Quelle fuer
+         Port-Zuordnungen. Kein Dienst darf einen nicht-registrierten
+         Port oeffnen.
+
+================================================================================
+2) USER-/PERMISSION-INVARIANTEN
+================================================================================
+
+  PF-04  Jede systemd-Unit laeuft unter einem in BASE-005_050
+         definierten User. Kein Drift.
+  PF-05  Sensitive Secret-Dateien haben Permissions 0600 und
+         gehoeren dem berechtigten Dienst-User.
+  PF-06  Least-Privilege: FreeRADIUS hat KEINEN Zugriff auf
+         /etc/wireguard/. OpenResty hat KEINEN Zugriff auf
+         /etc/freeradius/. (Analog zu BASE-000 DB-Zonen, aber
+         auf OS-Ebene.)
+
+================================================================================
+3) PFAD-INVARIANTEN
+================================================================================
+
+  PF-07  Alle Config-/State-/Log-Pfade sind in BASE-005_040 definiert.
+         Keine Base darf eigene Pfade einfuehren ohne hier zu
+         registrieren.
+  PF-08  Runtime-Artefakte leben in /run/ und sind nicht persistent.
+  PF-09  Persistenter State lebt in /var/lib/ und ist im Backup-Scope.
+
+================================================================================
+4) LIFECYCLE-INVARIANTEN
+================================================================================
+
+  PF-10  Jeder Dienst hat ein Readiness-Kriterium (BASE-005_080 §2).
+         "systemd started" reicht nicht.
+  PF-11  Harte Dependencies sind symmetrisch: Wenn A Requires B,
+         muss B vor A bereit sein.
+  PF-12  Crash eines kritischen Dienstes (Kritisch=Ja im Inventar)
+         loest Alert UND Reconcile-Versuch aus.
+
+================================================================================
+5) SECRET-INVARIANTEN
+================================================================================
+
+  PF-13  Infrastruktur-Secrets (DB-Passwoerter, SSH-Keys, RADIUS
+         Shared Secret, WG Server PrivateKey, SMTP-Credentials)
+         erscheinen NIEMALS im Klartext in Logs, Diag-Output oder
+         Admin-UI. Connection-Credentials (Login, Passwort, PSK,
+         WG-Config/Keys, QR-Code) sind davon AUSGENOMMEN — sie
+         MUESSEN im Panel im Klartext sichtbar sein (Betriebsdaten,
+         BASE-005_060 §5, INV-75). Fuer Logs und Diag-Output gilt
+         die Redaktionspflicht (R-12) fuer ALLE Secret-Typen.
+  PF-14  DB-User-Passwoerter und File-Secrets haben separate Backup-
+         Behandlung (siehe BASE-005_060 §3).
+  PF-15  Rotation eines Secrets erzwingt Invalidierung des alten
+         (kein paralleler Betrieb).
+
+================================================================================
+6) INVENTAR-INVARIANTEN
+================================================================================
+
+  PF-16  Jede systemd-Unit im laufenden System muss in BASE-005_070
+         registriert sein. Unregistrierte Units sind Drift.
+  PF-17  Jede Unit hat genau EINE Owner-Base.
+
+================================================================================

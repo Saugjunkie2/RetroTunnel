@@ -1,0 +1,356 @@
+================================================================================
+BASE-010 — CROSS-CUTTING INVARIANTEN
+================================================================================
+DATEI: BASE-010_090_INVARIANTEN.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Gesammelte Invarianten die ueber mehrere Dateien in BASE-010 gelten.
+  Loest SM_CONNECTION §7 (INV-01..INV-35 + LR-01..LR-03) vollstaendig
+  auf. Ergaenzt um Auth-Split, Write-Path und Identity-Invarianten.
+
+VORGAENGER: SM_CONNECTION §7, DOMAIN_MODEL Invarianten, B055 Constraints
+
+NUMMERIERUNG: INV-01..INV-XX fortlaufend, nach Kategorie gruppiert.
+  Lifecycle-Regeln (zeitabhaengig, nicht rein statisch): LR-01..LR-03.
+
+================================================================================
+1) OWNERSHIP-INVARIANTEN
+================================================================================
+
+  INV-01  customer_id IS NOT NULL ↔ claimed_at IS NOT NULL
+          (bidirektionale Konsistenz: Claim setzt BEIDE oder KEINES)
+  INV-02  customer_id darf nach Claim nie wieder NULL werden (monotonic)
+  INV-03  claimed_at darf nach Claim nie wieder NULL werden (monotonic)
+  INV-04  PREPROVISIONED = customer_id IS NULL (abgeleitet, kein Feld)
+
+================================================================================
+2) STATUS-REASON KONSISTENZ
+================================================================================
+
+  INV-05  op_status=ACTIVE → op_reason_code IS NULL
+  INV-06  op_status=RESTRICTED → op_reason_code IS NOT NULL
+  INV-07  op_status=DISABLED → op_reason_code IS NOT NULL
+  INV-08  op_status=RESTRICTED → vpn_reason_registry.allowed_op_status
+          = RESTRICTED (FK-Enforcement)
+  INV-09  op_status=DISABLED → vpn_reason_registry.allowed_op_status
+          = DISABLED (FK-Enforcement)
+  INV-10  Enforcement ueber vpn_reason_registry (FK), nicht ueber
+          String-Prefixe. RESTRICT_/DISABLE_ Prefixe sind Lesbarkeits-
+          konvention, NICHT Enforcement-Logik.
+
+================================================================================
+3) TIMESTAMP-KONSISTENZ
+================================================================================
+
+  INV-11  op_status=ACTIVE → restricted_at IS NULL AND disabled_at IS NULL
+  INV-12  op_status=RESTRICTED → restricted_at IS NOT NULL
+          AND disabled_at IS NULL
+  INV-13  op_status=DISABLED → disabled_at IS NOT NULL
+  INV-14  op_status != RESTRICTED → restrict_finalize_at IS NULL
+  INV-15  Reason ohne Auto-Finalisierung → restrict_finalize_at IS NULL
+  INV-16  is_restoreable=false → restore_until IS NULL
+  INV-17  op_status != DISABLED → restore_until IS NULL
+
+================================================================================
+4) REVOCATION / QUARANTAENE KONSISTENZ
+================================================================================
+
+  INV-18  revoked_at IS NOT NULL → op_status=DISABLED
+  INV-19  revoked_at IS NOT NULL → restore_until IS NULL
+          (revozierte Connection hat kein Restore-Fenster mehr)
+  INV-20  quarantine_until IS NOT NULL ↔ revoked_at IS NOT NULL
+          (bidirektional: Quarantaene existiert NUR bei Revocation)
+  INV-21  quarantine_until IS NOT NULL → quarantine_until > revoked_at
+
+================================================================================
+5) REVOCATION-MODE LIFECYCLE-REGELN (zeit-/jobabhaengig)
+================================================================================
+
+  Diese Regeln werden durch Jobs/Transitionen erzwungen, nicht durch
+  DB-Constraints allein.
+
+  LR-01  revocation_mode=IMMEDIATE + Eintritt in DISABLED
+         → revoked_at UND quarantine_until MUESSEN im selben
+           atomaren Write materialisiert werden
+  LR-02  revocation_mode=AFTER_RESTORE_WINDOW + Eintritt in DISABLED
+         → revoked_at IS NULL bis restore_until abgelaufen
+         → Job setzt revoked_at + quarantine_until nach Fristablauf
+  LR-03  revocation_mode=MANUAL_ONLY + DISABLED
+         → Nur explizite Admin-Aktion darf revoked_at setzen
+           (kein Job, kein Reconcile)
+
+================================================================================
+6) MULTI-REASON PRECEDENCE
+================================================================================
+
+  INV-22  op_reason_code bei RESTRICTED ist IMMER der hoechstpriore
+          aktuell gueltige Grund gemaess vpn_reason_registry.
+          precedence_rank (niedrigster Rank = hoechste Prioritaet)
+  INV-23  T-05 (Re-Evaluation) darf op_status=ACTIVE nur setzen wenn
+          KEIN RESTRICT-Grund mehr aktiv ist
+  INV-24  Reason-Re-Evaluation ist idempotent: mehrfaches Ausfuehren
+          mit gleichen Eingaben erzeugt denselben Endzustand
+
+================================================================================
+7) SOURCE FACTS
+================================================================================
+
+  INV-25  customer_paused_at: Setzen nur durch Customer-Aktion,
+          Loeschen durch Customer ODER Lifecycle (INV-28)
+  INV-26  admin_manual_restricted_at: Setzen nur durch Admin,
+          Loeschen durch Admin ODER Lifecycle (INV-28)
+  INV-27  Source Facts (customer_paused_at, admin_manual_restricted_at)
+          bestimmen ob der jeweilige RESTRICT-Grund aktiv ist.
+          Sie sind UNABHAENGIG von op_reason_code (der zeigt nur
+          den hoechstprioren Grund, nicht alle aktiven).
+  INV-28  Source Facts werden bei Eintritt in DISABLED (T-04/T-06/T-07)
+          IMMER geloescht. Nach Restore (T-08) startet die Connection
+          ohne alte Source Facts.
+
+================================================================================
+8) SLOT / IP INVARIANTEN
+================================================================================
+
+  INV-29  ip_slot bleibt auf der Row auch nach DISABLED/Revocation
+          (historischer Snapshot, Forensik)
+  INV-30  fixed_ip/fixed_ipv6 sind immutable im Normalbetrieb (VC-04).
+          Mutation nur bei Rollenwechsel (neue Allokation).
+  INV-31  IP-Pool wird aus access_role abgeleitet (NICHT tunnel_type)
+  INV-32  Rollenwechsel erzeugt neue IP-Allokation. Alter Slot →
+          Quarantaene (Reuse-Policy B064).
+
+================================================================================
+9) IDENTITY-INVARIANTEN
+================================================================================
+
+  INV-33  web_customers.email ist UNIQUE (DB-Constraint)
+  INV-34  email_verified_at ist monotonic (nie zurueck auf NULL)
+  INV-35  status=ACTIVE → email_verified_at IS NOT NULL
+  INV-36  access_role Aenderung kaskadiert auf alle Connections (D003-E02)
+  INV-37  connection_ref ist UNIQUE und immutable nach Erstellung
+  INV-38  claim_deadline ist immutable (Hard-Stop, kein Extend)
+  INV-39  tunnel_type ist immutable nach INSERT (VC-08)
+  INV-40  Alle Connections eines Customers haben dieselbe access_role (INV-36)
+  INV-41  plan_id nur bei access_role=USER (VIP/MOD/ADMIN: NULL)
+
+================================================================================
+10) AUTH-SPLIT INVARIANTEN
+================================================================================
+
+  INV-42  L2TP_IPSEC → genau 1 Row in vpn_connection_l2tp_ipsec_auth,
+          0 Rows in wg_connection_auth
+  INV-43  WIREGUARD → genau 1 Row in wg_connection_auth,
+          0 Rows in vpn_connection_l2tp_ipsec_auth
+  INV-44  Auth-Kindtabelle wird ATOMAR mit Parent erstellt (eine TX)
+  INV-45  subaccount_login ist immutable nach Erstellung
+  INV-46  wg_public_key kann durch User rotiert werden (neue Config,
+          Panel-Passwort als Bestaetigung). SYSTEM fuehrt aus.
+          rotated_at wird aktualisiert (INV-76).
+  INV-47  wg_connection_name ist deterministisch aus connection_ref
+          (wg_ + gleicher Payload)
+  INV-48  RADIUS sieht wg_connection_auth physisch NICHT (GRANT-Trennung)
+
+================================================================================
+11) WRITE-PATH INVARIANTEN
+================================================================================
+
+  INV-49  USER schreibt NIE direkt in Core-Tabellen
+  INV-50  Provisioning ist atomar (eine Transaktion, kein Halbzustand)
+  INV-51  Policy-Zeiten aus Settings-Keys (keine Magic Numbers)
+  INV-52  Claim ist idempotent (Doppelklick = kein Fehler)
+  INV-53  Verify ist idempotent (kein Status-Flip-Flop)
+  INV-54  DB_DOWN = fail-closed (kein halbes Provisioning)
+  INV-55  op_status + op_reason_code nur durch SYSTEM geschrieben
+  INV-56  access_role=ADMIN kann NICHT restricted werden (R-08)
+
+================================================================================
+12) REASON-REGISTRY INVARIANTEN
+================================================================================
+
+  INV-57  auto_finalize_to_reason_code → Zielcode hat
+          allowed_op_status=DISABLED
+  INV-58  auto_finalize gesetzt → default_restrict_window_days gesetzt
+  INV-59  revocation_mode=AFTER_RESTORE_WINDOW →
+          default_restore_window_days gesetzt
+  INV-60  precedence_rank UNIQUE ueber alle RESTRICT_*-Codes
+
+================================================================================
+13) DERIVED POLICY INVARIANTEN
+================================================================================
+
+  INV-61  tunnel_type + access_role bestimmen derived_policy
+          deterministisch (total, versionierbar, keine hidden branching)
+  INV-62  derived_policy ist nicht User-editable
+
+================================================================================
+14) CONNECTION-LIMITS (Zaehlregel)
+================================================================================
+
+  INV-63  Aktiv-Budget: ACTIVE + RESTRICTED zaehlen gegen
+          max_active_connections (Policy-System).
+          Gesamt-Budget: max_active + vpn_disabled_connection_buffer
+          (Settings-Key). Alle nicht-terminal-revoked Connections
+          MIT customer_id zaehlen gegen Gesamt.
+          Ownerlose PREPROVISIONED zaehlen erst nach Claim.
+
+================================================================================
+15) LETZTE-AKTIVE-CONNECTION SCHUTZ
+================================================================================
+
+  INV-64  Wenn ein Customer nur noch EINE Connection mit
+          op_status IN (ACTIVE, RESTRICTED) hat, kann diese NICHT
+          geloescht und NICHT deaktiviert werden (User-Aktion).
+          Begruendung: RESTRICTED ist tunnelbar UND panel-faehig.
+          Deaktivierung der letzten panel-faehigen Connection
+          wuerde Selbstaussperrung verursachen.
+          Admin-Aktionen (DISABLE_ADMIN_ABUSE, DISABLE_SECURITY_
+          COMPROMISE) sind ausgenommen.
+
+================================================================================
+16) CUSTOMER-STATUS → CONNECTION KONSISTENZ
+================================================================================
+
+  INV-65  web_customers.status=SUSPENDED → nach Reconcile darf KEINE
+          CLAIMED Connection dieses Customers op_status ACTIVE oder
+          RESTRICTED haben. Alle werden DISABLED
+          (DISABLE_CUSTOMER_SUSPENDED).
+  INV-66  web_customers.status=DELETED → alle CLAIMED Connections
+          dieses Customers werden physisch geloescht. Connection-Rows,
+          Auth-Kindtabellen-Rows und Credentials werden entfernt.
+          Die Zuordnung (customer_id, connection_ref) bleibt als
+          DELETED-Event in log_connection_lifecycle erhalten.
+  INV-67  suspended_at IS NOT NULL ↔ status=SUSPENDED
+  INV-68  deleted_at IS NOT NULL ↔ status=DELETED
+  INV-69  deleted_at ist monotonic (einmal gesetzt, nie zurueck auf NULL).
+          DELETED ist terminal — kein Rueckweg.
+
+  OPEN-010-01: [CLOSED] DELETE-Semantik (Marco-Entscheidung 2026-04-18)
+  Entscheidung:
+  a) Physische Loeschung: Connection-Row + Auth-Kindtabellen-Rows
+     werden physisch entfernt (CASCADE). Keine Anonymisierung,
+     kein Soft-Delete, kein Archiv-Zwischenschritt.
+  b) Historie bleibt: log_connection_lifecycle behaelt die
+     DELETED-Events (Forensik, Zuordnungshistorie). radacct-
+     Eintraege bleiben erhalten (Accounting-Pflicht).
+  c) IP-Recycling sofort: ip_slot wird umgehend freigegeben und
+     dem Recycling-/Quarantaene-Prozess zugefuehrt (B064-Muster).
+     Keine verzoegerte Freigabe fuer DELETE.
+  d) FK-Verhalten: CASCADE auf vpn_connection_l2tp_ipsec_auth und
+     wg_connection_auth (1:1, gehen mit der Connection). vpn_sessions
+     mit Referenz: SET NULL oder Retention (Detail BASE-070).
+  Implementation: Loeschlogik lebt in BASE-010 (Identity-Owner).
+  Jobs/Timer fuer Batch-DELETE ggf. in BASE-070 oder MOD-001.
+
+================================================================================
+17) CLAIM-/TOKEN-/DEADLINE KONSISTENZ
+================================================================================
+
+  INV-70  Weg A (Admin-Provisioning): customer_id IS NULL →
+          claim_token_hash MUSS NOT NULL sein.
+          unclaimed_grace_until MUSS gesetzt sein.
+          claim_deadline MUSS gesetzt sein.
+  INV-71  Weg B (Self-Service): customer_id IS NOT NULL ab INSERT →
+          claim_token_hash, unclaimed_grace_until, claim_deadline
+          sind konsistent NULL.
+  INV-72  Nach erfolgreichem Claim: claim_token_hash wird auf NULL
+          gesetzt (Token invalidiert). Ein geclaimter Datensatz
+          darf keinen gueltigen Claim-Token mehr tragen.
+  INV-73  unclaimed_grace_until <= claim_deadline (Grace endet immer
+          vor oder mit dem Hard-Stop).
+  INV-74  claim_deadline ist immutable (INV-38). unclaimed_grace_until
+          kann durch ADMIN per Grace-Reset verlaengert werden, aber
+          nie ueber claim_deadline hinaus.
+
+================================================================================
+18) SECRET-EXPOSURE INVARIANTE
+================================================================================
+
+  INV-75  ADMIN hat Vollzugriff auf alle Connection-Credentials
+          im Admin-Panel: Login-Daten (L2TP), Passwort, Config/Keys
+          (WG), QR-Code, Credential-Status, Traffic-Verbrauch.
+          Einzige Ausnahme: subaccount_nt_hash ist ein technisches
+          DB-Artefakt (Hash, nicht Passwort) und wird nicht angezeigt
+          — nicht aus Sicherheitsgruenden sondern weil er nicht
+          menschenlesbar ist. Marco-Entscheidung 2026-04-18.
+          Detail → BASE-110 (technisch) + MOD-006 (Features).
+
+================================================================================
+19) CREDENTIAL-ROTATION INVARIANTE
+================================================================================
+
+  INV-76  Bei jeder Credential-Rotation (Passwort-Aenderung L2TP/IPsec,
+          Config-Regeneration WireGuard) MUSS rotated_at auf der
+          betroffenen Auth-Kindtabelle aktualisiert werden.
+          rotated_at = NULL bedeutet: nie rotiert seit Erstellung.
+
+================================================================================
+20) LIFECYCLE-LOG FORENSIK (ChatGPT-Review, 2026-04-18)
+================================================================================
+
+  INV-77  Jeder Log-Eintrag MUSS connection_ref als Snapshot-Feld
+          enthalten. Nach physischer Loeschung der Connection
+          (OPEN-010-01) bleibt connection_ref als forensische
+          Referenz erhalten (vpn_connection_id wird SET NULL).
+  INV-78  Bei physischer Loeschung MUSS ein CONNECTION_DELETED
+          Event in log_connection_lifecycle geschrieben werden
+          BEVOR die Connection-Row entfernt wird.
+
+================================================================================
+21) IP-SLOT EXKLUSIVITAET (ChatGPT-Review, 2026-04-18)
+================================================================================
+
+  INV-79  fixed_ip und fixed_ipv6 sind UNIQUE (DB-Constraint).
+          Keine zwei Connections duerfen dieselbe materialisierte
+          IP haben. ip_slot allein ist NICHT UNIQUE-faehig weil
+          verschiedene Pools (access_role) denselben Slot-Wert
+          haben koennen (USER Slot 5 ≠ ADMIN Slot 5 — verschiedene
+          IPs weil verschiedene Pool-Prefixe). Die Eindeutigkeit
+          liegt auf der materialisierten IP, nicht auf dem Slot.
+          NULL-Werte (unprovisioniert) sind von UNIQUE ausgenommen
+          (MariaDB: mehrere NULLs in UNIQUE-Spalte erlaubt).
+
+================================================================================
+22) PANEL-AUTH-ZUGRIFF (ChatGPT-Review + Marco-Klarstellung, 2026-04-18)
+================================================================================
+
+  INV-80  webpanel_user BRAUCHT SELECT auf Auth-Kindtabellen fuer:
+          USER-Sicht: Login-Anzeige, Passwort, Config, QR-Code
+          ADMIN-Sicht: ALLE Connection-Credentials aller User.
+          Admin muss bei Support, Debugging, Abuse-Pruefung und
+          User-Bearbeitung volle Einsicht haben.
+          Panel IST die Sicherheitsgrenze (Panel-im-VPN).
+          Credential-Schutz obliegt dem User.
+          Detail → BASE-110 (technisch) + MOD-006 (Features).
+          Marco-Entscheidung 2026-04-18.
+
+================================================================================
+MAPPING: SM_CONNECTION INV → BASE-010 INV
+================================================================================
+
+  SM_CONNECTION    BASE-010       Bemerkung
+  ──────────────── ────────────── ──────────────────────────────
+  INV-01           INV-01         Ownership bidirektional
+  INV-02           INV-02         customer_id monotonic
+  INV-03           INV-03         claimed_at monotonic
+  INV-04..INV-09   INV-05..INV-10 Status-Reason Konsistenz
+  INV-10..INV-12   INV-11..INV-13 Timestamp-Konsistenz
+  INV-13..INV-14   INV-14..INV-15 Restrict-Finalisierung
+  INV-15..INV-16   INV-16..INV-17 Restore
+  INV-17..INV-20   INV-18..INV-21 Revocation/Quarantaene
+  LR-01..LR-03     LR-01..LR-03   Lifecycle-Regeln (unveraendert)
+  INV-24           INV-04         PREPROVISIONED
+  INV-25           INV-29         Slot-Retention
+  INV-26           INV-22         Multi-Reason Precedence
+  INV-27           INV-23         T-05 Re-Eval Guard
+  INV-28           INV-25         customer_paused_at Write-Regel
+  INV-29           INV-26         admin_manual Write-Regel
+  INV-30           INV-22         op_reason_code immer hoechstprior
+  INV-31           INV-24         Re-Eval idempotent
+  INV-32           INV-28         Source Facts bei DISABLE geloescht
+  INV-33           INV-63         Connection-Limits
+  INV-34           INV-40         access_role vom Customer
+  INV-35           INV-64         Letzte-aktive Schutz
+  (NEU)            INV-33..INV-62 Identity, Auth-Split, Write-Path,
+                                  Reason-Registry, Derived Policy
+================================================================================

@@ -1,0 +1,258 @@
+================================================================================
+RetroTunnel — ASSUMPTIONS AND RULES
+================================================================================
+VERSION: v1.0
+DATUM: 2026-04-19
+STATUS: ACTIVE
+
+================================================================================
+1) BINDENDE ANNAHMEN
+================================================================================
+
+A-01  Server-Plattform: Debian 13 (Trixie), Single Server, Schweiz.
+A-02  Netzwerk: 1 Gbit/s, 40 TB/Monat, danach Drosselung auf 100 Mbit/s.
+A-03  WAN-Interface: ens18 (physisch/virtuell, Proxmox/KVM).
+A-04  Eine Datenbank: MariaDB 11.8.6, Single DB für System + Webpanel.
+A-05  L2TP_IPSEC-Clients: Windows XP SP3 / Vista. Eingebauter VPN-Client (L2TP/IPsec).
+A-06  WIREGUARD-Clients: Windows 7+, macOS, Linux, Android, iOS via AmneziaWireGuard App.
+A-07  E-Mail-Server: Vorhanden, funktional, SPF/DKIM/DMARC vollständig.
+      Wird für Config-Versand, Verify-Codes und Benachrichtigungen genutzt.
+A-08  DNS-Stack: Unbound (local resolver) + AdGuardHome (Filterung, 8 Blocklisten).
+A-09  Webpanel: Nur im VPN erreichbar (SERVICE_WEB 10.77.0.3). Kein WAN-Zugang.
+
+================================================================================
+2) BINDENDE REGELN
+================================================================================
+
+R-01  DNS-ZWANG IST NICHT VERHANDELBAR.
+      DNAT TCP+UDP 53 gilt für ALLE Clients, ALLE Rollen, keine Ausnahmen.
+      DoT (Port 853 TCP) und DoQ (Port 853 UDP) werden geblockt (DROP).
+      DoH wird über AdGuard-Blocklisten gefiltert.
+
+R-02  FAIL-CLOSED.
+      Kein Client bekommt WAN-Zugang bevor Policy-Apply erfolgreich war.
+      DB-Down = DENY. Missing Settings = DENY (kein stiller Default).
+
+R-03  SQL-FIRST.
+      Operationale Parameter leben im Settings-System (settings_catalog).
+      Policy-Parameter (Kundenrechte/Limits) leben im Policy-System
+      (policy_catalog + policy_role_defaults + policy_customer_overrides).
+      Kein Consumer darf Magic Numbers oder stille Defaults verwenden.
+      Settings-Keys folgen der Prefix-Norm (vpn_/web_/peak_/radius_/...).
+      NULL = unlimited im Policy-System (keine Magic Numbers). (D003)
+
+R-04  KEIN UNPOLICED WINDOW.
+      Connect-Gate (connect_pending Sets) blockiert Forward-Traffic bis
+      Policy-Apply SUCCESS. Bei Apply-Failure: FAIL-CLOSED (Session-Kill).
+
+R-05  ENFORCEMENT = IP-RANGE + DYNAMISCHE SETS.
+      Rollen-Enforcement basiert auf IP-Ranges (access_role → Pool → CIDR).
+      Zustands-Enforcement basiert auf dynamischen nftables-Sets
+      (restricted, pending, banned).
+
+R-06  PEER-ISOLATION.
+      Kein Client-zu-Client Traffic. Weder innerhalb einer Rolle noch
+      rollenübergreifend. Einzige Ausnahme: SERVICE_NET Ziele.
+
+R-07  PLANS DIFFERENZIEREN NICHT ÜBER SICHERHEIT.
+      Plans dürfen: QoS, Concurrency, Quota, Laufzeit, Preis ändern.
+      Plans dürfen NICHT: DNS-Zwang, Filterung, Abuse-Blocks, Peer-Isolation
+      oder andere Sicherheitsfeatures ändern.
+
+R-08  ADMIN IST NICHT RESTRICTED-FÄHIG.
+      USER, VIP, MODERATOR können restricted werden
+      (Quota, Expiry, Unclaimed Overdue, Abuse, Manual, Customer-Pause).
+      ADMIN-Connections können NICHT restricted werden — auch nicht manuell.
+      Not-Aus für kompromittierte Admin-Connections = DISABLE (IMMEDIATE).
+      KLARSTELLUNG: Der Reason-Code RESTRICT_ADMIN_MANUAL existiert und
+      ist gültig — aber NUR für Non-ADMIN-Connections. "ADMIN" im
+      Code-Namen bezeichnet den AKTEUR (der Admin, der restrictet),
+      NICHT das Ziel. Eine ADMIN-Connection kann nie Ziel eines
+      RESTRICT_* Codes sein. (v0.6-Entscheidung, bestätigt)
+
+R-09  TUNNEL-TYP UND ROLLE SIND ORTHOGONAL.
+      tunnel_type (L2TP_IPSEC|WIREGUARD) bestimmt den technischen Pfad.
+      access_role (USER|VIP|MODERATOR|ADMIN) bestimmt die Berechtigungen.
+      Beide Felder sind unabhängig. Ein Admin kann L2TP/IPsec UND WireGuard nutzen.
+
+R-10  ROLLENWECHSEL IST IN-PLACE MUTATION (D002).
+      Bei Promotion/Demotion wird die bestehende Connection mutiert:
+      access_role + ip_slot werden atomar geändert, Hard-Cut erzwingt
+      Reconnect. L2TP_IPSEC: Login + Passwort bleiben, neue IP automatisch.
+      WIREGUARD: Key bleibt, neue Config per E-Mail (Panel nach Hard-Cut
+      nicht erreichbar). Keine neue Connection, kein DISABLE+INSERT.
+
+R-11  SINGLE-WRITER FÜR KERNEL-STATE.
+      Alle nftables-/tc-Writes laufen serialisiert (kein Parallel-Write).
+      Apply/Reconcile/Peak-Apply respektieren Single-Writer Lock.
+
+R-12  KEINE SECRETS IN LOGS.
+      Logs dürfen keine Passwörter, PSKs, Tokens, Private Keys oder
+      Klartext-Verify-Codes enthalten. Sanitizing ist Pflicht.
+
+R-13  VORGÄNGER ALS REFERENZ, NICHT ALS KANON.
+      xp-vpn-stack Entscheidungen werden nicht automatisch übernommen.
+      Jede Übernahme muss in RetroTunnel explizit bestätigt werden.
+
+R-14  KEINE FREMD-VERSIONIERUNG.
+      Version und Datum einer Datei leben AUSSCHLIESSLICH in ihrem
+      eigenen Header. Keine andere Datei darf die Version oder das
+      Datum einer fremden Datei führen.
+      Erlaubt: Dateiname als Referenz, Content-Beschreibung, Status.
+      Verboten: "SM_CONNECTION v1.8" oder "Letzte Änderung: 2026-04-15"
+      in einer anderen Datei.
+      AUSNAHME: 03_CHANGELOG.txt als zentrale Projektchronik darf
+      Dateinamen + Versionsnummern nennen (z.B. "SM_CONNECTION v1.5:
+      T-06 erweitert"). Das ist historische Dokumentation, kein
+      Fremd-Tracking — die Chronik wird NICHT bei jeder Versions-
+      aenderung aktualisiert, sondern haelt materielle Meilensteine
+      fest. Alle anderen Dateien: R-14 gilt uneingeschraenkt.
+      Begründung: Fremd-Versionierung ist eine permanente Drift-Quelle.
+      Die Information ist in der Datei selbst autoritativ und jederzeit
+      lesbar. (Marco-Entscheidung 2026-04-15)
+
+R-15  FACHLICHER OWNER ≠ TECHNISCHER RUNNER.
+      Zustandsdefinitionen, SQL-Mutationen und Lifecycle-Regeln leben
+      beim fachlichen Domänen-Owner (dem BASE-Modul das die Entität
+      besitzt). systemd-Timer, Sweeper, Reconcile-Runner und Hook-
+      Invoker leben beim jeweils ausführenden Modul.
+      Beispiel: Die Regel "claim_deadline abgelaufen → DISABLED" ist
+      fachlich BASE-010_IDENTITY_CORE (Connection-Owner). Der Timer
+      der diese Regel periodisch prüft, kann in BASE-080 oder BASE-070
+      als Runner/Invoker implementiert sein.
+      Begründung: Ohne diese Trennung verwischen die Modulgrenzen.
+      (Marco-Entscheidung 2026-04-15, bestätigt durch ChatGPT-Review)
+
+R-16  INVARIANTEN UND TESTS IMMER ZULETZT.
+      Pro Base/Modul-Ordner liegen die Invarianten-Datei und die
+      Tests-und-Validierung-Datei IMMER als die letzten zwei Dateien.
+      Die konkrete Nummer hängt vom Umfang der Content-Dateien ab:
+      - Kleine Base (bis 5 Content-Dateien): Invarianten=050, Tests=060
+      - Mittlere Base (bis 9 Content-Dateien): Invarianten=090, Tests=095
+      - Größere Base: weiter nach oben extendbar
+      Beispiele:
+      - BASE-000_SQL_FIRST hat 5 Content-Dateien → 050/060
+      - BASE-005_PLATFORM_CORE hat 9 Content-Dateien → 090/095
+      Begründung: Ein Leser weiß ohne Nachzudenken wo die harten
+      Regeln und die Prüffälle liegen. Die zwei Dateien sind
+      konzeptionell die Endstation jeder Base — Content zuerst,
+      Vertrag und Validierung am Ende.
+      (Marco-Entscheidung 2026-04-16)
+
+R-17  PANEL-CONSUMABILITY PFLICHT.
+      Jede Base und jedes Modul MUSS bei der Ausarbeitung die Frage
+      beantworten: "Wie konsumiert das Webpanel diesen Wert/Status/Log?"
+      Das Webpanel ist Marcos primaere Arbeitsoberflaeche — im
+      Normalbetrieb wird der Server NIE per SSH administriert.
+      Alles was eine Base/ein Modul produziert (Daten, Zustaende,
+      Logs, Entscheidungen), MUSS Panel-faehig sein.
+      Das Panel ist fuer RetroTunnel was BASE-000 fuer die DB ist:
+      BASE-000 = Fundament auf dem alles steht.
+      Panel = Oberflaeche durch die alles bedient wird.
+      MOD-006_PANEL_FEATURES ist der Konsument, nicht BASE-110.
+      BASE-110 liefert die technische Plattform (Webserver, PHP, DB).
+      MOD-006 beschreibt WAS das Panel anzeigt und steuert.
+      (Marco-Erkenntnis 2026-04-18, verankert in DP-07)
+
+================================================================================
+3) NICHT-ANNAHMEN (explizit NICHT vorausgesetzt)
+================================================================================
+
+NA-01  Kein Multi-Server Setup. RetroTunnel ist Single-Server.
+NA-02  Kein DoH-Interception (nur Blocklisten). Deep Packet Inspection
+       für DoH ist out-of-scope.
+NA-03  Kein Billing-System. Plans definieren Limits, aber Zahlungsabwicklung
+       ist extern (kein Stripe/PayPal-Integration im Konzept).
+NA-04  Keine SoftEther-Clients. L2TP_IPSEC nutzt den eingebauten Windows-Client.
+NA-05  Kein IPv6 für L2TP_IPSEC. L2TP_IPSEC-Clients (XP/Vista) sind IPv4-only.
+       IPv6 existiert nur für WIREGUARD und SERVICE_NET.
+
+================================================================================
+4) QUALITÄTS- UND BETRIEBSSTANDARDS (NICHT VERHANDELBAR)
+================================================================================
+
+Das neue Konzept muss den gleichen professionellen Kanonstandard wie das
+alte Konzept (xp-vpn-stack) erreichen und zusätzlich im echten Betrieb
+robust genug sein, dass es sowohl mit 3 als auch mit 3000 Nutzern stabil
+funktioniert. Ein schönes Denkmodell reicht nicht.
+
+Q-01  DREI-EBENEN-QUALITÄT.
+      Jedes Konzept-Element muss auf drei Ebenen gleichzeitig stark sein:
+      A. Fachlich: Begriffe sauber, Zustände eindeutig, Übergänge
+         geschlossen, Sonderfälle nicht weggelassen.
+      B. Technisch: Datenmodell konsistent, Invarianten hart,
+         Jobs/Worker/Apply/Reconcile robust, Race Conditions mitgedacht,
+         Materialisierung vs. Berechnung bewusst entschieden.
+      C. Operativ: Admin kann Zustände verstehen, Fehler sind sichtbar,
+         man kann sauber eingreifen, das System bleibt debugbar,
+         Recovery ist vorgesehen, kein Dead-End-Betrieb.
+
+Q-02  KEINE SINGLE-USER-ROMANTIK.
+      Das Modell darf keine versteckten Annahmen enthalten wie:
+      - Manuelle Einzelfallpflege reicht
+      - Admin schaut im Zweifel kurz in die DB
+      - Sonderfälle werden später gelöst
+      - Jobs laufen schon irgendwie nacheinander
+      Bei 3000 Nutzern brechen genau solche impliziten Annahmen.
+
+Q-03  PRODUKTIONSLOGIK FÜR JEDES LIFECYCLE-ELEMENT.
+      Für jede operative Phase braucht das Konzept nicht nur den
+      Sollzustand, sondern auch:
+      - Trigger (was löst den Übergang aus?)
+      - Guards (was muss vorher geprüft werden?)
+      - Race-Schutz (was bei Parallelzugriff?)
+      - Idempotenz (was bei doppelter Ausführung?)
+      - Timeout-Verhalten (was wenn nichts passiert?)
+      - Recovery (was wenn es mittendrin abbricht?)
+      - Logging (was wird aufgezeichnet?)
+      - Admin-Intervention (wie greift Admin ein?)
+
+Q-04  SQL-FIRST HEISST AUCH BETRIEBSFEST.
+      Nicht nur fachliche Settings, sondern auch betriebsrelevante
+      Entscheidungen müssen sauber klassifiziert sein:
+      - Was ist kanonische Policy (vpn_reason_registry)
+      - Was ist materialisierte Deadline (restrict_finalize_at, quarantine_until)
+      - Was ist einmalig eingefrorener Snapshot (quarantine_until bei Revocation)
+      - Was ist lokaler Runtime-Zustand (nftables Sets)
+      - Was ist nur Audit (connection_lifecycle_log)
+      - Was ist nur Cache/Projection (restricted_effective war das alt)
+
+Q-05  SKALIERUNGSNEUTRALITÄT IM GRUNDDESIGN.
+      "3 oder 3000 User" heißt nicht nur DB hält Last aus, sondern:
+      - Keine Statusdrift bei Parallelität
+      - Keine Doppelvergabe von Slots
+      - Keine unstabilen Jobs
+      - Keine unklaren Restore-/Revoke-Rennen
+      - Kein Eventverlust
+      - Kein "letzter Schreibzugriff gewinnt" ohne Governance
+      - Kein unkontrolliertes Aufstauen von Lifecycle-Jobs
+
+Q-06  BELASTBARKEITSFRAGEN MÜSSEN BEANTWORTBAR SEIN.
+      Ein professionelles Konzept muss mindestens diese Fragen
+      beantworten können:
+      - Was passiert bei Parallelaktionen?
+      - Was passiert bei Job-Abbruch mitten im Zustandswechsel?
+      - Was passiert bei DB-Timeout?
+      - Was passiert bei doppeltem Claim-Versuch?
+      - Was passiert bei Restore kurz vor Revocation?
+      - Was passiert bei Planwechsel während aktive Sessions laufen?
+      - Was passiert bei Quarantäne-Ende, wenn dieselbe Connection
+        noch irgendwo referenziert ist?
+      - Was passiert bei 3000 Nutzern mit vielen gleichzeitigen Events?
+
+Q-07  MASSE IST KANON-EBENE.
+      Das Konzept darf nur dann als gelungen gelten, wenn es:
+      - Kanonisch sauber ist
+      - Implementierbar ist
+      - Skalierbar ist
+      - Wartbar ist
+      - Fehlertolerant ist
+      - Prüfbar ist
+      Wird an einem einzigen dieser Punkte gescheitert, ist das
+      Konzept noch nicht auf dem geforderten Niveau.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

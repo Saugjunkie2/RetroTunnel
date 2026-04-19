@@ -1,0 +1,207 @@
+================================================================================
+ENTWURF — ADMIN-DASHBOARD ANFORDERUNGEN (MOD-006)
+================================================================================
+DATEI: ENTWURF_ADMIN_DASHBOARD.txt
+STATUS: ENTWURF (nicht normativ, KR-01)
+ERSTELLT: 2026-04-18
+QUELLE: Marco-Anforderungen aus BASE-020 Session
+
+ZWECK:
+  Sammlung von Marcos Anforderungen an das Admin-Panel.
+  Das Webpanel ist Marcos primaere Arbeitsoberflaeche — nahezu
+  alle Admin-Aufgaben sollen ueber das Panel erledigbar sein,
+  nicht per SSH. Dieses Dokument wird bei MOD-006 Ausarbeitung
+  als Input verwendet.
+
+GRUNDPRINZIP (Marco):
+  "Mein Interesse ist weniger wo etwas auf dem Server liegt,
+  sondern wo ist die Funktion dass ich mir die Daten im
+  Webpanel angucken kann."
+
+================================================================================
+1) CONNECTION-UEBERSICHT (filterbar, durchsuchbar)
+================================================================================
+
+  - Alle Connections als Tabelle
+  - Filter: Customer, Tunnel-Typ, Status, Rolle
+  - Suche: connection_ref, subaccount_login, Customer-Email
+  - Sofort sichtbar: Welche Connection gehoert zu welchem Account
+  - Live-Status: Wer ist gerade verbunden (aktive Session ja/nein)
+  - Sortierung nach beliebiger Spalte
+
+================================================================================
+2) CREDENTIAL-VOLLZUGRIFF (Admin)
+================================================================================
+
+  - Admin sieht ALLE Credential-Daten jeder Connection:
+    L2TP: subaccount_login + Klartext-Passwort
+    WG: Vollstaendige Config + QR-Code + Keys
+  - Admin kann Credentials rotieren (Passwort-Reset, Key-Rotation)
+  - Admin kann Connections bearbeiten, disablen, restoren
+  - INV-75/INV-80: Admin hat Vollzugriff, Panel ist Sicherheitsgrenze
+
+================================================================================
+3) TRAFFIC-VERBRAUCH PRO CONNECTION
+================================================================================
+
+  - Traffic-Volumina (RX/TX) pro Connection und Zeitraum
+  - Wie oft Limit ausgeschoepft (wenn QoS/Quota aktiv)
+  - Gesamtverbrauch pro Customer (alle Connections summiert)
+  - Historische Entwicklung (Grafik/Trend waere ideal)
+
+================================================================================
+4) HEAVY-USER-ERKENNUNG
+================================================================================
+
+  - Ranking der Connections nach Traffic-Verbrauch
+  - Warnung bei ueberproportionalem Ressourcenverbrauch
+  - Identifikation von Usern die "alle Resourcen leersaugen"
+  - Filterbar nach Zeitraum (letzter Tag / Woche / Monat)
+
+================================================================================
+5) DNS-QUERY-EINSICHT (AdGuardHome-Integration)
+================================================================================
+
+  - Pro Connection-IP die besuchten Domains anzeigen
+  - Wichtigste AdGuardHome-Funktionen im Webpanel integriert:
+    Query-Log, Top-Domains, Blockierte Requests
+  - Nicht ALLE AdGuardHome-Features, aber die wichtigsten
+    fuer Admin-Pruefung und Support
+  - Technisch: AdGuardHome hat eine API, Connection-IP als Schluessel
+  - Wuenschenswert: Direkt im Panel, nicht im AdGuardHome-Webinterface
+
+================================================================================
+6) LOG-VIEWER (zentraler Zugang ueber Panel)
+================================================================================
+
+  Marco: "Wo die Logs auf dem Server liegen ist mir egal —
+  Hauptsache ich kann sie im Webpanel einsehen und durchsuchen."
+
+  - Zentrale Log-Ansicht im Panel:
+    Auth-Logs (radpostauth: wer hat wann versucht sich zu verbinden)
+    Lifecycle-Logs (log_connection_lifecycle: Statuswechsel)
+    Session-Logs (vpn_sessions: offene/geschlossene Sessions)
+    System-Logs (relevante systemd-Unit-Logs)
+  - Suchfunktion in allen Logs (Freitext, Filter nach Zeitraum)
+  - Filter nach Connection, Customer, Event-Typ
+  - KEIN SSH noetig um Logs zu sehen
+
+================================================================================
+7) AUTH-HISTORIE
+================================================================================
+
+  - Letzte Login-Versuche pro Connection (ACCEPT/REJECT)
+  - Reason-Code bei Ablehnung (warum abgewiesen?)
+  - Zeitstempel, Quell-IP
+  - Quelle: radpostauth (L2TP), AWG-Controller-Logs (WG)
+
+================================================================================
+8) RESTRICT/DISABLE-HISTORIE
+================================================================================
+
+  - Wann wurde welche Connection eingeschraenkt/deaktiviert
+  - Welcher Reason-Code, welcher Akteur (ADMIN/SYSTEM/JOB)
+  - Restore-Historie
+  - Quelle: log_connection_lifecycle
+
+================================================================================
+9) BATCH-OPERATIONEN
+================================================================================
+
+  - Mehrere Connections gleichzeitig disablen (z.B. Abuse eines Kunden)
+  - Bulk-Passwort-Reset
+  - Massenaktionen mit Bestaetigung (Re-Auth fuer Klasse-C)
+
+================================================================================
+10) QUELL-IP-LEAK-WARNUNG
+================================================================================
+
+  - Panel vergleicht anfragende IPs pro Connection
+  - Bei Verdacht auf Credential-Leak: Hinweis an User (Empfehlung)
+  - Kein Zwang, keine automatische Sperre
+  - Marco-Entscheidung: Server-Sicherheit > User-Credential-Schutz
+
+================================================================================
+11) SYSTEM-STATUS / HEALTH
+================================================================================
+
+  - RADIUS-Health: DB-Verbindung, Queue-Tiefe
+  - WireGuard-Status: Dienst laeuft, DB-Health-Check-Status
+  - Aktive Sessions: Anzahl L2TP + WG
+  - Disk/CPU/RAM Uebersicht (Basisdaten)
+  - Timer-Status: Alle systemd-Timer sichtbar
+
+================================================================================
+OFFENE FRAGEN (bei MOD-006 Ausarbeitung zu klaeren)
+================================================================================
+
+  - AdGuardHome-API-Integration: Scope? Nur Query-Log oder mehr?
+  - Traffic-Daten: Echtzeit oder Batch-aktualisiert?
+  - Log-Retention im Panel: Wie weit zurueck?
+  - Dashboard-Layout: Einzel-Connection-Detail vs. Ueberblick-Grid?
+================================================================================
+
+================================================================================
+12) MOD-006 VORPLANUNG — UNTERSTRUKTUR (Claude, 2026-04-18)
+================================================================================
+
+  MOD-006 wird das umfangreichste Modul des Projekts. Grund:
+  Das Webpanel ist die KONSUMSCHICHT FUER ALLES. Jede Base und
+  jedes Modul produziert Daten, Zustaende, Logs, Entscheidungen —
+  und MOD-006 muss all das anzeigbar, filterbar und steuerbar machen.
+
+  ANALOGIE (Marco): "Das Webpanel ist wie BASE-000 — nur fuer
+  die Benutzeroberflaeche. BASE-000 ist das DB-Fundament auf dem
+  alles steht. Das Panel ist die Oberflaeche durch die alles
+  bedient wird."
+
+  VORGESCHLAGENE ORDNERSTRUKTUR:
+
+  modules/MOD-006_PANEL_FEATURES/
+    MOD-006_INDEX.txt
+    MOD-006_010_CONNECTION_OVERVIEW.txt    (konsumiert BASE-010)
+    MOD-006_020_AUTH_STATUS.txt            (konsumiert BASE-020)
+    MOD-006_030_SESSION_LIVE_VIEW.txt      (konsumiert BASE-070)
+    MOD-006_040_LOG_VIEWER.txt             (konsumiert MOD-007)
+    MOD-006_050_ADMIN_DASHBOARD.txt        (Gesamtuebersicht)
+    MOD-006_060_DNS_QUERY_VIEW.txt         (konsumiert BASE-060)
+    MOD-006_070_SETTINGS_EDITOR.txt        (konsumiert BASE-090/100)
+    MOD-006_080_SYSTEM_HEALTH.txt          (konsumiert BASE-005)
+    MOD-006_090_INVARIANTEN.txt
+    MOD-006_095_TESTS.txt
+
+  Jede Feature-Datei dokumentiert:
+  - Was wird konsumiert (welche Base/welches Modul)
+  - Welche Tabellen/APIs werden gelesen
+  - Welche Ansichten (User vs Admin)
+  - Welche Aktionen (read-only vs Steuerung)
+
+  HINWEIS: Diese Struktur ist VORPLANUNG. MOD-006 ist DEFERRED
+  und wird erst nach M2-110 (Webstack) ausgearbeitet.
+  Die Unterstruktur kann sich bei Ausarbeitung noch aendern.
+
+================================================================================
+13) KONSUMENTEN-MATRIX: WAS PRODUZIERT WAS FUER DAS PANEL?
+================================================================================
+
+  Produzent           → Panel-Konsument (MOD-006 Datei)
+  ──────────────────── ─────────────────────────────────
+  BASE-010 Identity    → Connection-Tabelle, Customer-Verwaltung,
+                         Credential-Anzeige, Lifecycle-Historie
+  BASE-020 AAA         → Auth-Status, Login-Historie, SimUse-Status
+  BASE-030 L2TP        → L2TP Session-Status, Bridge-Health
+  BASE-040 WireGuard   → WG Session-Status, Peer-Status, DB-Health
+  BASE-050 Firewall    → Firewall-Status, Rule-Count, Abuse-Alerts
+  BASE-060 DNS         → DNS-Query-Log, AdGuardHome-Integration
+  BASE-070 Sessions    → Session-Live-View, Janitor-Status, Historie
+  BASE-080 Policy      → Policy-Status, Reconcile-Status
+  BASE-090 Settings    → Settings-Editor, Effective-Value-Anzeige
+  BASE-100 Policy-Cat  → Policy-Katalog-Editor, Override-Verwaltung
+  BASE-110 Webstack    → Panel selbst (Auth, Rendering, DB-Pool)
+  MOD-001 Onboarding   → Claim-Status, Verify-Status
+  MOD-002 Restricted   → Walled-Garden-Status, Restore-Window
+  MOD-003 QoS          → Speed-Limits, Traffic-Shaping-Status
+  MOD-005 Fail2ban     → Ban-Status, Event-Klassifikation
+  MOD-007 Logging      → Log-Viewer (zentral, durchsuchbar)
+  MOD-008 Backup       → Backup-Status, Restore-Optionen
+================================================================================

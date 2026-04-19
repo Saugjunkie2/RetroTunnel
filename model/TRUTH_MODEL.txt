@@ -1,0 +1,671 @@
+================================================================================
+RetroTunnel — TRUTH MODEL
+================================================================================
+VERSION: v1.2
+DATUM: 2026-04-16
+STATUS: DEPRECATED (siehe Deprecation-Hinweis unten)
+PFAD: model/TRUTH_MODEL.txt
+
+================================================================================
+DEPRECATION-HINWEIS (2026-04-16)
+================================================================================
+
+Diese Datei ist inhaltlich UEBERHOLT und wird bei Ausarbeitung der
+zustaendigen Bases aufgeloest. Der Inhalt wandert in zwei Richtungen:
+
+  BASE-000_SQL_FIRST    (SQL-first Grundregeln, Prefix-System, Naming-
+                         Konventionen, DB-User-Zonen, Registry)
+  BASE-090_SETTINGS_CORE (settings_catalog, Resolution Order, Fail-Class,
+                         Effective-Value, Trace, kanonische Settings-Keys)
+
+Grund: Entscheidung 2026-04-16 "model/ wird aufgeloest — eine Wahrheit,
+ein Ort". SQL-Prinzipien sind bereits in BASE-000 kanonisiert, Settings
+landen in BASE-090 wenn Arbeitspaket M2-090 beginnt.
+
+BEGRIFFS-BRUECKE (beim Lesen mental uebersetzen):
+
+  Alt (in dieser Datei)               Neu (Kanon ab 2026-04-16)
+  ----------------------------------  -----------------------------------
+  tunnel_type='LEGACY'                tunnel_type='L2TP_IPSEC'
+  tunnel_type='MODERN'                tunnel_type='WIREGUARD'
+  "customers" Tabelle                 "web_customers" (BASE-000 K-01)
+  "active_session_locks" Tabelle      "vpn_session_locks" (K-02)
+  "reason_registry" Tabelle           "vpn_reason_registry" (K-03)
+  "connection_lifecycle_log" Tabelle  "log_connection_lifecycle" (K-04)
+  "role_policy_defaults" Tabelle      "policy_role_defaults" (K-05)
+  "customer_policy_overrides" Tabelle "policy_customer_overrides" (K-06)
+  "plan_policy_values" Tabelle        "policy_plan_values" (K-07)
+  legacy_auth Feld in vpn_connections vpn_connection_l2tp_ipsec_auth (K-08)
+  wg_* Felder in vpn_connections      wg_connection_auth (K-08)
+  BASE-xx (2-stellig, 10er-Schema)    BASE-xxx (3-stellig)
+  BASE-20_AAA_CORE (§9)              BASE-020_AAA_CORE
+  BASE-30_TUNNEL_AWG (§9 OPEN-TM-02) BASE-040_TUNNEL_WIREGUARD
+                                      (Tunnel-Tausch 2026-04-16: L2TP=030, AWG=040)
+  BASE-90_SETTINGS_CORE (§7)         BASE-090_SETTINGS_CORE
+
+BEGRUENDUNG FUER DEPRECATION STATT FULL-REWRITE:
+Die SoT-Map und Naming-Regeln sind bereits in BASE-000 kanonisch. Ein
+Rewrite hier wuerde doppelte Buchhaltung erzeugen. Die Settings-Keys
+sind Implementation-Details die erst in BASE-090 konkret werden.
+
+KANONISCHER NEU-STAND fuer schnelle Orientierung:
+  - BASE-000 ist ab jetzt die SoT fuer SQL-Naming und Prefix-System
+  - BASE-090 wird die SoT fuer Settings-Resolution
+  - Zone-Prefixe aus BASE-000: vpn_, web_, wg_, rad*, settings_, policy_,
+    peak_, log_, spool_ (ALLOWLIST fuer RADIUS-User)
+  - RADIUS liest KEINE wg_*-Tabellen (Sicherheitsprinzip)
+
+REFERENZ ALTES KONZEPT:
+  B057_SETTINGS_PARAMETER_CANON_SQLFIRST_MAGIC_GUARD.txt — Settings-System
+  B055_DB_SCHEMA_CORE.txt — Schema SoT
+  B052_DB_OUTAGE_CONTRACT.txt — DB-Down Verhalten
+  entwuerfe/sql-first/NORM-01 bis NORM-07 — SQL-first Governance
+
+DELTA ZUM ALTEN KONZEPT (historisch, vor 2026-04-16):
+  - conn_group Referenzen entfallen (ersetzt durch tunnel_type + access_role)
+  - Prefix-System bleibt, wird aber nicht erweitert (M1)
+  - Alias-System bleibt, hat aber keine Legacy-Keys zum Migrieren (Greenfield)
+
+================================================================================
+1) ZWECK
+================================================================================
+
+Dieses Dokument definiert die Single Source of Truth (SoT) für jede
+Informationsdomäne im System. Es beantwortet:
+
+  - WO lebt die kanonische Wahrheit für einen Datenpunkt?
+  - WER darf schreiben?
+  - WAS passiert wenn die Wahrheit nicht verfügbar ist?
+  - WIE werden Policy-Parameter aufgelöst?
+  - WELCHE Namensregeln gelten?
+
+================================================================================
+2) SOT-MAP (Was ist Source of Truth für was?)
+================================================================================
+
+Grundsatz (MUST): Für jede finalisierte Informationsdomäne gibt es genau
+EINE SoT. Keine geteilte Wahrheit, keine Inferenz aus anderen Quellen.
+Domänen die noch OPEN/TBD sind, sind von dieser Regel ausgenommen bis
+zur Finalisierung. OPEN-Domänen sind in der Tabelle explizit markiert.
+
+2.1) Domänen-SoT-Tabelle
+
+  Domäne                     SoT                          Typ
+  ─────────────────────────  ───────────────────────────── ──────────
+  Customer-Identität         customers Tabelle (SQL)       Persistent
+  Customer-Verify            customers.email_verified_at   Persistent
+  Customer-Lifecycle         customers.status               Persistent
+  VPN-Connection Identität   vpn_connections Tabelle       Persistent
+  Tunnel-Typ                 vpn_connections.tunnel_type   Persistent
+  Rolle/Berechtigungen       customers.access_role        Persistent
+                             SoT für Kundenrolle (D003-E02).
+                             vpn_connections.access_role
+                             ist ABGELEITET (D003-E02).
+                             PREPROVISIONED ownerlos: Admin-Intent.
+  Plan/Tarif                 customers.plan_id            Persistent
+                             NULL = kein Plan, Rollen-Defaults.
+                             Nur USER. VIP/MOD/ADMIN: immer NULL.
+                             §6.8: SHARED oder DEDICATED Scope.
+  IP-Zuordnung               vpn_connections.ip_slot       Persistent
+  Materialisierte IP         vpn_connections.fixed_ip/v6   Persistent
+  Credentials (Legacy)       vpn_connections.subaccount_nt_hash  Persistent
+  Credentials (Modern)       vpn_connections.wg_public_key  Persistent
+  Connection-Op-Status      vpn_connections.op_status     Persistent
+  Connection-Reason          vpn_connections.op_reason_code Persistent
+  Connection-Ownership       vpn_connections.customer_id   Persistent
+                             (PREPROVISIONED/CLAIMED abgeleitet)
+  Connection-Expiry          vpn_connections.expiry_date   Persistent
+  Reason-Policy              reason_registry Tabelle       Persistent
+  Connection-Lifecycle-Hist. connection_lifecycle_log       Persistent
+  Settings-Parameter         settings_* Tabellen (SQL)     Persistent
+                             (operationale Systemparameter)
+  Policy-Parameter           policy_catalog +              Persistent
+                             role_policy_defaults +
+                             customer_policy_overrides
+                             (Kundenrechte/Limits, D003)
+  Session-Truth              vpn_sessions Tabelle (SQL)    Persistent
+                             (EINZIGE Quelle für LEGACY + MODERN,
+                              SM_SESSION §1. radacct ist nur LEGACY-
+                              Accounting, nicht mehr Session-Truth)
+  SimUse-Guard               active_session_locks (SQL)    Transient
+
+  KLARSTELLUNG: active_session_locks sind KEINE Session-Truth.
+  Sie sind ausschließlich ein kurzlebiger Auth-Mutex (Guard) gegen
+  SimUse-Races. Session-Truth ist vpn_sessions (SM_SESSION §1).
+  [v0.4: Session-Truth vereinheitlicht — vpn_sessions statt radacct/OPEN]
+  Rollen-Enforcement         nftables CIDR-Ranges          Runtime
+  Zustands-Enforcement       nftables dynamische Sets      Runtime
+                             (restricted_v4/v6, connect_pending_v4/v6,
+                              banned_v4/v6. Lifecycle: SM_POLICY_RESTRICT)
+  QoS-Enforcement            tc-Regeln auf Interfaces      Runtime
+  DNS-Enforcement            nftables DNAT53 Regeln        Runtime
+  Derived Policy             Berechnet (kein DB-Feld)      Runtime
+
+2.2) SoT-Hierarchie: SQL → Kernel
+
+  SQL (Persistent)        ist die PRIMÄRE Wahrheit.
+  Kernel (Runtime)        ist die ABGELEITETE Wahrheit.
+
+  Wenn SQL und Kernel sich widersprechen, gewinnt SQL.
+  Der Reconcile-Mechanismus (FLUSH+REBUILD) repariert Kernel-Drift
+  periodisch aus SQL-Wahrheit.
+
+  Richtung: SQL → Policy-Apply/Reconcile → Kernel (nftables/tc)
+  Niemals:  Kernel → SQL (Kernel schreibt nicht zurück in SQL)
+
+  Ausnahme: radacct (RADIUS Accounting) schreibt in SQL, wird aber
+  von einem Daemon (FreeRADIUS) befüllt, nicht vom Kernel direkt.
+
+2.3) DB-Down Verhalten (übernommen aus B052)
+
+  Wenn die Datenbank nicht erreichbar ist:
+  - FAIL-CLOSED für neue Verbindungen (kein Auth ohne DB)
+  - Bestehende Sessions laufen weiter (Kernel-State bleibt)
+  - Kein Reconcile möglich (nächster Zyklus wartet)
+  - Settings-Resolution: key_state=DB_UNKNOWN → fail_class greift
+  - Panel: Fehlermeldung, kein Login möglich
+
+================================================================================
+3) SQL-FIRST GRUNDREGELN
+================================================================================
+
+Übernahme aus B057 (vollständig, kanonisch):
+
+SF-01  SQL ist SoT für Policy-Parameter.
+       Keine "Magic Numbers" / implizite Defaults im Code.
+       Code ist nur Enforcement-Engine; Policy kommt aus SQL.
+
+SF-02  Kein Consumer darf stille Defaults verwenden.
+       Jede Stelle, die einen Wert braucht, referenziert die SoT (SQL).
+       Lokale Fallbacks sind VERBOTEN (außer failsafe_hardcap per Katalog).
+
+SF-03  Missing/Invalid dürfen nie "Allow by accident" erzeugen.
+       Fail-Class (FAIL_CLOSED / FAIL_SAFE_HARDCAP) ist maschinenlesbar
+       im settings_catalog definiert.
+
+SF-04  Deterministisch + debugbar.
+       Jede effektive Policy ist reproduzierbar und /diag-fähig.
+       Effective Value + Source + State müssen traceable sein.
+
+SF-05  Driftarm.
+       Overrides nur dort möglich, wo der Katalog explizit erlaubt
+       (allowed_override_scope Whitelist). Verbotene Overrides → Hard Fail.
+
+SF-06  Kein "Hidden Config File" für Settings-gesteuerte Policy.
+       Es gibt keinen Schreibpfad außerhalb des Settings-Contracts
+       für settings-gesteuerte Parameter (Keys in settings_catalog).
+       HINWEIS: Nicht alle policy-relevanten Werte sind Settings-Keys.
+       tunnel_type, access_role, ip_slot und derived_policy leben in
+       ihren eigenen SoT-Domänen (DOMAIN_MODEL / NETWORK_MODEL), nicht
+       im Settings-System.
+
+================================================================================
+4) SETTINGS-RESOLUTION (Effective Value Algorithmus)
+================================================================================
+
+Übernahme aus B057 §13.3, kanonisch:
+
+4.1) Resolution Order (MUST)
+
+  Priorität (höchste zuerst):
+    1. settings_connection  (vpn_connection_id, key)
+    2. settings_customer    (customer_id, key)
+    3. settings_global      (key)
+    4. Fallback gemäß fail_class (wenn kein Wert vorhanden/valide)
+
+  Der ERSTE vorhandene und VALIDE Wert gewinnt.
+
+4.2) Effective-Value Output (MUST)
+
+  Jeder Consumer bekommt für jeden Key:
+    effective_value      Der aufgelöste Wert
+    effective_source     CONNECTION | CUSTOMER | GLOBAL |
+                         FAILSAFE_HARDCAP | FAIL_CLOSED
+    key_state            OK | MISSING | INVALID | FALLBACK_ACTIVE | DB_UNKNOWN
+    reason_code          Maschinenlesbarer Grund (aus Reason-Registry)
+
+  Consumers konsumieren NUR effective_* und key_state, nie raw SQL rows.
+
+4.3) Missing vs Invalid (MUST)
+
+  MISSING: Kein Eintrag vorhanden (für den betrachteten Scope).
+  INVALID: Eintrag vorhanden, aber Typ/Range/Validator verletzt den Katalog.
+
+  Reaktion pro Key ist im settings_catalog normiert:
+
+  fail_class=FAIL_CLOSED:
+    Missing → Hard Fail (Gate bleibt zu, Operation scheitert)
+    Invalid → Hard Fail + Audit-Event + Health Flag
+
+  fail_class=FAIL_SAFE_HARDCAP:
+    Missing → failsafe_value (extrem restriktiver Notwert) + Warning
+    Invalid → failsafe_value + Audit-Event + Health Flag
+    MUSS:    failsafe_value darf nur VERSCHÄRFEN (tighten-only)
+             policy_direction=TIGHTEN_ONLY ist Voraussetzung
+
+  REGEL (MUST): Invalid ist HÄRTER als Missing (Policy Corruption).
+  Invalid erzeugt IMMER ein Audit-Event (ratelimited) + Health Flag.
+
+4.4) Observability-Pflichten (MUST)
+
+  Wenn irgendein Key im Zustand MISSING/INVALID/FALLBACK_ACTIVE ist:
+  - Admin-Panel: Health Warnings (read-only) mit betroffenen Keys
+  - /diag: warnings inkl. betroffene Keys + effective_source + reason
+  - Logs: Event ist ratelimited (kein Log-DoS)
+  - Kein "stiller Notbetrieb" — Fallback darf nie unbemerkt bleiben
+
+4.5) settings_catalog (maschinenlesbarer Contract, MUST)
+
+  Pro Key definiert der Katalog:
+    key                    String, immutable, unique global
+    value_type             INT | FLOAT | BOOL | STRING | DURATION | CIDR | ENUM | JSON
+    scope_default          GLOBAL (Default-Wert stammt aus global)
+    allowed_override_scope NONE | CUSTOMER | CONNECTION | BOTH
+    is_required            BOOL (MUST-Key ja/nein)
+    range_min / range_max  Nullable, type-konsistent
+    fail_class             FAIL_CLOSED | FAIL_SAFE_HARDCAP
+    policy_direction       TIGHTEN_ONLY | RELAXES_ACCESS
+    failsafe_value         Typed (nur bei FAIL_SAFE_HARDCAP)
+    missing_behavior       Kanonischer Pfad (aus §4.3)
+    invalid_behavior       Kanonischer Pfad (aus §4.3)
+    description            Admin-facing Text
+    docs_anchor            Referenz in Kanon
+
+4.6) Override-Policy (MUST, Whitelist-basiert)
+
+  OV-01  allowed_override_scope=NONE:
+         Nur GLOBAL darf existieren. CUSTOMER/CONNECTION sind verboten.
+  OV-02  allowed_override_scope=CUSTOMER:
+         CUSTOMER darf existieren. CONNECTION ist verboten.
+  OV-03  allowed_override_scope=CONNECTION:
+         CONNECTION darf existieren. CUSTOMER ist verboten (außer BOTH).
+  OV-04  allowed_override_scope=BOTH:
+         CUSTOMER und CONNECTION sind erlaubt.
+  OV-05  Override für nicht-overridebaren Key → Hard Fail + Audit.
+  OV-06  Scope-Mismatch → Hard Fail + Audit.
+
+================================================================================
+5) SQL-NAMING-KONVENTIONEN
+================================================================================
+
+Übernahme aus NORM-02 (sql-first Entwurf), kanonisch für RetroTunnel:
+
+5.1) Key-Format (MUST)
+
+  NM-01  Canonical Settings-Keys sind lower_snake_case (a-z0-9_).
+  NM-02  UPPERCASE Keys sind VERBOTEN als echte DB-Keys.
+         Wenn UPPERCASE in älteren Textstellen vorkommt, gilt es als
+         Alias/Alt-Notation und muss auf Canonical gemappt werden.
+  NM-03  Jeder Key MUSS genau einem Prefix zuordenbar sein.
+
+5.2) Erlaubte Prefixe (MUST)
+
+  Namespace-Prefixe für Policy-Keys:
+    vpn_       VPN-bezogene Policy (Tunnel, Session, Enforcement)
+    web_       Webpanel/Portal-bezogene Policy
+    peak_      Peak-Mode (CPU-Overload) Policy
+    radius_    FreeRADIUS-bezogene Policy
+
+  Querschnitt-Prefixe:
+    settings_  Meta/Resolver/Cache Verhalten
+    log_       Logging/Retention/Aggregation Policy
+    spool_     Spool/Queue/Buffer Policy
+
+  NEUE Prefixe (RetroTunnel-spezifisch, falls nötig):
+    wg_        WireGuard-spezifische Keys (Server-Config, Keepalive etc.)
+               Bewusst wg_ statt awg_: WireGuard ist die Konstante,
+               nicht der Fork-Name (Amnezia/etc.).
+
+5.3) Alias-System (MUST)
+
+  AL-01  Kein "Silent Rename" ohne Alias-Eintrag.
+  AL-02  Alias-Tabelle enthält: old_key, new_key, status (active|deprecated|removed).
+  AL-03  Status=removed → reject + reason (nicht still ignorieren).
+  AL-04  Resolver liefert canonical_key + alias_used Flag.
+
+  HINWEIS FÜR RETROTUNNEL:
+  Da RetroTunnel ein Greenfield-Konzept ist (keine produktive Settings-DB
+  zu migrieren), gibt es aktuell keine Legacy-Keys zum Aliasieren.
+  Das Alias-System wird trotzdem vorgesehen, damit spätere Key-Renames
+  sauber migriert werden können.
+
+5.4) Tabellen- und Spalten-Naming (MUST)
+
+  TN-01  Tabellennamen: lower_snake_case, Plural.
+         Beispiele: customers, vpn_connections, settings_global,
+         active_session_locks, settings_catalog
+
+  TN-02  Spalten: lower_snake_case.
+         Beispiele: customer_id, subaccount_login, tunnel_type,
+         access_role, ip_slot, fixed_ip, op_status, restricted_at
+
+  TN-03  Primary Key: immer "id" (BIGINT UNSIGNED AUTO_INCREMENT).
+
+  TN-04  Foreign Keys: <referenzierte_tabelle_singular>_id.
+         Beispiele: customer_id → customers.id,
+                    vpn_connection_id → vpn_connections.id
+
+  TN-05  Timestamps: lower_snake_case mit _at Suffix.
+         Beispiele: created_at, updated_at, claimed_at, disabled_at,
+         email_verified_at, revoked_at
+
+  TN-06  Boolean/Status Flags: Beschreibendes Adjektiv + _enabled
+         oder is_ Prefix. Beispiel: is_restoreable (reason_registry)
+
+  TN-07  ENUM-Felder: Werte sind UPPER_SNAKE_CASE.
+         Beispiele: LEGACY, MODERN, USER, VIP, MODERATOR, ADMIN,
+         PREPROVISIONED, CLAIMED, DISABLED, FAIL_CLOSED, FAIL_SAFE_HARDCAP
+
+================================================================================
+6) WRITE-PATH CONTRACT (Wer darf was schreiben?)
+================================================================================
+
+Übernahme aus B057 §13.6 + §13.7, angepasst an RetroTunnel Rollen:
+
+6.1) Settings Write-Auth (MUST)
+
+  Akteur     GLOBAL   CUSTOMER   CONNECTION   Beschreibung
+  ────────── ──────── ────────── ──────────── ──────────────────
+  ADMIN      W!       W!         W!           Über Panel, auditpflichtig
+  MODERATOR  R        R          R            Kein Settings-Write
+  VIP        R        R          R            Kein Settings-Write
+  USER       R        R          R            Kein Settings-Write
+  SYSTEM     W        W          W            Provisioning/Workflows
+
+  W!=Write mit Audit-Pflicht, R=Read-only, W=Write (System-Flow)
+
+6.2) Write-Semantik (MUST)
+
+  WS-01  Upsert: INSERT ... ON DUPLICATE KEY UPDATE (MariaDB-Syntax).
+         Keine "SELECT dann INSERT" ohne Lock.
+         Semantik: "no duplicate rows, deterministic last-write".
+  WS-02  Jeder Write erzeugt Audit (changed_by, updated_at, comment).
+  WS-03  Kein Schreibpfad außerhalb dieses Contracts.
+  WS-04  Write gegen allowed_override_scope → Hard Fail + Audit.
+
+================================================================================
+7) INITIALE KEY-LISTE (RetroTunnel, übernommen + erweitert)
+================================================================================
+
+Die folgende Liste enthält die MUST-Keys für PH1 (Minimum Viable System).
+Übernahme aus B057 §13.10, angepasst wo nötig.
+
+Format: key — Typ — fail_class — override_scope — failsafe — Zweck
+
+7.1) Session/Enforcement Keys
+
+  vpn_active_session_lock_ttl_seconds
+    INT >0 — FAIL_SAFE_HARDCAP — NONE — failsafe=20
+    Mutex-Lock TTL für SimUse Guard.
+
+  vpn_connect_gate_ttl_seconds
+    INT >0 — FAIL_SAFE_HARDCAP — NONE — failsafe=120
+    Reconcile Stale-Check: Ab wann Reconcile ein connect_pending
+    als stale behandelt. Muss länger sein als der längste
+    erwartete Apply-Lauf. SM_POLICY_RESTRICT §7 Schritt 5.
+
+  vpn_reconcile_interval_seconds
+    INT >=60 — FAIL_SAFE_HARDCAP — NONE — failsafe=300
+    Reconcile Drift-Reparatur Intervall.
+
+  vpn_janitor_interval_seconds
+    INT >=60 — FAIL_SAFE_HARDCAP — NONE — failsafe=300
+    Stale-Session Janitor Intervall.
+
+  vpn_stale_threshold_seconds
+    INT >0 — FAIL_SAFE_HARDCAP — NONE — failsafe=900
+    Ab wann eine Session als "stale" gilt.
+
+  vpn_boot_janitor_delay_seconds
+    INT >=0 — FAIL_SAFE_HARDCAP — NONE — failsafe=0
+    Boot-Delay vor globalem Janitor-Sweep.
+
+7.2) IP/Pool Keys
+
+  vpn_quarantine_days
+    INT >0 — FAIL_CLOSED — NONE — (kein failsafe, Hard Fail)
+    Quarantäne-Dauer für entzogene IP-Slots.
+
+  vpn_tail_reserve_slots
+    INT >=0 — FAIL_SAFE_HARDCAP — NONE — failsafe=0
+    Tail-Reserve pro Pool (Break-Glass Puffer).
+
+7.3) Onboarding Keys
+
+  vpn_unclaimed_grace_days
+    INT >=0 — FAIL_SAFE_HARDCAP — NONE — failsafe=0
+    Dauer für Full-Tunnel bis Overdue. failsafe=0 → sofort Overdue.
+
+  vpn_claim_deadline_days
+    INT >=0 — FAIL_SAFE_HARDCAP — NONE — failsafe=0
+    Hard-Stop gegen ewige Leichen. failsafe=0 → sofort DISABLED.
+
+  vpn_disabled_connection_buffer
+    INT >=0 — FAIL_SAFE_HARDCAP — NONE — failsafe=2
+    Wie viele deaktivierte Connections ein Kunde zusätzlich zu
+    seinen aktiven im Account behalten darf. Gesamt-Budget =
+    max_active_connections + buffer. Systemverhalten, nicht
+    Kundenrecht. Pattern: B057/B155 Ableitungsregel. (D003)
+
+  vpn_moderator_max_connections
+    INT >0 — FAIL_SAFE_HARDCAP — CUSTOMER — failsafe=3
+    INTERIM (D003-E08): Wird durch Policy-System ersetzt (M2).
+    Deckt vorläufig max_active_connections ab. Default=3.
+
+  vpn_vip_max_connections
+    INT >0 — FAIL_SAFE_HARDCAP — CUSTOMER — failsafe=3
+    INTERIM (D003-E08): Wird durch Policy-System ersetzt (M2).
+    Deckt vorläufig max_active_connections ab. Default=3.
+
+7.4) Firewall/Rate-Limit Keys
+
+  vpn_conn_new_rate_per_sec
+    INT >0 — FAIL_SAFE_HARDCAP — NONE — failsafe=1
+    Neue Verbindungen pro Sekunde (nftables Rate-Limit).
+
+  vpn_conn_new_burst
+    INT >=0 — FAIL_SAFE_HARDCAP — NONE — failsafe=0
+    Burst-Allowance für neue Verbindungen.
+
+7.5) RADIUS/Accounting Keys
+
+  radius_acct_interim_seconds
+    INT >=60 — FAIL_SAFE_HARDCAP — NONE — failsafe=300
+    RADIUS Interim-Update Intervall (nur LEGACY relevant).
+
+7.6) Cleanup Keys (On-Demand Janitor)
+
+  vpn_cleanup_ratelimit_window_seconds
+    INT >0 — FAIL_SAFE_HARDCAP — NONE — failsafe=10
+    Ratelimit-Fenster für Login-Flow Cleanup. Hardcap <=30s.
+
+  vpn_cleanup_result_ttl_seconds
+    INT >0 — FAIL_SAFE_HARDCAP — NONE — failsafe=30
+    TTL für Cleanup-Ergebnisse. Hardcap <=120s.
+
+  vpn_cleanup_timeout_seconds
+    INT >0 — FAIL_SAFE_HARDCAP — NONE — failsafe=1
+    Cleanup-Timeout im Login-Path. Hardcap <=2s.
+
+7.7) Panel/Stats Keys
+
+  web_online_window_seconds
+    INT >0 — FAIL_SAFE_HARDCAP — NONE — failsafe=300
+    Panel-Heuristik: Wie lange nach letztem Accounting-Update gilt
+    ein Client als "online". Kein Enforcement, nur Anzeige.
+
+7.8) WireGuard/MODERN Keys
+
+  wg_modern_session_stale_seconds
+    INT >0 — FAIL_SAFE_HARDCAP — NONE — failsafe=300
+    MODERN Handshake-Stale-Threshold. Ab wann ein Peer ohne frischen
+    Handshake als stale gilt. Muss mit PersistentKeepalive abgestimmt
+    werden. SM_SESSION §8.2, §13.
+
+HINWEIS: Zahlenwerte (Defaults) werden in BASE-90_SETTINGS_CORE
+festgelegt. Diese Liste definiert Typ, Fail-Verhalten und Override-Scope.
+
+HINWEIS ZUR TIGHTEN-ONLY-SEMANTIK:
+Bei einigen Keys (z.B. vpn_tail_reserve_slots, web_online_window_seconds)
+ist die Tighten-Richtung nicht offensichtlich oder nicht anwendbar
+(kein Enforcement). Diese Keys müssen in BASE-90_SETTINGS_CORE einzeln
+begründet werden: warum der gewählte failsafe-Wert tighten-only ist,
+oder ob eine andere fail_class besser passt.
+
+================================================================================
+8) GOVERNANCE-REGELN
+================================================================================
+
+8.1) Admin-Guardrails (MUST, aus B057 §13.9)
+
+  GV-01  Kein Freitext für policyrelevante Felder wo Domain keyed sein kann.
+  GV-02  Plan-Keys: plan_id ist intern (FK), UI arbeitet mit plan_key.
+         plan_key ist immutable. Soft-Delete statt delete.
+  GV-03  ENUM: Nur für kleine, stabile Domains. Änderungen erfordern Migration.
+  GV-04  Lookup Tables: Für wachsende Domains (Plan-Catalog, Feature Flags).
+  GV-05  Panel-Fix-Actions: Dürfen Health-Probleme fixen, aber NUR
+         tighten-only / safe-default. Jede Fix-Action erzeugt Audit-Event.
+
+8.2) Derived Policy ist KEIN Settings-Key (MUST)
+
+  tunnel_type + access_role bestimmen die derived_policy (DOMAIN_MODEL §5).
+  Derived Policy ist eine deterministische Funktion, KEIN Settings-Override.
+  Wenn Rollen-Differenzierung gewünscht ist, läuft das über die Rollen-Pools
+  und nftables-Ranges, NICHT über Settings-Overrides.
+
+  Klarstellung (aus B057 §13.9a, angepasst):
+  access_role ist KEINE Settings-Override-Ebene. Rollen-Differenzen
+  laufen über derived_policy (DOMAIN_MODEL) oder getrennte
+  CUSTOMER/CONNECTION Settings-Overrides.
+
+================================================================================
+9) OFFENE PUNKTE (OPEN)
+================================================================================
+
+HINWEIS: [CLOSED]-Einträge bleiben als Entscheidungsreferenz erhalten.
+Nur Einträge OHNE [CLOSED] sind tatsächlich noch offen.
+
+OPEN-TM-01: [CLOSED] Session-Truth für MODERN
+  ENTSCHIEDEN in SM_SESSION (Option A):
+  vpn_sessions ist die EINZIGE Session-Truth für LEGACY + MODERN.
+  LEGACY schreibt über radacct-Bridge, MODERN über AWG Session Controller.
+  radacct bleibt als LEGACY-Accounting, ist aber NICHT mehr Session-Truth.
+  Operative Details der Bridge: OPEN-SES-04 (BASE-20_AAA_CORE).
+  Impact auf SimUse-Guard, Janitor, Panel: Beschrieben in SM_SESSION §5–§9.
+
+OPEN-TM-02: WireGuard-spezifische Settings-Keys
+  Werden WG-Konfigurationsparameter (Obfuskation, Keepalive etc.)
+  als Settings-Keys verwaltet? ENTSCHIEDEN: JA (Option A, SQL-first).
+  Alle WG-Server-Parameter (inkl. PrivateKey) leben in SQL.
+  Begründung: DB ist nur via VPN/localhost erreichbar, PMA abgesichert
+  per nftables + PMA-eigene Auth. Kein Bruch mit SQL-first Prinzip.
+  Konkrete Keys werden in BASE-30_TUNNEL_AWG definiert.
+  Impact: Prefix wg_ (§5.2), settings_catalog Erweiterung.
+
+OPEN-TM-03: QoS Settings-Keys für MODERN
+  Per-Peer QoS auf awg0 erfordert vermutlich eigene Keys
+  (Speed-Limits pro Plan). Format und Mechanik noch offen.
+  Wird in MOD-03_QOS entschieden.
+
+================================================================================
+10) TESTS / VALIDIERUNG (DoD)
+================================================================================
+
+T-TM-01: Settings Resolution Order
+  - CONNECTION Override überschreibt CUSTOMER und GLOBAL.
+  - CUSTOMER Override überschreibt GLOBAL.
+  - Nachweis: 3 Scopes mit verschiedenen Werten, effective_value prüfen.
+
+T-TM-02: Fail-Closed bei Missing MUST-Key
+  - MUST-Key mit fail_class=FAIL_CLOSED fehlt in allen Scopes.
+  - Erwartung: Operation scheitert deterministisch.
+
+T-TM-03: Failsafe-Hardcap bei Missing
+  - Key mit fail_class=FAIL_SAFE_HARDCAP fehlt.
+  - Erwartung: failsafe_value wird verwendet + Health Warning.
+
+T-TM-04: Invalid Value Handling
+  - Key mit ungültigem Wert (außerhalb range_min/max).
+  - Erwartung: fail_class greift + Audit-Event + Health Flag.
+
+T-TM-05: Override-Whitelist
+  - Override-Versuch für Key mit allowed_override_scope=NONE.
+  - Erwartung: Hard Fail + Audit-Event.
+
+T-TM-06: Naming Convention
+  - Alle Keys in settings_catalog sind lower_snake_case.
+  - Alle Keys haben einen gültigen Prefix.
+  - Keine UPPERCASE Keys als echte DB-Keys.
+
+T-TM-07: /diag Trace
+  - /diag gibt für jeden abgefragten Key effective_value,
+    effective_source und key_state aus.
+  - Fallback-Situation zeigt FALLBACK_ACTIVE + Warning.
+
+T-TM-08: DB-Down Verhalten
+  - DB nicht erreichbar → key_state=DB_UNKNOWN → fail_class greift.
+  - Keine neuen Auth-Requests werden akzeptiert.
+
+================================================================================
+CHANGELOG
+================================================================================
+v1.2 (2026-04-16): F-FRESH-N01 Fix.
+  Begriffs-Bruecke erweitert: BASE-Nummerierung (2-stellig -> 3-stellig),
+  Tunnel-Tausch (BASE-30_TUNNEL_AWG -> BASE-040_TUNNEL_WIREGUARD),
+  BASE-20 -> BASE-020, BASE-90 -> BASE-090.
+v1.1 (2026-04-16): Tag-3-Reorganisation Deprecation-Header.
+  DEPRECATED-Status mit Begriffs-Bruecke. Tabellennamen-Mappings
+  (K-01..K-08) und tunnel_type ENUM-Werte in der Bruecke.
+v1.0 (2026-04-15): F-VB-001 Fix — vpn_pending_ttl_seconds entfernt.
+  §7.1: Key war Stale-Rest aus altem IKEv2-Konzept (2-Stage Pending).
+  In RetroTunnel kein Consumer. Funktion wird durch
+  vpn_connect_gate_ttl_seconds abgedeckt (Reconcile Stale-Check).
+  Marco-Entscheidung: entfernen.
+v0.9 (2026-04-15): R-14 Bereinigung.
+  OPEN-TM-01: "SM_SESSION v0.3" → versionslos (R-14).
+v0.8 (2026-04-14): D003 Policy-System.
+  §2 SoT-Map: Rolle → Customer-Rang (abgeleitet auf Connection).
+  §2 SoT-Map: Policy-Parameter eigene SoT-Domäne (policy_catalog +
+  role_policy_defaults + customer_policy_overrides). Settings-Parameter
+  bleiben in settings_* Tabellen (operationale Parameter).
+  §7.3: vpn_vip/mod_max_connections als INTERIM markiert (D003-E08).
+  Scope NONE→CUSTOMER für individuelle Ausnahmen.
+v0.7 (2026-04-13): Connection-Limits als Settings-Keys.
+  §7.3: vpn_moderator_max_connections + vpn_vip_max_connections
+  ergänzt (INT >0, FAIL_SAFE_HARDCAP, failsafe=3, NONE).
+  Alle Rollen-Limits leben in der DB, nicht hardcoded.
+  Marco-Entscheidung 2026-04-13.
+v0.6 (2026-04-12): Cross-File-Nachzug SM_SESSION v0.6.
+  - §7.8: wg_modern_session_stale_seconds ergänzt (MODERN Stale-Threshold).
+v0.5 (2026-04-12): Cross-File-Nachzug SM_POLICY_RESTRICT v1.6.
+  - §7.1: vpn_connect_gate_ttl_seconds ergänzt (Reconcile Stale-Check,
+    failsafe=120s). Unterschied zu vpn_pending_ttl_seconds klargestellt.
+  - §2.1 SoT-Map: Zustands-Enforcement — nftables Sets explizit benannt
+    (restricted_v4/v6, connect_pending_v4/v6, banned_v4/v6).
+v0.4 (2026-04-12): Cross-File-Nachzug für SM_SESSION v0.3.
+  - SoT-Map: Session-Truth vereinheitlicht — vpn_sessions als EINZIGE
+    Quelle für LEGACY + MODERN (statt radacct/OPEN getrennt)
+  - KLARSTELLUNG aktualisiert (vpn_sessions statt radacct/OPEN)
+  - OPEN-TM-01 geschlossen (Session-Truth entschieden: Option A)
+v0.3 (2026-04-11): SoT-Map an Zwei-Ebenen-Modell angepasst.
+  - Connection-Status → Connection-Op-Status (vpn_connections.op_status)
+  - Restricted-Status → Connection-Reason (vpn_connections.op_reason_code)
+  - NEU: Connection-Ownership (aus customer_id abgeleitet)
+  - NEU: Reason-Policy (reason_registry Tabelle)
+  - NEU: Connection-Lifecycle-Hist. (connection_lifecycle_log)
+v0.2 (2026-04-10): Review-Korrekturen nach externem Feedback.
+  - SoT-Map: Feldnamen an DOMAIN_MODEL angeglichen (subaccount_nt_hash,
+    awg_public_key statt Kürzel)
+  - SoT-Map: Customer-Verify und Customer-Lifecycle getrennt
+  - SoT-Map: SimUse-Guard explizit als Nicht-Session-Truth klargestellt
+  - Ein-SoT-Regel um OPEN/TBD-Klausel ergänzt
+  - SF-06 enger formuliert: "settings-gesteuerte Policy" statt pauschal
+  - WS-01: ON CONFLICT → ON DUPLICATE KEY UPDATE (MariaDB-Syntax)
+  - Tighten-only-Hinweis für Key-Liste ergänzt
+v0.1 (2026-04-10): Initiales Truth Model. SoT-Map (21 Domänen), SQL-first
+  Grundregeln (SF-01 bis SF-06), Settings-Resolution (4-Scope Algorithmus,
+  Missing/Invalid/Fail-Class, Override-Whitelist, Observability), Naming-
+  Konventionen (Key-Format, 7+1 Prefixe, Alias-System, Tabellen/Spalten-
+  Naming), Write-Path Contract, initiale Key-Liste (17 Keys in 7 Gruppen),
+  Governance-Regeln, 3 offene Punkte, 8 Validierungstests.
+================================================================================

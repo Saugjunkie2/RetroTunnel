@@ -1,0 +1,251 @@
+================================================================================
+BASE-020 — L2TP/IPsec RADIUS REALISIERUNG
+================================================================================
+DATEI: BASE-020_030_L2TP_IPSEC_RADIUS.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Vollstaendige FreeRADIUS-Realisierung des Admission-Vertrags
+  fuer L2TP/IPsec-Verbindungen. RADIUS ist der AAA-Backbone
+  fuer diesen Tunnel-Typ.
+
+  Diese Datei ist die Nachfolgerin von B050, B056 und Teilen von
+  B165 aus dem Altkonzept, angepasst an den RetroTunnel-Kanon
+  (Auth-Split, vpn_sessions als Truth, direct-read).
+
+VORGAENGER: B050_SQL_AAA_RADIUS, B056_RADIUS_SCHEMA_MAPPING
+
+================================================================================
+1) ARCHITEKTUR-ENTSCHEIDUNG: DIRECT-READ (keine materialisierten Kopien)
+================================================================================
+
+  RADIUS liest Auth-Daten DIREKT aus der kanonischen SoT-Tabelle
+  vpn_connection_l2tp_ipsec_auth. NICHT aus materialisierten
+  radcheck/radreply-Kopien.
+
+  BEGRUENDUNG (Marco + Claude + ChatGPT konvergiert, 2026-04-18):
+  a) SQL-first: Eine Wahrheit, ein Ort. Materialisierte Kopien
+     erzeugen eine zweite operative Wahrheit mit Sync-/Drift-Risiko.
+  b) Kanon-Konsistenz: BASE-000_010 gibt dem radius DB-User bereits
+     SELECT auf vpn_connection_l2tp_ipsec_auth. Der Kanon zeigt
+     bereits in Richtung direct-read.
+
+  c) Sicherheit: Auth-Secrets (NT-Hash) sollten nicht als
+     Schattenkopien in radcheck existieren. Ein Mismatch zwischen
+     SoT und Kopie ist ein AuthN-/Security-Problem.
+  d) Wartbarkeit: Kein Sync-Job, kein Drift-Handling, kein Rebuild.
+
+  TECHNISCHE UMSETZUNG:
+  FreeRADIUS SQL-Modul unterstuetzt Custom Queries ueber
+  authorize_check_query und authorize_reply_query. Diese werden
+  so konfiguriert, dass sie direkt gegen die kanonischen Tabellen
+  lesen. Das ist kein Hack, sondern ein unterstuetzter Konfigurations-
+  pfad des FreeRADIUS SQL-Moduls.
+
+  KONSEQUENZ FUER radcheck/radreply:
+  radcheck und radreply werden NICHT als Runtime-Tabellen befuellt.
+  Sie existieren als leere FreeRADIUS-Standard-Tabellen in der DB
+  (werden bei FreeRADIUS-Installation angelegt), haben aber KEINE
+  operative Funktion. Kein Sync-Job, kein Writer, kein Consumer.
+
+================================================================================
+2) RADIUS AUTHORIZE FLOW (Pruefkette, kanonisch)
+================================================================================
+
+  FreeRADIUS authorize-Section, Reihenfolge MUST:
+
+  2.1) USERNAME NORMALISIERUNG
+    User-Name wird getrimmt (Whitespace). Keine Transformation.
+    subaccount_login ist case-sensitive (Base32 lowercase).
+
+  2.2) IDENTITY LOOKUP (direct-read)
+    Custom authorize_check_query:
+    Liest aus vpn_connection_l2tp_ipsec_auth + vpn_connections:
+
+    Benoetigte Daten:
+      - subaccount_nt_hash (NT-Password fuer MSCHAPv2)
+      - vpn_connection_id (fuer SimUse-Check und Session-Signal)
+      - op_status (fuer Status-Pruefung)
+      - op_reason_code (fuer Reason-Logging)
+      - tunnel_type (muss L2TP_IPSEC sein, Plausibilitaet)
+      - fixed_ip (fuer Framed-IP-Address Reply)
+      - fixed_ipv6 (NULL bei L2TP_IPSEC, Vollstaendigkeit)
+
+    Wenn kein Treffer → REJECT (unbekannte Identitaet)
+    Wenn tunnel_type != L2TP_IPSEC → REJECT (Fehlkonfiguration)
+
+  2.3) STATUS-PRUEFUNG
+    op_status = DISABLED → REJECT (R_ACCOUNT_DISABLED, B342)
+    op_status = ACTIVE oder RESTRICTED → weiter
+
+  2.4) CREDENTIAL-VERIFIKATION
+    FreeRADIUS MSCHAPv2-Modul vergleicht Client-Challenge gegen
+    den aus der DB geladenen NT-Hash (NT-Password Attribut).
+    Bei Mismatch → REJECT (R_AUTH_CREDENTIALS_INVALID)
+
+  2.5) ON-DEMAND JANITOR (vor SimUse)
+    Vor der SimUse-Pruefung: On-Demand Cleanup fuer die
+    vpn_connection_id ausfuehren. Schliesst stale/ghost Sessions
+    in vpn_sessions. Detail → BASE-070 (Owner).
+    Rate-limited, cached (B169-Muster).
+
+  2.6) SIMUSE-PRUEFUNG
+    Pruefe vpn_sessions: Offene Session (closed_at IS NULL) fuer
+    diese vpn_connection_id?
+    Wenn ja (nach On-Demand Janitor) → REJECT (R_SIMUSE_ACTIVE)
+
+  2.7) GUARD ERWERBEN (vpn_session_locks)
+    INSERT INTO vpn_session_locks (vpn_connection_id, acquired_at,
+    expires_at) VALUES (:id, NOW(), NOW() + :lock_ttl)
+    Lock-TTL: vpn_active_session_lock_ttl_seconds (Settings-Key,
+    SQL-first, Fallback per B057 Fail-Class).
+    HINWEIS: Keyname prefixed (vpn_), finale Normierung in BASE-090.
+    Wenn UNIQUE-Constraint verletzt (Lock existiert, nicht expired)
+    → REJECT (SimUse-Guard aktiv)
+    Wenn Lock expired → Expired Lock loeschen, neuen setzen
+
+  2.8) ACCEPT
+    FreeRADIUS antwortet mit Access-Accept.
+
+================================================================================
+3) RADIUS REPLY ATTRIBUTE (authorize_reply_query)
+================================================================================
+
+  Custom authorize_reply_query liest aus vpn_connections:
+
+  PFLICHT (MUST):
+    Framed-IP-Address = vpn_connections.fixed_ip
+    (Stabile IP pro Connection, keine Random-Leases. B061-Muster.)
+
+  OPTIONAL (konfigurierbar):
+    Session-Timeout (wenn Timeout-Policy aktiv)
+    Idle-Timeout (wenn Idle-Disconnect gewuenscht)
+    DNS-Server (falls per RADIUS zugewiesen, sonst DNAT53)
+
+================================================================================
+4) RADIUS ACCOUNTING (radacct)
+================================================================================
+
+  ROLLE IM NEUEN KONZEPT: Legacy-Accounting / Forensik.
+  radacct ist NICHT mehr Session-Truth (das ist vpn_sessions).
+  radacct bleibt aber als Standard-FreeRADIUS-Mechanismus aktiv
+  und liefert wertvolle forensische Daten.
+
+  ACCOUNTING-EVENTS (automatisch durch FreeRADIUS SQL-Modul):
+    Acct-Start:  Neue Session in radacct (start_time)
+    Acct-Update: Interim-Updates (Bytes, Session-Time)
+    Acct-Stop:   Session beendet (stop_time, Terminate-Cause)
+
+  SESSION-SIGNAL BEI ACCT-START:
+    Acct-Start ist das Trigger-Ereignis fuer den Session-Start.
+    Der vpn_sessions INSERT wird NICHT durch den RADIUS-Prozess
+    selbst ausgefuehrt, sondern durch den system-User via
+    Legacy-Bridge/ip-up-Hook NACH Acct-Start:
+    → Bridge empfaengt Acct-Start-Signal
+    → Bridge fuehrt vpn_sessions INSERT aus (system DB-User)
+    → Bridge loest vpn_session_locks Release aus
+    Trennung: RADIUS entscheidet (Auth), System committet (Truth).
+    Owner-Prinzip: R-15 (fachlicher Owner ≠ technischer Runner).
+
+  GUARD-RELEASE BEI ACCT-START:
+    Sobald die Bridge Acct-Start verarbeitet hat, wird der Guard
+    durch den system-User geloescht:
+    DELETE FROM vpn_session_locks WHERE vpn_connection_id = :id
+    Wenn Acct-Start nie kommt: Guard laeuft nach TTL ab.
+    Janitor (BASE-070) raeumt expired Guards auf.
+
+================================================================================
+5) POST-AUTH LOGGING (radpostauth)
+================================================================================
+
+  JEDER Auth-Versuch (ACCEPT und REJECT) wird in radpostauth geloggt.
+  FreeRADIUS Standard-Mechanismus, kein Custom-Code noetig.
+
+  Geloggte Felder: User-Name, Reply-Message, Auth-Type, Timestamp.
+  KEINE Secrets in Logs (R-12). Kein NT-Hash, kein Passwort.
+
+  radpostauth ist die primaere Quelle fuer:
+  - Auth-Forensik (wer hat wann versucht sich zu verbinden?)
+  - Fail2ban Event-Klassifikation (BASE-020 → MOD-005)
+  - Support-Debugging (warum wurde jemand abgewiesen?)
+
+================================================================================
+6) DB-DOWN VERHALTEN (FAIL-CLOSED, kanonisch)
+================================================================================
+
+  DB nicht erreichbar:
+    → FreeRADIUS SQL-Modul erhaelt Connection-Fehler
+    → RADIUS antwortet mit Access-Reject (DENY)
+    → KEIN Haengen, KEIN Timeout-Warten
+    → Reason: R_AUTH_BACKEND_SQL_DOWN (B342)
+    → Backend-Fehler DUERFEN NIEMALS Bans triggern (B340/B341)
+    → Recovery: DB kommt wieder → naechster Login funktioniert
+
+  SQL-Query-Fehler (Syntax, Timeout, Permission):
+    → RADIUS antwortet mit Access-Reject (DENY)
+    → Reason: R_AUTH_BACKEND_SQL_FAIL (B342)
+    → Wird als Health-Event geloggt, nicht als Auth-Event
+
+================================================================================
+7) DB-USER GRANTS FUER RADIUS (Referenz BASE-000_010)
+================================================================================
+
+  DB-User: radius (Passwort in /etc/freeradius/3.0/mods-enabled/sql)
+
+  ERLAUBT:
+    vpn_connection_l2tp_ipsec_auth  SELECT (Auth-Lookup)
+    vpn_connections                 SELECT (Status/IP-Pruefung)
+    vpn_session_locks               SELECT, INSERT, DELETE (Guard)
+    vpn_sessions                    SELECT (SimUse-/Truth-Check)
+    rad*                            SELECT, INSERT, UPDATE (Standard)
+
+  NICHT ERLAUBT (auch nicht fuer radius):
+    vpn_sessions INSERT             → system-User via Bridge/ip-up
+                                      nach Acct-Start (R-15 Owner≠Runner)
+    web_*     KEIN Zugriff (Panel-Daten)
+    wg_*      KEIN Zugriff (WireGuard-Credentials, SQL-09)
+    settings_* KEIN Zugriff
+    policy_*  KEIN Zugriff
+    log_*     KEIN Zugriff
+
+  SICHERHEITSARGUMENT (aus BASE-010_030):
+  RADIUS sieht WireGuard-Auth physisch nicht. Ein kompromittierter
+  RADIUS-DB-User kann keine WireGuard-Keys lesen und keinen
+  WG-Flooding-Angriff ueber Auth-Lookups fahren.
+
+================================================================================
+8) FREERADIUS KONFIGURATIONSVERTRAG (nicht Implementation)
+================================================================================
+
+  BASE-020 definiert WAS konfiguriert werden muss.
+  Die konkreten Konfigurationsdateien (mods-enabled/sql,
+  sites-enabled/default, policy.d/) leben in
+  implementation/configs/etc/freeradius/.
+
+  KONFIGURATIONSVERTRAG:
+  a) SQL-Modul: direct-read Queries gegen kanonische Tabellen
+  b) Auth-Type: MSCHAPv2 (kein PAP, kein EAP)
+  c) Accounting: Standard radacct + vpn_sessions Bridge (system-User)
+  d) Post-Auth: radpostauth Logging (alle Versuche)
+  e) Simultaneous-Use: Ueber vpn_sessions + vpn_session_locks
+     (nicht ueber FreeRADIUS-eigenes SimUse-Check-Attribut)
+  f) Reject-Reply: Reply-Message mit Reason-Code (B342 kanonisch)
+  g) No-unlang-Businesslogik: Komplexe Logik in SQL/Script,
+     nicht in FreeRADIUS unlang (schwer testbar)
+
+  ABGRENZUNG:
+  IPsec-PSK ist ein IPsec-Layer-Secret und NICHT Teil des
+  RADIUS/PPP-Credential-Mappings. PSK-Definition und -Verwaltung
+  gehoert in BASE-030_TUNNEL_L2TP_IPSEC (Tunnel-Owner).
+
+  DEAKTIVIERTE STANDARD-NEBENPFADE (MUST):
+  Folgende FreeRADIUS-Standard-SQL-Pfade sind NICHT autoritativ
+  und muessen in der Konfiguration deaktiviert oder leer bleiben:
+  - radgroupcheck / radgroupreply (keine Gruppenlogik)
+  - usergroup (keine SQL-Gruppenzuordnung)
+  - Huntgroups (keine Huntgroup-Zuordnung)
+  - FreeRADIUS-eigenes Simultaneous-Use Check-Attribut
+    (SimUse wird ueber vpn_sessions + vpn_session_locks geloest,
+     NICHT ueber radcheck Simultaneous-Use)
+  Begruendung: Diese Nebenpfade wuerden bei direct-read genau
+  die Drift erzeugen die der Verzicht auf radcheck vermeiden soll.

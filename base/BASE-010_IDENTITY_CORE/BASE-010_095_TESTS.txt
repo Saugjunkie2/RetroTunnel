@@ -1,0 +1,262 @@
+================================================================================
+BASE-010 — ACCEPTANCE TESTS
+================================================================================
+DATEI: BASE-010_095_TESTS.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Messbare Tests fuer alle Invarianten und Lifecycle-Transitionen
+  in BASE-010. Jeder Test referenziert die getestete Invariante.
+
+VORGAENGER: SM_CONNECTION §8 (T-SM-01..T-SM-47), B310
+
+================================================================================
+1) OWNERSHIP TESTS
+================================================================================
+
+  T-OW-01  Claim setzt customer_id UND claimed_at atomar.
+           Danach: beide NOT NULL. [INV-01]
+  T-OW-02  customer_id nach Claim: UPDATE auf NULL → Fehler. [INV-02]
+  T-OW-03  claimed_at nach Claim: UPDATE auf NULL → Fehler. [INV-03]
+  T-OW-04  PREPROVISIONED: customer_id IS NULL korrekt abgeleitet. [INV-04]
+
+================================================================================
+2) STATUS-REASON KONSISTENZ TESTS
+================================================================================
+
+  T-SR-01  ACTIVE Connection: op_reason_code IS NULL. [INV-05]
+  T-SR-02  RESTRICTED Connection: op_reason_code IS NOT NULL. [INV-06]
+  T-SR-03  DISABLED Connection: op_reason_code IS NOT NULL. [INV-07]
+  T-SR-04  RESTRICTED + Reason hat allowed_op_status=DISABLED → Fehler
+           (FK-Constraint rejects). [INV-08]
+  T-SR-05  DISABLED + Reason hat allowed_op_status=RESTRICTED → Fehler
+           (FK-Constraint rejects). [INV-09]
+
+================================================================================
+3) TIMESTAMP KONSISTENZ TESTS
+================================================================================
+
+  T-TS-01  ACTIVE: restricted_at IS NULL AND disabled_at IS NULL. [INV-11]
+  T-TS-02  RESTRICTED: restricted_at IS NOT NULL, disabled_at IS NULL. [INV-12]
+  T-TS-03  DISABLED: disabled_at IS NOT NULL. [INV-13]
+  T-TS-04  ACTIVE: restrict_finalize_at IS NULL. [INV-14]
+  T-TS-05  RESTRICTED + Reason ohne Auto-Finalisierung:
+           restrict_finalize_at IS NULL. [INV-15]
+  T-TS-06  ACTIVE: restore_until IS NULL. [INV-17]
+
+================================================================================
+4) REVOCATION / QUARANTAENE TESTS
+================================================================================
+
+  T-RV-01  revoked_at gesetzt → op_status MUSS DISABLED sein. [INV-18]
+  T-RV-02  revoked_at gesetzt → restore_until IS NULL. [INV-19]
+  T-RV-03  quarantine_until ↔ revoked_at: eines ohne das andere →
+           Konsistenzfehler detektiert. [INV-20]
+  T-RV-04  quarantine_until < revoked_at → ungueltig. [INV-21]
+  T-RV-05  IMMEDIATE Revocation: Eintritt in DISABLED setzt revoked_at
+           UND quarantine_until atomar im selben Write. [LR-01]
+  T-RV-06  AFTER_RESTORE_WINDOW: revoked_at bleibt NULL bis restore_until
+           abgelaufen. Job setzt danach. [LR-02]
+  T-RV-07  MANUAL_ONLY: kein Job/Reconcile darf revoked_at setzen.
+           Nur explizite Admin-Aktion. [LR-03]
+
+================================================================================
+5) MULTI-REASON / RE-EVALUATION TESTS
+================================================================================
+
+  T-MR-01  QUOTA(Prio 5) + EXPIRY(Prio 4) aktiv → op_reason_code =
+           RESTRICT_EXPIRY_PASSED. [INV-22]
+  T-MR-02  Quota erneuert, Expiry noch aktiv → op_status bleibt
+           RESTRICTED, op_reason_code wechselt. [INV-22, INV-23]
+  T-MR-03  Alle Gruende weg → op_status=ACTIVE, op_reason_code=NULL. [INV-23]
+  T-MR-04  Re-Eval 2x hintereinander mit gleichen Daten → identisches
+           Ergebnis. [INV-24]
+
+================================================================================
+6) SOURCE FACTS TESTS
+================================================================================
+
+  T-SF-01  Eintritt in DISABLED (T-04/T-06/T-07): customer_paused_at
+           UND admin_manual_restricted_at werden NULL. [INV-28]
+  T-SF-02  Nach Restore (T-08): Connection startet ohne alte Source Facts
+           (beide NULL). [INV-28]
+
+================================================================================
+7) LIFECYCLE TRANSITION TESTS
+================================================================================
+
+  T-LC-01  T-01 (Claim): PREPROVISIONED + Token → customer_id gesetzt,
+           claimed_at gesetzt. Wenn RESTRICTED (UNCLAIMED_OVERDUE) und
+           Grund durch Claim wegfaellt → ACTIVE. [INV-01, INV-23]
+  T-LC-02  T-02 (Grace-Timeout): NOW() > unclaimed_grace_until +
+           customer_id IS NULL → RESTRICTED, RESTRICT_UNCLAIMED_OVERDUE.
+           Hard-Cut. [INV-06, INV-12]
+  T-LC-03  T-03 (Quota): Quota erschoepft → RESTRICTED +
+           RESTRICT_QUOTA_EXHAUSTED. [INV-06, INV-12]
+  T-LC-04  T-04 (Disable): ADMIN disables → DISABLED, disabled_at gesetzt,
+           Session-Kill. Source Facts cleared. [INV-13, INV-28]
+  T-LC-05  T-06 (Restrict-Timeout): NOW() > restrict_finalize_at →
+           DISABLED, auto_finalize_to Reason. [INV-14]
+  T-LC-06  T-08 (Restore): is_restoreable=1 + NOW() < restore_until →
+           Restore OK. [INV-16, INV-17]
+  T-LC-07  T-08 (Restore expired): NOW() > restore_until → abgelehnt. [INV-17]
+  T-LC-08  T-09 (Rollenwechsel): access_role aendert → neue IP-Allokation,
+           Hard-Cut. Alter Slot → Quarantaene. [INV-32]
+  T-LC-09  ADMIN restrict: access_role=ADMIN + T-02/T-03 → abgelehnt. [INV-56]
+
+================================================================================
+8) IDENTITY TESTS
+================================================================================
+
+  T-ID-01  email UNIQUE enforced (DB rejects Duplicate). [INV-33]
+  T-ID-02  email_verified_at monotonic: UPDATE auf NULL → Fehler. [INV-34]
+  T-ID-03  status=ACTIVE + email_verified_at NULL → abgelehnt. [INV-35]
+  T-ID-04  Rollenwechsel-Kaskade: ALLE Connections aktualisiert. [INV-36]
+  T-ID-05  connection_ref immutable: UPDATE → Fehler. [INV-37]
+  T-ID-06  claim_deadline immutable: UPDATE → Fehler. [INV-38]
+  T-ID-07  tunnel_type immutable: UPDATE → Fehler. [INV-39]
+  T-ID-08  plan_id bei access_role=ADMIN gesetzt → abgelehnt. [INV-41]
+
+================================================================================
+9) AUTH-SPLIT TESTS
+================================================================================
+
+  T-AS-01  L2TP_IPSEC: genau 1 Row in vpn_connection_l2tp_ipsec_auth,
+           0 in wg_connection_auth. [INV-42]
+  T-AS-02  WIREGUARD: genau 1 Row in wg_connection_auth,
+           0 in vpn_connection_l2tp_ipsec_auth. [INV-43]
+  T-AS-03  Atomare Erstellung: Crash nach Parent-INSERT, vor Child →
+           Rollback (kein Halbzustand). [INV-44]
+  T-AS-04  RADIUS-User SELECT auf wg_connection_auth → Denied. [INV-48]
+  T-AS-05  RADIUS-User SELECT auf vpn_connection_l2tp_ipsec_auth → OK. [INV-48]
+  T-AS-06  wg_connection_name == wg_ + connection_ref Payload. [INV-47]
+  T-AS-07  subaccount_login Regex: vpn_[a-z2-7]{16}. [INV-45]
+  T-AS-08  connection_ref Regex: con_[a-z2-7]{12}. [INV-37]
+
+================================================================================
+10) SLOT / IP TESTS
+================================================================================
+
+  T-SI-01  ip_slot bleibt nach DISABLED/Revocation auf der Row. [INV-29]
+  T-SI-02  fixed_ip UPDATE im Normalbetrieb → Fehler. [INV-30]
+  T-SI-03  Rollenwechsel: neuer Slot aus neuem Pool, alter Slot
+           in Quarantaene. [INV-32]
+
+================================================================================
+11) WRITE-PATH TESTS
+================================================================================
+
+  T-WP-01  USER Direct-Write auf op_status → Fehler. [INV-49]
+  T-WP-02  Provisioning ohne Settings-Key → fail-closed. [INV-51]
+  T-WP-03  Doppel-Claim: idempotent, kein Fehler. [INV-52]
+  T-WP-04  DB-Down bei Provisioning → kein Halbzustand. [INV-54]
+
+================================================================================
+12) REASON-REGISTRY TESTS
+================================================================================
+
+  T-RR-01  auto_finalize_to → Zielcode allowed_op_status=DISABLED. [INV-57]
+  T-RR-02  precedence_rank Duplikat in RESTRICT_* → DB rejects. [INV-60]
+  T-RR-03  Alle kanonischen Codes vorhanden nach DB-Seed.
+
+================================================================================
+13) CONNECTION-LIMITS / SCHUTZ TESTS
+================================================================================
+
+  T-CL-01  Connection-Zaehlung: ACTIVE + RESTRICTED gegen Aktiv-Budget. [INV-63]
+  T-CL-02  Letzte panel-faehige Connection (ACTIVE oder RESTRICTED):
+           USER Disable → abgelehnt. [INV-64]
+  T-CL-03  Letzte panel-faehige Connection: ADMIN ABUSE Disable → erlaubt. [INV-64]
+  T-CL-04  Zwei Connections: eine ACTIVE, eine RESTRICTED. User deaktiviert
+           die ACTIVE → erlaubt (RESTRICTED bleibt als panel-faehig). [INV-64]
+
+================================================================================
+14) CUSTOMER-STATUS TESTS
+================================================================================
+
+  T-CS-01  Customer SUSPENDED: alle CLAIMED Connections werden DISABLED
+           (DISABLE_CUSTOMER_SUSPENDED) nach Reconcile. [INV-65]
+  T-CS-02  Customer DELETED: alle CLAIMED Connection-Rows + Auth-Rows
+           physisch entfernt. DELETED-Event in Lifecycle-Log. [INV-66]
+  T-CS-03  suspended_at gesetzt ↔ status=SUSPENDED. [INV-67]
+  T-CS-04  deleted_at gesetzt ↔ status=DELETED. [INV-68]
+  T-CS-05  deleted_at einmal gesetzt, UPDATE auf NULL → Fehler. [INV-69]
+
+================================================================================
+15) CLAIM-/TOKEN-PAKET TESTS
+================================================================================
+
+  T-CT-01  Weg A: customer_id NULL → claim_token_hash NOT NULL,
+           unclaimed_grace_until gesetzt, claim_deadline gesetzt. [INV-70]
+  T-CT-02  Weg B: customer_id NOT NULL ab INSERT → claim_token_hash,
+           unclaimed_grace_until, claim_deadline alle NULL. [INV-71]
+  T-CT-03  Nach Claim: claim_token_hash wird NULL. [INV-72]
+  T-CT-04  unclaimed_grace_until > claim_deadline → abgelehnt. [INV-73]
+  T-CT-05  Grace-Reset ueber claim_deadline hinaus → abgelehnt. [INV-74]
+
+================================================================================
+16) SECRET-EXPOSURE TESTS
+================================================================================
+
+  T-SE-01  Admin-Panel zeigt NICHT subaccount_nt_hash (einzige
+           Ausnahme — technisches Hash-Artefakt, nicht menschenlesbar).
+           Alle ANDEREN Credentials sind im Klartext sichtbar. [INV-75]
+  T-SE-02  Admin-Panel zeigt wg_preshared_key im Klartext (KEIN
+           Verstecken). Admin hat Vollzugriff auf ALLE Connection-
+           Credentials: Login, Passwort (L2TP), Keys, Config, QR-Code
+           (WG). Credentials sind Betriebsdaten, nicht Geheimnisse
+           vor dem Admin. [INV-75]
+  T-SE-03  User-Panel zeigt ALLE eigenen Connection-Daten die fuer
+           die Geraete-Einrichtung noetig sind:
+           L2TP: Login-Name, Passwort, PSK — alles im Klartext.
+           WG: Vollstaendige Config-Datei + QR-Code + alle Keys.
+           Kein Verstecken, kein Redaktieren (ausser nt_hash). [INV-75]
+
+================================================================================
+17) CREDENTIAL-ROTATION TESTS
+================================================================================
+
+  T-CR-01  L2TP/IPsec Passwort-Rotation: rotated_at wird aktualisiert. [INV-76]
+  T-CR-02  WireGuard Config-Regeneration: rotated_at wird aktualisiert. [INV-76]
+
+================================================================================
+18) PANEL-CONSUMABILITY TESTS
+================================================================================
+
+  T-PC-01  Panel zeigt connection_ref als Fallback bei NULL display_name.
+  T-PC-02  Panel zeigt op_reason_code Beschreibung per Mouseover
+           (aus vpn_reason_registry.description).
+  T-PC-03  Panel-Log-Viewer zeigt log_connection_lifecycle Eintraege
+           gefiltert nach Customer/Connection/Zeitraum.
+  T-PC-04  Admin-Panel: T-04..T-09 als Aktionen verfuegbar.
+           Klasse-C Aktionen erfordern Re-Auth (Bf-06).
+
+================================================================================
+19) LIFECYCLE-LOG FORENSIK TESTS (ChatGPT-Review, 2026-04-18)
+================================================================================
+
+  T-LF-01  Connection loeschen → CONNECTION_DELETED Event in Log
+           mit connection_ref Snapshot. vpn_connection_id = NULL
+           (SET NULL FK). Log-Row bleibt erhalten. [INV-77, INV-78]
+  T-LF-02  Customer loeschen → CUSTOMER_DELETED Event + je ein
+           CONNECTION_DELETED Event pro Connection. Alle Log-Rows
+           bleiben mit connection_ref + customer_id Snapshots. [INV-78]
+  T-LF-03  Forensik-Query nach Loeschung: SELECT * FROM
+           log_connection_lifecycle WHERE connection_ref = 'con_xxx'
+           liefert vollstaendige Historie trotz geloeschter
+           Connection-Row. [INV-77]
+
+================================================================================
+20) IP-SLOT + PANEL-AUTH TESTS (ChatGPT-Review, 2026-04-18)
+================================================================================
+
+  T-SI-04  Zwei Connections mit derselben fixed_ip anlegen →
+           UNIQUE Constraint Violation (DB-Level Enforcement).
+           Gleicher Test fuer fixed_ipv6. [INV-79]
+  T-PA-01  Admin-Panel kann ALLE Connection-Credentials sehen:
+           L2TP Login + Passwort, WG Config + QR-Code + Keys.
+           Admin hat Vollzugriff fuer Support und Debugging. [INV-75]
+  T-PA-02  User-Panel kann eigene Credentials sehen:
+           L2TP Login + Passwort, WG Config + QR-Code.
+           Vollstaendige Daten fuer Geraete-Einrichtung. [INV-80]
+================================================================================

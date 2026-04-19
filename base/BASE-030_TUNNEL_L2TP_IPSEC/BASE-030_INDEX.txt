@@ -1,0 +1,169 @@
+================================================================================
+BASE-030 — TUNNEL L2TP/IPsec (INDEX)
+================================================================================
+DATEI: BASE-030_INDEX.txt
+VERSION: v1.0
+DATUM: 2026-04-19
+STATUS: ACTIVE
+
+================================================================================
+1) ZWECK
+================================================================================
+
+  BASE-030 beschreibt den L2TP/IPsec-Tunnelpfad fuer Windows XP/Vista
+  Clients. Der Pfad nutzt zwei entkoppelte Daemons:
+
+    strongSwan  — terminiert IKEv1/IPsec (Phase 1+2, PSK, NAT-T)
+    accel-ppp   — terminiert L2TP + PPP (Auth via RADIUS, IP-Vergabe)
+
+  Die Daemons kommunizieren NICHT direkt miteinander. Der Linux
+  XFRM-Stack (Kernel) entkapselt eingehende ESP-Pakete bevor sie
+  accel-ppp auf UDP/1701 erreichen. Ausgehend verschluesselt XFRM
+  den Klartext-L2TP-Traffic automatisch via SA-Policy.
+
+  KONSISTENZFEHLER-AUFLOESUNG: Das alte Konzept (B040) nennt
+  xl2tpd + pppd als L2TP/PPP-Stack. Der Live-Server nutzt accel-ppp.
+  RetroTunnel kanonisiert accel-ppp als einzigen L2TP/PPP-Daemon.
+  Begruendung: Ein Prozess statt drei, eingebaute RADIUS-Anbindung,
+  eingebautes Session-Management, eingebauter Shaper, aktiv gepflegt.
+
+================================================================================
+2) SCOPE UND ABGRENZUNG
+================================================================================
+
+  IN SCOPE:
+  - accel-ppp Daemon-Architektur und Konfiguration
+  - strongSwan IPsec-Layer (IKEv1, PSK, Transport-Mode)
+  - Crypto-Anforderungen fuer XP/Vista Kompatibilitaet
+  - PPP-Interface Lifecycle (pppX Erstellung, ip-up/ip-down)
+  - Radacct-Session-Bridge (Acct-Start → vpn_sessions, R-15)
+  - MTU/MSS/NAT-T Stabilitaet
+  - Client-seitige Anforderungen (NAT-T Registry Fix, Setup)
+
+  NICHT IN SCOPE (Owner anderswo):
+  - RADIUS-Queries, Auth-Split, Direct-Read       → BASE-020
+  - FreeRADIUS Konfiguration                       → BASE-020
+  - nftables Firewall-Regeln (inkl. meta ipsec)    → BASE-050
+  - DNS-Zwang (DNAT53)                             → BASE-060
+  - vpn_sessions Schema, Locks, Janitor            → BASE-070
+  - Policy-Apply, Reconcile, Hard-Cut              → BASE-080
+  - Settings-Keys (Defaults, Katalog)              → BASE-090
+  - Connect-Gate (connect_pending Sets)            → BASE-050
+
+================================================================================
+3) DATEIEN IN DIESEM ORDNER
+================================================================================
+
+  BASE-030_INDEX.txt                         Dieses Dokument
+  BASE-030_010_ACCEL_PPP_ARCHITEKTUR.txt     Daemon, Module, Config-Struktur
+  BASE-030_020_IPSEC_UND_PSK.txt             strongSwan, swanctl, PSK-Verwaltung
+  BASE-030_030_CRYPTO_XP_KOMPATIBILITAET.txt Legacy-Algorithmen, OpenSSL Provider
+  BASE-030_040_PPP_INTERFACE_LIFECYCLE.txt    pppX Erstellung, ip-up/ip-down Hooks
+  BASE-030_050_RADACCT_SESSION_BRIDGE.txt     Acct-Start → vpn_sessions Bridge
+  BASE-030_060_MTU_MSS_NAT_T.txt             MTU/MRU, MSS-Clamping, NAT-Traversal
+  BASE-030_070_CLIENT_ANFORDERUNGEN.txt      XP/Vista Setup, Registry Fix
+  BASE-030_090_INVARIANTEN.txt               LT-01..xx
+  BASE-030_095_TESTS.txt                     T-LT-01..xx
+
+================================================================================
+4) ABHAENGIGKEITEN
+================================================================================
+
+  REQUIRES:
+  - BASE-000  (Naming, Registry, Prefix-Zonen)
+  - BASE-005  (Platform-Contract, Service-Endpoints, Lifecycle)
+  - BASE-010  (vpn_connections, vpn_connection_l2tp_ipsec_auth,
+               connection_ref, ip_slot, Identifier-Klassen)
+  - BASE-020  (Admission-Vertrag, RADIUS Direct-Read, Session-Signal,
+               Owner-Grenzen)
+
+  INFLUENCES:
+  - BASE-050  (Firewall: meta ipsec exists, UDP 500/4500/ESP,
+               L2TP-Schutz, MSS-Clamping Position)
+  - BASE-070  (Session-Core: vpn_sessions INSERT via Bridge,
+               vpn_session_locks Release, On-Demand Janitor)
+  - BASE-080  (Policy-Apply: Connect-Gate Release nach ip-up)
+  - BASE-090  (Settings: accel-ppp operationale Parameter)
+
+================================================================================
+5) PLATTFORM-CONTRACT (BASE-005)
+================================================================================
+
+  PAKETE:
+  - strongswan-swanctl, charon-systemd          (apt, Debian main)
+  - libstrongswan-standard-plugins              (apt, Debian main)
+  - libcharon-extra-plugins                     (apt, Debian main)
+  - openssl-provider-legacy                     (apt, Debian main)
+  - accel-ppp 1.13.0+                           (Source-Build, NICHT apt)
+
+  SERVICES:
+  - strongswan.service  (charon-systemd, swanctl/vici-Modell)
+  - accel-ppp.service   (custom systemd Unit)
+
+  CONFIG-PFADE:
+  - /etc/swanctl/swanctl.conf           (strongSwan Verbindungen + Secrets)
+  - /etc/strongswan.conf                (globale Daemon-Einstellungen)
+  - /etc/strongswan.d/charon/*.conf     (Plugin-Konfiguration)
+  - /etc/accel-ppp.conf                 (accel-ppp Hauptkonfiguration)
+  - /etc/ssl/openssl.cnf                (OpenSSL Legacy Provider)
+
+  PORTS (BASE-005_030 Referenz):
+  - UDP 500   (IKE, WAN-offen)
+  - UDP 4500  (IKE + ESP-in-UDP NAT-T, WAN-offen)
+  - ESP       (IP-Protokoll 50, WAN-offen)
+  - UDP 1701  (L2TP, NUR via IPsec, NICHT WAN-offen)
+
+  LOG-PFADE:
+  - /var/log/accel-ppp/accel-ppp.log    (Haupt-Log)
+  - /var/log/accel-ppp/auth-fail.log    (Auth-Fehler)
+  - /var/log/accel-ppp/core.log         (Fehler-Log)
+  - journalctl -u strongswan            (strongSwan via systemd)
+
+  BOOT-REIHENFOLGE:
+  - lo-service-ips.service  (SERVICE_GW_PPP muss existieren)
+  - mariadb.service         (DB fuer RADIUS)
+  - freeradius.service      (RADIUS fuer Auth)
+  - strongswan.service      (IPsec Layer)
+  - accel-ppp.service       (L2TP/PPP Layer, After: alle obigen)
+
+  LINUX-USER:
+  - strongSwan: laeuft als root (charon-systemd)
+  - accel-ppp:  laeuft als root (benoetigt Netzwerk-Privilegien)
+
+================================================================================
+6) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  - accel-ppp Session-Status: accel-cmd show sessions (CLI) →
+    Panel zeigt aktive L2TP-Sessions mit User, IP, Interface, Uptime
+  - strongSwan SA-Status: swanctl --list-sas →
+    Panel zeigt aktive IPsec-SAs mit Peer-IP, Proposals, Rekey-Timer
+  - PSK-Einsicht: Panel zeigt Klartext-PSK fuer ADMIN (R-17,
+    Begruendung: User braucht PSK fuer selbstaendigen VPN-Aufbau).
+    Jede Einsichtnahme wird im Audit-Log protokolliert.
+    Bewusste Security-Ausnahme: PSK ist ein Group-Secret, kein
+    individuelles Credential. Bei PSK-Leak: Massen-Email + Rotation.
+  - Crypto-Proposals: Panel zeigt welche Algorithmen aktiv verhandelt
+    werden (Monitoring, kein Einstellen — Crypto ist fix)
+  - LCP-Echo Status: Panel zeigt Dead-Peer-Detection Zustand pro Session
+  - accel-ppp Fehler-Log: Panel-Log-Viewer liest auth-fail.log
+
+================================================================================
+7) REFERENZEN AUS DEM ALTEN KONZEPT
+================================================================================
+
+  Uebernommen (mit Anpassungen):
+  - B040: Stack-Architektur (xl2tpd/pppd → accel-ppp)
+  - B070: Legacy Crypto (3DES/SHA1/MODP1024 fuer XP)
+  - B080: NAT-T Registry Fix (Client-seitig, unveraendert)
+  - B090: MTU/MSS Stabilitaet (MTU 1400, MSS 1360)
+
+  NICHT uebernommen:
+  - B059: IKEv2 Konfiguration (entfaellt, WIREGUARD ersetzt IKEv2)
+  - B100: WAN Exposure IKEv2-Teile (entfallen)
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

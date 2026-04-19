@@ -1,0 +1,145 @@
+================================================================================
+BASE-030 — CRYPTO XP-KOMPATIBILITAET
+================================================================================
+DATEI: BASE-030_030_CRYPTO_XP_KOMPATIBILITAET.txt
+STATUS: ACTIVE
+
+================================================================================
+1) ZWECK
+================================================================================
+
+  Windows XP (und Vista ohne Updates) unterstuetzen nur schwache
+  Kryptographie-Algorithmen. RetroTunnel akzeptiert diese bewusst
+  fuer L2TP/IPsec, weil XP-Kompatibilitaet ein Kernziel ist.
+  Dieser Kompromiss wird NICHT beschoenigt — die Risiken sind
+  bekannt und werden durch Segmentierung + Enforcement mitigiert.
+
+================================================================================
+2) XP-KOMPATIBLE PROPOSALS
+================================================================================
+
+  IKE (Phase 1):
+    3des-sha1-modp1024          XP Minimum (Pflicht)
+    aes128-sha1-modp1024        Vista+ (bevorzugt wenn moeglich)
+
+  ESP (Phase 2):
+    3des-sha1                   XP Minimum (Pflicht)
+    aes128-sha1                 Vista+ (bevorzugt)
+
+  BEKANNTE SCHWAECHEN:
+  - 3DES: SWEET32-Angriff (nach ~32 GB in einer Session)
+    Mitigation: VPN-Sessions sind typisch kurzlebig, L2TP/IPsec
+    hat niedrige Datenraten. Risiko in der Praxis minimal.
+  - SHA1: Kollisionsangriff (theoretisch, nicht fuer HMAC relevant)
+    HMAC-SHA1 ist nach wie vor als sicher anerkannt.
+  - MODP1024: Logjam-Angriff (1024-bit DH-Gruppe)
+    Mitigation: Group-PSK bedeutet ohnehin shared secret.
+    Ein Angreifer der MODP1024 bricht, kennt den PSK trotzdem nicht
+    (PSK ist Input, nicht Output des DH-Exchange).
+    Aber: Staatliche Akteure koennten MODP1024 passiv brechen.
+    Fuer das Bedrohungsmodell von RetroTunnel (Privatsphaereschutz,
+    nicht militaerische Geheimhaltung) ist das akzeptabel.
+
+  KEIN UPGRADE-PFAD FUER XP:
+  Windows XP hat keine Updates die staerkere Algorithmen ermoeglichen.
+  3DES/SHA1/MODP1024 ist das Maximum was XP kann. Vista mit Updates
+  kann AES128 und SHA256, aber MODP1024 bleibt.
+
+================================================================================
+3) OPENSSL LEGACY PROVIDER (DEBIAN 13)
+================================================================================
+
+  Debian 13 liefert OpenSSL 3.x. OpenSSL 3 hat schwache Algorithmen
+  in den Legacy Provider verschoben. Ohne Aktivierung werden 3DES
+  und verwandte Funktionen blockiert.
+
+  BENOETIGT FUER:
+  - 3DES im strongSwan openssl-Plugin (IKE + ESP)
+  - MD4 fuer MS-CHAPv2 NT-Hash Berechnung (FreeRADIUS + accel-ppp)
+  - SHA1 (liegt im Default-Provider, aber die Abhaengigkeitskette
+    benoetigt den Legacy Provider fuer MD4/DES-Varianten)
+
+  PAKET: openssl-provider-legacy (apt install)
+  Installiert: /usr/lib/x86_64-linux-gnu/ossl-modules/legacy.so
+
+  SYSTEM-GLOBALE AKTIVIERUNG in /etc/ssl/openssl.cnf:
+
+    openssl_conf = openssl_init
+
+    [openssl_init]
+    providers = provider_sect
+
+    [provider_sect]
+    default = default_sect
+    legacy  = legacy_sect
+
+    [default_sect]
+    activate = 1
+
+    [legacy_sect]
+    activate = 1
+
+  KRITISCH: Wenn ein zweiter Provider explizit aktiviert wird, MUSS
+  der Default-Provider EBENFALLS explizit aktiviert werden. Sonst
+  wird er implizit deaktiviert und ALLE normalen Crypto-Operationen
+  brechen (AES, SHA256 etc.).
+
+  STRONGSWAN PLUGIN-KONFIG:
+    /etc/strongswan.d/charon/openssl.conf:
+    openssl { load = yes; load_legacy = yes }
+    load_legacy = yes laesst das strongSwan openssl-Plugin den
+    Legacy Provider intern laden. Das ist zusaetzlich zur system-
+    globalen Aktivierung — beides zusammen ist die robusteste Loesung.
+
+  VERIFIKATION:
+    openssl list -providers
+    Erwartet: "legacy" und "default" als active
+    swanctl --list-algs | grep -E '3DES|SHA1|MODP_1024'
+    Erwartet: Algorithmen sind verfuegbar
+
+  BLAST-RADIUS DER SYSTEM-GLOBALEN AKTIVIERUNG:
+  Der Legacy Provider ist system-global aktiv. Das betrifft ALLE
+  OpenSSL-Consumer auf dem Server, nicht nur strongSwan/accel-ppp:
+  - MariaDB (TLS-Verbindungen), OpenResty (HTTPS), SSH (Crypto)
+  - Risiko: Keine praktische Auswirkung, weil der Legacy Provider
+    nur ZUSAETZLICHE schwache Algorithmen bereitstellt. Starke
+    Algorithmen (AES, SHA256) bleiben ueber den Default Provider
+    verfuegbar. Kein Consumer wird gezwungen schwache Crypto zu nutzen.
+  - Bei Upgrade (OpenSSL-Paket-Update): Pruefen ob die Provider-
+    Konfiguration erhalten bleibt. /etc/ssl/openssl.cnf ist ein
+    conffile — dpkg fragt bei Aenderungen nach.
+  - Backup/Restore: openssl.cnf MUSS im Backup enthalten sein.
+    Ohne Legacy Provider nach Restore: 3DES bricht, L2TP scheitert.
+
+================================================================================
+4) MPPE-DEAKTIVIERUNG
+================================================================================
+
+  MPPE (Microsoft Point-to-Point Encryption) ist in accel-ppp
+  explizit deaktiviert: mppe = deny in [ppp].
+
+  BEGRUENDUNG:
+  - IPsec verschluesselt bereits den gesamten L2TP-Traffic (ESP)
+  - MPPE wuerde eine zweite Verschluesselungsschicht hinzufuegen
+    die nur Overhead und Kompatibilitaetsprobleme bringt
+  - Einige XP-Versionen haben MPPE-Bugs die zu Verbindungs-
+    abbruechen fuehren
+  - CCP (Compression Control Protocol) ist ebenfalls deaktiviert
+    (ccp = 0) — Kompression ueber verschluesseltem Traffic ist
+    wirkungslos
+
+================================================================================
+5) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  - Crypto-Proposals: Panel zeigt welche Algorithmen pro SA
+    tatsaechlich verhandelt wurden (aus swanctl --list-sas)
+  - OpenSSL Provider Status: Panel zeigt ob Legacy Provider aktiv
+    ist (openssl list -providers Ergebnis)
+  - MPPE-Status: Panel zeigt "deny" (aus accel-ppp Config, statisch)
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

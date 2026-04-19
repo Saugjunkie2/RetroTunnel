@@ -1,0 +1,618 @@
+================================================================================
+ENTWURF — VISION: WEBPANEL ALS ZENTRALE
+================================================================================
+STATUS: ENTWURF (nicht normativ, KR-01)
+DATUM: 2026-04-17
+AUSLOESER: Marco-Diskussion 2026-04-17
+ZIEL-MODULE: BASE-110_WEBSTACK_CORE, MOD-006_PANEL_FEATURES,
+             MOD-007_LOGGING_MONITORING
+REFERENZ: DP-07 (MANIFEST), B280/B285 (Altkonzept)
+
+ZWECK:
+  Dieses Dokument haelt Marcos konkrete Vision fest, wie das Webpanel
+  als vollstaendige Betriebs- und Steuerungszentrale funktionieren soll.
+  Die Vision geht ueber das Altkonzept (B280/B285) hinaus. DP-07 im
+  MANIFEST wurde bereits konkretisiert — dieses Dokument enthaelt die
+  Detail-Ideen die bei der Ausarbeitung von BASE-110, MOD-006 und
+  MOD-007 einfliessen sollen.
+
+================================================================================
+1) GRUNDSATZ (Marco, woertlich sinngemäss)
+================================================================================
+
+  "Hauptsache ich kann alles ueber das Webpanel sehen, steuern und
+  einstellen. Das Webpanel ist fuer mich die Zentrale. Ich will im
+  Normalbetrieb nie ueber die Konsole was machen muessen."
+
+  "Ich geh sogar noch einen Schritt weiter: Ich will im Webpanel
+  eine Konsole haben, falls ich die Konsole doch mal brauchen sollte."
+
+  Das Panel ist NICHT nur eine Status-Anzeige mit ein paar Buttons.
+  Es ist die vollstaendige Betriebsoberflaeche. SSH ist nur fuer
+  initiales Setup und echte Notfaelle.
+
+================================================================================
+2) SOLL/IST-ABGLEICH (konkretes UI-Konzept, Marco 2026-04-17)
+================================================================================
+
+  IDEE: Alle relevanten SQL-Eintraege im Panel sichtbar und aenderbar.
+  Visuell sofort erkennbar ob SOLL und IST uebereinstimmen.
+
+  KONKRET (Marcos Beschreibung):
+  - Jeder SQL-Wert hat einen visuellen Rahmen:
+    - GRUENER RAHMEN: SOLL == IST (Wert stimmt)
+    - ROTER RAHMEN: SOLL != IST (Abweichung, Handlungsbedarf)
+  - DANEBEN / DARUEBER steht der SOLL-Wert
+  - MOUSEOVER-FUNKTION: Zeigt fuer was der SQL-Eintrag zustaendig
+    ist, also seine Funktion/Beschreibung (aus settings_catalog
+    bzw. policy_catalog .description Feld)
+  - ADMIN kann Werte direkt im Panel aendern
+
+  TECHNISCHE ABLEITUNG:
+  - SOLL = Wert in SQL (settings_catalog / policy_catalog definiert
+    was ein Key sein soll, settings_global/customer/connection
+    enthaelt den aktuellen DB-Wert)
+  - IST = tatsaechlicher Kernel-State (nftables Sets, tc-Regeln,
+    Runtime-Zustaende)
+  - ARCHITEKTUR (ChatGPT-Review bestaetigt, Claude bestaetigt):
+    Das Panel liest den Kernel-State NICHT direkt. Stattdessen:
+    1. Privilegierter Collector/Reconcile liest nftables/tc/wg/ip
+    2. Schreibt beobachteten IST-Zustand als Projection in SQL
+       (z.B. kernel_observed_state, reconcile_diff, last_observed_at,
+       reconcile_generation, collector_status)
+    3. Panel liest NUR diese SQL-Projection
+    Begruendung: Panel bekommt keine Kernel-Privilegien (kein
+    CAP_NET_ADMIN, kein sudo fuer nft/tc). Saubere Privilegien-
+    Trennung. Konsistent mit SQL-first. Freshness wird ueber
+    Timestamp + Generation angezeigt.
+    Optional: Expliziter "Diagnose-Refresh" Button im Panel
+    triggert privilegierten Collector fuer aktuelle Snapshot
+    (nicht fuer normale UI-Requests).
+  - Mouseover-Text: settings_catalog.description / policy_catalog
+    .description (bereits im Schema vorgesehen, B057/D003)
+
+  SCOPE: Betrifft hauptsaechlich:
+  - Settings-Werte (BASE-090_SETTINGS_CORE)
+  - Policy-Werte (BASE-100_POLICY_CORE)
+  - Connection-State (op_status, op_reason_code)
+  - Session-State (vpn_sessions, Kernel-Enforcement)
+  - nftables Sets (restricted, pending, banned)
+  - tc/QoS-Regeln pro Connection
+
+================================================================================
+3) LOG-VIEWER IM PANEL
+================================================================================
+
+  IDEE: Alle relevanten Logs im Panel lesbar, filterbar, durchsuchbar.
+  Kein journalctl auf der Konsole im Normalbetrieb.
+
+  WAS SICHTBAR SEIN MUSS:
+  - Connection-Lifecycle-Events (connection_lifecycle_log)
+  - Session-Events (Connect, Disconnect, Stale, Kill, Ghost)
+  - Policy-Apply-Events (Apply Success/Fail, Reconcile, Hard-Cut)
+  - Auth-Events (Login Success/Fail, Lockout, SimUse-Reject)
+  - Onboarding-Events (Verify, Claim, Grace, Hard-Stop)
+  - Audit-Events (Admin-Aktionen, Panel-Security-Events)
+  - System-Health (Service-Status, Restart, Crash-Recovery)
+
+  FILTER-DIMENSIONEN:
+  - Zeitraum (von/bis)
+  - Customer / Connection
+  - Event-Typ / Severity
+  - Freitext-Suche
+
+  TECHNISCHE ABLEITUNG:
+  - Hybrid-Logging (BASE-005 Design-Entscheidung):
+    Strukturierte Events in SQL (query-faehig, Panel-lesbar) +
+    systemd-journal fuer Rohdaten (Fallback, Forensik).
+  - Das Panel liest die SQL-Logs, nicht das Journal.
+  - Journal ist nur fuer SSH-Fallback / Forensik.
+
+  SCOPE: MOD-007_LOGGING_MONITORING (M3-070)
+
+  SECURITY-HINWEIS (ChatGPT Bf-04):
+  Log-Viewer ist eine XSS-Angriffsflaeche. Alle Log-Eintraege
+  muessen escaped gerendert werden:
+  - Keine ANSI-Escape-Sequenzen roh rendern
+  - Kein HTML roh rendern
+  - Keine User-Inputs unbereinigt anzeigen
+  - Klare Laengenlimits pro Eintrag
+  - Keine Secrets in Logs (R-12)
+
+================================================================================
+4) EMAIL-ALERTS BEI HANDLUNGSBEDARF
+================================================================================
+
+  IDEE: Wenn SOLL != IST oder andere Probleme auftreten, bekommt
+  der Admin eine Email-Benachrichtigung.
+
+  ALERT-KATEGORIEN (aus Marcos Beschreibung + Altkonzept B330):
+  - SOLL/IST-Drift: Settings/Policy-Wert weicht vom Kernel ab
+    (nach Reconcile-Versuch immer noch divergent)
+  - Pool-Exhaustion: IP-Pool naehert sich RED-Schwelle
+  - Stale-Sessions: Janitor findet persistente Ghosts
+  - Service-Health: Kritischer Dienst nicht ready
+  - Crash-Recovery: Dienst wurde automatisch restarted
+  - Security: Lockout-Trigger, ungewoehnliche Login-Muster
+
+  TECHNISCHE ABLEITUNG:
+  - Mail-Versand ueber bestehende Mail-Infrastruktur
+    (retrotunnel@retrowork.de, SMTP via server001.retrowork.de)
+  - Absender: "RetroTunnel | Alert" (Schema aus MAIL_ABSENDERLOGIK)
+  - Rate-Limiting: Nicht 100 Mails pro Minute bei Massenalert
+  - Alert-Konfiguration: SQL-first (welche Alerts aktiv, Schwellen)
+
+  SCOPE: MOD-007_LOGGING_MONITORING (M3-070)
+
+================================================================================
+5) WEB-KONSOLE (TERMINAL IM BROWSER)
+================================================================================
+
+  IDEE: Fuer den Fall dass doch Shell-Zugriff noetig ist, soll
+  im Admin-Panel ein Web-Terminal verfuegbar sein.
+
+  TECHNISCHE OPTIONEN (Recherche noetig bei Ausarbeitung):
+  - xterm.js + WebSocket-Backend (z.B. ttyd, gotty)
+  - Hinter OpenResty reverse-proxied
+  - ADMIN-only (nftables + App-Layer AuthZ)
+
+  SECURITY-ANFORDERUNGEN:
+  - Nur aus ADMIN-Pool erreichbar (Kernel-Level ACL)
+  - Extra-Auth (separates Passwort, nicht nur Panel-Login)
+  - Session-Timeout (aggressive Idle-TTL)
+  - Audit-Logging (jeder Konsolen-Zugriff wird geloggt)
+  - Kein root-Login direkt — sudo-basiert wie bei SSH
+
+  ZUSAETZLICHE SECURITY (ChatGPT W1-W4, bestaetigt):
+  - BREAK-GLASS-CHARAKTER: Web-Konsole ist KEIN normales Panel-
+    Feature, sondern ein Notfall-Werkzeug. Disabled by default.
+    Nur explizit einschaltbar (z.B. root-owned Flag oder
+    systemd-socket-activation). Panel kann sie nur anzeigen
+    wenn lokal freigeschaltet.
+  - XSS-ISOLATION: XSS im Panel darf NICHT zur Shell fuehren.
+    Web-Konsole auf separatem Origin oder hart getrenntem
+    Path-Regime mit eigener strikter CSP. Keine gemeinsame
+    Session ohne Re-Auth.
+  - WEBSOCKET-ORIGIN: ttyd/WebSocket-Upgrade braucht Origin-
+    Check + CSRF-/Launch-Token. Keine Upgrade-Freigabe aus
+    fremden Origins.
+  - ENGES SUDO: Eigener Unix-User, sehr enge sudoers-Regeln.
+    Idealerweise keine generische Shell sondern kontrollierte
+    Maintenance-Shell mit festen Kommandos.
+  - NUR EINE SESSION: Maximal eine Konsolen-Session gleichzeitig.
+    Absolute TTL. Klarer Audit-Trail.
+
+  RE-AUTH-KLASSEN FUER ADMIN-AKTIONEN (ChatGPT Bf-06, bestaetigt):
+  Nicht jede Admin-Aktion ist gleich gefaehrlich. Drei Klassen:
+    Klasse A: Read-only (Logs, Status, Health) — normaler Login
+    Klasse B: Reversible Aenderungen (Settings, Policy) — Login
+    Klasse C: Destruktiv/Kritisch (Hardcut, Revoke, Disable,
+              Web-Konsole, Policy-Critical) — Re-Auth erforderlich
+  Klasse C erfordert erneute Passwort-Eingabe oder separaten
+  Bestaetigungsmechanismus.
+
+  SCOPE: MOD-006_PANEL_FEATURES (M3-060)
+
+================================================================================
+6) ADMIN-PANEL ABSICHERUNG (Marcos Modell, praezisiert 2026-04-17)
+================================================================================
+
+  GRUNDPRINZIP: Deny-All-Except auf KONKRETE Admin-IPs.
+  Defense-in-Depth: ZWEI unabhaengige Quellen muessen matchen.
+
+  KEINE EXTERNEN DIENSTE: Alles lokal. Kein TOTP-App, kein
+  externer Auth-Provider, kein Cloud-basierter 2FA-Dienst.
+  (Marco-Grundsatz: externe Security-Dienste widersprechen dem
+  Sicherheitsverstaendnis des Projekts.)
+
+  KONKRET (praezisiert nach ChatGPT-Review S3/S4/S7):
+  - NICHT der gesamte ADMIN-Pool (10.77.2.0/24) als Allowlist.
+    Das waere bis zu 254 IPs — zu breit.
+  - SONDERN: Nur Connections die in BEIDEN Quellen stehen:
+
+    Quelle 1 — SQL (dynamisch):
+      Kanonische Ableitung panel_admin_eligible (S7):
+      vpn_connections WHERE access_role='ADMIN'
+      AND op_status='ACTIVE'
+      AND customer_id IS NOT NULL (claimed)
+      AND fixed_ip IS NOT NULL
+      Liefert fixed_ip / fixed_ipv6 der berechtigten Connections.
+      NICHT eine rohe WHERE-Klausel sondern eine explizite
+      kanonische Sicht die alle Bedingungen zusammenfasst.
+
+    Quelle 2 — Datei (manuell, root-only):
+      /etc/retrotunnel/admin_panel_allowed.conf
+      Listet CONNECTION-REFERENZEN (connection_ref), NICHT IPs.
+      Permissions: 0600, root:root.
+      Aendert sich NUR wenn der Admin die Datei bearbeitet.
+
+      WARUM CONNECTION-REF STATT IPS (ChatGPT S3, bestaetigt):
+      - IP-Reuse: Wenn eine ADMIN-Connection geloescht und spaeter
+        jemand anderes die gleiche IP bekommt, waere die Datei stale
+        und wuerde den falschen Zugriff erlauben.
+      - Connection-Ref ist stabil ueber Rollenwechsel und IP-
+        Neuvergabe. Der Reconciler loest connection_ref → aktuelle
+        fixed_ip auf.
+
+    Zugriff = Connection in Quelle 1 UND connection_ref in Quelle 2.
+    Fehlende Connection in einer der beiden Quellen = kein Zugriff.
+
+  MATERIALISIERUNG (ChatGPT S4, bestaetigt):
+  - Das Panel (PHP/OpenResty) liest die Root-Datei NICHT direkt.
+  - Stattdessen: Privilegierter Reconciler liest BEIDE Quellen,
+    bildet Schnittmenge, schreibt Ergebnis als Projection in SQL
+    (z.B. Tabelle panel_admin_effective_allow mit:
+    connection_ref, fixed_ip, fixed_ipv6, generation_id,
+    last_build_at, last_build_hash).
+  - Reconciler schreibt gleichzeitig das nftables Set
+    (admin_panel_allowed_v4 / admin_panel_allowed_v6) atomisch.
+  - Panel liest NUR die SQL-Projection, nie die Root-Datei.
+  - Begruendung: Wenn PHP die Datei direkt lesen koennte, waere
+    bei App-RCE oder LFI die zweite Quelle kompromittiert. Mit
+    Projection bleibt die Trennung sauber.
+
+  DUALSTACK (ChatGPT Bf-05, bestaetigt):
+  - Admin-Panel-Mechanik MUSS IPv4 UND IPv6 explizit abdecken:
+    - fixed_ip in admin_panel_allowed_v4
+    - fixed_ipv6 in admin_panel_allowed_v6
+    - App-Layer Recheck fuer beide Adressfamilien
+  - Kein Halb-Dualstack: Wenn v6 aktiv ist, ist die v6-Allow-
+    Mechanik genauso streng wie die v4-Mechanik.
+
+  WARUM ZWEI QUELLEN (Defense-in-Depth):
+  - Risiko bei nur-SQL: Wenn jemand DB-Zugriff bekommt
+    (SQL-Injection, kompromittierter DB-User), koennte er eine
+    ADMIN-Connection anlegen. Beim naechsten Reconcile waere
+    seine IP im Admin-Set. Dann hat er Admin-Panel-Zugriff
+    ueber einen einzigen Angriffsvektor.
+  - Mit Datei: Der Angreifer braucht BEIDES — DB-Zugriff UND
+    root-Dateisystem-Zugriff. Das sind zwei verschiedene
+    Angriffsflaechen. Die Datei ist kein Policy-Wert und keine
+    Magic Number, sondern ein Verifikationsfaktor (wie ein
+    SSH-Key oder IPsec PSK).
+  - Kein Widerspruch zu SQL-first: SQL-first bedeutet "Policy-
+    Werte leben in SQL, nicht als Magic Numbers im Code". Eine
+    Security-Datei ist kein Policy-Wert. Das alte Konzept hat
+    das Muster bereits (IPsec PSK lebt auf der Festplatte).
+
+  TRADEOFF (Marco kennt und akzeptiert):
+  - Bei Rollenwechsel oder neuer ADMIN-Connection muss die
+    Datei um die connection_ref ergaenzt werden.
+  - Wenn das ueber das Admin-Panel gesteuert wird, ist der
+    Datei-Schutz nur so stark wie das Panel (Henne-Ei).
+    Loesung: Erstmalige Datei-Einrichtung per SSH/Konsole,
+    danach Panel-Aenderungen nur wenn bereits authentifiziert.
+
+  TECHNISCHE ABLEITUNG (aktualisiert nach ChatGPT-Review):
+  - Privilegierter Reconciler (root-Prozess, NICHT PHP):
+    1. Liest /etc/retrotunnel/admin_panel_allowed.conf
+       (connection_ref Liste)
+    2. Liest panel_admin_eligible aus SQL
+       (ADMIN + ACTIVE + claimed + IP vorhanden)
+    3. Bildet Schnittmenge (connection_ref in BEIDEN Quellen)
+    4. Loest connection_ref → aktuelle fixed_ip / fixed_ipv6 auf
+    5. Schreibt nftables Sets ATOMISCH (neues Set befuellen,
+       dann swap — kein FLUSH+REBUILD in-place fuer Admin-Sets)
+    6. Schreibt Projection in SQL (panel_admin_effective_allow)
+  - Wenn Schnittmenge leer: Admin-Panel komplett zu
+  - Dreifache Enforcement-Schicht:
+    1. Kernel: nftables INPUT auf SERVICE_PMA (.6) und
+       Admin-Panel-Endpunkte nur aus Schnittmengen-Set
+    2. App-Layer: PHP/OpenResty prueft Quell-IP gegen
+       SQL-Projection (NICHT gegen Root-Datei direkt)
+    3. Panel-Auth: Login + Session-Binding (B285-Mechanik)
+
+  UNTERSCHIED ZUM USER-PANEL:
+  - User-Panel: IP-bound Login mit Allowlist-Modi (ALL/SELECT)
+    aus dem jeweiligen Rollen-Pool. Einzel-Quelle (SQL) reicht
+    weil User-Panel keine kritischen Admin-Funktionen hat.
+  - Admin-Panel: Dual-Source (SQL + Datei). Weil hier Server-
+    Steuerung, Web-Konsole, Settings-Aenderungen und Hardcut-
+    Funktionen liegen.
+
+  ABWEICHUNG VOM ALTKONZEPT:
+  - B285 §6.1: Admin-only aus ADMIN_VPN_NET 10.77.2.0/24
+    → RetroTunnel verschaerft: konkrete IPs + Dual-Source
+  - B285 §6.3: IP-bound Login mit Allowlist-Modi
+    → bleibt fuer User, wird fuer Admin enger
+
+  SCOPE: BASE-110_WEBSTACK_CORE + MOD-006_PANEL_FEATURES
+
+================================================================================
+7) ZUORDNUNG ZU BASES/MODULEN
+================================================================================
+
+  Was hier beschrieben ist    Ziel-Base/Modul
+  ─────────────────────────── ────────────────────────────────
+  SOLL/IST-Abgleich Logik    BASE-090 (Settings), BASE-100 (Policy),
+                              BASE-080 (Reconcile-Differenz/Projection)
+  SOLL/IST-Abgleich UI       MOD-006 (Panel Features)
+  Log-Viewer                  MOD-007 (Logging/Monitoring)
+  Email-Alerts                MOD-007 (Logging/Monitoring)
+  Web-Konsole + Re-Auth       MOD-006 (Panel Features)
+  Admin-Panel Absicherung     BASE-110 (Webstack) + MOD-006 (Panel)
+  Degraded Admin Mode         BASE-110 (Webstack) + MOD-006 (Panel)
+  TLS-Modell                  BASE-110 (Webstack) + B230 (interne CA)
+  Frontend/Backend-Split      MOD-001 (Onboarding) + BASE-110
+  Interne Domain              BASE-060 (DNS) + BASE-110 (Webstack)
+  Bestellprozess              MOD-001 (Onboarding) + MOD-010 (Plans)
+  Panel-Consumability         JEDE Base (Pflicht-Abschnitt, DP-07)
+
+  Bei der Ausarbeitung jeder dieser Bases/Module muss dieses
+  Dokument als Input gelesen werden.
+================================================================================
+
+================================================================================
+8) FRONTEND / BACKEND SPLIT (Marco 2026-04-17)
+================================================================================
+
+  ARCHITEKTUR: Physische Trennung in zwei Welten.
+
+  FRONTEND (externer Server, retrotunnel.retrowork.de):
+  - Oeffentlich sichtbar fuer jeden im Internet
+  - Laeuft auf Marcos separatem Server, NICHT auf dem VPN-Server
+  - Inhalte: Philosophie, Erklaerungen, Bestellprozess
+  - NULL Verbindung zum VPN-Backend (kein API-Call, keine DB)
+  - Subdomain von retrowork.de (Dachmarke)
+
+  BACKEND (VPN-Server, rt-gw-001.v6.rocks):
+  - Die Steuerzentrale (Panel)
+  - Nur ueber aktive VPN-Verbindung erreichbar
+  - Interne Domain: portal.retrotunnel (DNS-Rewrite via AdGuardHome)
+  - Alles was Steuerung, Status, Logs, Settings, Admin betrifft
+
+  BRUECKE (Frontend -> Backend):
+  - User ist auf retrotunnel.retrowork.de, klickt "Registrieren"
+    oder "Login" → Redirect auf portal.retrotunnel (interne URL)
+  - Ohne aktives VPN: Domain loest nicht auf → nichts passiert
+  - Mit aktivem VPN: Panel oeffnet sich
+  - KEIN Login auf der externen Webseite. Keine Auth-Funktionalitaet,
+    kein Session-Handling, kein Passwort-Feld. Nur statische Inhalte
+    + Links die auf portal.retrotunnel verweisen.
+    "Registrieren / Login" sind die EINZIGEN interaktiven Elemente.
+
+  DNS-REWRITE FUER EXTERNE DOMAIN IM VPN (Marco 2026-04-17):
+  - AdGuardHome hat ZWEI DNS-Rewrites:
+    1. portal.retrotunnel → 10.77.0.3 / fd77:0:0:0::3
+       (kanonische IP-Zuordnung, einzige Stelle mit IP)
+    2. retrotunnel.retrowork.de → portal.retrotunnel
+       (CNAME-artig, verweist auf die kanonische Domain)
+  - Effekt: Gibt jemand mit aktiver VPN-Verbindung die externe
+    URL retrotunnel.retrowork.de ein, landet er automatisch auf
+    dem internen Panel — nicht auf dem externen Server.
+  - ORIGIN-TRENNUNG (ChatGPT B2, bestaetigt):
+    retrotunnel.retrowork.de im VPN liefert NICHT direkt Panel-
+    Content, sondern nur einen 302-Redirect auf portal.retrotunnel.
+    Keine Auth, keine Cookies, keine Session auf dem oeffentlichen
+    Hostnamen. portal.retrotunnel ist der EINZIGE kanonische
+    Panel-Origin. Begruendung: Gleicher Hostname fuer oeffentliches
+    Frontend und internes Panel waere riskant (Cookie-Scope,
+    CSP, Service-Worker, Session-Verwechslung).
+  - Der User sieht das gleiche wie auf der externen Seite (wenn
+    nicht eingeloggt: "Registrieren / Login"), aber er ist bereits
+    im VPN-Netz und kann sich sofort einloggen.
+  - Kein Traffic verlaesst das VPN — auch nicht bei Eingabe der
+    externen URL.
+  - Vorteil gegenueber direktem IP-Rewrite: Wenn sich SERVICE_WEB
+    IP aendert, muss nur EIN Rewrite angepasst werden
+    (portal.retrotunnel), nicht zwei.
+
+  SICHERHEITS-ENTKOPPLUNG:
+  - Kompromittierung des externen Servers hat ZERO Impact auf
+    den VPN-Server. Keine Credentials, keine API-Keys, keine
+    DB-Verbindung zwischen den beiden Servern.
+  - Das Frontend kennt den VPN-Server nicht — es kennt nur
+    eine URL die es dem User als Link anbietet.
+
+  VISUELLE EINHEITLICHKEIT (Marco-Anforderung 2026-04-17):
+  - Beide Seiten MUESSEN sich in Farbe, Schema und Aufbau
+    gleichen. Es darf NICHT der Eindruck entstehen dass es
+    sich um zwei verschiedene Webseiten handelt.
+  - Lediglich die URL aendert sich je nachdem wo man sich
+    befindet — nicht die Webseite selbst.
+  - Die interne Seite (portal.retrotunnel) ist ein SUPERSET
+    der externen Seite: Alle oeffentlichen Inhalte (Philosophie,
+    Erklaerungen etc.) existieren auch intern. Plus die Panel-
+    Funktionen die nur intern verfuegbar sind.
+
+  TRAFFIC-FLUSS — EINBAHNSTRASSE (nur von aussen nach innen):
+  - Extern -> Klick auf "Login" -> Redirect auf portal.retrotunnel
+    (intern, nur mit VPN erreichbar). ERLAUBT.
+  - Intern -> Klick auf "Startseite/Index" -> bleibt auf
+    portal.retrotunnel (intern). KEIN Redirect nach aussen.
+  - Von innen nach aussen wird NIE redirected. Der User bleibt
+    im VPN-Netz auf der internen Version der Webseite.
+  - Begruendung: Kein VPN-Traffic soll ueber den externen Server
+    geroutet werden. Der User verliert nie seinen VPN-Kontext.
+
+  CONTENT-SYNCHRONISATION (Marco-Ansatz 2026-04-17):
+  - EINE Codebasis, ZWEI Deployments:
+    INTERN (portal.retrotunnel): Vollstaendig (oeffentliche Inhalte
+    + Panel + Admin + alle internen Funktionen)
+    EXTERN (retrotunnel.retrowork.de): Subset (gleiche Ordner-
+    struktur, gleiche SQL-Struktur, aber interne Features
+    komplett entfernt)
+  - WORKFLOW (deploy-script-basiert, Marco 2026-04-17):
+    1. Marco aendert zuerst die INTERNE Seite
+    2. Fuehrt ein Deploy-Script (.sh) aus, das alle Aenderungen
+       am Frontend auf dem externen Server durchfuehrt
+    3. Das Script uebernimmt nur oeffentliche Inhalte — interne
+       Features (Panel, Admin, Auth) werden nie uebertragen
+  - FREQUENZ: Aenderungen kommen selten vor. Manueller
+    Patch-Prozess ist ausreichend, keine automatische Pipeline.
+  - STRUKTURELLE IDENTITAET: Die externe Seite hat die GLEICHE
+    Ordnerstruktur wie die interne — nur ohne die internen
+    Features/Endpunkte.
+  - EIGENE SQL AUF EXTERNEM SERVER (Marco-Entscheidung 2026-04-17):
+    JA, die externe Seite braucht eine eigene DB (MariaDB laeuft
+    auf dem externen Server bereits). Begruendung: Design/Templates,
+    Plan-Angebote, dynamische Inhalte muessen gespeichert werden.
+    Die externe DB enthaelt KEINE sicherheitsrelevanten Daten —
+    keine VPN-Credentials, keine Connections, keine Policies,
+    keine Admin-Tabellen. Nur oeffentliche Inhalte.
+    Kein Grund zur Verkomplizierung: MySQL ist da, warum also
+    statisch erzwingen?
+    (ChatGPT B3 schlug "kein SQL extern" vor — Marco entscheidet
+    anders: DB ja, aber ohne sicherheitsrelevante Daten.)
+  - OFFENE FRAGEN (spaeter zu klaeren):
+    - Wie werden interne Features im Code markiert/getrennt
+      damit der Patch sie sauber ausschliesst?
+    - Hat die externe Seite eine eigene DB (fuer oeffentliche
+      Inhalte) oder ist sie rein dateibasiert?
+    - Konkretes Patch-Tooling (git diff/apply, rsync --exclude,
+      Build-Script mit Feature-Flags?)
+
+================================================================================
+9) INTERNE DOMAIN: portal.retrotunnel (Marco-Entscheidung)
+================================================================================
+
+  ENTSCHIEDEN: portal.retrotunnel
+
+  MECHANISMUS: AdGuardHome DNS-Rewrite (ZWEI Eintraege)
+  - portal.retrotunnel → 10.77.0.3 (SERVICE_WEB, IPv4)
+  - portal.retrotunnel → fd77:0:0:0::3 (SERVICE_WEB, IPv6)
+  - retrotunnel.retrowork.de → portal.retrotunnel (CNAME-artig,
+    fuer VPN-User die die externe URL eingeben)
+  - Nur EINE Stelle mit IP-Zuordnung (portal.retrotunnel)
+  - Beide URLs fuehren im VPN zum selben internen Panel
+  - Loest NUR innerhalb des VPN auf (AdGuardHome ist der
+    erzwungene DNS fuer alle Clients per DNAT53)
+  - Ausserhalb des VPN: portal.retrotunnel existiert nicht,
+    retrotunnel.retrowork.de loest auf den externen Server auf
+
+  BEWAEHRTES MUSTER: Marco nutzt auf seinem aktiven WireGuard-
+  Server bereits ad.guard per DNS-Rewrite fuer das AdGuardHome
+  Webinterface. portal.retrotunnel folgt demselben Prinzip.
+
+  KEIN SEPARATER DOMAIN-EINTRAG NOETIG:
+  - Kein oeffentlicher DNS-Eintrag
+  - Kein Zertifikat fuer die Domain (intern, VPN-only)
+  - Rein lokal ueber AdGuardHome DNS-Rewrite
+
+  ALTKONZEPT: vpn.status (B200) — wird durch portal.retrotunnel
+  ersetzt. Gleiches Prinzip, besserer Name.
+
+  SCOPE: BASE-060_DNS_CORE (DNS-Rewrite Konfiguration) +
+         BASE-110_WEBSTACK_CORE (OpenResty VHost)
+
+================================================================================
+10) MANUELLER BESTELLPROZESS (Marco-Entscheidung)
+================================================================================
+
+  GRUNDSATZ: Kein automatisierter Payment-Flow. Keine externen
+  Payment-Dienste (kein Stripe, kein PayPal). Marco hantiert
+  generell nur mit Bargeld.
+
+  BEZAHLMETHODEN:
+  - Google Guthabenkarten
+  - Paysafecard (PSC)
+  - Manuelle Ueberpruefung durch Marco
+
+  ABLAUF (End-to-End):
+  1. Kunde besucht retrotunnel.retrowork.de (oeffentlich)
+  2. Kunde bestellt per Email (Bestellformular → Email an Marco)
+  3. Marco prueft manuell (Bezahlung, Berechtigung)
+  4. Marco erstellt PREPROVISIONED Connection im Admin-Panel
+  5. Marco sendet VPN-Credentials per Email an den Kunden
+     (L2TP_IPSEC: Login+Passwort, WIREGUARD: Config-Datei)
+  6. Kunde verbindet sich per VPN
+  7. Kunde oeffnet portal.retrotunnel im Browser
+  8. Kunde registriert sich im Panel (Email + Passwort)
+  9. Panel sendet Verify-Code per Email
+  10. Kunde bestaetigt Email (Verify-Wall)
+  11. Panel sendet Claim-Code per Email
+  12. Kunde claimt die Connection im Panel mit dem Claim-Code
+  13. Connection ist jetzt CLAIMED → voller Zugang
+
+  WARUM MANUELL:
+  - Marcos Sicherheitsverstaendnis: Keine externen Dienste
+  - Kontrolle ueber jeden einzelnen Kunden
+  - Kein automatischer Missbrauch moeglich
+  - Passt zum aktuellen Betriebsumfang
+
+  IMPLIKATION FUER ONBOARDING (SM_ONBOARDING / MOD-001):
+  - Der Onboarding-Flow startet AUSSERHALB des VPN (Email)
+  - Erster Kontaktpunkt ist NICHT das Panel sondern die Email
+    mit den Credentials
+  - Die Connection existiert als PREPROVISIONED bevor der
+    Kunde ueberhaupt VPN-Zugang hat
+  - Verify + Claim passieren INNERHALB des VPN (Panel)
+  - Das passt zum bestehenden Konzept: SM_ONBOARDING
+    Weg A (ownerlose Connection, Claim per Token)
+
+  SCOPE: MOD-001_ONBOARDING (M3-020), MOD-010_PLANS (M3-100)
+================================================================================
+
+================================================================================
+11) DEGRADED ADMIN MODE (ChatGPT B4/Bf-01, bestaetigt)
+================================================================================
+
+  PROBLEM: Wenn DB oder DNS down ist, funktioniert das Panel
+  nicht mehr normal. Aber "kein SSH im Normalbetrieb" darf im
+  Ernstfall nicht bedeuten: "Admin steht komplett ohne Zugriff da."
+
+  GRUNDSATZ: Traffic-/Policy-Entscheidungen bleiben fail-closed
+  (DB-down = DENY, das aendert sich nicht). Aber der Admin-
+  Notbetrieb muss erreichbar bleiben.
+
+  WAS DER DEGRADED MODE BIETEN SOLL:
+  - Kein normaler User-Zugriff (fail-closed bleibt)
+  - Kein Policy-Bypass
+  - Aber fuer den Owner (ADMIN):
+    - Minimale Health-Ansicht (welche Dienste laufen?)
+    - DB-Status (MariaDB erreichbar? Letzter Known-State?)
+    - Service-Restart-Moeglichkeit (eingeschraenkt)
+    - Zugang zur Web-Konsole (Break-Glass)
+    - Diagnose (/diag Endpoint, B270)
+
+  TECHNISCHE UEBERLEGUNGEN:
+  - Panel muss ohne SQL-Pipeline eine Minimal-Seite zeigen koennen
+  - Admin-Identifikation im Degraded Mode: nur Kernel-Level
+    (nftables Set bleibt geladen auch bei DB-down)
+  - Fallback-Zugang auch per IP direkt (10.77.0.3) falls DNS
+    (AdGuardHome) ebenfalls down ist
+  - Das ist kein Widerspruch zu fail-closed: Datenverkehr bleibt
+    gesperrt, nur der Admin-Diagnosezugang bleibt offen
+
+  KEIN AKUTER FIX: Das ist ein M2/M3 Design-Thema das bei
+  BASE-110 (Webstack) und MOD-006 (Panel Features) ausgearbeitet
+  wird. SSH bleibt in jedem Fall als letzter Break-Glass-Kanal.
+
+  SCOPE: BASE-110_WEBSTACK_CORE + MOD-006_PANEL_FEATURES
+
+================================================================================
+12) TLS-MODELL FUER PORTAL.RETROTUNNEL (ChatGPT B1, teilweise)
+================================================================================
+
+  SITUATION: ChatGPT sagt internes TLS ist Pflicht. Ohne TLS:
+  - Kein Secure-Cookie-Flag moeglich
+  - Browser warnen bei HTTP-Formularen
+  - Web-Konsole ueber HTTP waere unsicher
+  - Session-Tokens im Klartext (innerhalb des VPN)
+
+  GEGENARGUMENT: VPN-Tunnel ist bereits verschluesselt +
+  Peer-Isolation verhindert Mitlesen. Das Risiko ist
+  nicht "jemand snifft", sondern eher Browser-Verhalten
+  und Best-Practice-Konformitaet.
+
+  BESTEHENDE INFRASTRUKTUR:
+  - Interne Root-CA existiert bereits im Konzept (B230
+    HTTPS_BLOCKPAGE_MITM_CA). Zweck: Wenn ein Client eine
+    geblockle HTTPS-Seite aufruft, wird die Blockpage trotz
+    HTTPS angezeigt (MITM-Zertifikat on-the-fly).
+  - Alle VPN-Clients vertrauen dieser CA bereits (Import
+    bei Setup, B240/B250).
+
+  OFFENE FRAGE (bei Ausarbeitung technisch pruefen):
+  - Kann die gleiche interne Root-CA (B230) auch ein statisches
+    Zertifikat fuer portal.retrotunnel ausstellen?
+  - Das waere elegant: kein zusaetzlicher CA-Aufwand, Clients
+    vertrauen dem Zertifikat automatisch.
+  - Technisch muesste OpenResty dann zwei TLS-Konfigurationen
+    fahren: MITM-Proxy (dynamische Certs) fuer Blockpage UND
+    statisches Cert fuer portal.retrotunnel.
+  - Marco-Einschaetzung: "Das muss geprueft werden."
+
+  SCOPE: BASE-110_WEBSTACK_CORE (TLS-Konfiguration) +
+         Abhaengigkeit von B230 (interne CA)
+================================================================================

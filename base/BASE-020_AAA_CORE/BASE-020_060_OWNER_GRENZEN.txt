@@ -1,0 +1,125 @@
+================================================================================
+BASE-020 — OWNER-GRENZEN
+================================================================================
+DATEI: BASE-020_060_OWNER_GRENZEN.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Explizite Abgrenzung was BASE-020 ownt und was nicht.
+  Verhindert Scope-Drift und Ownership-Konflikte mit
+  benachbarten Bases (030, 040, 070, 080).
+
+  Quelle: Owner-Grenzmatrix aus ChatGPT-Architektur-Diskussion,
+  konvergiert mit Claude, bestaetigt durch Marco (2026-04-18).
+
+================================================================================
+1) BASE-020 OWNT (fachlich verantwortlich)
+================================================================================
+
+  a) Gemeinsamer Admission-/AAA-Vertrag
+     Entscheidungsklassen, Pruefkette, Fail-Closed-Politik,
+     Session-Signal-Vertrag, Accounting-Abgrenzung.
+
+  b) FreeRADIUS-Konfigurationsvertrag
+     Welche Queries, welche Module, welche Attribute.
+     Nicht die konkreten Config-Dateien (die leben in implementation/).
+
+  c) RADIUS-Dienst als systemd-Unit
+     freeradius.service: Plattform-Contract, Readiness, Dependencies.
+
+  d) radacct + radpostauth als Forensik-/Logging-Tabellen
+     Retention-Policy, Nutzungsvertrag, Abgrenzung gegen vpn_sessions.
+
+  e) L2TP/IPsec-spezifische Auth-Semantik
+     MSCHAPv2, NT-Hash, Direct-Read-Vertrag, Reply-Attribute.
+
+================================================================================
+2) BASE-020 OWNT NICHT (anderer fachlicher Owner)
+================================================================================
+
+  a) Auth-Schema (Tabellen-Definitionen, Felder, Constraints)
+     → BASE-010_IDENTITY_CORE
+
+  b) vpn_sessions (Schema, Invarianten, Lifecycle)
+     → BASE-070_SESSION_CORE
+
+  c) vpn_session_locks (Ownership, TTL, Janitor-Mechanik)
+     → BASE-070_SESSION_CORE
+
+  d) Konkrete Tunnel-Runtime (PPP/pppd/strongSwan/accel-ppp)
+     → BASE-030_TUNNEL_L2TP_IPSEC
+
+  e) Konkrete WireGuard-Mechanik (Peer-Add/Remove, Controller, Config)
+     → BASE-040_TUNNEL_WIREGUARD
+
+  f) nftables Connect-Gate (connect_pending Sets)
+     → BASE-050_FIREWALL_CORE / BASE-080_POLICY_APPLY_CORE
+
+  g) Policy-Apply (nft/tc Enforcement nach Session-Start)
+     → BASE-080_POLICY_APPLY_CORE
+
+  h) Connection-Status-Aenderungen (RESTRICT/DISABLE Transitionen)
+     → BASE-010_IDENTITY_CORE (Schema-Owner)
+     → BASE-080_POLICY_APPLY_CORE (Enforcement-Owner)
+
+================================================================================
+3) GRENZREGELN (MUST, gegen Scope-Drift)
+================================================================================
+
+  G1  BASE-020 darf WireGuard NICHT als Fake-Login beschreiben.
+      Es darf nur sagen welchen Admission-Vertrag der WG-Pfad
+      erfuellen muss.
+
+  G2  BASE-040 darf Session-Truth NICHT selbst definieren.
+      Es darf nur Trigger und Runtime-Fakten liefern die
+      BASE-070 verarbeitet.
+
+  G3  BASE-070 darf NICHT anfangen RADIUS/MSCHAPv2/PPP-Konfig
+      zu erklaeren. Session-Schicht frisst sonst den AAA-Owner auf.
+
+  G4  BASE-030 darf NICHT Owner von SimUse werden.
+      L2TP nutzt SimUse, aber besitzt es nicht.
+
+  G5  vpn_session_locks bleibt tunnelneutral und BASE-070-owned.
+      Wer das auf L2TP-only dreht, macht nicht nur eine
+      Implementierungsentscheidung sondern aendert den aktuellen
+      Session-Kanon — das waere ein Architekturbruch.
+
+================================================================================
+4) LESE-/SCHREIBGRENZEN (Zusammenfassung)
+================================================================================
+
+  BASE-020 LIEST:
+    vpn_connection_l2tp_ipsec_auth  (Auth-Lookup)
+    vpn_connections                 (Status/IP)
+    vpn_sessions                    (SimUse-/Truth-Check, SELECT only)
+    vpn_session_locks               (Lock-Status pruefen, SELECT)
+
+  BASE-020 SCHREIBT (als Owner):
+    radacct                         (via FreeRADIUS SQL-Accounting)
+    radpostauth                     (via FreeRADIUS Post-Auth)
+
+  BASE-020 SCHREIBT (als Runner fuer BASE-070, nicht Owner):
+    vpn_session_locks INSERT        (Guard Acquire bei L2TP Authorize,
+                                     radius DB-User fuehrt INSERT aus,
+                                     fachliche Ownership bleibt BASE-070)
+
+  BASE-020 TRIGGERT (aber schreibt NICHT selbst):
+    vpn_sessions INSERT             → Acct-Start ist der Trigger,
+                                      aber der INSERT wird durch
+                                      Bridge/system-User ausgefuehrt
+                                      (nicht durch radius DB-User).
+    vpn_session_locks DELETE         → Guard-Release nach Acct-Start,
+                                      ebenfalls durch Bridge/system.
+
+  BASE-020 SCHREIBT NICHT:
+    vpn_connections                 (kein Status-Write)
+    vpn_connection_l2tp_ipsec_auth  (kein Credential-Write)
+    wg_connection_auth              (physisch nicht sichtbar)
+    web_*                           (kein Panel-Zugriff)
+    settings_* / policy_*          (kein Config-Zugriff)
+
+  PRINZIP (R-15): RADIUS entscheidet (fachliche Auth-Pruefung).
+  System/Bridge committet (vpn_sessions Truth, Guard-Release).
+  BASE-020 ist fachlicher Owner der Entscheidungslogik.
+  BASE-070 ist fachlicher Owner der Session-Truth.

@@ -1,0 +1,435 @@
+================================================================================
+RetroTunnel — GLOSSAR
+================================================================================
+VERSION: v1.0
+DATUM: 2026-04-19
+STATUS: ACTIVE
+
+================================================================================
+BEGRIFFE (alphabetisch)
+================================================================================
+
+access_role
+  Berechtigungsstufe. ENUM: USER | VIP | MODERATOR | ADMIN.
+  Kurzform in Tabellen: MOD (für MODERATOR).
+  Bestimmt: IP-Pool, Speed-Limits, Panel-Zugriff, Restricted-Fähigkeit.
+  SoT: web_customers.access_role (D003-E02). vpn_connections.access_role
+  ist ABGELEITET vom Customer-Rang. PREPROVISIONED ownerlose
+  Connections: access_role = Admin-Intent (Panel-UI).
+
+accel-ppp
+  PPP-Accelerator-Daemon. Ersetzt xl2tpd/pppd für L2TP_IPSEC-Verbindungen.
+  Erstellt pppX-Interfaces, unterstützt RADIUS-Auth + Accounting.
+
+admin_manual_restricted_at
+  Source Fact (Zeitstempel) auf vpn_connections. Wird gesetzt wenn ein
+  Admin eine Connection manuell restricted (RESTRICT_ADMIN_MANUAL).
+  Bleibt gesetzt solange die Admin-Restriction aktiv ist. Wird bei
+  Eintritt in DISABLED gelöscht (INV-32). Unabhängig von op_reason_code
+  (Source Facts ≠ aktueller Reason). SM_CONNECTION §5.4.
+
+Admission
+  Systemische Zugangsentscheidung fuer eine VPN-Connection. Umfasst
+  Authentication (wer ist der Client?) und Authorization (darf er
+  zugreifen?). Nicht synonym mit "Login" — WireGuard hat kein Login.
+  L2TP_IPSEC: Synchroner RADIUS-Flow (Access-Request → Accept/Reject).
+  WIREGUARD: Asynchron durch Peer-Praesenz in Server-Config.
+  Gemeinsamer Vertrag: BASE-020_AAA_CORE.
+
+AmneziaWireGuard (AWG)
+  WireGuard-Fork mit DPI-Obfuskation. Tunnel-Technologie für WIREGUARD-Clients.
+  Erstellt ein dediziertes Interface (awg0). PublicKey-basierte Auth.
+  Felder im DB-Schema nutzen Prefix wg_ (nicht awg_), weil WireGuard
+  die technische Konstante ist, nicht der Fork-Name.
+
+AWG Session Controller
+  Polling-basierte Session-Erkennung für WIREGUARD-Verbindungen.
+  Prüft periodisch den AWG-Peer-State (last_handshake) und leitet
+  daraus Session-Events ab (VALID → STALE → closed). Schreibt in
+  vpn_sessions. Ersetzt den RADIUS-Accounting-Flow für WIREGUARD.
+  SM_SESSION §4, §8.
+
+claim_token
+  App-Layer Token für die Zuordnung einer VPN-Connection zu einem Customer.
+  Nicht für VPN-Login. Persistiert als claim_token_hash (kein Klartext in DB).
+
+Connect-Gate (D1a)
+  No-Unpoliced-Window Mechanik. Client-IP wird in connect_pending Set
+  eingetragen, bis Policy-Apply erfolgreich ist. Kein WAN-Traffic vor Apply.
+  WIREGUARD: Gate MUSS vor Peer-Add gesetzt sein (POL-23, SM_POLICY_RESTRICT §6.2).
+  Gate-Entfernung ist Teil des Apply-Erfolgskriteriums.
+  Bei Apply-Failure: FAIL-CLOSED (Peer/Session-Kill, Pending bleibt).
+
+connect_pending_v4 / connect_pending_v6
+  Dynamische nftables Sets. Enthalten Client-IPs deren Policy-Apply noch
+  nicht erfolgreich abgeschlossen ist. Effekt: DROP ALL FORWARD.
+  Lifecycle: SM_POLICY_RESTRICT §6 (Connect-Gate) + §7 Schritt 5 (Reconcile).
+  Harmlose Stale-Reste (Peer weg) werden durch Reconcile entfernt.
+  Kritische Reste (Peer/Session aktiv) werden geschützt bis Kill erfolgreich.
+
+connection_login
+  KANON-Synonym für subaccount_login. PPP/RADIUS User-Name.
+
+connection_lifecycle_log
+  Audit-Tabelle für den gesamten Connection-Lifecycle. Protokolliert
+  alle Zustandsübergänge (Claim, Statuswechsel, Reason-Changes) mit
+  Zeitstempel, Akteur und vorherigem Zustand. Nicht nur State-Changes,
+  sondern auch Claim-Events und Reason-Wechsel. DOMAIN_MODEL §7B.
+  Kanonischer Tabellenname: log_connection_lifecycle (BASE-000 K-04).
+
+conn_group (DEPRECATED in RetroTunnel)
+  Altes Klassifikationsfeld aus xp-vpn-stack (LEGACY|MODERN|ADMIN).
+  Ersetzt durch tunnel_type + access_role (L2TP_IPSEC|WIREGUARD
+  in tunnel_type, Rolle separat). Ableitbar, aber nicht mehr SoT.
+
+customer
+  Panel-Account (Mensch). Hat E-Mail, Passwort, Verify-Status. Kann mehrere
+  vpn_connections besitzen. SoT: web_customers Tabelle.
+  Kanonischer Tabellenname: web_customers (BASE-000 K-01).
+
+customer_paused_at
+  Source Fact (Zeitstempel) auf vpn_connections. Wird gesetzt wenn ein
+  Customer seine Connection im Panel deaktiviert (RESTRICT_CUSTOMER_PAUSED).
+  Bleibt gesetzt solange die Customer-Pause aktiv ist. Wird bei Eintritt
+  in DISABLED gelöscht (INV-32). Unabhängig von op_reason_code (Source Facts
+  ≠ aktueller Reason). SM_CONNECTION §5.4.
+
+customer_policy_overrides
+  Tabelle für individuelle Policy-Ausnahmen pro Kunde.
+  Überschreibt policy_role_defaults für einen bestimmten Customer.
+  Felder: customer_id, policy_key, value, created_by, override_reason.
+  Teil des Policy-Systems (D003-E03). DOMAIN_MODEL §6.1c.
+  Kanonischer Tabellenname: policy_customer_overrides (BASE-000 K-06).
+
+Direct-Read
+  RADIUS-Konfigurationsprinzip: FreeRADIUS liest Auth-Daten direkt
+  aus der kanonischen SoT-Tabelle (vpn_connection_l2tp_ipsec_auth),
+  nicht aus materialisierten radcheck/radreply-Kopien. Umgesetzt
+  ueber Custom authorize_check_query / authorize_reply_query im
+  FreeRADIUS SQL-Modul. Vermeidet Sync-Drift und zweite operative
+  Wahrheit. BASE-020_030 §1.
+
+DNAT53
+  DNS-Zwang. Alle DNS-Anfragen (TCP+UDP Port 53) werden per nftables DNAT
+  auf SERVICE_DNS (10.77.0.1) umgeleitet. Gilt für ALLE Clients, ALLE Rollen.
+
+DoT (DNS over TLS)
+  Verschlüsseltes DNS über TCP Port 853. Wird per nftables DROP geblockt,
+  damit Clients den DNS-Zwang nicht umgehen können.
+
+DoQ (DNS over QUIC)
+  Verschlüsseltes DNS über UDP Port 853. Wird per nftables DROP geblockt,
+  damit Clients den DNS-Zwang nicht umgehen können.
+
+DoH (DNS over HTTPS)
+  Verschlüsseltes DNS über HTTPS (Port 443). Kann nicht per Port-Block
+  gefiltert werden (teilt sich Port 443 mit normalem HTTPS). Wird über
+  AdGuard-Blocklisten gefiltert (bekannte DoH-Server-Domains).
+
+effective_value
+  Aufgelöster Wert eines Settings-Keys nach Precedence-Kette
+  (CONNECTION > CUSTOMER > GLOBAL). Inkl. source trace und key_state.
+
+FAIL-CLOSED
+  Verhaltensprinzip bei Fehlern im Connect-Gate und DB-Down:
+  Wenn Policy-Apply scheitert oder DB nicht erreichbar ist, wird die
+  Session/der Peer gekillt statt "offen weiter". Kein Fallback auf
+  Restricted bei SQL-Ausfall. connect_pending blockt bis Kill.
+  SM_POLICY_RESTRICT §6, §10, POL-14.
+
+F2B_EVENT
+  Kanonische, maschinenlesbare Logzeile für Fail2ban. Format: key=value.
+  Pflichtfelder: Class, SrcIP, User, Outcome, Reason.
+
+FLUSH+REBUILD
+  Reconcile-Strategie: bestehende nftables-/tc-Regeln werden komplett
+  entfernt und aus SQL-Truth neu aufgebaut. Verhindert Drift.
+
+Hard-Cut
+  Sofortige Beendigung bestehender Flows bei Statuswechsel. Conntrack-Flush
+  (bidirektional) + Session-Kill als Fail-Safe.
+
+ip_slot
+  Ganzzahliger Slot in einem Pool. SoT für die IP-Ableitung.
+  fixed_ip und fixed_ipv6 werden deterministisch aus ip_slot materialisiert.
+
+L2TP_IPSEC
+  tunnel_type Wert. L2TP/IPsec via accel-ppp. IPv4-only. Für XP/Vista.
+  Ersetzt den früheren Wert LEGACY (2026-04-16). Technisch präzise
+  statt zeit-relativ. UI-Anzeige: "L2TP/IPsec".
+
+log_connection_lifecycle
+  Kanonischer Tabellenname für die Connection-Lifecycle-Audit-Tabelle
+  (BASE-000 Registry log_-Zone). Altname im Konzept:
+  "connection_lifecycle_log" (DOMAIN_MODEL §7B).
+
+op_status
+  Operativer Zustand einer VPN-Connection (Ebene B im Zwei-Ebenen-Modell).
+  ENUM: ACTIVE | RESTRICTED | DISABLED. Persistiert in vpn_connections.
+  ACTIVE = voller Zugang. RESTRICTED = nur SERVICE_NET (Walled Garden).
+  DISABLED = kein Tunnel, kein Login.
+  Zusammen mit op_reason_code bildet op_status den vollständigen
+  Enforcement-Zustand. SM_CONNECTION §3, DOMAIN_MODEL §3.
+
+Ownership (Ebene A)
+  Abgeleiteter Besitzstatus einer VPN-Connection im Zwei-Ebenen-Modell.
+  PREPROVISIONED: customer_id IS NULL (noch keinem Customer zugeordnet).
+  CLAIMED: customer_id IS NOT NULL (einem Customer zugeordnet).
+  Nicht als eigenes Feld persistiert — wird aus customer_id abgeleitet.
+  SM_CONNECTION §3, DOMAIN_MODEL §3.
+
+Plan (Tarif)
+  Leistungspaket für USER-Kunden. Definiert Quota, QoS, Concurrency,
+  Laufzeit, Preis. Hängt am Customer (web_customers.plan_id).
+  VIP/MOD/ADMIN haben keine Plans (immer NULL).
+  Zwei Varianten (plan_quota_scope):
+    SHARED = Quota pro Account (alle Connections teilen)
+    DEDICATED = Quota pro Connection (jede hat eigenes Budget)
+  Bandwidth/QoS ist immer pro Connection. Concurrency immer pro Customer.
+  Plans dürfen NICHT Sicherheitsfeatures differenzieren.
+  DOMAIN_MODEL §6.8. M3-Scope (MOD-010_PLANS).
+
+policy_catalog
+  Katalog aller Policy-Parameter im Policy-System.
+  Definiert: policy_key, Datentyp, allows_unlimited, Beschreibung.
+  Analog zu settings_catalog für das Settings-System.
+  Teil des Policy-Systems (D003-E03). DOMAIN_MODEL §6.1a.
+
+policy_customer_overrides
+  Kanonischer Tabellenname für Customer-Policy-Overrides.
+  Altname: "customer_policy_overrides" (BASE-000 K-06).
+
+policy_role_defaults
+  Kanonischer Tabellenname für Rollen-Policy-Defaults.
+  Altname: "role_policy_defaults" (BASE-000 K-05).
+
+portal.retrotunnel
+  Interne Panel-Domain. DNS-Rewrite via AdGuardHome auf SERVICE_WEB
+  (10.77.0.3 / fd77:0:0:0::3). Loest NUR innerhalb des VPN auf.
+  Ersetzt vpn.status aus dem Altkonzept (B200). Alle Panel-Zugriffe
+  (User + Admin) laufen ueber diese Domain.
+  Marco-Entscheidung 2026-04-17.
+
+Policy-System
+  Eigene SQL-first Domäne für Kunden-/Rollenrechte und Limits.
+  Getrennt vom Settings-System (operationale Parameter).
+  Besteht aus: policy_catalog + policy_role_defaults +
+  policy_customer_overrides + (später) policy_plan_values.
+  Auflösung: Override > Plan (USER) > Rollen-Default.
+  D003-E01. DOMAIN_MODEL §5.5, §6.
+
+Reason-Code (op_reason_code)
+  Kanonischer Code für Policy-Entscheidungen im Zwei-Ebenen-Modell.
+  Zwei Familien: RESTRICT_* (→ op_status RESTRICTED) und
+  DISABLE_* (→ op_status DISABLED).
+  Beispiele: RESTRICT_QUOTA_EXHAUSTED, RESTRICT_CUSTOMER_PAUSED,
+  DISABLE_ADMIN_MANUAL, DISABLE_ADMIN_ABUSE.
+  Altkanon: R_DOMAIN_DETAIL Format (nicht mehr im neuen Konzept).
+
+reason_registry
+  Kanonische Tabelle für alle RESTRICT_*/DISABLE_*-Codes.
+  Jeder Eintrag hat:
+  reason_code (PK), domain, label, outcome, is_restoreable,
+  revocation_mode (NONE|IMMEDIATE|AFTER_RESTORE|MANUAL_ONLY),
+  auto_finalize_to_reason_code. vpn_connections.op_reason_code ist
+  FK auf diese Tabelle. DOMAIN_MODEL §7A.
+  Kanonischer Tabellenname: vpn_reason_registry (BASE-000 K-03).
+
+Reconcile
+  Periodischer Abgleich SQL-Truth → Kernel-State. Repariert Drift.
+  Nutzt FLUSH+REBUILD. Intervall: vpn_reconcile_interval_seconds.
+
+Restricted Mode (Walled Garden)
+  Tunnel steht, aber Client hat nur Zugang zu SERVICE_NET (DNS, Web, NTP).
+  Kein Internet. Trigger: Quota, Expiry, Manual, Unclaimed Overdue.
+
+role_policy_defaults
+  Tabelle für Default-Policy-Werte pro Rolle pro Parameter.
+  Enthält ALLE vier Rollen (USER, VIP, MODERATOR, ADMIN).
+  Vergibt KEINE Rolle — beschreibt nur die Default-Werte.
+  NULL = unlimited (ADMIN). Teil des Policy-Systems (D003-E03).
+  DOMAIN_MODEL §6.1b.
+  Kanonischer Tabellenname: policy_role_defaults (BASE-000 K-05).
+
+SERVICE_NET
+  Internes Netz für Server-Dienste. 10.77.0.0/28 + fd77:0:0:0::/64.
+  Feste Anchors: .1 DNS, .2 Resolver, .3 Web, .4 NTP, .5 SSH,
+  .6 PMA, .10 GW_PPP. Vollständige Liste:
+  BASE-005_030_SERVICE_ENDPOINTS_UND_PORTS §1.
+
+settings_catalog
+  Maschinenlesbarer Katalog aller policy-relevanten Settings-Keys.
+  Definiert: Typ, Range, Scope, Fail-Class, Dokumentation.
+
+SimUse=1
+  Simultaneous-Use = 1 pro VPN-Connection. Maximal eine aktive Session
+  pro subaccount_login/vpn_connection_id. Enforcement dreistufig:
+  vpn_sessions=Truth, vpn_session_locks=Guard, Janitor=Backstop
+  (SM_SESSION §5). Kein Takeover. Fail-Closed.
+
+Slot-Relevanz (Zählregel)
+  Aktiv-Budget + Ableitungsregel für Connection-Limits (D003-E06).
+  Aktiv-Budget (max_active_connections): ACTIVE + RESTRICTED zählen.
+  Gesamt-Budget = max_active + vpn_disabled_connection_buffer (abgeleitet).
+  Ownerlose PREPROVISIONED zählen NICHT gegen Customer-Budget,
+  erst nach Claim. Direkt zugewiesene Connections (Weg "Für User",
+  customer_id bei Erstellung gesetzt) zählen sofort.
+  Pattern aus B057/B155 (Basis-Wert + Ableitungsregel).
+  DOMAIN_MODEL §6.5, SM_CONNECTION INV-33.
+
+SoT (Source of Truth)
+  Die eine autoritative Datenquelle für einen bestimmten Wert oder
+  Zustand. Alle anderen Darstellungen sind Ableitungen oder Caches.
+  Bei Widerspruch gilt die SoT. Vollständige SoT-Map: TRUTH_MODEL.
+
+subaccount_login
+  Server-generierter, nicht-enumerierbarer VPN-Login pro Connection.
+  Format: ^vpn_[a-z2-7]{16}$. Immutable nach Erstellung.
+  Persistiert in: vpn_connection_l2tp_ipsec_auth (BASE-000 K-08).
+
+tunnel_type
+  Technischer Verbindungspfad. ENUM: L2TP_IPSEC | WIREGUARD.
+  Bestimmt: Protokoll, Auth-Mechanik, Daemon, IPv6-Fähigkeit.
+  SoT: vpn_connections.tunnel_type (SQL-first).
+  Altwerte LEGACY/MODERN wurden 2026-04-16 durch L2TP_IPSEC/WIREGUARD
+  ersetzt (technisch präzise, keine Zeitdrift, konsistent mit wg_-Prefix).
+
+Verify-Wall
+  App-Layer Gate für unverified Customers (email_verified_at IS NULL).
+  Nach Login sieht der Customer nur: Code eingeben, Code neu senden,
+  Support kontaktieren. Kein Panel-Zugriff bis Verify abgeschlossen.
+
+vpn_connection
+  Technische Verbindung pro Gerät/Subaccount. Trägt tunnel_type,
+  access_role, Credentials, IP-Zuordnung, Lifecycle-State.
+  SoT: vpn_connections Tabelle.
+
+vpn_connection_l2tp_ipsec_auth
+  Kanonische Tabelle für L2TP_IPSEC-Auth-Daten. Enthält subaccount_login
+  und subaccount_nt_hash. Nur für tunnel_type=L2TP_IPSEC belegt.
+  RADIUS liest diese Tabelle. Auth-Split aus BASE-000 K-08.
+  Altname: Felder lagen in vpn_connections (DOMAIN_MODEL §3.1/§3.3).
+
+vpn_connect_gate_ttl_seconds
+  Settings-Key. Maximale Lebensdauer eines connect_pending Eintrags
+  bevor Reconcile ihn als stale behandelt. Failsafe: 120 Sekunden.
+  Muss länger sein als der längste erwartete Apply-Lauf.
+  Scope: GLOBAL. SM_POLICY_RESTRICT §7 Schritt 5.
+
+vpn-policy-apply
+  Zentrales Enforcement-Tool. Einziges Tool das nftables Sets und
+  tc-Regeln aus SQL-Truth ableitet (DRY-Prinzip, POL-02).
+  Modi: --connection-id (STRICT), --reconcile-all (BEST EFFORT),
+  --customer-id (STRICT, optional). Idempotent (POL-03).
+  SM_POLICY_RESTRICT §3.
+
+vpn_reason_registry
+  Kanonischer Tabellenname für die Reason-Code-Registry
+  (BASE-000 K-03). Altname: "reason_registry" (DOMAIN_MODEL §7A).
+
+vpn-session-kill
+  Privilege-separiertes Kill-Tool für VPN-Sessions.
+  L2TP_IPSEC: PPPD_PID Kill mit PID-Reuse-Schutz.
+  WIREGUARD:  AWG Peer-Remove.
+  Verwendet als Hard-Cut Fail-Safe und Connect-Gate FAIL-CLOSED.
+  SM_SESSION §11.2.
+
+vpn_session_locks
+  Kanonischer Tabellenname für atomaren SimUse-Guard (Mutex).
+  Altname: "active_session_locks" (DOMAIN_MODEL §4, BASE-000 K-02).
+
+vpn_sessions
+  Session-Truth-Tabelle. EINZIGE Quelle für "Session aktiv"
+  (L2TP_IPSEC + WIREGUARD). Offene Session = closed_at IS NULL.
+  SimUse=1 pro Connection.
+  L2TP_IPSEC schreibt über radacct-Bridge, WIREGUARD über AWG
+  Session Controller. Schema und Lifecycle: SM_SESSION §3–§4.
+
+web_customers
+  Kanonischer Tabellenname für Panel-Accounts (Menschen).
+  Altname: "customers" (DOMAIN_MODEL §2, BASE-000 K-01).
+
+wg_connection_auth
+  Kanonische Tabelle für WIREGUARD-Auth-/Profil-Daten.
+  Enthält wg_public_key, wg_preshared_key, wg_connection_name.
+  Nur für tunnel_type=WIREGUARD belegt. RADIUS hat KEINEN Zugriff
+  auf wg_*-Tabellen (Auth-Split aus BASE-000 K-08, Sicherheitszone).
+
+================================================================================
+PREFIX-LEGENDE (Identifier-Namensräume im Projekt)
+================================================================================
+
+Jeder Prefix gehört zu genau einer Datei/Domäne. Keine Doppelnutzung.
+
+── Governance / Projekt ────────────────────────────────────────────────
+
+  KR-xx     Konzept-Regeln (MANIFEST §7, KR-01..KR-06)
+              Wie die Dokumentation/das Projekt funktioniert.
+  R-xx      System-Regeln (ASSUMPTIONS §2, R-01..R-16)
+              Wie das VPN-System funktioniert.
+  DP-xx     Design-Prinzipien (MANIFEST §3, DP-01..DP-08)
+  A-xx      Annahmen (ASSUMPTIONS §1, A-01..A-09)
+  NA-xx     Nicht-Annahmen (ASSUMPTIONS §3, NA-01..NA-05)
+  Q-xx      Qualitätsstandards (ASSUMPTIONS §4, Q-01..Q-07)
+
+── Phasen / Struktur ───────────────────────────────────────────────────
+
+  M0..M4    Modellphasen — Konzeptarbeit (PRIORITAETENLISTE)
+              M0=Fundament, M1=Denkmodell, M2=Kern-Module,
+              M3=Erweiterungsmodule, M4=Decisions/Proofs/Implementation
+  PH1..PH10 Rollout-Phasen — Server-Implementierung (aus B290)
+              PH1=VPN-Baseline, PH2=QoS, PH3=DNS, ..., PH10=Extras
+  D00x      Architecture Decision Records (decisions/)
+  BASE-xxx  Kern-Module (base/, BASE-000..BASE-110)
+              3-stellige Nummerierung seit 2026-04-16.
+  MOD-xxx   Erweiterungs-Module (modules/, MOD-001..MOD-010)
+              3-stellige Nummerierung seit 2026-04-16.
+  PF-xx     BASE-005 Plattform-Invarianten (PF-01..PF-17)
+  SQL-xx    BASE-000 SQL-first Invarianten (SQL-01..SQL-10)
+  PR-xx     BASE-000 Prefix-Regeln (PR-01..PR-06)
+  TN-xx     BASE-000 Tabellen-Namensregeln (TN-01..TN-07)
+  FN-xx     BASE-000 Feld-Namensregeln (FN-01..FN-06)
+  K-xx      BASE-000 Transition-Korrekturen (K-01..K-12, temporär)
+
+── Model-Layer: Invarianten ────────────────────────────────────────────
+
+  INV-xx    SM_CONNECTION §9 — Connection-Invarianten (31, Lücke bei 22/23)
+  LR-xx     SM_CONNECTION §9 — Lifecycle-Regeln (3)
+              INV + LR = 34 Gesamt
+  SES-xx    SM_SESSION §8 — Session-Invarianten (27)
+  ONB-xx    SM_ONBOARDING §6 — Onboarding-Invarianten (23)
+  POL-xx    SM_POLICY_RESTRICT §12 — Policy-Invarianten (23)
+  GR-xx     SM_POLICY_RESTRICT §5 — Grundregeln (8)
+  VC-xx     DOMAIN_MODEL §3.7 — Connection-Validierung (9)
+  CI-xx     DOMAIN_MODEL §2.2 — Customer-Invarianten (6)
+  CLL-xx    DOMAIN_MODEL §7B.3 — Lifecycle-Log Invarianten (4)
+  RR-xx     DOMAIN_MODEL §7A.3 — Reason-Registry Invarianten (5)
+  IP-INV-xx DOMAIN_MODEL §3.9 — IP-Slot Validität (6)
+  IP-UQ-xx  DOMAIN_MODEL §3.10 — IP-Eindeutigkeit (3)
+
+── Model-Layer: Tests ──────────────────────────────────────────────────
+
+  T-xx      SM_CONNECTION §4 — Transitionen (T-01..T-09)
+  T-SM-xx   SM_CONNECTION §13 — Connection-Tests
+  T-SES-xx  SM_SESSION §11 — Session-Tests
+  T-ONB-xx  SM_ONBOARDING §8 — Onboarding-Tests
+  T-POL-xx  SM_POLICY_RESTRICT §13 — Policy-Tests
+  T-DOM-xx  DOMAIN_MODEL §11 — Domain-Tests
+  T-D003-xx D003 §5 — Policy-Decision Tests
+  T-SQL-xx  BASE-000 Tests (T-SQL-01..T-SQL-07)
+  T-PF-xx   BASE-005 Tests (T-PF-01..T-PF-19)
+
+── Model-Layer: Sonstige ───────────────────────────────────────────────
+
+  SF-xx     TRUTH_MODEL §3 — SQL-first Grundregeln (6)
+  WP-xx     DOMAIN_MODEL §7 — Write-Path Regeln (4)
+  NET-PR-xx NETWORK_MODEL §5.2 — Pool-Regeln (4)
+              (Umbenennung um Kollision mit BASE-000 PR-xx zu vermeiden)
+  OPEN-xxx-xx  Offene Punkte (DOM/SES/POL/NET/ONB/TM/SM/SQL)
+  F-xxx-xxx    Fix-IDs aus Reviews
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

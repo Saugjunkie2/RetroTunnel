@@ -1,0 +1,120 @@
+================================================================================
+BASE-005 — TESTS UND VALIDIERUNG (DoD)
+================================================================================
+DATEI: BASE-005_095_TESTS_UND_VALIDIERUNG.txt
+STATUS: ACTIVE (T-PF-01..T-PF-19 definiert)
+
+ZWECK:
+  Prueffaelle zu den Invarianten aus BASE-005_090. Nummeriert
+  T-PF-01..T-PF-xx. Definition of Done fuer BASE-005.
+
+================================================================================
+1) SERVICE-/BIND-TESTS
+================================================================================
+
+T-PF-01: Port-Kollisions-Check (PF-01)
+  ss -tulnp auflisten, gegen BASE-005_030 Port-Registry vergleichen.
+  Jeder offene Port muss registriert sein und dem erwarteten
+  Dienst gehoeren.
+
+T-PF-02: Service-IP Bind-Check (PF-02)
+  Jede Service-IP aus BASE-005_030 existiert auf lo (ip addr show lo).
+  Jeder BIND-ANCHOR-Dienst bindet auf seiner Service-IP (ss -tulnp).
+
+T-PF-03: lo-service-ips beim Boot zuerst (PF-02)
+  systemd-analyze critical-chain fuer MariaDB.service zeigt
+  lo-service-ips.service als Vorbedingung.
+
+================================================================================
+2) USER-/PERMISSION-TESTS
+================================================================================
+
+T-PF-04: Dienst-User-Check (PF-04)
+  Fuer jede Unit in BASE-005_070: ps auxf zeigt den User-Namen aus
+  BASE-005_050.
+
+T-PF-05: Secret-File-Permissions (PF-05)
+  Alle Files in BASE-005_060 §1: stat zeigt 0600 + korrekter Owner.
+
+T-PF-06: Least-Privilege Zonen-Trennung (PF-06)
+  Pro Dienst-User pruefen dass er KEINEN Zugriff auf fremde
+  Config-Verzeichnisse hat:
+    sudo -u freerad cat /etc/wireguard/awg0.conf → Permission denied
+    sudo -u www-data cat /etc/freeradius/clients.conf → Permission denied
+    sudo -u unbound cat /etc/mysql/debian.cnf → Permission denied
+  Erwartung: Jeder Zugriff scheitert.
+
+================================================================================
+3) PFAD-TESTS
+================================================================================
+
+T-PF-07: Pfad-Registry-Compliance (PF-07)
+  Grep ueber alle Dienst-Configs und Tooling-Scripts nach
+  hardcodierten Pfaden. Abgleich gegen BASE-005_040 Registry.
+  Jeder Pfad der nicht in der Registry steht ist Drift.
+
+T-PF-16: Runtime-Volatilitaet (PF-08)
+  Nach Reboot: /run/vpn-sessions/ ist leer, /run/*.lock existiert
+  nicht. Kein persistenter State in /run/.
+
+T-PF-17: Persistenter State im Backup-Scope (PF-09)
+  Alle Pfade unter /var/lib/ die in BASE-005_040 §4 stehen
+  sind im Backup-Script/Config enthalten.
+
+================================================================================
+4) LIFECYCLE-TESTS
+================================================================================
+
+T-PF-08: Kaltstart-Sequenz (PF-10, PF-11)
+  Reboot-Test. Nach Boot: alle kritischen Dienste laufen und sind
+  bereit (Readiness-Kriterien aus BASE-005_080 §2 erfuellt).
+
+T-PF-09: Readiness-Kriterium pro Dienst (PF-10)
+  Fuer jeden Kern-Dienst: Readiness-Check aus BASE-005_080 §2
+  ausfuehren, muss TRUE liefern.
+
+T-PF-10: Crash-Recovery (PF-12)
+  Simuliere Crash eines kritischen Dienstes (kill -9).
+  Erwartung: Alert wird ausgeloest UND Reconcile-Versuch startet.
+  Beide Bedingungen muessen erfuellt sein (nicht "oder").
+  Pruefung: journalctl zeigt Alert-Eintrag + Reconcile-Lauf.
+
+T-PF-11: Shutdown-Reihenfolge
+  systemctl poweroff: Dienste stoppen in umgekehrter Boot-Reihenfolge.
+
+================================================================================
+5) SECRET-TESTS
+================================================================================
+
+T-PF-12: Secrets nicht in Logs (PF-13)
+  grep nach bekannten Secret-Mustern in /var/log/ und journal.
+  Erwartung: Keine Treffer.
+
+T-PF-13: Admin-UI Secret-Differenzierung (PF-13)
+  Infrastruktur-Secrets (DB-Passwoerter, SSH-Keys, RADIUS Shared
+  Secret, WG Server PrivateKey): Admin-UI zeigt "********".
+  Connection-Credentials (Login, Passwort, PSK, WG-Config/Keys,
+  QR-Code): Admin-UI und User-UI zeigen Klartext.
+  Einzige Ausnahme: subaccount_nt_hash nicht angezeigt (INV-75).
+
+T-PF-18: Backup-Verschluesselung (PF-14)
+  DB-Dump und /etc/-Archiv werden GPG-verschluesselt abgelegt.
+  Restore-Test: Entschluesselung + Import funktioniert.
+
+T-PF-19: Rotation invalidiert Altes (PF-15)
+  Nach Secret-Rotation (z.B. DB-User-Passwort): altes Passwort
+  wird abgewiesen, neues akzeptiert. Kein paralleler Betrieb.
+
+================================================================================
+6) INVENTAR-TESTS
+================================================================================
+
+T-PF-14: Inventar-Drift-Check (PF-16)
+  systemctl list-units --type=service --type=timer vs BASE-005_070.
+  WICHTIG: Prueft Services UND Timer (nicht nur Services).
+  Keine unregistrierte Unit laeuft. Keine registrierte Unit
+  fehlt unerwartet.
+
+T-PF-15: Owner-Base Eindeutigkeit (PF-17)
+  Parse BASE-005_070: Jede Unit hat genau EINE Owner-Base.
+================================================================================

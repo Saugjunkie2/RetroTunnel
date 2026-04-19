@@ -1,0 +1,150 @@
+================================================================================
+BASE-010 — CONNECTION LIFECYCLE (Zwei-Ebenen-Modell)
+================================================================================
+DATEI: BASE-010_070_CONNECTION_LIFECYCLE.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Definiert das Lifecycle-Modell fuer VPN-Connections. Loest
+  SM_CONNECTION.txt (deprecated model/) vollstaendig auf.
+
+  Zwei Ebenen:
+  1. OWNERSHIP — abgeleitet aus customer_id (PREPROVISIONED|CLAIMED)
+  2. OP_STATUS — persistiert (ACTIVE|RESTRICTED|DISABLED)
+
+VORGAENGER: SM_CONNECTION.txt (deprecated model/)
+
+================================================================================
+1) OWNERSHIP (abgeleitet, KEIN eigenes Feld)
+================================================================================
+
+  PREPROVISIONED: customer_id IS NULL
+    Connection existiert, ist aber keinem Customer zugeordnet.
+    Wartet auf Claim.
+
+  CLAIMED: customer_id IS NOT NULL
+    Connection ist einem Customer zugeordnet.
+    Einmal CLAIMED = immer CLAIMED (monotonic).
+    "Unclaim" existiert nicht — stattdessen: neue Connection.
+
+================================================================================
+2) OPERATIVE ZUSTAENDE (op_status)
+================================================================================
+
+  ACTIVE:
+    VPN-Auth akzeptiert. Full Tunnel (Internet). Panel-Zugriff moeglich.
+    op_reason_code = NULL. restricted_at = NULL, disabled_at = NULL.
+
+  RESTRICTED:
+    VPN-Auth akzeptiert (Tunnel kommt hoch).
+    NUR Walled Garden (SERVICE_NET: Panel, DNS, NTP).
+    Kein Internet, kein WAN-Forward. Hard-Cut bei Eintritt.
+    op_reason_code = RESTRICT_* (NOT NULL, aus vpn_reason_registry).
+
+  DISABLED:
+    VPN-Auth abgelehnt (RADIUS reject / WG-Auth reject).
+    Kein Tunnel. Operativer Hard-Stop. Hard-Cut bei Eintritt.
+    op_reason_code = DISABLE_* (NOT NULL, aus vpn_reason_registry).
+    Ggf. Restore-Fenster (reason-abhaengig).
+    Danach: Revocation → Quarantaene → Pool-Rueckfuehrung.
+
+================================================================================
+3) TRANSITIONEN
+================================================================================
+
+  ID    Von         Nach         Trigger                    Akteur
+  ───── ─────────── ──────────── ────────────────────────── ──────────
+  T-01  ACTIVE      ACTIVE       Claim (Ownership-Wechsel)  USER(REQ)
+        RESTRICTED  ACTIVE       Claim + Unrestrict
+  T-02  ACTIVE      RESTRICTED   Grace abgelaufen           JOB
+  T-03  ACTIVE      RESTRICTED   Quota/Expiry/Plan/Pause    SYSTEM/ADMIN
+  T-04  ACTIVE      DISABLED     Disable (reason-param.)    ADMIN
+  T-05  RESTRICTED  ACTIVE|RESTR Re-Evaluation (policy)     ADMIN/SYSTEM
+  T-06  RESTRICTED  DISABLED     Restrict-Timeout (Auto)    JOB
+  T-07  RESTRICTED  DISABLED     Disable (reason-param.)    ADMIN
+  T-08  DISABLED    ACTIVE|RESTR Admin Restore (policy-eval) ADMIN
+  T-09  *           *            Rollenwechsel (in-place)   ADMIN
+                                 access_role + ip_slot Mutation (D002)
+
+  WICHTIG: T-04/T-07 sind REASON-PARAMETRISIERT. Der op_reason_code
+  bestimmt Effekte (Restore-Fenster, Revocation-Timing).
+
+  T-01 (CLAIM):
+    PREPROVISIONED Connection wird CLAIMED. customer_id wird gesetzt.
+    Wenn Connection RESTRICTED war (z.B. UNCLAIMED_OVERDUE) und
+    der Restrict-Grund durch Claim wegfaellt → op_status=ACTIVE.
+
+  T-02/T-03 (RESTRICT):
+    op_status = RESTRICTED, op_reason_code = hoechstpriorer Grund.
+    restricted_at = NOW(). restrict_finalize_at materialisiert
+    aus vpn_reason_registry.default_restrict_window_days.
+    Hard-Cut: Conntrack-Flush + nftables Set-Update.
+
+  T-04/T-07 (DISABLE):
+    op_status = DISABLED, op_reason_code = DISABLE_*.
+    disabled_at = NOW(). Hard-Cut: Session-Kill.
+    Ggf. restore_until = NOW() + restore_window_days.
+
+  T-05 (RE-EVALUATION):
+    Reconcile re-evaluiert ALLE aktiven Restrict-Bedingungen.
+    Wenn kein Grund mehr aktiv → op_status=ACTIVE.
+    Wenn anderer Grund noch aktiv → op_reason_code wechselt
+    zum naechsthoeher prioren Grund.
+
+  T-06 (RESTRICT-TIMEOUT → DISABLE):
+    JOB prueft: NOW() > restrict_finalize_at.
+    → op_status = DISABLED, op_reason_code = auto_finalize_to_reason_code.
+    → Hard-Cut.
+
+  T-08 (ADMIN RESTORE):
+    Vorbedingung: is_restoreable=1 UND NOW() < restore_until.
+    op_status → ACTIVE oder RESTRICTED (Policy-Re-Eval entscheidet).
+    disabled_at = NULL, restore_until = NULL.
+
+  T-09 (ROLLENWECHSEL):
+    In-place Mutation: access_role + ip_slot werden atomar geaendert.
+    Alter IP-Slot → Quarantaene. Neuer Slot aus neuem Pool.
+    ALLE Connections des Customers durchlaufen T-09 (Kaskade, D003-E02).
+    Hard-Cut auf alle aktiven Sessions des Customers.
+
+================================================================================
+4) PROVISIONING-FLOW (atomar, Marco-Entscheidung 2026-04-17)
+================================================================================
+
+  ZWEI PROVISIONING-WEGE (aus SM_CONNECTION §2):
+
+  WEG A — Admin-Provisioning (Laptop/Geraet, aktuelles Modell):
+    Admin erstellt Connection → PREPROVISIONED + ACTIVE.
+    customer_id = NULL. Wartet auf Claim.
+    Deadlines werden gesetzt (unclaimed_grace_until, claim_deadline).
+    Credentials werden per Email an den Kunden gesendet.
+    → Dies ist das aktuelle Betriebsmodell (manueller Bestellprozess,
+      Marco-Entscheidung 2026-04-17). Nicht-normative Vorstudie:
+      entwuerfe/panel-zentrale/ in BASE-110_WEBSTACK_CORE (KR-01).
+
+  WEG B — Self-Service (zukuenftige Erweiterung):
+    User erstellt Connection selbst → direkt CLAIMED + ACTIVE.
+    customer_id sofort gesetzt. Keine Grace/Deadline noetig.
+    Aktuell NICHT implementiert, aber im Schema vorgesehen
+    (unclaimed_grace_until/claim_deadline sind NULL bei Weg B).
+
+  ATOMARER INSERT (gilt fuer beide Wege):
+  Bei CREATE einer vpn_connection wird in EINER Transaktion:
+  1. vpn_connections Row erstellt (id, connection_ref, tunnel_type,
+     access_role, op_status=ACTIVE, ip_slot, fixed_ip/v6, Deadlines)
+  2. Auth-Kindtabelle Row erstellt:
+     - L2TP_IPSEC: vpn_connection_l2tp_ipsec_auth (login + hash)
+     - WIREGUARD: wg_connection_auth (pubkey + psk + name)
+  3. Kein Halbzustand moeglich. Bei Fehler: kompletter Rollback.
+  4. Schreiber: SYSTEM (Provisioning-Job). ADMIN triggert, SYSTEM fuehrt aus.
+  5. Bei Pool-Full: INSERT scheitert fail-closed.
+
+================================================================================
+5) PANEL-CONSUMABILITY
+================================================================================
+
+  Panel zeigt: op_status Badge, op_reason_code Beschreibung,
+  Deadlines (claim_deadline, restrict_finalize_at, restore_until).
+  Admin: Transitionen T-04..T-09 als Panel-Aktionen verfuegbar.
+  Re-Auth fuer destruktive Aktionen (Klasse C, Bf-06).
+================================================================================

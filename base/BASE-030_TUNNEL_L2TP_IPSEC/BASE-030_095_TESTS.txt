@@ -1,0 +1,255 @@
+================================================================================
+BASE-030 — TESTS UND VALIDIERUNG (L2TP/IPsec Tunnel)
+================================================================================
+DATEI: BASE-030_095_TESTS.txt
+STATUS: ACTIVE
+
+================================================================================
+DAEMON-ARCHITEKTUR TESTS
+================================================================================
+
+  T-LT-01  accel-ppp laeuft als Service und lauscht auf 0.0.0.0:1701.
+            ss -ulnp | grep 1701 zeigt accel-pppd. [LT-01, LT-03]
+
+  T-LT-02  strongSwan laeuft als strongswan.service (charon-systemd).
+            systemctl is-active strongswan → active.
+            swanctl --list-conns zeigt l2tp-psk Verbindung. [LT-06]
+
+  T-LT-03  accel-ppp startet NACH strongswan.service.
+            systemctl show accel-ppp | grep After= enthaelt
+            strongswan.service. Boot-Sequenz gemaess BASE-005_080. [LT-32]
+
+  T-LT-04  accel-ppp und strongSwan sind entkoppelt.
+            systemctl stop strongswan → accel-ppp laeuft weiter.
+            Aber: L2TP-Pakete kommen nicht mehr an (kein IPsec).
+            systemctl start strongswan → L2TP funktioniert wieder. [LT-02]
+
+================================================================================
+IPSEC UND PSK TESTS
+================================================================================
+
+  T-LT-05  IKEv1 Verbindung: XP Client verbindet sich per L2TP/IPsec.
+            swanctl --list-sas zeigt IKE_SA mit version=1,
+            proposals=3DES_CBC/HMAC_SHA1_96/MODP_1024 (oder AES).
+            CHILD_SA l2tp mit mode=TRANSPORT. [LT-07, LT-08]
+
+  T-LT-06  PSK ohne ID-Bindung: swanctl.conf secrets-Sektion hat
+            KEINE id-Zeile. Connection local-Sektion hat KEIN id.
+            XP-Client verbindet sich erfolgreich. [LT-09]
+
+  T-LT-07  PSK nicht in SQL: grep secret /etc/swanctl/swanctl.conf
+            zeigt PSK in Datei. Keine vpn_*-Tabelle enthaelt einen
+            PSK-Wert. [LT-10]
+
+  T-LT-08  NAT-T: Client hinter NAT-Router verbindet sich.
+            swanctl --list-sas zeigt "nat-remote" oder "nat-any".
+            Traffic laeuft ueber UDP/4500 (nicht ESP). [LT-30]
+
+  T-LT-09  NAT-Keepalive: charon.keep_alive ist konfiguriert (Default 20s).
+            tcpdump auf UDP/4500: 0xff-Pakete alle ~20s sichtbar.
+            NAT-Mappings bleiben erhalten. [LT-31]
+
+================================================================================
+CRYPTO UND OPENSSL TESTS
+================================================================================
+
+  T-LT-10  OpenSSL Legacy Provider aktiv:
+            openssl list -providers zeigt "legacy" und "default".
+            Beide als "active". [LT-12]
+
+  T-LT-11  strongSwan Legacy Algorithmen verfuegbar:
+            swanctl --list-algs | grep -E '3DES|SHA1|MODP_1024'
+            zeigt alle drei als verfuegbar. [LT-12, LT-13]
+
+  T-LT-12  MPPE deaktiviert: grep mppe /etc/accel-ppp.conf zeigt
+            "mppe=deny" oder "mppe = deny". [LT-14]
+
+  T-LT-13  CCP deaktiviert: grep ccp /etc/accel-ppp.conf zeigt
+            "ccp=0" oder "ccp = 0". [LT-15]
+
+================================================================================
+DEFAULT-DENY UND PRE-TRAFFIC-SPERRE TESTS
+================================================================================
+
+  T-LT-14  Default-Deny aktiv: nft list ruleset | grep ppp zeigt
+            eine DROP-Regel fuer iifname "ppp*" OHNE Freigabe-Set-
+            Ausnahme als Grundregel. [LT-18]
+
+  T-LT-15  Pre-Traffic-Beweis: Client verbindet sich (PPP steht).
+            WAEHREND ip-up Hook noch laeuft (kuenstlich verzoegert
+            mit sleep 10):
+            - Client kann KEIN Internet (ping, HTTP, DNS scheitern)
+            - Client-IP ist NICHT im Freigabe-Set
+            NACH Hook-Abschluss + Release:
+            - Client kann Internet
+            - Client-IP IST im Freigabe-Set
+            Beweis: Kein Zeitfenster ohne Schutz. [LT-18, LT-19]
+
+  T-LT-16  Fail-Closed bei DB-Down: systemctl stop mariadb.
+            Client verbindet sich (PPP-Link steht).
+            - ip-up Hook scheitert bei DB-Lookup
+            - Client-IP NICHT im Freigabe-Set
+            - Kein Internet trotz PPP-Session
+            systemctl start mariadb → manueller Reconnect →
+            funktioniert. [LT-19]
+
+  T-LT-17  Fruehes Disconnect: Client verbindet und trennt sofort
+            (innerhalb 1-2 Sekunden). ip-up war noch nicht fertig.
+            Ergebnis:
+            - Keine halbfertige vpn_sessions Row
+            - Kein haengendes Freigabe-Set Entry
+            - Kein stale Session-Mapping in /run/vpn-sessions/
+            - ip-down raeumt alles sauber auf. [LT-19, LT-20]
+
+================================================================================
+SESSION-BRIDGE UND RADACCT-KORRELATION TESTS
+================================================================================
+
+  T-LT-18  Bridge-INSERT: Nach VPN-Connect pruefe vpn_sessions:
+            SELECT * FROM vpn_sessions WHERE tunnel_type='L2TP_IPSEC'
+            ORDER BY created_at DESC LIMIT 1;
+            Eintrag enthaelt ALLE 8 Pflichtfelder.
+            truth_source = 'RADIUS_ACCT'.
+            session_token = radacct.acctsessionid (Cross-Check).
+            source_event_at = radacct.acctstarttime (Cross-Check).
+            runtime_ref = Interface-Name (pppX). [LT-21, LT-22]
+
+  T-LT-19  Radacct-Korrelation: Nach Connect pruefe radacct:
+            SELECT acctsessionid, acctstarttime FROM radacct
+            WHERE username = '<PEERNAME>' AND acctstoptime IS NULL
+            ORDER BY acctstarttime DESC LIMIT 1;
+            acctsessionid = vpn_sessions.session_token. [LT-22, LT-24]
+
+  T-LT-20  Korrelation Timing: acct-delay-start MUSS 0 sein.
+            grep acct-delay /etc/accel-ppp.conf zeigt 0 oder
+            ist nicht gesetzt (Default 0). [LT-25]
+
+  T-LT-21  Lock-Release per DELETE: Nach Connect pruefe
+            vpn_session_locks:
+            SELECT COUNT(*) FROM vpn_session_locks
+            WHERE vpn_connection_id = <id>;
+            Erwartet: 0 (Lock wurde geloescht, nicht aktualisiert). [LT-26]
+
+  T-LT-22  Bridge-DB-User Least-Privilege: vpn_system@localhost hat
+            NUR die dokumentierten Rechte (SHOW GRANTS FOR).
+            Kein Zugriff auf web_customers oder andere Tabellen. [LT-23]
+
+  T-LT-23  ip-down Cleanup: Client trennt VPN.
+            vpn_sessions: closed_at ist gesetzt.
+            vpn_session_locks: Lock geloescht (0 Rows).
+            Freigabe-Set: Client-IP entfernt.
+            /run/vpn-sessions/<IFNAME>.env: Datei geloescht.
+            pppX Interface: entfernt (ip link show). [LT-20]
+
+================================================================================
+MTU / MSS / NAT-T TESTS
+================================================================================
+
+  T-LT-24  MTU-Verhandlung: accel-cmd show sessions zeigt MTU=1400
+            fuer die aktive Session. [LT-27]
+
+  T-LT-25  ppp-max-mtu: grep ppp-max-mtu /etc/accel-ppp.conf zeigt
+            1400. [LT-27]
+
+  T-LT-26  MSS-Clamping Position: nft -a list chain inet filter forward
+            zeigt MSS-Clamping-Regeln VOR ct state established,related.
+            Handle-Nummern der MSS-Regeln sind kleiner. [LT-28]
+
+  T-LT-27  MSS-Clamping Effekt: Vom XP-Client HTTPS-Seite laden.
+            Seite laedt vollstaendig und ohne Haenger.
+            tcpdump auf Server: SYN-Pakete durch pppX haben
+            MSS <= 1360. [LT-28]
+
+  T-LT-28  L2TP nur via IPsec: Von extern (ohne IPsec) ein UDP-Paket
+            an Server:1701 senden (ncat -u SERVER_IP 1701).
+            Paket wird gedroppt (nft counter auf DROP-Regel). [LT-29]
+
+  T-LT-29  NAT-T Registry Fix: Frischer XP-Client OHNE Registry Fix
+            hinter NAT → VPN scheitert (Fehler 789/809).
+            Registry Fix setzen + Reboot → VPN funktioniert. [LT-30]
+
+================================================================================
+BOOT UND LIFECYCLE TESTS
+================================================================================
+
+  T-LT-30  Reboot-Test: Server neustarten. Alle Services kommen
+            automatisch hoch. XP-Client kann sich verbinden.
+            Default-Deny ist aktiv. Release erfolgt nach
+            erfolgreichem ip-up Hook. [LT-32]
+
+  T-LT-31  accel-ppp Crash Recovery: kill -9 $(pidof accel-pppd).
+            Service restarted (systemctl status accel-ppp → active).
+            Alle pppX Interfaces sind weg.
+            Client reconnected nach LCP-Echo-Failure (~90s). [LT-33]
+
+  T-LT-32  Stale-Session Cleanup: Server hart neustarten (kein
+            sauberes Shutdown). Nach Boot pruefen:
+            SELECT COUNT(*) FROM radacct WHERE acctstoptime IS NULL;
+            Erwartet: 0 (Boot-Janitor hat bereinigt). [LT-34]
+
+  T-LT-33  LCP-Echo-Config: grep -E 'lcp-echo' /etc/accel-ppp.conf
+            zeigt interval + failure. Kein lcp-echo-timeout gesetzt.
+            Deterministisches Verhalten bestaetigt. [LT-36]
+
+  T-LT-34  single-session=replace: grep single-session /etc/accel-ppp.conf
+            zeigt "replace". [LT-35]
+
+================================================================================
+FUNKTIONALE END-TO-END TESTS
+================================================================================
+
+  T-LT-35  DB-Down Fail-Closed: systemctl stop mariadb.
+            XP-Client VPN-Verbindungsversuch → RADIUS REJECT.
+            systemctl start mariadb → VPN funktioniert wieder.
+
+  T-LT-36  SimUse=1: XP-Client verbindet sich (Session 1 aktiv).
+            Gleicher User von zweitem Geraet → RADIUS REJECT. [LT-11]
+
+  T-LT-37  Internet funktioniert: XP-Client verbunden.
+            Browser: whatismyip.com zeigt Server-WAN-IP.
+            Full-Tunnel bestaetigt.
+
+  T-LT-38  Peer-Isolation: Zwei L2TP_IPSEC Clients gleichzeitig
+            verbunden (verschiedene User, verschiedene IPs aus
+            USER-Pool). ping von Client A zu Client B → Timeout.
+
+  T-LT-39  NAT-Gleichhaushalt (best-effort): Zwei XP-Clients
+            hinter gleichem NAT-Router. Beide verbinden sich
+            nacheinander. Verbindung beider Clients pruefen.
+            HINWEIS: Dieser Test ist best-effort — Verbindungs-
+            abbrueche sind moeglich und kein Fehler (LT-37). [LT-37]
+
+  T-LT-40  IPv6 deaktiviert: grep ipv6 /etc/accel-ppp.conf zeigt
+            "ipv6 = deny". Kein IPv6-Prefix auf pppX Interface. [LT-17]
+
+  T-LT-41  client-ip-range: grep client-ip-range /etc/accel-ppp.conf
+            zeigt 0.0.0.0/0. Ohne Eintrag wuerden alle Verbindungen
+            abgelehnt. [LT-04]
+
+  T-LT-42  gw-ip-address Position: grep gw-ip-address /etc/accel-ppp.conf
+            zeigt 10.77.0.10. Der Parameter steht in der [radius]-Sektion
+            (nicht [ppp]). Pruefung: accel-cmd show sessions zeigt
+            korrekte Server-IP (10.77.0.10) auf pppX Interface. [LT-05]
+
+  T-LT-43  IKE-Lifetime: swanctl.conf l2tp-psk Connection hat
+            rekey_time = 0 auf CONNECTION-Ebene (nicht nur CHILD).
+            Langzeittest: XP-Client bleibt >4h verbunden ohne
+            ungeplante Unterbrechung. [LT-38]
+
+  T-LT-44  acct-timeout: grep acct-timeout /etc/accel-ppp.conf zeigt 0.
+            Test: FreeRADIUS/MariaDB faellt waehrend aktiver Session
+            aus (systemctl stop mariadb). Bestehende PPP-Session
+            bleibt aktiv (kein Disconnect). Nur neue Verbindungen
+            scheitern (RADIUS REJECT). [LT-39]
+
+  T-LT-45  Reconnect-Storm: 10+ Clients reconnecten gleichzeitig
+            (simuliert mit Skript). Alle Sessions werden nach
+            Hook-Verarbeitung freigeschaltet. Keine Session bleibt
+            dauerhaft blockiert. Hook-Queue-Tiefe ist begrenzt
+            durch fork-limit. [LT-19, Befund 4]
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

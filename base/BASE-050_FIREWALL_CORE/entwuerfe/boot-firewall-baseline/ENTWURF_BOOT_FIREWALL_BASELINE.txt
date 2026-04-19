@@ -1,0 +1,93 @@
+================================================================================
+ENTWURF: BOOT-FIREWALL-BASELINE
+================================================================================
+DATUM: 2026-04-18
+QUELLE: ChatGPT Drittreview BASE-030 v0.2, Befund 1 (kond. BLOCKER)
+ZIEL-BASES: BASE-005_080, BASE-050
+STATUS: OFFEN (nicht normativ, KR-01)
+
+================================================================================
+1) PROBLEM
+================================================================================
+
+  BASE-005_080 §3 definiert die Boot-Sequenz:
+  Phase 3: Tunnel-Dienste (strongSwan, accel-ppp)
+  Phase 4: Firewall (nftables)
+
+  BASE-030 v0.2 verlagert die Pre-Traffic-Sperre fuer L2TP-Sessions
+  in das nftables Default-Deny auf ppp* (F-030-001 Fix).
+
+  SPANNUNG: Wenn accel-ppp Sessions annimmt BEVOR nftables geladen
+  ist, existiert die Pre-Traffic-Sperre in diesem Zeitfenster nicht.
+
+  BASE-005_080 §3 Phase 4 HINWEIS sagt:
+  "nftables Default-Policy ist DROP — also ist auch ohne geladenes
+   Ruleset kein offener Forward-Pfad vorhanden."
+  Das ist streng genommen falsch: Ohne geladenes nftables-Ruleset
+  gibt es KEINE Policy — der Kernel-Default ist ACCEPT.
+
+================================================================================
+2) LOESUNGSOPTIONEN
+================================================================================
+
+  OPTION A — Fruehes Minimal-Ruleset (EMPFOHLEN):
+  Eine kleine nftables-Unit die VOR den Tunnel-Diensten laedt.
+  Inhalt: Nur Baseline-Regeln die auch ohne Tunnel-Interfaces
+  funktionieren (Wildcard-Patterns):
+    - FORWARD policy DROP
+    - iifname "ppp*" DROP (Default-Deny fuer L2TP)
+    - iifname "awg*" DROP (Default-Deny fuer WireGuard)
+    - WAN input: UDP 500/4500, ESP erlaubt
+    - UDP 1701 nur via meta ipsec exists
+    - Alles andere: DROP
+
+  Implementierung: nftables-baseline.service
+    After=network-online.target lo-service-ips.service
+    Before=strongswan.service accel-ppp.service awg-quick@awg0.service
+    ExecStart=nft -f /etc/nftables-baseline.conf
+
+  Das volle Ruleset (BASE-050) laedt danach in Phase 4 und
+  ERWEITERT das Baseline-Set (nicht ersetzt).
+
+  OPTION B — Boot-Gating von accel-ppp:
+  accel-ppp.service bekommt After=nftables.service.
+  Nachteil: Tunnel-Interfaces existieren dann erst nach nftables.
+  BASE-005_080 §3 Phase 4 HINWEIS sagt genau dagegen:
+  "Tunnel-Interfaces muessen existieren bevor nft-Regeln sie
+   referenzieren koennen." Bei Wildcard-Patterns (ppp*) ist
+  das aber kein Problem — Wildcards matchen auch ohne existierende
+  Interfaces. Nur interface-spezifische Regeln (z.B. "awg0")
+  brauchen das Interface.
+
+  OPTION C — ip-pre-up als Belt-and-Suspenders:
+  Ergaenzend zu Option A oder B: ip-pre-up setzt eine per-Interface
+  DROP-Regel bevor das Interface hochkommt. Redundant zum Default-Deny
+  aber zusaetzliche Schutzschicht.
+
+================================================================================
+3) AUSWIRKUNGEN AUF BESTEHENDE BASES
+================================================================================
+
+  BASE-005_080 §3:
+  - Phase 3/4 Reihenfolge muss angepasst werden (neue Phase 2.5
+    "Baseline-Firewall" oder nftables-baseline in Phase 1)
+  - HINWEIS "ohne geladenes Ruleset kein offener Forward-Pfad"
+    muss korrigiert werden (Kernel-Default ist ACCEPT)
+
+  BASE-050 (noch nicht geschrieben):
+  - Muss das Baseline-Ruleset + das volle Ruleset definieren
+  - Zwei-Stufen-Modell: Baseline (Boot-sicher) + Full (Feature-komplett)
+
+  BASE-030:
+  - Kein Fix noetig — referenziert bereits korrekt auf BASE-050
+    als Enforcement-Owner
+
+================================================================================
+4) ENTSCHEIDUNGSBEDARF (Marco)
+================================================================================
+
+  - Option A, B oder C?
+  - Wenn A: Separate Unit oder integriert in nftables.service?
+  - BASE-005_080 HINWEIS korrigieren?
+
+================================================================================

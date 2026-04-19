@@ -1,0 +1,101 @@
+================================================================================
+BASE-005 — LINUX USERS GROUPS PERMISSIONS
+================================================================================
+DATEI: BASE-005_050_LINUX_USERS_GROUPS_PERMISSIONS.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Least-Privilege-Governance. Welcher Dienst laeuft unter welchem
+  Linux-User, welche Gruppen existieren, welche Dateien/Verzeichnisse
+  gehoeren wem. Analog zu BASE-000 DB-Zonen auf OS-Ebene.
+
+================================================================================
+1) LINUX-USER PRO DIENST
+================================================================================
+
+  Dienst          Linux-User      Shell              Home
+  --------------- --------------- ------------------ -------------------
+  MariaDB         mysql           /usr/sbin/nologin  /var/lib/mysql
+  FreeRADIUS      freerad         /usr/sbin/nologin  /var/lib/freeradius
+  strongSwan      root            -                  -
+  accel-ppp       root            -                  -
+  AmneziaWG       root            -                  -
+    (WireGuard Peer-Management braucht Kernel-Zugriff)
+  nftables        root            -                  -
+  Unbound         unbound         /usr/sbin/nologin  /var/lib/unbound
+  AdGuardHome     adguardhome     /usr/sbin/nologin  /var/lib/adguard
+    (Standalone Binary mit CAP_NET_BIND_SERVICE +
+     CAP_NET_RAW Capabilities statt root)
+  OpenResty       root (Master)   -                  -
+                  www-data (Work) /usr/sbin/nologin  -
+  PHP-FPM         www-data        /usr/sbin/nologin  -
+
+  BEGRUENDUNG ROOT: Dienste die root brauchen sind solche die
+  Kernel-Netzwerk-Operationen ausfuehren (nftables, WireGuard Peer-
+  Management, IPsec/L2TP, PPP-Interfaces). Das ist keine Bequemlichkeit
+  sondern technische Notwendigkeit.
+
+  VPN-TOOLING:
+    vpn-policy-apply            root (nft + tc + ppp-kill)
+    vpn-accounting-collector    root (Interface-Counter lesen)
+    vpn-session-kill            root (ppp-kill, nft)
+    vpn-stale-session-janitor   root (DB + ggf. ppp-kill)
+
+================================================================================
+2) PRIVILEGE SEPARATION (aus B167 + B285)
+================================================================================
+
+  REGEL: Panel (www-data) darf NIEMALS direkt:
+    - nft-Regeln aendern
+    - tc-Klassen aendern
+    - PPP-Sessions killen
+    - VPN-Interfaces manipulieren
+
+  STATTDESSEN: Panel ruft vpn-policy-apply und vpn-session-kill
+  via sudo (eingeschraenkt auf diese beiden Tools mit validierten
+  Argumenten). Quelle: B167 §5, B285.
+
+  SUDOERS-REGEL (Konzept):
+    www-data ALL=(root) NOPASSWD: /usr/local/bin/vpn-policy-apply *
+    www-data ALL=(root) NOPASSWD: /usr/local/bin/vpn-session-kill *
+
+================================================================================
+3) SENSITIVE DATEIEN / PERMISSIONS
+================================================================================
+
+  Pfad                               Owner:Group      Mode
+  ---------------------------------- ---------------- ----
+  /etc/freeradius/clients.conf       freerad:freerad  0640
+  /etc/wireguard/awg0.conf           root:root        0600
+    (PrivateKey lebt direkt in der Conf-Datei, kein separater Key-File)
+  /etc/ipsec.secrets                 root:root        0600
+  /etc/mysql/debian.cnf              root:root        0600
+  SSH Host Keys (/etc/ssh/ssh_host_*_key)  root:root  0600
+
+================================================================================
+4) LEAST-PRIVILEGE-REGELN (OS-Zonen, analog DB-Zonen)
+================================================================================
+
+  INVARIANTE: Dienste duerfen nur auf Dateien/Pfade zugreifen die
+  sie fachlich brauchen.
+
+  VERBOTEN:
+    - FreeRADIUS (freerad) hat KEINEN Zugriff auf /etc/wireguard/
+    - OpenResty (www-data) hat KEINEN Zugriff auf /etc/freeradius/
+    - Unbound (unbound) hat KEINEN Zugriff auf /etc/mysql/
+    - www-data hat KEINEN Zugriff auf /etc/wireguard/
+    - www-data hat KEINEN Zugriff auf /etc/ipsec.secrets
+
+================================================================================
+5) DB-USER ZUORDNUNG (Referenz auf BASE-000)
+================================================================================
+
+  Dienst              Linux-User      DB-User
+  ------------------- --------------- -------------
+  FreeRADIUS          freerad         radius
+  OpenResty/PHP-FPM   www-data        webpanel
+  Janitor/Reconcile   root            system
+
+================================================================================
+KEINE OFFENEN INPUT-FRAGEN — alle Punkte geklaert.
+================================================================================

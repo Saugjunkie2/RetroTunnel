@@ -1,0 +1,390 @@
+================================================================================
+RetroTunnel — MANIFEST
+================================================================================
+VERSION: v1.0
+DATUM: 2026-04-19
+STATUS: ACTIVE
+OWNER: Marco (Owner) + Claude (Co-Architect)
+LIZENZ: MIT
+REPOSITORY: [noch nicht vergeben]
+
+================================================================================
+1) WAS IST RETROTUNNEL?
+================================================================================
+
+RetroTunnel ist ein Debian-basierter Dual-Tunnel VPN-Stack, der zwei
+grundverschiedene Client-Welten auf einem Server bedient:
+
+  L2TP_IPSEC  — Windows XP / Vista über L2TP/IPsec (accel-ppp)
+  WIREGUARD   — Alle modernen Geräte über AmneziaWireGuard (DPI-resistent)
+
+Ziel: Full-Tunnel VPN mit deterministischer Server-Side Policy, SQL-first AAA,
+rollenbasiertem Enforcement, DNS-Zwang, internem Webpanel und einem
+produktionsfähigen Betriebsmodell (Onboarding, Quota, QoS, Monitoring).
+
+================================================================================
+2) WARUM EXISTIERT DIESES PROJEKT?
+================================================================================
+
+RetroTunnel ist der Nachfolger von xp-vpn-stack (8 Monate Konzeptarbeit).
+Der Vorgänger nutzte IKEv2 (strongSwan) für den WIREGUARD-Pfad. IKEv2 wurde
+nach der ersten Implementierungsphase verworfen, weil:
+
+  a) DNS-Zwang (DNAT53) nicht durchsetzbar war — IKEv2/XFRM hat keine
+     dedizierten Client-Interfaces, nftables-Regeln konnten den Traffic
+     nicht interface-basiert filtern. Das bricht das gesamte
+     Sicherheitsmodell (8 AdGuard-Blocklisten wirkungslos).
+
+  b) Client-Einrichtung zu komplex war — Windows 11 brauchte manuelle
+     IPv6-Routen, Android brauchte die strongSwan-App (eingebauter
+     VPN-Client nur IPv4).
+
+  c) QoS (Speed-Limiting) nicht lösbar war — IKEv2 hat keine pppX-
+     Interfaces, tc pro Client war nicht anwendbar.
+
+AmneziaWireGuard löst alle drei Probleme:
+  - Dediziertes Interface (awg0) → DNAT53 funktioniert
+  - Native Apps für alle Plattformen, einfache .conf-Datei
+  - WireGuard-Interface erlaubt tc-basiertes QoS pro Peer
+  - Zusätzlich: DPI-Obfuskation (Amnezia-Erweiterung)
+
+================================================================================
+3) DESIGN-PRINZIPIEN (KANONISCH, aus xp-vpn-stack übernommen)
+================================================================================
+
+DP-01  VPN ist nur der Tunnel — Policies leben in Linux
+       Routing/NAT/Segmentation: Linux. Policy: nftables. QoS: tc.
+       Client-erreichbare Services: gebunden an SERVICE_* Anchors.
+       Interne Dienste (MariaDB, FreeRADIUS): localhost-only.
+       AAA: SQL + FreeRADIUS. Detail: BASE-005_030.
+
+DP-02  SQL-first — Keine Magic Numbers, zwei getrennte Domänen
+       Operationale Parameter (Systemverhalten) leben im Settings-System
+       (settings_catalog + settings_global/customer/connection).
+       Policy-Parameter (Kundenrechte/Limits) leben im Policy-System
+       (policy_catalog + policy_role_defaults + policy_customer_overrides).
+       Beide Domänen sind SQL-first. Kein Consumer darf stille Defaults
+       verwenden. NULL = unlimited (keine Magic Numbers). (D003)
+
+DP-03  DNS-Zwang ist nicht verhandelbar
+       DNAT TCP+UDP 53 für ALLE Clients, ALLE Rollen, keine Ausnahmen.
+       DoT (Port 853 TCP) und DoQ (Port 853 UDP) werden geblockt.
+       DoH via AdGuard-Blocklisten.
+
+DP-04  Fail-Closed — Kein unpoliced Window
+       Kein Client bekommt WAN-Zugang bevor Policy-Apply erfolgreich war.
+       DB-Down = DENY. Missing Settings = DENY.
+
+DP-05  Deterministische Enforcement
+       nftables + tc, FLUSH+REBUILD Reconcile. Kein Drift.
+       Hard-Cut bei Statuswechsel (Conntrack-Flush + Session-Kill).
+
+DP-06  Rollen-basiertes Enforcement über IP-Ranges
+       Jede access_role hat einen eigenen IP-Pool.
+       nftables-Enforcement ist range-basiert (O(1), kein Sync).
+       Dynamische Sets nur für Zustände (restricted, pending, banned).
+
+DP-07  Webpanel ist die Zentrale — kein SSH im Normalbetrieb
+       Nur im VPN erreichbar unter portal.retrotunnel (DNS-Rewrite
+       via AdGuardHome auf SERVICE_WEB 10.77.0.3). Ersetzt vpn.status
+       aus dem Altkonzept. Das Panel ist nicht nur eine Status-Anzeige,
+       sondern die vollstaendige Betriebs- und Steuerungsoberflaeche.
+       Im Normalbetrieb muss der Admin den Server NIE per SSH anfassen.
+       SSH ist nur fuer initiales Setup (PH-Stufen) und echte Notfaelle.
+
+       Was "Zentrale" konkret bedeutet:
+       a) SEHEN: Logs lesen, filtern und suchen. Connection-Status,
+          Session-State, Accounting, Pool-Auslastung, Health.
+       b) STEUERN: Policy-Apply, Reconcile, Hardcut, Claim-Management,
+          Restricted/Disable/Enable, Rollenwechsel, Grace-Reset.
+       c) EINSTELLEN: Alle SQL-gestuetzten Settings und Policy-Werte
+          ueber das Panel aendern. SOLL/IST-Abgleich visuell sichtbar:
+          Abweichungen sofort erkennbar (Kernel-State vs SQL-Truth).
+       d) ALARMIEREN: Email-Alerts bei Handlungsbedarf (SOLL != IST,
+          Health-Probleme, Pool-Exhaustion, Stale-Sessions).
+       e) FALLBACK: Web-Konsole (Terminal im Browser) fuer den Fall
+          dass doch Shell-Zugriff noetig ist. ADMIN-only, extra Auth.
+
+       Jede Base und jedes Modul muss bei der Ausarbeitung mitdenken:
+       "Wie konsumiert das Panel diesen Wert?" Jeder SQL-Wert, jeder
+       Settings-Key, jeder Policy-Parameter, jeder Kernel-State muss
+       Panel-faehig sein — lesbar und fuer ADMIN auch aenderbar.
+
+       DIMENSION (Marco-Erkenntnis 2026-04-18):
+       Das Webpanel ist fuer RetroTunnel was BASE-000 fuer die DB ist:
+       BASE-000 ist das Fundament auf dem alles steht.
+       Das Panel ist die Oberflaeche durch die alles bedient wird.
+       Jede Base und jedes Modul produziert etwas — und das Panel
+       muss es konsumierbar machen. MOD-006_PANEL_FEATURES wird
+       deshalb das umfangreichste Modul des gesamten Projekts.
+       Detail-Anforderungen: Nicht-normative Vorstudie mit
+       Konsumenten-Matrix in BASE-110_WEBSTACK_CORE/entwuerfe/
+       admin-dashboard/ENTWURF_ADMIN_DASHBOARD.txt (KR-01: kein
+       Einfluss auf Konzept, Diskussionsgrundlage fuer MOD-006
+       und BASE-110).
+
+       Admin-Panel Zugriff: Deny-All-Except auf konkrete Admin-IPs.
+       NICHT der gesamte ADMIN-Pool (/24), sondern nur die
+       tatsaechlichen fixed_ip-Adressen aktiver ADMIN-Connections.
+       Defense-in-Depth: ZWEI unabhaengige Quellen muessen matchen:
+         1. SQL: panel_admin_eligible (kanonische Ableitung aus
+            vpn_connections, nicht rohe WHERE-Klausel)
+         2. Datei: /etc/retrotunnel/admin_panel_allowed.conf
+            (listet connection_ref, NICHT IPs; root-only 0600)
+       Privilegierter Reconciler bildet Schnittmenge, loest
+       connection_ref → aktuelle IPs auf, schreibt Projection
+       in SQL + nftables Set atomisch. Panel liest nur Projection.
+       DB-Kompromittierung allein reicht nicht.
+       Keine externen Security-Dienste (alles lokal).
+       Enforcement: Kernel-Level nftables (dynamisches Set aus
+       Schnittmenge) + App-Layer AuthZ.
+       Kein separates Admin-Panel (Single Surface, rollenbasiert).
+
+DP-08  Plans differenzieren über Leistung, nicht über Sicherheit
+       Plans dürfen: QoS, Concurrency, Quota, Laufzeit, Preis ändern.
+       Plans dürfen NICHT: DNS-Zwang, Filterung, Abuse-Blocks ändern.
+
+================================================================================
+4) ARCHITEKTUR-ACHSEN (NEU gegenüber xp-vpn-stack)
+================================================================================
+
+4.1) Zwei orthogonale Klassifikationsfelder (statt conn_group)
+
+  tunnel_type   ENUM('L2TP_IPSEC', 'WIREGUARD')
+    Bestimmt: Protokoll, Auth-Mechanik, Daemon, IPv6-Fähigkeit.
+    L2TP_IPSEC = L2TP/IPsec via accel-ppp, IPv4-only, MSCHAPv2
+    WIREGUARD  = AmneziaWireGuard, Dualstack, PublicKey-Auth
+
+  access_role   ENUM('USER', 'VIP', 'MODERATOR', 'ADMIN')
+    Bestimmt: Berechtigungen, Speed-Limits, Panel-Zugriff, IP-Pool.
+    GEHÖRT ZUM CUSTOMER (Webpanel-Rang), nicht zur Connection.
+    Alle Connections eines Customers erben dieselbe Rolle. (D003)
+
+  Das alte conn_group (LEGACY|MODERN|ADMIN) ist ableitbar, aber nicht
+  mehr die kanonische SoT. tunnel_type + access_role sind SoT.
+
+4.2) Rollen-Modell
+
+  USER        Plan-gebunden. Speed/BW per Plan. Restricted-fähig.
+              Max Connections: per Plan (Basis-Default in
+              policy_role_defaults). Kein Admin-Panel.
+
+  VIP         Kein Speed/BW-Limit. Max 3 Connections (Default in
+              policy_role_defaults, individualisierbar via
+              policy_customer_overrides). Restricted-fähig.
+              Kein Admin-Panel. Bezahlt (eigene Rolle, kein Plan).
+
+  MODERATOR   Kein Speed/BW-Limit. Max 3 Connections (Default in
+              policy_role_defaults, individualisierbar).
+              Restricted-fähig. Teilweiser Admin-Panel-Zugriff
+              (Kunden sehen/sperren).
+
+  ADMIN       Keine Limits (NULL = unlimited). Nicht restricted-fähig
+              (Not-Aus = DISABLE IMMEDIATE, R-08).
+              Voller Admin-Panel-Zugriff. Nur der Owner.
+
+  HINWEIS: Connection-Limits und andere Policy-Parameter leben im
+  Policy-System (nicht im Settings-System). Siehe D003.
+
+4.3) IP-Pools (pro access_role, unabhängig von tunnel_type)
+
+  SERVICE_NET   10.77.0.0/28      fd77:0:0:0::/64    7 Anchors: DNS, Resolver,
+                                                     Web/Panel, SSH, NTP, PMA,
+                                                     GW_PPP. Details: BASE-005_030 §1.
+  ADMIN         10.77.2.0/24      fd77:0:0:2::/64
+  MODERATOR     10.77.3.0/24      fd77:0:0:3::/64
+  VIP           10.77.4.0/22      fd77:0:0:4::/62
+  USER          10.77.16.0/20     fd77:0:0:10::/60
+
+  Ein Admin mit einem XP-Gerät (L2TP_IPSEC) und einem modernen Gerät
+  (WIREGUARD) bekommt beide IPs aus dem ADMIN-Pool. tunnel_type bestimmt
+  nur den technischen Pfad, nicht die Rechte.
+
+4.4) Rollenwechsel (Promotion/Demotion)
+
+  Bei Änderung der access_role (Rollenwechsel in-place, D002):
+  1. access_role + ip_slot werden auf bestehender Connection geändert
+  2. Hard-Cut (Session-Kill)
+  3. Lifecycle-Log: ROLE_CHANGE (alte+neue Rolle, alte+neue IP)
+  4. Alles in einer atomaren Transaktion (Fail-Closed)
+
+  L2TP_IPSEC: Credentials bleiben gleich (Login + Passwort),
+  neue IP automatisch beim Reconnect. Kein Benutzer-Eingriff nötig.
+
+  WIREGUARD: wg_public_key bleibt gleich, neue IP → neue Config.
+  Aktualisierte Config per E-Mail an verifizierte Kunden-E-Mail.
+
+  Begründung E-Mail statt Panel (WIREGUARD): Nach Hard-Cut hat der Kunde
+  keinen VPN-Zugang und damit keinen Panel-Zugriff.
+  E-Mail ist der einzige Kanal. email_verified_at Pflicht aus Onboarding
+  garantiert eine funktionierende Adresse.
+
+================================================================================
+5) VORGÄNGER-REFERENZ
+================================================================================
+
+Das vollständige Vorgänger-Konzept (xp-vpn-stack) liegt unter:
+  ../xp-vpn-stack/
+
+Folgende Entscheidungen und Architekturen werden übernommen (sofern nicht
+in diesem Konzept explizit geändert):
+
+  Übernommen (unverändert):
+  - SQL-first AAA (FreeRADIUS + MariaDB, kein chap-secrets)
+  - SimUse=1 pro Connection
+  - Drei-Säulen-Modell (Truth / Guard / Repair) bleibt erhalten
+  - Connect-Gate (D1a, No-Unpoliced-Window)
+  - DNS-Zwang (DNAT53, keine Ausnahmen)
+  - Settings-System (settings_catalog + global/customer/connection)
+  - Reason-Code-System (Prioritätenkette, Domains, Outcomes)
+  - Onboarding (Verify-Wall, Claim-Token, UNCLAIMED Grace/Overdue)
+  - Webstack (OpenResty + PHP-FPM + MariaDB, SERVICE_WEB 10.77.0.3)
+  - MITM Blockpage (interne CA + On-the-fly Certs)
+  - Peer-Isolation (kein Client-zu-Client Traffic)
+  - WAN Minimal Exposure
+  - Deterministic Enforcement (FLUSH+REBUILD, Hard-Cut)
+  - Logging/Monitoring/Retention (SQL-first + lokale Safety Ceilings)
+  - Fail2ban Event-Klassifikation + NAT-Safety
+
+  Geändert:
+  - Session-Truth: radacct → vpn_sessions als gemeinsame Session-Truth
+    für L2TP_IPSEC + WIREGUARD. radacct bleibt nur Legacy-Accounting/Forensik.
+  - WIREGUARD Tunnel: IKEv2 (strongSwan) → AmneziaWireGuard
+  - conn_group: 1 Feld (3 Werte) → 2 Felder (tunnel_type + access_role)
+  - Rollen: 3 (LEGACY/MODERN/ADMIN) → 4 (USER/VIP/MODERATOR/ADMIN)
+  - IP-Pools: 3 → 5 (SERVICE + 4 Rollen)
+  - DoT/DoQ Blocking: Out-of-scope (alt) → In-scope (Port 853 DROP)
+  - Session-Mapping WIREGUARD: VICI-Listener (IKEv2) → WG-Hook (WireGuard)
+  - QoS WIREGUARD: OFFEN/unlösbar (IKEv2) → lösbar (awg0-Interface + tc)
+  - WG-Feldnamen: Prefix wg_ (nicht awg_). WireGuard ist die Konstante.
+  - WG-Server-Config: Komplett in SQL (Option A). Kein Hidden Config File.
+
+  Nicht übernommen / Entfallen:
+  - strongSwan IKEv2 Konfiguration (B059, B100 IKEv2-Teile)
+  - VICI-Listener (B167 Abschnitt 3a)
+  - Server-Zertifikat / Let's Encrypt für IKEv2 Gate-0
+  - EAP-MSCHAPv2 als IKEv2 Gate-1 (entfällt für WIREGUARD;
+    L2TP_IPSEC-Auth weiterhin über L2TP/FreeRADIUS, nicht als IKEv2-Gate)
+  - WAN-Exposure UDP 500/4500 + ESP (waren IKEv2; entfallen, da WIREGUARD
+    eigenen UDP-Port nutzt)
+
+================================================================================
+6) ORDNERSTRUKTUR (SCHICHTENMODELL)
+================================================================================
+
+RetroTunnel/
+  00_MANIFEST.txt              ← Dieses Dokument
+  01_GLOSSARY.txt              Begriffe (kanonisch)
+  02_ASSUMPTIONS_AND_RULES.txt Bindende Regeln
+  03_CHANGELOG.txt             Versionshistorie
+  CLAUDE_BRIEFING.txt          Handoff/Arbeitsanweisungen für Claude
+  REVIEW_STANDARD.txt          Claudes Review- und Arbeitsstandard
+  REVIEW_TRACKER.txt           Datei-Inventar, Review-Status, Sweep-Plan
+  NAVIGATIONSKARTE_ALTES_KONZEPT.txt  Themen-Index altes Konzept
+  PRIORITAETENLISTE.txt        Arbeitspakete in 5 Modellphasen (M0-M4)
+  README.md                    Projektbeschreibung (GitHub-ready)
+  LICENSE                      MIT Lizenz
+
+  model/                       DAS DENKMODELL (Was + Warum)
+    DOMAIN_MODEL.txt            Entitäten, Beziehungen
+    TRUTH_MODEL.txt             Was ist SoT für was
+    NETWORK_MODEL.txt           Pools, Segmente, Service-Anchors
+    state_machines/             Zustandsmaschinen
+      SM_CONNECTION.txt
+      SM_ONBOARDING.txt
+      SM_SESSION.txt
+      SM_POLICY_RESTRICT.txt
+
+  base/                        KERN-MODULE (Minimum Viable System)
+    BASE-000_SQL_FIRST/         SQL-first Governance, Naming, Registry
+    BASE-005_PLATFORM_CORE/     OS-Baseline, Endpoints, Lifecycle, Secrets
+    BASE-010_IDENTITY_CORE/     Customers, Connections, Rollen, Schema
+    BASE-020_AAA_CORE/          FreeRADIUS + SQL-first
+    BASE-030_TUNNEL_L2TP_IPSEC/ L2TP/IPsec (accel-ppp) für XP
+    BASE-040_TUNNEL_WIREGUARD/  AmneziaWireGuard
+    BASE-050_FIREWALL_CORE/     nftables, NAT, Peer-Isolation, DNS-Zwang
+    BASE-060_DNS_CORE/          Unbound + AdGuard + DNAT53
+    BASE-070_SESSION_CORE/      Mapping, Locks, Janitor
+    BASE-080_POLICY_APPLY_CORE/ Apply/Reconcile/Hard-Cut
+    BASE-090_SETTINGS_CORE/     SQL-first Settings-System
+    BASE-100_POLICY_CORE/       Policy-System (Kundenrechte, Limits, D003)
+    BASE-110_WEBSTACK_CORE/     OpenResty + PHP-FPM + DB
+
+  modules/                     ERWEITERUNGEN (Features)
+    MOD-001_ONBOARDING/         Verify-Wall, Claim, Grace
+    MOD-002_RESTRICTED_MODE/    Walled Garden, Hard-Cut
+    MOD-003_QOS/                tc/CAKE, Speed-Limiting
+    MOD-004_BLOCKPAGE_CA/       MITM, interne CA
+    MOD-005_FAIL2BAN/           Event-Klassifikation, Jails
+    MOD-006_PANEL_FEATURES/     User/Admin Views
+    MOD-007_LOGGING_MONITORING/ Retention, Alerts, Heavy-User
+    MOD-008_BACKUP_DR/          Backup/Restore/DR
+    MOD-009_PEAK_MODE/          CPU-Overload Schutz
+    MOD-010_PLANS/              Tarife, Quota, Billing
+
+  decisions/                   Architecture Decision Records (ADR)
+  proofs/                      Tests, Acceptance, DoD
+    base/                       Proofs pro Base-Modul
+    modules/                    Proofs pro Erweiterungsmodul
+  implementation/              Build-Order, Phase-Plan, Configs
+  docs/                        Referenz-Dokumente
+  entwuerfe/                   Ideen, Diskussionen, Vorstudien (NICHT normativ)
+                               Pro Thema ein Unterordner.
+                               Kein Einfluss auf Konzept, Reviews oder Phase A+B.
+
+================================================================================
+7) REGELN FÜR DIESES KONZEPT
+================================================================================
+
+KR-01  Kanon vs Entwurf: Dateien in base/, modules/, model/, decisions/
+      sind kanonisch (normativ). Entwuerfe sind NICHT normativ.
+      Entwuerfe leben in entwuerfe/-Unterordnern innerhalb der
+      zugehoerigen Base- oder Modul-Ordner (z.B.
+      base/BASE-050_FIREWALL_CORE/entwuerfe/portfreigaben/).
+      Der Root-Ordner entwuerfe/ dient als Puffer fuer Themen die
+      noch keinem Base/Mod zugeordnet sind.
+      Entwuerfe haben keinen Einfluss auf das Konzept, werden bei
+      Reviews und Konsistenz-Checks (Phase A+B) NICHT beruecksichtigt
+      und duerfen von keiner kanonischen Datei als Quelle referenziert
+      werden. Verweise auf Entwuerfe muessen mit (KR-01) markiert sein.
+
+KR-02  Schichtentrennung: Base ist das Minimum Viable System. Modules sind
+      Features. Ein Modul darf Base referenzieren, aber Base darf nie
+      ein Modul voraussetzen.
+
+KR-03  Kein Mischblock: Jede Datei hat genau ein Thema. Wenn eine Datei
+      > 1500 Zeilen wächst oder > 3 Schichten mischt, wird sie aufgeteilt.
+
+KR-04  Vorgänger als Referenz: xp-vpn-stack liegt unter ../xp-vpn-stack/
+      und darf jederzeit konsultiert werden. Entscheidungen daraus werden
+      nicht automatisch übernommen — sie müssen in RetroTunnel explizit
+      bestätigt oder geändert werden.
+
+KR-05  Owner-Entscheide: Konzeptionelle Entscheidungen trifft Marco.
+      Claude liefert Analyse, Optionen und Empfehlungen, entscheidet
+      aber nicht eigenständig über Architektur.
+
+KR-06  Konsistenzfehler: Wenn im Material ein formaler Widerspruch,
+      Zählfehler, Label-Drift oder Tippfehler vorliegt, wird dieser
+      als Konsistenzfehler markiert. Stillschweigende Umdeutung ist
+      verboten.
+
+================================================================================
+8) SERVER-RAHMENDATEN
+================================================================================
+
+Standort:           Schweiz
+FQDN:               rt-gw-001.v6.rocks
+IPv4:               185.150.28.184
+IPv6:               2a07:6d80:1e01:145d::1
+OS:                 Debian 13 (Trixie)
+DB:                 MariaDB 11.8.6
+WAN-Interface:      ens18
+Bandbreite:         1 Gbit/s
+Monatliches Volume: 40 TB (danach Drosselung auf 100 Mbit/s)
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

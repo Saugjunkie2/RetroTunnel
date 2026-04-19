@@ -1,0 +1,73 @@
+================================================================================
+BASE-020 — ACCOUNTING ABGRENZUNG
+================================================================================
+DATEI: BASE-020_050_ACCOUNTING_ABGRENZUNG.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Klaert die Rolle von radacct vs vpn_sessions und definiert
+  was "Accounting" im neuen Konzept bedeutet.
+
+================================================================================
+1) ZWEI ACCOUNTING-SCHICHTEN (NEU GEGENUEBER ALTKONZEPT)
+================================================================================
+
+  Im Altkonzept war radacct die EINZIGE Session-Truth.
+  In RetroTunnel gibt es zwei Schichten:
+
+  SCHICHT 1: vpn_sessions (SESSION-TRUTH, kanonisch)
+    Quelle: L2TP_IPSEC (via RADIUS Acct-Start) + WIREGUARD (via
+            AWG Session Controller)
+    Zweck: "Ist eine Session aktiv?" — die EINZIGE Antwort.
+    Felder: vpn_connection_id, truth_source, session_token,
+            client_ipv4, client_ipv6, started_at, last_seen_at,
+            closed_at, close_reason, runtime_ref, source_event_at
+    Owner: BASE-070_SESSION_CORE
+
+  SCHICHT 2: radacct (FORENSIK / LEGACY-ACCOUNTING)
+    Quelle: Nur L2TP_IPSEC (FreeRADIUS Standard-Mechanismus)
+    Zweck: Forensik, Traffic-Volumina, Verbindungshistorie.
+    NICHT Session-Truth. NICHT SimUse-Quelle.
+    Bleibt als Standard-FreeRADIUS-Tabelle aktiv (automatisch
+    durch SQL-Accounting-Modul befuellt).
+    Owner: BASE-020_AAA_CORE (dieses Modul)
+
+================================================================================
+2) WIREGUARD HAT KEIN RADIUS-ACCOUNTING
+================================================================================
+
+  WIREGUARD-Verbindungen erzeugen KEINE radacct-Eintraege.
+  FreeRADIUS ist fuer WireGuard-Traffic nicht involviert.
+
+  Session-Tracking fuer WIREGUARD:
+  → AWG Session Controller schreibt in vpn_sessions
+  → Traffic-Accounting ueber Kernel-Counter (wg show transfer)
+  → Detail → BASE-040 / BASE-070
+
+================================================================================
+3) ABGRENZUNGSTABELLE
+================================================================================
+
+  Frage                        radacct              vpn_sessions
+  ──────────────────────────── ──────────────────── ────────────────
+  "Ist Session aktiv?"         NEIN (nicht Truth)   JA (SoT)
+  "SimUse=1 Check?"            NEIN                 JA
+  "Wann verbunden?"            JA (Forensik)        JA (SoT)
+  "Wie viel Traffic?"          JA (L2TP only)       NEIN
+  "Warum getrennt?"            JA (Terminate-Cause) JA (close_reason)
+  "Tunnel-Typ?"                Implizit (nur L2TP)  Explizit (Feld)
+  "WIREGUARD Sessions?"        NEIN (nie)           JA (SoT)
+  "Janitor-Referenz?"          NEIN                 JA
+
+================================================================================
+4) MIGRATION VOM ALTKONZEPT
+================================================================================
+
+  Altkonzept B050/D012: "Session aktiv := radacct.stop_time IS NULL"
+  RetroTunnel: "Session aktiv := vpn_sessions.closed_at IS NULL"
+
+  radacct bleibt AKTIV fuer L2TP_IPSEC (automatisch durch
+  FreeRADIUS SQL-Accounting). Aber kein Code darf radacct als
+  Session-Truth behandeln. Die Migration ist nicht "radacct
+  abschalten" sondern "radacct als Forensik behalten, vpn_sessions
+  als einzige Truth etablieren".

@@ -1,0 +1,155 @@
+================================================================================
+ENTWURF — PORTFREIGABEN (Eingehende Ports für Kunden)
+================================================================================
+STATUS: IDEE / DISKUSSION (kein Kanon, keine Entscheidung)
+DATUM: 2026-04-15
+QUELLE: Chat-Diskussion Marco + Claude
+SCOPE: Frühestens M3 (nach Base-Modulen)
+
+WICHTIG: Dieses Dokument hält eine Diskussion fest. Nichts hierin
+ist entschieden oder normativ. Es dient als Gedächtnis für spätere
+Ausarbeitung.
+
+================================================================================
+1) WAS IST DAS PROBLEM?
+================================================================================
+
+Full-Tunnel VPN leitet allen Traffic über den Server. Ausgehende
+Verbindungen (Surfen, Streaming, E-Mail abrufen) funktionieren
+problemlos. EINGEHENDE Verbindungen (jemand von außen will den
+Client auf einem bestimmten Port erreichen) funktionieren NICHT,
+weil der Client hinter NAT liegt.
+
+Typischer Anwendungsfall: Torrent. Der Torrent-Client braucht
+einen offenen eingehenden Port für Peer-Discovery und Seeding.
+Ohne den Port funktioniert Torrent als Leecher, aber Seeding
+und volle Peer-Konnektivität leiden.
+
+Marcos Erfahrung: Auf seinem eigenen WireGuard-Server hat er
+genau EINEN Port für Torrent freigeschaltet. Alles andere
+funktioniert über Full-Tunnel ohne Portfreigabe. Seitdem null
+Probleme. Exposed-Host in der Fritzbox war die bisherige
+Alternative (bequem, aber grob).
+
+================================================================================
+2) GRUNDIDEE
+================================================================================
+
+Kunden können im Webpanel einen eingehenden Port für eine ihrer
+VPN-IPs freischalten. Das System prüft ob der Port erlaubt und
+verfügbar ist, trägt ihn in die DB ein und setzt eine nftables
+DNAT-Regel (WAN-IP:Port → Client-VPN-IP:Port).
+
+================================================================================
+3) DISKUTIERTE PUNKTE (Stand 2026-04-15)
+================================================================================
+
+3.1) SICHERHEITSMODELL: DENY-ALL + ALLOWLIST
+
+  Grundhaltung: Alle Ports sind gesperrt. Nur Ports die in einer
+  Allowlist stehen, dürfen überhaupt freigegeben werden.
+  Konsistent mit DP-04 (Fail-Closed) und dem gesamten nftables-Modell.
+
+  Standard-/Infrastruktur-Ports sind kategorisch gesperrt:
+    SMTP (25, 587, 465), IMAP/POP (993, 995, 143, 110),
+    SSH (22), DNS (53), HTTP/S (80, 443), SMB/NetBIOS (135-139, 445),
+    VoIP/SIP (5060, 5061), und alles andere was einem bekannten
+    Internet-Dienst zugeordnet ist.
+
+  Für die Allowlist: IANA pflegt eine öffentliche Zuordnung aller
+  Ports. Alles was NICHT zugeordnet ist, ist grundsätzlich frei.
+  Daraus einen sauberen Range wählen (z.B. ab 50000), fertig.
+  Kein Governance-Monster nötig.
+
+3.2) PORT-RECYCLING: SOFORT, KEINE QUARANTÄNE
+
+  Kernargument (Marco): Wenn etwas passiert, ist die IP forensisch
+  relevant, nicht der Port. "Welcher Account hatte IP x.x.x.x?" ist
+  die Frage — nicht "Wer hatte Port 51413?". Die IP steht im
+  Session-Log mit Zeitstempel.
+
+  Deshalb: Port freigegeben → sofort wieder vergebbar.
+  Kein Quarantäne-Timer, kein Recycling-System, kein Lifecycle.
+  Fundamental einfacher als IP-Slots.
+
+3.3) KONTINGENT: POLICY-PARAMETER (NICHT HARDCODED)
+
+  Wie viele Portfreigaben ein Kunde bekommt, ist ein Policy-Parameter
+  (gleiche Mechanik wie max_active_connections in D003):
+    max_port_forwards in role_policy_defaults
+    Individualisierbar per customer_policy_overrides
+    Für USER über Plan steuerbar
+
+  Ports sind knapp ("wie Gold") — anders als IPs kann man die Range
+  nicht beliebig vergrößern. 65535 total, davon der Großteil reserviert.
+  Deswegen sparsam vergeben.
+
+  ABER: Bei realistischer Betrachtung — Allowlist z.B. 50000-51500
+  = 1500 Ports. Bei 3000 Usern mit je 1 Port = 50% Auslastung.
+  Bei "die meisten Kunden brauchen keinen Port" eher 5-10%.
+  Knappheit ist real aber kein Showstopper.
+
+3.4) ENFORCEMENT: NFTABLES SET (IP+PORT)
+
+  nftables Sets vom Typ ipv4_addr . inet_service (IP+Port Kombination).
+  DNAT über einen einzigen Set-Match. Ob 3 oder 3000 Einträge
+  ist dem Kernel egal (O(1) Lookup, wie restricted_v4/v6).
+  Skalierungsargument ist vom Tisch.
+
+3.5) PANEL-FLOW (Marcos Vorstellung)
+
+  1. Kunde öffnet Panel
+  2. Wählt eine seiner Connections per Dropdown (sieht die IP)
+  3. Gibt gewünschten Port ein
+  4. Live-Validierung WÄHREND der Eingabe:
+     - Schon bei der ersten Ziffer zeigt das System "gesperrt" oder "möglich"
+     - Je mehr Ziffern → konkreter
+     - Bei "nicht pass": System schlägt ähnliche freie Ports vor
+       (letzte Ziffer variieren, dann vorletzte, usw. bis ein
+       freier gefunden wird)
+  5. Bei "pass": Eintrag in DB + nftables Set
+  6. Deaktivierung: Eintrag raus → Port sofort wieder frei
+
+  Alternativ/zusätzlich: Dropdown mit Zweckauswahl (z.B. "Torrent")
+  das den passenden Port-Bereich vorschlägt. Für Kunden die nicht
+  wissen welchen Port sie brauchen.
+
+3.6) ZUORDNUNG: PRO CONNECTION (IP), NICHT PRO ACCOUNT
+
+  Ein DNAT-Eintrag braucht eine Ziel-IP. Der Kunde wählt im Panel
+  welche seiner Connections (= welche IP) den Port bekommt.
+  Das heißt: Die Portfreigabe hängt an der Connection, nicht am
+  Customer direkt. Das Kontingent (max_port_forwards) zählt aber
+  pro Customer/Account.
+
+================================================================================
+4) OFFENE FRAGEN (nicht besprochen / nicht entschieden)
+================================================================================
+
+  - Exakter Port-Range für die Allowlist (ab 50000? ab 49152?)
+  - Darf der Kunde den Ziel-Port auf der Client-Seite frei wählen
+    oder muss WAN-Port = Client-Port gelten?
+  - Was passiert mit der Portfreigabe wenn die Connection DISABLED
+    wird? Automatisch entfernt? Oder bleibt sie inaktiv gespeichert
+    und wird bei Re-Enable reaktiviert?
+  - Was passiert bei Rollenwechsel (D002)? IP ändert sich → DNAT
+    muss mit neuer IP aktualisiert werden.
+  - IPv6-Portfreigaben? Oder nur IPv4 (WAN hat nur eine IPv4)?
+  - Panel-Berechtigungsfrage: Welche Rollen dürfen Ports freischalten?
+    Teil des Plans, VIP-Feature, oder alle?
+  - Modul-Zuordnung: Eigenes MOD-11_PORT_FORWARD oder Teil von
+    MOD-06_PANEL_FEATURES? Hängt davon ab wie komplex es wird.
+
+================================================================================
+5) KONTEXT: WARUM PORTS "WIE GOLD" SIND
+================================================================================
+
+  Marcos Kernargument: Bei IPs kann man die Range vergrößern
+  (statt 4000 einfach 400000 — ändert sich nur die Subnetz-Größe).
+  Bei Ports geht das nicht. 65535 ist das Maximum, davon ist der
+  Großteil belegt oder gefährlich. Die verfügbaren Ports sind eine
+  echte physische Grenze, kein weiches Limit.
+
+  Deswegen: Sparsam vergeben, als Policy-Parameter behandeln,
+  keine "unlimited" Mentalität.
+================================================================================

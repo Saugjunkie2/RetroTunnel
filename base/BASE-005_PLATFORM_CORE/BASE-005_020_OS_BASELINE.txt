@@ -1,0 +1,87 @@
+================================================================================
+BASE-005 — OS BASELINE
+================================================================================
+DATEI: BASE-005_020_OS_BASELINE.txt
+STATUS: ACTIVE (aus Altkanon + 02_ASSUMPTIONS migriert)
+
+ZWECK:
+  Festschreiben der OS-/Kernel-/systemd-Voraussetzungen auf denen
+  das gesamte System aufbaut. Aenderung dieser Baseline ist eine
+  Architektur-Entscheidung (Decision-Datei), keine stille Migration.
+
+================================================================================
+1) OS DISTRIBUTION UND VERSION
+================================================================================
+
+  Ziel-Distribution: Debian 13 (Trixie)
+  Quelle: 02_ASSUMPTIONS_AND_RULES A-01
+  Aenderung: Erfordert eigene Decision-Datei.
+
+================================================================================
+2) KERNEL-REQUIREMENTS
+================================================================================
+
+  PFLICHT-FEATURES (Kernel-Module/Config):
+    - CONFIG_NF_TABLES — nftables (BASE-050)
+    - amneziawg — AmneziaWG Kernel-Modul (BASE-040)
+      EIGENES Kernel-Modul, NICHT das Standard-WireGuard-Modul.
+      Installiert via DKMS aus Amnezia PPA. Benoetigt
+      linux-headers-$(uname -r). Pakete: amneziawg (Kernel)
+      + amneziawg-tools (awg, awg-quick). Debian 13 unterstuetzt.
+    - IPv6 Support — aktiv (WIREGUARD Dualstack, SERVICE_NET)
+    - tc/HTB/CAKE — Traffic Control fuer QoS (MOD-003)
+
+  KERNEL-VERSION: Bestimmt durch Debian 13 (Linux 6.x).
+
+  OFFLOAD-TUNING (B190, D005):
+    Auf dem WAN-Interface (ens18) werden TSO/GSO/GRO deaktiviert.
+    Begruendung: VM-Stabilitaet (bekanntes Problem bei virtualisierten
+    NICs). Konfiguration via ethtool oder systemd-networkd Drop-In.
+      ethtool -K ens18 tso off gso off gro off
+
+================================================================================
+3) SYSTEMD-BASELINE
+================================================================================
+
+  Mindestversion: Bestimmt durch Debian 13 (systemd 254+).
+
+  GENUTZTE FEATURES:
+    - After=, Requires=, Wants= (Dependency-Management, B167 §7.3)
+    - Type=oneshot fuer Boot-Helper (lo-service-ips, boot-reconcile)
+    - Type=simple fuer Daemons
+    - Restart=on-failure / Restart=always (B180)
+    - StartLimitBurst + StartLimitIntervalSec (Restart-Loop-Schutz)
+    - systemd-Timer statt Cron (alle periodischen Jobs, B167 §6-§7.1)
+    - flock-basiertes Locking unter /run/ (Single-Writer, B167 §8)
+
+  OVERRIDE-REGEL (B180):
+    Anpassungen an Unit-Files via systemctl edit (Override in
+    /etc/systemd/system/), NICHT via direkte Aenderung in /lib/.
+
+================================================================================
+4) NETZWERK-BASELINE
+================================================================================
+
+  WAN-Interface: ens18 (02_ASSUMPTIONS_AND_RULES A-03)
+  Bandbreite:    1 Gbit/s, 40 TB/Monat (A-02)
+                 Danach Drosselung auf 100 Mbit/s.
+
+  INTERFACES:
+    ens18    — WAN (physisch/virtuell, einziger Uplink)
+    lo       — Service-IPs im 10.77.0.x/28 Netz (BASE-005_030)
+    awg0     — AmneziaWireGuard Tunnel-Interface (BASE-040)
+    ppp*     — L2TP_IPSEC dynamische Interfaces (BASE-030)
+
+  IPv6-POLICY:
+    - L2TP_IPSEC: kein IPv6 (02_ASSUMPTIONS NA-05)
+    - WIREGUARD: IPv6 Pflicht (fixed_ipv6 per ip_slot, Dualstack)
+    - SERVICE_NET: IPv6 vorhanden (fd77:0:0:0::/64)
+
+  BOOTSTRAP-DNS:
+    /etc/resolv.conf zeigt auf einen externen Resolver als Fallback
+    bis Unbound bereit ist (Debian-Standard, bestaetigt durch Marco).
+    Nach Unbound-Start uebernimmt AdGuardHome via SERVICE_DNS (.1).
+
+================================================================================
+KEINE OFFENEN INPUT-FRAGEN — alle Punkte geklaert.
+================================================================================

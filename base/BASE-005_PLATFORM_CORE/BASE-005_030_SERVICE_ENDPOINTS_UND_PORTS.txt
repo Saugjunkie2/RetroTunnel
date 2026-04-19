@@ -1,0 +1,134 @@
+================================================================================
+BASE-005 — SERVICE ENDPOINTS UND PORTS
+================================================================================
+DATEI: BASE-005_030_SERVICE_ENDPOINTS_UND_PORTS.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Zentrale Registry wer woran bindet. Vermeidet Bind-Konflikte,
+  Service-IP-Drift, Port-Kollisionen. Beim Boot muessen die Service-
+  IPs auf lo vorhanden sein BEVOR Dienste binden (lo-service-ips
+  Service — das ausloesende Beispiel fuer BASE-005).
+
+HINWEIS:
+  NETWORK_MODEL (model/) hat IP-Pools und Service-Anchors definiert.
+  Der SoT-Teil davon (Service-Anchors, Bind-IPs) wandert in diese
+  Datei. IP-Pools fuer Connections bleiben in BASE-010.
+
+================================================================================
+1) SERVICE-IPS (lo-basiert, SoT aus NETWORK_MODEL §4.1)
+================================================================================
+
+  Alle Service-IPs leben auf lo, bereitgestellt durch
+  lo-service-ips.service (WantedBy=sysinit.target, vor allen Diensten).
+
+  IP v4       IP v6              Label   Dienst
+  ─────────── ────────────────── ─────── ────────────────────────────────
+  10.77.0.1   fd77:0:0:0::1     lo:dns  SERVICE_DNS — AdGuardHome
+                                         DNS Port 53 UDP+TCP (alle Clients)
+                                         UI Port 2000 TCP (ADMIN-only)
+  10.77.0.2   fd77:0:0:0::2     lo:res  SERVICE_RESOLVER — Unbound
+                                         Port 5353 UDP+TCP (server-intern,
+                                         AdGuard-Upstream, NICHT fuer Clients).
+                                         Unbound bindet auf .2 (NICHT localhost),
+                                         damit Logs die Service-IP zeigen und
+                                         sofort klar ist welcher Dienst beteiligt
+                                         ist. Wartbarkeit bei vielen Diensten.
+  10.77.0.3   fd77:0:0:0::3     lo:web  SERVICE_WEB — OpenResty
+                                         Port 80+443 TCP (alle Clients)
+                                         Panel + Portal + Blockpage + /diag
+  10.77.0.4   fd77:0:0:0::4     lo:ntp  SERVICE_NTP
+                                         Port 123 UDP (alle Clients,
+                                         auch im Restricted Mode)
+  10.77.0.5   fd77:0:0:0::5     lo:ssh  SERVICE_SSH
+                                         Port 27812 TCP (ADMIN-only, NICHT WAN,
+                                         Custom-Port statt Standard-22)
+  10.77.0.6   fd77:0:0:0::6     lo:pma  SERVICE_PMA — phpMyAdmin via OpenResty
+                                         Port 80 TCP (ADMIN-only, kein TLS,
+                                         eigene IP fuer Kernel-Level ACL).
+                                         Auth: Quell-IP-Pruefung im Ordner-
+                                         Config. OK → PMA. Fail → 403
+                                         Forbidden (lokal, kein Redirect).
+  10.77.0.7   —                  —       FREI (reserviert)
+                                         War SERVICE_RADIUS, entfernt.
+                                         FreeRADIUS laeuft auf localhost.
+  10.77.0.10  fd77:0:0:0::10    lo:gw   SERVICE_GW_PPP
+                                         PPP Gateway-Anchor (kein Port/Dienst)
+
+  ANCHOR-TYPEN (Klarstellung):
+  Nicht alle Service-Anchors sind Bind-Adressen. Zwei Typen:
+    BIND-ANCHOR: Dienst bindet tatsaechlich auf diese IP.
+      .1 (AdGuardHome), .2 (Unbound), .3 (OpenResty), .4 (NTP),
+      .5 (SSH), .6 (PMA)
+    NON-BIND-ANCHOR: IP existiert auf lo, aber kein Dienst bindet hier.
+      .10 (PPP Gateway → kein Dienst-Port, reiner Netz-Anchor)
+
+  WARTBARKEITS-PRINZIP: Jeder Dienst bindet auf seine eigene
+  Service-IP (nicht auf localhost), damit Logs sofort zeigen
+  welcher Dienst beteiligt ist. Bei localhost waeren tausend
+  Eintraege nicht unterscheidbar.
+
+  NICHT ALS SERVICE-ANCHOR:
+  - MariaDB: Bind auf localhost (127.0.0.1:3306) + Unix-Socket
+    (/run/mysqld/mysqld.sock). Debian-Default. Kein Service-Anchor
+    im 10.77.0.x Netz (kein Netzwerk-Zugriff noetig, alle Clients
+    sind lokal: FreeRADIUS, PHP-FPM, VPN-Tooling).
+  - FreeRADIUS: Bind auf localhost (127.0.0.1:1812/1813).
+    Kein Service-Anchor im 10.77.0.x Netz.
+
+================================================================================
+2) PORT-REGISTRY
+================================================================================
+
+  Dienst             Port(s)     Protokoll   Bind-IP            Oeffentlich?
+  ------------------ ----------- ----------- ------------------ ------------
+  AdGuardHome DNS    53          UDP/TCP     SERVICE_DNS (.1)   Nein (VPN-only)
+  AdGuardHome UI     2000        TCP         SERVICE_DNS (.1)   Nein (ADMIN-only)
+  Unbound            5353        UDP/TCP     SERVICE_RESOLVER(.2) Nein (server-intern)
+  OpenResty          80, 443     TCP         SERVICE_WEB (.3)   Nein (VPN-only)
+  NTP                123         UDP         SERVICE_NTP (.4)   Nein (VPN-only)
+  SSH                27812       TCP         SERVICE_SSH (.5)   Nein (ADMIN-only)
+  phpMyAdmin         80          TCP         SERVICE_PMA (.6)   Nein (ADMIN-only)
+  FreeRADIUS         1812, 1813  UDP         localhost           Nein
+  MariaDB            3306        TCP         localhost/socket    Nein
+  strongSwan         500, 4500   UDP         WAN (ens18)        Ja (L2TP_IPSEC)
+  accel-ppp (L2TP)   1701        UDP         via XFRM/IPsec     Nein (nur via IPsec)
+  AmneziaWG          TODO        UDP         WAN (ens18)        Ja (WIREGUARD)
+
+  OFFEN:
+  - AmneziaWG WAN-Port: OPEN-NET-01, wird in BASE-040 entschieden
+
+  HINWEISE:
+  - Unbound laeuft auf Port 5353 an SERVICE_RESOLVER (.2),
+    NICHT auf Port 53. Port 53 gehoert AdGuardHome (.1).
+    AdGuard nutzt Unbound als Upstream via .2:5353.
+  - SSH auf Custom-Port 27812 (nicht Standard-22).
+  - phpMyAdmin laeuft ueber Port 80 (kein TLS, keine selbst-
+    signierten Zertifikate). Auth: Quell-IP-Pruefung im
+    Ordner-Config (IP OK → PMA, IP Fail → 403 Forbidden).
+    Zusaetzlich Kernel-Level ACL: nftables erlaubt Zugriff
+    auf SERVICE_PMA (.6) NUR aus ADMIN-Pool.
+
+================================================================================
+3) INTERFACE-REGISTRY
+================================================================================
+
+  WAN-Interface: ens18 (02_ASSUMPTIONS_AND_RULES A-03)
+  awg0       — WireGuard Tunnel Interface (BASE-040)
+  ppp*       — L2TP_IPSEC dynamisch (BASE-030)
+  lo         — Service-IPs (siehe §1)
+
+================================================================================
+4) BIND-KONFLIKTE VERMEIDEN
+================================================================================
+
+  INVARIANTE: Zwei Dienste duerfen NICHT auf die gleiche
+  IP+Port-Kombination binden. Diese Registry ist die einzige
+  Quelle. Jede Fach-Base referenziert hier, definiert nicht neu.
+
+================================================================================
+OFFENE PUNKTE (bewusst deferred, kein Closure-Blocker):
+  [1] AmneziaWG WAN-Port: OPEN-NET-01, wird in BASE-040 entschieden.
+      Bis dahin steht "TODO" in der Port-Registry. Das blockiert
+      BASE-005 nicht — der Port ist ein Fach-Detail von BASE-040.
+================================================================================

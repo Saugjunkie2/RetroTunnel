@@ -1,0 +1,139 @@
+================================================================================
+BASE-010 — WRITE PATH MATRIX
+================================================================================
+DATEI: BASE-010_080_WRITE_PATH_MATRIX.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Kanonischer Write-Contract: Wer DARF welche Felder/Tabellen schreiben.
+  Aktualisiert B345 fuer Auth-Split und neue Tabellennamen.
+
+VORGAENGER: B345_WRITE_PATH_MATRIX_CONTRACT.txt
+
+AKTEURE:
+  SYSTEM: Server-Komponenten (Provisioner, Reconcile, Janitor, AAA)
+  ADMIN:  Panel-Admin (privilegiert, auditpflichtig)
+  USER:   Endnutzer im Panel (kein Direct-Write, nur Trigger → SYSTEM)
+
+GRUNDSAETZE (MUST):
+  G1) Kein Direct-Write durch USER auf Core-Tabellen.
+  G2) Atomare Writes bei Provisioning (eine Transaktion).
+  G3) Policy-Zeiten aus Settings-Keys (keine Magic Numbers).
+
+================================================================================
+1) web_customers
+================================================================================
+
+  Feld                  SYSTEM  ADMIN   USER     Bedingungen
+  ───────────────────── ─────── ─────── ──────── ──────────────────────
+  email                 W       W!      (REQ)    Create-only, immutable
+  password_hash         W       W!      (REQ)    Create + Reset-Flow
+  display_name          W       W!      (REQ)    Sanitized, escaped
+  access_role           W       W!      R        Nur Promotion/Demotion
+  plan_id               W       W!      R        Plan-Zuweisung
+  status                W       W!      R        SYSTEM: Verify-Transition
+  email_verified_at     W       R       (REQ)    SYSTEM setzt bei Verify
+  suspended_at          W       W!      R        ADMIN setzt bei Suspend
+  deleted_at            W       W!      R        ADMIN setzt bei Delete
+  created_at            W       R       R        Insert-only
+
+  ! = auditpflichtig. (REQ) = USER triggert, SYSTEM fuehrt aus.
+
+================================================================================
+2) vpn_connections
+================================================================================
+
+  Feld                          SYSTEM  ADMIN   USER  Bedingungen
+  ───────────────────────────── ─────── ─────── ───── ─────────────────────
+  connection_ref                W       R       R     Generiert, immutable
+  display_name                  W       W!      (REQ) Sanitized
+  tunnel_type                   W       R       R     Insert-only, immutable
+  access_role                   W       W!      R     Rollenwechsel (T-09)
+  v6_addr_policy                W       R       R     Determiniert aus tunnel_type
+  ip_slot                       W       R       R     Allocator, nur SYSTEM
+  fixed_ip / fixed_ipv6         W       R       R     Materialisiert, immutable
+  op_status                     W       R       R     Nur SYSTEM (Apply/Reconcile)
+  op_reason_code                W       R       R     Nur SYSTEM
+  customer_id                   W       R       (REQ) Claim (einmalig, monotonic)
+  claim_token_hash              W       W!      R     Provisioning/Rotate
+  claimed_at                    W       R       (REQ) Claim-Zeitpunkt
+  unclaimed_grace_until         W       W!      R     Grace-Reset (ADMIN)
+  claim_deadline                W       R       R     Immutable (Hard-Stop)
+  expiry_date                   W       W!      R     Policy/Plan-Engine
+  restricted_at                 W       R       R     Nur SYSTEM
+  restrict_finalize_at          W       R       R     Nur SYSTEM (materialisiert)
+  disabled_at                   W       (REQ)   R     ADMIN triggert Disable → SYSTEM setzt
+  restore_until                 W       R       R     Nur SYSTEM (materialisiert)
+  revoked_at                    W       (REQ)   R     ADMIN triggert Revoke → SYSTEM setzt
+  quarantine_until              W       R       R     Nur SYSTEM (eingefroren)
+  customer_paused_at            W       R       (REQ) USER triggert, SYSTEM setzt
+  admin_manual_restricted_at    W       W!      R     ADMIN setzt, auditpflichtig
+
+================================================================================
+3) vpn_connection_l2tp_ipsec_auth
+================================================================================
+
+  Feld                  SYSTEM  ADMIN   USER     Bedingungen
+  ───────────────────── ─────── ─────── ──────── ──────────────────────
+  subaccount_login      W       R       R        Generiert, immutable
+  subaccount_nt_hash    W       W!      (REQ)    Provisioning/Rotate (User triggert)
+  rotated_at            W       R       R        SYSTEM setzt bei Rotation
+
+  Erstellt ATOMAR mit vpn_connections (eine Transaktion).
+  RADIUS-User (radius_user) hat SELECT-Recht auf diese Tabelle.
+
+================================================================================
+4) wg_connection_auth
+================================================================================
+
+  Feld                  SYSTEM  ADMIN   USER     Bedingungen
+  ───────────────────── ─────── ─────── ──────── ──────────────────────
+  wg_public_key         W       R       (REQ)    Generiert, User triggert Rotation
+  wg_preshared_key      W       W!      (REQ)    Provisioning/Rotate (User triggert)
+  wg_connection_name    W       R       R        Deterministisch, immutable
+  rotated_at            W       R       R        SYSTEM setzt bei Rotation
+
+  Erstellt ATOMAR mit vpn_connections (eine Transaktion).
+  RADIUS-User hat KEINEN Zugriff auf diese Tabelle.
+
+================================================================================
+5) vpn_session_locks (Mutex / Guard)
+================================================================================
+
+  Alle Felder: nur SYSTEM. Kein ADMIN/USER Write.
+  Debugging/Diag ist read-only.
+  HINWEIS: "SYSTEM" umfasst hier system-nahe Prozesse. Der RADIUS-
+  Prozess (radius DB-User) fuehrt Guard-Acquire (INSERT) als Runner
+  fuer BASE-070 aus — das ist eine SYSTEM-Aktion, keine ADMIN/USER-
+  Aktion. Fachlicher Owner bleibt BASE-070_SESSION_CORE.
+
+================================================================================
+6) vpn_reason_registry
+================================================================================
+
+  Alle Felder: nur SYSTEM (DB-Seed). ADMIN darf description aendern.
+  Reason-Codes sind statisch (Code-Deploy), nicht Runtime-editierbar.
+
+================================================================================
+7) log_connection_lifecycle
+================================================================================
+
+  INSERT-only durch SYSTEM. Kein UPDATE, kein DELETE.
+  Panel/Admin liest read-only.
+
+================================================================================
+8) RANDFAELLE UND ATOMIZITAET (MUST)
+================================================================================
+
+  R1) Doppel-Claim: Idempotent. SYSTEM prueft atomar
+      (Transaction + SELECT ... FOR UPDATE).
+  R2) Verify-Idempotenz: Mehrfaches Verify = kein Schaden.
+  R3) Rollenwechsel (T-09): In-place Mutation (access_role + ip_slot
+      auf derselben Connection). Aktive Sessions beenden (Hard-Cut).
+      Alte Connection wird NICHT geloescht — sie bekommt neuen Slot.
+  R3b) Tunnel-Typ-Wechsel: tunnel_type ist immutable (VC-08).
+      "Wechsel" = alte Connection loeschen + neue erstellen.
+      Alte revoked/disabled gemaess Policy.
+  R4) DB_DOWN: Fail-closed. Kein "halbes" Provisioning.
+      Keine "best effort" Writes in Core.
+================================================================================

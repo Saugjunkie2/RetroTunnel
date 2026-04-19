@@ -1,0 +1,106 @@
+================================================================================
+BASE-020 — SCOPE UND BEGRIFFE
+================================================================================
+DATEI: BASE-020_010_SCOPE_UND_BEGRIFFE.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Definiert was AAA in RetroTunnel bedeutet, welche Begriffe gelten,
+  und wo die Grenzen dieses Moduls liegen.
+
+================================================================================
+1) WAS AAA IN RETROTUNNEL BEDEUTET
+================================================================================
+
+  RetroTunnel hat zwei fundamental verschiedene Zugangswege:
+
+  L2TP_IPSEC: Synchroner Login-Flow. Client sendet Username+Passwort,
+  FreeRADIUS entscheidet in Echtzeit (ACCEPT/REJECT). RADIUS ist
+  die klassische AAA-Implementierung.
+
+  WIREGUARD: Kein Login-Flow. Client praesentiert PublicKey,
+  kryptographischer Handshake erfolgt automatisch. Die "Autorisierung"
+  ist die Praesenz des Peers in der Server-Config. Kein RADIUS,
+  kein Username/Passwort, keine Echtzeit-Entscheidung pro Handshake.
+
+  AAA_CORE bedeutet daher NICHT "RADIUS fuer beide Tunnel-Typen".
+  Es bedeutet: Gemeinsamer Vertrag, der definiert WANN ein Client
+  Zugang erhaelt und WANN nicht — unabhaengig vom technischen
+  Mechanismus.
+
+================================================================================
+2) BEGRIFFE (Admission-spezifisch, ergaenzt Glossar)
+================================================================================
+
+  ADMISSION: Systemische Zugangsentscheidung. Umfasst Authentication
+  (wer ist der Client?) und Authorization (darf er zugreifen?).
+  Nicht synonym mit "Login" — WireGuard hat kein Login.
+
+  ZUGANGSVERSUCH: Jedes Ereignis bei dem das System entscheiden muss
+  ob ein Client Zugang erhaelt.
+  L2TP_IPSEC: RADIUS Access-Request (synchron, pro Verbindungsversuch)
+  WIREGUARD: Erster gueltiger Handshake eines Peers (asynchron, detektiert)
+
+  ADMISSION-ERGEBNIS: Das Resultat der Zugangsentscheidung.
+  ACCEPT = Client darf zugreifen (Full oder Restricted gemaess Policy)
+  REJECT = Client wird abgewiesen (kein Tunnel)
+
+  SESSION-START-SIGNAL: Information an BASE-070 dass ein neuer
+  Session-Start stattgefunden hat. Triggert vpn_sessions INSERT
+  und vpn_session_locks Guard. Tunnelneutral.
+
+  DIRECT-READ: RADIUS liest Auth-Daten direkt aus der kanonischen
+  SoT-Tabelle (vpn_connection_l2tp_ipsec_auth), nicht aus
+  materialisierten Kopien (radcheck/radreply).
+
+================================================================================
+3) SCOPE: WAS HIER STEHT
+================================================================================
+
+  a) Gemeinsamer Admission-Vertrag (beide Tunnel-Typen)
+  b) Entscheidungsklassen (ACCEPT/REJECT/Fail-Closed)
+  c) Session-Signal-Vertrag (wie BASE-070 informiert wird)
+  d) L2TP/IPsec RADIUS-Realisierung (vollstaendig)
+  e) WireGuard Admission-Klarstellung (Vertrag, nicht Implementierung)
+  f) Accounting-Abgrenzung (radacct vs vpn_sessions)
+  g) Security/Fail-Closed-Vertrag
+  h) Owner-Grenzen
+
+================================================================================
+4) SCOPE: WAS HIER NICHT STEHT
+================================================================================
+
+  - Konkrete pppd/xl2tpd/strongSwan/accel-ppp Runtime-Sequenzen
+    → BASE-030_TUNNEL_L2TP_IPSEC
+  - Konkrete WireGuard Peer-Add/Remove/Config-Render-Details
+    → BASE-040_TUNNEL_WIREGUARD
+  - vpn_sessions Tabelle, Invarianten, Lifecycle
+    → BASE-070_SESSION_CORE
+  - vpn_session_locks Ownership, TTL, Janitor-Mechanik
+    → BASE-070_SESSION_CORE
+  - nftables Connect-Gate (connect_pending Sets)
+    → BASE-050_FIREWALL_CORE / BASE-080_POLICY_APPLY_CORE
+  - Auth-Schema-Definitionen (Felder, Typen, Constraints)
+    → BASE-010_IDENTITY_CORE (SoT fuer Schema)
+  - Settings-Keys und deren Resolution
+    → BASE-090_SETTINGS_CORE
+  - Panel-Auth (Customer-Login, CSRF, Session-Management)
+    → BASE-110_WEBSTACK_CORE
+
+================================================================================
+5) TUNNELNEUTRALITAET
+================================================================================
+
+  BASE-020 beschreibt BEIDE Tunnel-Typen, aber NICHT als identische
+  Mechanik. Die Tunnelneutralitaet liegt im VERTRAG, nicht im Flow:
+
+  Beide Tunnel-Typen muessen denselben Systemvertrag erfuellen:
+  - Nur autorisierte Connections duerfen runtime-seitig aktiv sein
+  - Session-Start muss in vpn_sessions registriert werden
+  - SimUse=1 gilt systemweit
+  - Fail-Closed bei DB-Down / fehlenden Daten
+  - RESTRICT/DISABLE muessen technisch durchsetzbar sein
+
+  Der WEG wie sie diesen Vertrag erfuellen, ist verschieden:
+  - L2TP_IPSEC: RADIUS entscheidet synchron pro Login-Versuch
+  - WIREGUARD: SYSTEM kontrolliert Peer-Praesenz asynchron

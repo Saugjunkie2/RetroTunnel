@@ -1,0 +1,624 @@
+================================================================================
+RetroTunnel — CHANGELOG (Zentrales Projektgedaechtnis)
+================================================================================
+VERSION: v1.0
+DATUM: 2026-04-19
+STATUS: ACTIVE
+
+HINWEIS: Dies ist die einzige Projekthistorie. Dateieigene Changelogs
+existieren nicht mehr — alle Aenderungen werden hier zentral gefuehrt.
+Ab v1.0 tragen alle Dateien VERSION: v1.0, dateieigene Changelogs
+sind leer (Verweis auf diese Datei).
+
+================================================================================
+VERSIONSHISTORIE
+================================================================================
+
+v1.0 (2026-04-19) — VERSIONS-KONSOLIDIERUNG + CHATGPT FULL-AUDIT
+
+  VERSIONS-KONSOLIDIERUNG:
+  Alle Dateien auf VERSION v1.0 vereinheitlicht.
+  Alle dateieigenen Changelogs in diese zentrale Datei konsolidiert.
+  Ab jetzt gibt es nur noch EINE Changelog-Quelle.
+
+  CHATGPT FULL-AUDIT (chatgpt_audit.txt, 10 Befunde):
+  Klassifikation durch Claude, Fixes mit Marco-Entscheidungen:
+    F-001 (BLOCKER→MAJOR, GEFIXT): Secret-Exposure Widerspruch.
+      BASE-005_060 §5 "NIEMALS Klartext" widersprach BASE-010 INV-75
+      "Admin Vollzugriff". Fix: Zwei-Klassen-Modell — Infrastruktur-
+      Secrets redaktiert, Connection-Credentials Klartext im Panel.
+      PF-13 und T-PF-13 angepasst. Marco: "Credentials sind
+      Betriebsdaten, kein Verstecken."
+    F-002 (BLOCKER→MINOR, GEFIXT): plan_id FK→plans.
+      Schema behauptete DB-Level FK auf nicht-existente Tabelle.
+      Fix: "FK→plans ERST AB MOD-010 (M3), bis dahin logischer
+      Verweis." ChatGPT+Claude einig.
+    F-003 (BLOCKER→FALSCH): "Nicht selbsttragend." Dokumentierter
+      Projektstatus, kein Fund. PRIORITAETENLISTE trackt das.
+    F-004 (MAJOR, GEFIXT): ip_slot Enforcement. Schema hatte
+      INDEX statt UNIQUE auf fixed_ip/fixed_ipv6. INV-79 behauptete
+      "UNIQUE INDEX auf ip_slot" — aber ip_slot allein kann nicht
+      UNIQUE sein (verschiedene Pools). Fix: UNIQUE(fixed_ip),
+      UNIQUE(fixed_ipv6). INV-79 und T-SI-04 umformuliert.
+    F-005 (MAJOR, GEFIXT): Bridge Magic Numbers. 30s Fenster,
+      5 Retries, 1s Intervall waren hardcodiert. R-03 verbietet
+      Magic Numbers. Fix: 3 Settings-Key-Kandidaten:
+      vpn_l2tp_radacct_correlation_window_seconds (Default 30),
+      vpn_l2tp_radacct_retry_count (Default 5),
+      vpn_l2tp_radacct_retry_interval_seconds (Default 1).
+      Timeout = retry_count × retry_interval (abgeleitet).
+      LT-24 auf Settings-Key-Referenz umgestellt.
+      Marco: "SQL-first-Prinzip gilt, keine Ausnahmen."
+    F-006 (MAJOR→DEFERRED): PH-/Proof-Schicht. Korrekt, aber M4.
+    F-007 (MINOR, GEFIXT): Glossar SoT-Drift. "customers" →
+      "web_customers" an 2 Stellen.
+    F-008 (MINOR, GEFIXT): connection_ref "Format: OFFEN" → CLOSED.
+    F-009 (MINOR, KEIN FIX): KR-01 Spannung — bereits markiert.
+    F-010 (NICE, KEIN FIX): TODO Port-Registry — OPEN-NET-01.
+
+  EIGENE FRISCH-REVIEW BEFUNDE (2 MINOR, GEFIXT):
+    MINOR-01: T-SE-01 ID-Kollision §16 vs §20. Fix: §20 → T-SI-04.
+    MINOR-02: T-SE-02 widersprach INV-75 (Admin SIEHT wg_preshared_key).
+      T-SE-02 invertiert, T-SE-03 auf volle Credential-Sichtbarkeit.
+
+  ENTWUERFE-RESTRUKTURIERUNG:
+  Entwuerfe aus Root-entwuerfe/ in Base-Ordner verschoben:
+    identity_schema/ → BASE-010/entwuerfe/
+    boot-firewall-baseline/ → BASE-050/entwuerfe/
+    portfreigaben/ → BASE-050/entwuerfe/
+    admin-dashboard/ → BASE-110/entwuerfe/
+    panel-zentrale/ → BASE-110/entwuerfe/
+    psk-secret-lifecycle/ → BASE-110/entwuerfe/
+  KR-01 erweitert: entwuerfe/ in Base-Ordnern + Root als Puffer.
+  Zuordnung nach interner Datei-Referenz verifiziert.
+
+  DATEIEN GEAENDERT (14+4 Governance):
+    01_GLOSSARY, 00_MANIFEST (KR-01, Referenzen),
+    PRIORITAETENLISTE (Referenz), BASE-000_030 (Format CLOSED),
+    BASE-005_060, BASE-005_090, BASE-005_095,
+    BASE-010_010, BASE-010_020, BASE-010_030, BASE-010_070,
+    BASE-010_090, BASE-010_095,
+    BASE-030_050, BASE-030_090, BASE-030_INDEX,
+    entwuerfe/README.txt (NEU).
+
+v0.13 (2026-04-18) — BASE-020 + BASE-030 FERTIGGESTELLT
+
+  BASE-020_AAA_CORE erstellt (M2-020, 9 Dateien):
+    Gemeinsamer Admission-Vertrag, L2TP/IPsec RADIUS Direct-Read,
+    WireGuard-Admission (kein RADIUS), Accounting-Abgrenzung,
+    Owner-Grenzen, Hybrid-Fail-Closed WG, Key-Rotation.
+    30 Invarianten, 35 Tests. ChatGPT-Drittreview v1+v2.
+
+  BASE-030_TUNNEL_L2TP_IPSEC erstellt (M2-030, 10 Dateien):
+    accel-ppp, strongSwan IKEv1, XP-Crypto, Default-Deny ppp*,
+    Radacct-Session-Bridge, MTU/MSS/NAT-T, Client-Anforderungen.
+    40 Invarianten, 45 Tests. 3 ChatGPT-Drittreviews.
+
+  BASE-005 v0.4→v0.5, BASE-010 v0.1→v0.3 (Drittreviews).
+  Governance: MANIFEST v0.14→v0.17, GLOSSARY v1.2→v1.4,
+    ASSUMPTIONS v0.11→v0.12, PRIORITAETENLISTE v0.11→v0.14.
+
+v0.12 (2026-04-17) — BASE-010_IDENTITY_CORE FERTIGGESTELLT
+
+  1) BASE-010_IDENTITY_CORE erstellt (M2-010):
+     11 Dateien: INDEX + WEB_CUSTOMERS + VPN_CONNECTIONS +
+     AUTH_SPLIT + IDENTIFIER_KLASSEN + REASON_REGISTRY +
+     LIFECYCLE_LOG + CONNECTION_LIFECYCLE + WRITE_PATH_MATRIX +
+     INVARIANTEN + TESTS.
+     76 Invarianten + 3 Lifecycle-Regeln, ~60 Tests in 18 Kategorien.
+
+  2) Architektur-Entscheidungen (Marco + Claude + ChatGPT):
+     - Auth-Split: Shared Base + getrennte Kindtabellen (3-Parteien)
+     - connection_ref: con_[a-z2-7]{12} (60 Bit Entropie)
+     - wg_connection_name: deterministisch (wg_ + Payload)
+     - Provisioning: atomar (eine Transaktion)
+     - SoT/Mechanik-Split: BASE-010 (Schema) / BASE-020 (RADIUS)
+     - WG Key-Rotation: in-place (AS-04/INV-46 angepasst)
+     - Neuer Reason-Code: DISABLE_SECURITY_COMPROMISE
+
+  3) ChatGPT-Drittreview (Pflicht, Regel 10 Schritt 4):
+     9 Funde (1 Blocker herabgestuft auf Minor, 5 Major, 2 Minor,
+     1 Nice). Alle umgesetzt. Wichtigste Fixes:
+     - Write-Path: ADMIN Lifecycle-Felder von W! auf (REQ)
+     - INV-64: Schutz erweitert auf ACTIVE + RESTRICTED
+     - Customer SUSPENDED/DELETED → Connection Invarianten (INV-65..69)
+     - Claim-/Token-Paket formalisiert (INV-70..74)
+     - Secret-Exposure Invariante (INV-75)
+     - rotated_at in Auth-Kindtabellen (INV-76)
+     - suspended_at/deleted_at in web_customers
+
+  4) Regel 10 etabliert (BRIEFING v0.39..v0.41):
+     4-Schritte Qualitaets-Gate: Vollstaendigkeitspruefung →
+     Review A+B → Quell-Aufloesung → ChatGPT-Drittreview.
+     Sub-Regeln: ZYKLUS (immer 1→2→3→4), VOLLSTAENDIGKEIT
+     (immer ALLE Dateien), BEFUND (ALLE fixen, auch NICEs).
+
+  5) Quell-Aufloesung:
+     SM_CONNECTION.txt: aufgeloest durch BASE-010 (Mapping-Tabelle).
+     DOMAIN_MODEL.txt: NICHT aufloesbar (§4/§5/§6/§8-§11 haben
+     kein Zuhause bis spaetere Bases erstellt sind).
+
+  6) Entwuerfe erstellt:
+     - entwuerfe/panel-zentrale/ENTWURF_PANEL_CREDENTIAL_ZUGRIFF.txt
+       (L2TP/IPsec Passwort-Handling, WireGuard Config-Export,
+       ZIP-Schutz mit Panel-Passwort, GRANT-Implikationen)
+
+  7) Governance-Updates:
+     MANIFEST v0.15, README aktualisiert, PRIORITAETENLISTE v0.11
+     (M2-010 [DONE]), BRIEFING v0.41 (Regel 10 komplett).
+
+================================================================================
+
+v0.11 (2026-04-17) — FQDN-RENAME + DRIFT-06 + CHATGPT-AUDIT + GOVERNANCE-FIXES
+
+  1) FQDN-RENAME (Marco-Entscheidung):
+     Server-FQDN: vpnxp001.v6.army -> rt-gw-001.v6.rocks.
+     Begruendung: "xp" im Hostnamen bildet nur L2TP/IPsec ab,
+     nicht das Gesamtsystem. "rt-gw" ist tunnelneutral (RetroTunnel
+     Gateway). "001" erlaubt spaetere Erweiterung (002, 003).
+     Domain v6.rocks registriert, DNS (A+AAAA) konfiguriert.
+     Kein Live-Impact (neues Konzept, frische Einrichtung).
+     Mail-Absenderlogik (retrowork.de) nicht betroffen.
+     Propagiert auf 7 Dateien: MANIFEST §8, BRIEFING §4, README,
+     hostname, hosts, resolv.conf, CONFIG_STATUS, NETWORK_MODEL.
+     Verifikation: grep vpnxp001 + grep v6.army = 0 Treffer.
+
+  2) DRIFT-06 GESCHLOSSEN (grep-Verifikation):
+     grep-Sweep ueber alle kanonischen Dateien: Keine operativen
+     LEGACY/MODERN oder 2-stelligen BASE-Nummern in aktiven,
+     nicht-deprecated Dateien. Alle Treffer in akzeptablen
+     Kontexten (Changelogs, Begriffs-Bruecken, Deprecated-Header).
+
+  3) CHATGPT FULL-SPECTRUM-AUDIT KLASSIFIZIERT (12 Befunde):
+     ChatGPT-Blocker: 0 von 4 bestaetigt (alle M2-Scope, kein
+     Strukturversagen — bestaetigt ERKENNTNIS 1).
+     Umgesetzte Fixes:
+       F-005: Alt-SQL-Namen -> kanonische BASE-000-Namen (~20 Stellen)
+       F-006: NETWORK_MODEL-Verweise -> BASE-005_030 (3 Stellen)
+       F-008: README BASE-005 "Skelett" -> "Done" (2 Stellen)
+       F-009: PMA "Redirect google.de" -> "403 Forbidden" (2 Stellen)
+       F-010: MANIFEST §5 "fuer WIREGUARD" -> "waren IKEv2" (1 Stelle)
+     Nicht umgesetzt (korrekt klassifiziert):
+       F-001..F-004: M2-Scope
+       F-007: M3-Scope
+       F-011: Marco-Entscheidung
+       F-012: Bei model/-Aufloesung
+
+  4) GOVERNANCE-FIXES (F-FRESH-001..003):
+     BRIEFING §3.3: BASE-005 "9 Skelette" -> "Alle ACTIVE".
+     BRIEFING §3.2/§3.4 + PRIORITAETENLISTE: BASE-005 Skelett-
+     Status auf DONE (ohne SKELETT) korrigiert.
+     BRIEFING §3.3: docs/MAIL_ABSENDERLOGIK.txt ergaenzt.
+
+  DATEIEN AKTUALISIERT:
+     MANIFEST v0.7 -> v0.9
+     BRIEFING v0.28 -> v0.32
+     ASSUMPTIONS v0.10 -> v0.11
+     GLOSSARY v1.1 -> v1.2
+     REVIEW_TRACKER v1.4 -> v1.5
+     PRIORITAETENLISTE v0.9 -> v0.10
+     03_CHANGELOG v0.10 -> v0.11
+     README: BASE-005 Status (2 Stellen)
+     BASE-005_030: PMA Redirect -> 403 (2 Stellen)
+     CONFIG_STATUS: FQDN + NETWORK_MODEL-Verweis
+     hostname, hosts, resolv.conf (FQDN)
+     NETWORK_MODEL (deprecated, FQDN-Faktum korrigiert)
+
+v0.10 (2026-04-16) — BASE-000 + BASE-005 + 3-STELLIGE NUMMERIERUNG + TUNNEL_TYPE RENAME
+
+  GROSSES REORGANISATIONS-PAKET (Marco-Entscheidung, ChatGPT-validiert):
+
+  1) BASE-000_SQL_FIRST KOMPLETT ERSTELLT (Tag 1, 19 Dateien):
+     - SQL-first Governance als eigene Base (vorher verstreut).
+     - Prefix-Allowlist: vpn_, web_, wg_, rad*, settings_, policy_,
+       peak_, log_, spool_.
+     - DB-User-Zonen: radius (ALLOWLIST), webpanel, system.
+     - RADIUS hat KEINEN Zugriff auf wg_*-Tabellen (Sicherheitsprinzip).
+     - 040_TABELLEN_REGISTRY/ mit 9 Zone-Dateien + INDEX.
+     - Transition-Datei K-01..K-12 (Korrekturen für DOMAIN_MODEL).
+     - Auth-Split: Auth-Daten aus vpn_connections in eigene Tabellen
+       (vpn_connection_l2tp_ipsec_auth, wg_connection_auth).
+     - 10 Invarianten (SQL-01..SQL-10), 5 Tests (T-SQL-01..T-SQL-05).
+
+  2) BASE-005_PLATFORM_CORE NEU ERSTELLT (Tag 2, 11 Dateien):
+     - Analog zu BASE-000, aber für OS/Betrieb/Laufzeit statt SQL.
+     - Ausloeser: lo-service-ips.service - wo gehoert es hin?
+       Drei-Parteien-Analyse (Marco + Claude + ChatGPT) ergab:
+       eigene Grundnorm-Base analog BASE-000.
+     - 4-Punkte-Aufnahme-Regel gegen Wildwuchs.
+     - Scope: OS-Baseline, Endpoints/Ports, Filesystem/Logs,
+       Linux-Users, Secrets, Service-Inventar, Lifecycle/Readiness.
+     - Pflicht-Abschnitt "Plattform-Contract" fuer alle Fach-Bases.
+     - 17 Invarianten (PF-01..PF-17), 15 Tests (T-PF-01..T-PF-15).
+     - Status: 2 Dateien voll ausgearbeitet, 9 Skelette mit ~32
+       Input-Fragen an Marco fuer spaetere Ausarbeitung.
+
+  3) MODEL/ AUFLOESUNG ENTSCHIEDEN:
+     - DOMAIN_MODEL, SM_CONNECTION -> BASE-010
+     - SM_SESSION -> BASE-070
+     - SM_POLICY_RESTRICT -> BASE-080
+     - SM_ONBOARDING -> MOD-001
+     - NETWORK_MODEL IP-Pools -> BASE-010, Service-Anchors -> BASE-005
+     - TRUTH_MODEL SQL-Prinzipien -> BASE-000, Settings -> BASE-090
+     Begruendung: eine Wahrheit, ein Ort. model/-Ordner wird schrittweise
+     aufgeloest sobald zustaendige Base fertig ist.
+
+  4) 3-STELLIGE NUMMERIERUNG DURCHGESETZT (Tag 3, "roter Faden"):
+     - Ordner: BASE-000, BASE-005, BASE-010 bis BASE-110 (war BASE-00..11)
+     - Dateinummern innerhalb Ordnern: 000, 010, 020, ..., 090, 095
+       (war 00, 10, 20, ..., 90, 95)
+     - Unterordner 040_TABELLEN_REGISTRY (war 40_TABELLEN_REGISTRY)
+     - Module: MOD-001 bis MOD-010 (war MOD-01..10)
+     - Regel-Identifier (R-01, PR-01, INV-01, etc.) bleiben 2-stellig
+       (keine Pfad-Nummerierung).
+
+  5) TUNNEL-TYPE ENUM-WERTE UMBENANNT (ChatGPT-Drittreview-bestaetigt):
+     - LEGACY -> L2TP_IPSEC
+     - MODERN -> WIREGUARD
+     Begruendung: technisch praezise, keine Zeitdrift ("LEGACY" altert),
+     konsistent mit wg_-Zone-Prefix-Prinzip.
+     UI-Begriffe: "L2TP/IPsec" und "WireGuard" (nicht AmneziaWG).
+
+  6) TABELLEN-UMBENENNUNGEN:
+     - vpn_connection_legacy_auth -> vpn_connection_l2tp_ipsec_auth
+       (analog zu ENUM-Werten)
+     - wg_connection_auth bleibt unveraendert
+     - Ordner: BASE-030_TUNNEL_L2TP_IPSEC (aelter, niedrigere Nummer),
+               BASE-040_TUNNEL_WIREGUARD (neuer, hoehere Nummer)
+
+  7) R-16 NEU IN 02_ASSUMPTIONS_AND_RULES:
+     Invarianten und Tests immer zuletzt im Ordner.
+     Kleine Base (<=5 Content-Dateien): 050/060.
+     Mittlere Base (<=9 Content-Dateien): 090/095.
+     Groessere Base: weiter extendbar.
+
+  PROPAGATION (31 Dateien geaendert):
+    00_MANIFEST v0.7, 01_GLOSSARY v1.1, 02_ASSUMPTIONS_AND_RULES v0.9
+    BASE-000_SQL_FIRST: alle 18 Dateien (Inhalt + Renaming)
+    BASE-005_PLATFORM_CORE: alle 11 Dateien (Inhalt + Renaming)
+
+  NOCH OFFEN:
+    CLAUDE_BRIEFING, PRIORITAETENLISTE, NAVIGATIONSKARTE,
+    REVIEW_TRACKER, REVIEW_STANDARD, README.md,
+    model/ Dateien (7), decisions/ (D002, D003),
+    entwuerfe/DISKUSSION_IDENTITY_SCHEMA.
+
+v0.9 (2026-04-15) — AUDIT #2 + PLANS + SCHEMA-FIXES + ADMIN-RESTRICT BEREINIGUNG
+
+  CHATGPT AUDIT #2 (erste Runde, 14 Findings):
+    F-001: SM_SESSION Restricted-Wording präzisiert (Conntrack ≠ Session-Kill)
+    F-002: R-08 bestätigt: ADMIN nie restricted, Not-Aus = DISABLE
+    F-003: customers.access_role als SoT-Feld ergänzt (Schema-Hole)
+    F-004: PREPROVISIONED zwei Wege (ownerlos vs "Für User"), Zählregel
+    F-007: Customer SUSPENDED/DELETED Verhalten (§2.4 NEU)
+    F-010: PRIORITAETENLISTE Alt-Referenzen korrigiert (B220/B230)
+    F-013: MOD als Kurzform im GLOSSARY definiert
+    F-014: MANIFEST Repo-Placeholder
+
+  PLANS-GRUNDARCHITEKTUR (Marco-Entscheidung):
+    DOMAIN_MODEL §6.8 NEU: Plans in zwei Varianten.
+    SHARED (Quota pro Account) + DEDICATED (Quota pro Connection).
+    customers.plan_id als FK (NULL = kein Plan, Rollen-Defaults).
+    Nur USER hat Plans. VIP/MOD/ADMIN: plan_id = NULL.
+    M3-Scope (MOD-10_PLANS), Grundarchitektur ab jetzt kanonisch.
+
+  SM_ONBOARDING:
+    Claim-Klarstellung (Besitzbestätigung, nicht Suche).
+    §6.4 NEU: Admin-Panel Unclaimed-Connections-Ansicht.
+
+  PROPAGATION:
+    DOMAIN_MODEL v1.0, SM_CONNECTION v1.8, SM_ONBOARDING v0.9,
+    GLOSSARY v0.6, TRUTH_MODEL SoT-Map aktualisiert,
+    R-08 in 5 Dateien synchronisiert.
+
+  CHATGPT AUDIT #2 (zweite Runde, 12 Findings):
+    F-001: ADMIN-Restrict Cross-File-Widerspruch BEREINIGT.
+      Claude hatte in Session R-08 fälschlich MANUAL-Ausnahme eingefügt.
+      Marco-Entscheidung bestätigt: ADMIN NIE restricted (v0.6-Entscheidung).
+      RESTRICT_ADMIN_MANUAL bleibt als Code für Non-ADMIN (= AKTEUR).
+      R-08 + SM_CONNECTION + SM_ONBOARDING + MANIFEST + BRIEFING +
+      DOMAIN_MODEL: alle auf "nicht restricted-fähig" zurückgesetzt.
+      KLARSTELLUNG in R-08 + SM_CONNECTION Reason-Code-Tabelle:
+      "ADMIN" im Code = Akteur, nicht Ziel. T-02 access_role≠ADMIN blockt.
+    F-009: SM_ONBOARDING Beispiel RESTRICT_ADMIN_MANUAL → RESTRICT_QUOTA_EXHAUSTED
+    F-010: MANIFEST SERVICE_NET Beschreibung vervollständigt (7 Anchors)
+    F-011: BRIEFING Alt-/Ist-Stand als "VOR RetroTunnel" markiert
+    F-012: NAVIGATIONSKARTE Referenzanker expliziter Pfad
+
+  NEUES FEATURE (Marco-Entscheidung):
+    OPEN-DOM-05 NEU: Admin/Mod-Aktionslog + E-Mail-Benachrichtigung.
+    Jede ADMIN/MOD-Aktion wird geloggt UND per E-Mail an Owner zugestellt.
+    Scope: MOD-06_PANEL_FEATURES + MOD-07_LOGGING_MONITORING (M3).
+
+v0.8 (2026-04-14) — D003 POLICY-SYSTEM + ROLLE AM CUSTOMER
+
+  Architekturentscheidung D003: Eigenes Policy-System (Weg 4).
+  Auslöser: VIP-mit-4-Connections Problem, ChatGPT + Claude Review.
+  3 Review-Runden, alle 3 Parteien konvergiert.
+
+    ENTSCHEIDUNGEN:
+      D003-E01: Settings und Policy sind getrennte SQL-first Domänen
+      D003-E02: Rolle gehört zum Customer (Webpanel-Rang)
+      D003-E03: Drei Policy-Tabellen (policy_catalog,
+                role_policy_defaults, customer_policy_overrides)
+      D003-E04: Auflösung: Override > Plan (USER) > Rollen-Default
+      D003-E05: NULL = unlimited (keine Magic Numbers)
+      D003-E06: Zählregel / Slot-Relevanz (kanonisch)
+      D003-E07: Panel zeigt effective value + source
+      D003-E08: Settings-Keys als Interim (scope NONE→CUSTOMER)
+
+    PROPAGATION:
+      MANIFEST v0.4: DP-02 getrennte Domänen, §4.1/4.2 D003
+      DOMAIN_MODEL v0.9: §5.5 NEU + §6 KOMPLETT NEU
+      TRUTH_MODEL v0.8: §2 SoT-Map + §7.3 Interim-Keys
+      SM_CONNECTION v1.7: INV-33/34 NEU (Slot-Relevanz, Rolle)
+      SM_ONBOARDING v0.8: OPEN-ONB-05 D003-Referenz
+      BRIEFING v0.14: §3.1 Policy-Architektur + §3.2 D003 CLOSED
+
+    D002 v0.2 — KASKADE (nach D003-E02):
+      §7 NEU: Rolle gehört zum Customer → Rollenwechsel wird
+      Customer-Operation mit Kaskade auf alle Connections.
+      Atomare Transaktion, Pool-Prüfung, Budget-Prüfung.
+
+    D003 v0.2 — ABLEITUNGSREGEL (nach Marco-Feedback):
+      Zählregel vereinfacht: Gesamt-Budget ist ABGELEITET
+      (max_active + vpn_disabled_connection_buffer), nicht eigener
+      Policy-Parameter. Pattern: B057/B155.
+
+v0.7 (2026-04-13) — CHATGPT AUDIT #4 + P→M UMBENENNUNG
+
+  ChatGPT Full-Spectrum-Audit #4 (chatgpt_audit001.txt) verarbeitet.
+  16 Funde klassifiziert. 2 BLOCKERs herabgestuft (Model→Implementation
+  Bias, bereits als OPEN dokumentiert). 5 MINORs sofort gefixt.
+
+    NX-01..NX-05 QUICK WINS:
+      SM_ONBOARDING Header STATUS: DRAFT → PATCH-REIF
+      SM_SESSION Header STATUS: DRAFT → PATCH-REIF
+      SM_CONNECTION Header DATUM: 2026-04-12 → 2026-04-13
+      DOMAIN_MODEL T-DOM-01: claim_token → claim_token_hash
+      GLOSSARY: connection_lifecycle_log §6 → §7B
+      DOMAIN_MODEL §3 Nummerierung: §3.7→§3.6..§3.11→§3.10
+
+    MARCO-ENTSCHEIDUNGEN:
+      OPEN-DOM-01 GESCHLOSSEN: Moderator max_connections = 3
+        (Default, Settings-Key, konfigurierbar). Kein hardcoded Wert.
+      VIP max_connections: Ebenfalls Settings-Key (nicht mehr "(fix)").
+        Alle Rollen-Limits leben als Settings-Keys in der DB.
+      Settings-Keys ergänzt: vpn_moderator_max_connections,
+        vpn_vip_max_connections (TRUTH_MODEL §7.3).
+
+    P→M UMBENENNUNG (Marco-Entscheidung, Drift-Guard):
+      Alle Modellphasen-Identifier von P0..P4 auf M0..M4 umgestellt.
+      Betroffen: PRIORITAETENLISTE, BRIEFING, REVIEW_TRACKER, CHANGELOG.
+      Namenskonvention kanonisch dokumentiert:
+        M0..M4 = Modellphasen (Konzeptarbeit)
+        PH1..PH10 = Rollout-Phasen (Server-Implementierung, B290)
+      "M1 ist fertig" ≠ "PH1 ist fertig" — keine Verwechslung möglich.
+
+v0.6 (2026-04-13) — CHATGPT AUDIT #3 + ADMIN/R-03 ENTSCHEIDUNGEN
+
+  ChatGPT Audit #3 verarbeitet (13 Funde). Zwei Marco-Entscheidungen:
+
+    ADMIN RESTRICT — F-004 ENTSCHEIDUNG:
+      ADMIN ist NIE restricted — auch nicht manuell/Not-Aus.
+      Not-Aus für kompromittierte Admins = DISABLE (IMMEDIATE).
+      GR-08 in SM_POLICY_RESTRICT bereinigt.
+
+    KR-03 DATEIGRÖSSE — F-007 ENTSCHEIDUNG:
+      Obergrenze von 500 auf 1500 Zeilen erhöht.
+      Keine Ausnahmen, keine Fragmentierung.
+
+    PROPAGATIONSFIXES (Audit #3 F-001):
+      R-10 in ASSUMPTIONS_AND_RULES → D002 in-place Mutation
+      BRIEFING §3.1 Rollenwechsel → D002
+      BRIEFING §3.2 Timing-Frage → [CLOSED D002]
+
+    MINOR-FIXES (Audit #3 F-010/F-011/F-012):
+      TRUTH_MODEL: restricted_effective → op_status/restricted_at
+      SM_SESSION: strongSwan → AWG/accel-ppp/FreeRADIUS
+      OPEN [CLOSED] Hygiene in TRUTH_MODEL + SM_CONNECTION
+
+    GOVERNANCE-SYNC (Audit #3 F-005):
+      REVIEW_TRACKER Versionen aktualisiert (5 Dateien)
+      decisions/D002 als neuer Eintrag ergänzt
+
+    D002-PROPAGATION SM_SESSION (F-CHK-001, neue Claude-Instanz):
+      §10.1 T-09 auf ACTIVE→ACTIVE, T-10 Zeile entfernt
+      T-SES-17 auf D002-Semantik aktualisiert
+      §18 "T-09/T-10" → "T-09"
+
+    BRIEFING v0.11→v0.12:
+      TEIL 5b SESSION-ERKENNTNISSE eingefügt (6 Handoff-Punkte
+      für zukünftige Claude-Instanzen)
+
+v0.5 (2026-04-13) — D002 ROLLENWECHSEL ALS IN-PLACE MUTATION
+
+  Architekturentscheidung: vpn_connection = dauerhafte Geräte-Identität.
+  Rollenwechsel als in-place Mutation, nicht als DISABLE+INSERT.
+  Auslöser: ChatGPT Audit #2 F-004, 3-Wege-Widerspruch aufgelöst.
+
+    D002 Decision-Dokument angelegt (decisions/D002_ROLLENWECHSEL_INPLACE.txt)
+
+    SM_CONNECTION v1.5 → v1.6:
+      T-09 neu: In-place Mutation (ACTIVE→ACTIVE, access_role + ip_slot)
+      T-10 entfällt (kein INSERT mehr)
+      DISABLE_ROLE_CHANGE entfällt als Reason-Code
+      State-Diagramm: T-09 als ACTIVE→ACTIVE Self-Transition
+      T-SM-17 Test aktualisiert
+
+    DOMAIN_MODEL v0.7 → v0.8:
+      T-DOM-07 erweitert (In-place, LEGACY/MODERN getrennt)
+      event_type ENUM: ROLE_CHANGE ergänzt
+
+    00_MANIFEST: Rollenwechsel-Abschnitt komplett neu
+      (In-place, LEGACY: kein Eingriff, MODERN: neue Config)
+
+v0.4 (2026-04-13) — CHATGPT FULL-SPECTRUM-AUDIT VERARBEITET
+
+  ChatGPT Full-Spectrum-Audit (8 Prüfebenen, PH1-PH10, 1066 Zeilen).
+  13 Funde + 1 ChatGPT-Zusatzfund (Z-A1). Zwei Review-Runden:
+  Runde 1: 4 BLOCKERs herabgestuft, 4 Fixes umgesetzt.
+  Runde 2: ChatGPT-Gegenprüfung — F-003 Revision (zu schwach),
+           F-002 Klarstellung, Z-A1 EAP-Terminologie.
+
+    F-005 FIX: BASE-Modul-Verweise in SM_POLICY_RESTRICT korrigiert:
+      BASE-04_NFT_CORE → BASE-04_FIREWALL_CORE (2 Stellen)
+      BASE-05_WIRING_CORE → BASE-07_POLICY_APPLY_CORE (2 Stellen)
+      BASE-07_DIAG_CORE → BASE-10_WEBSTACK_CORE (1 Stelle)
+
+    F-010 FIX: B150 Dateiname in SM_POL + SM_ONB + SM_CON auf
+      vollen Namen korrigiert (QuotaExpiryManual).
+
+    F-001 KLARSTELLUNG: SM_CONNECTION T-03 Vorbedingung ergänzt:
+      access_role ≠ ADMIN (R-08, GR-08). admin_manual_restricted_at
+      Felddefinition klargestellt: "admin" = AKTEUR, nicht Ziel.
+
+    F-003 FALLTRENNUNG (Runde 2 revidiert): OPEN-POL-02 komplett
+      neu geschrieben mit 3 Fällen: Apply-Failure (auto re-add),
+      Admin-Hardcut (NICHT auto, Reprovision nötig per SES-21),
+      Session-Stale (Peer bleibt). Erste Klarstellung war zu
+      pauschal und widersprach SM_SESSION SES-21.
+
+    F-002 KLARSTELLUNG: SM_SESSION §7.1 Auslöser als
+      DETEKTIONSEREIGNIS markiert (nach Gate→Peer-Add,
+      nicht davor). Referenz auf POL-23 ergänzt.
+
+    Z-A1 FIX (ChatGPT-Zusatzfund): MANIFEST "EAP-MSCHAPv2 Gate-1"
+      IKEv2-Terminologie korrigiert für LEGACY-L2TP-Kontext.
+
+  GOVERNANCE: REVIEW_TRACKER §5 + PRIORITAETENLISTE:
+    Scope-Klarstellung: Model-Layer patch-reif, Implementation
+    ist M2 Scope. M1-SWEEP → DONE.
+
+v0.3 (2026-04-12/13) — MODELLPHASE M1 ABGESCHLOSSEN
+
+  MEILENSTEIN: Alle 7 Model-Dateien patch-reif. Alle Governance-Dateien
+  reviewed. 5 DRIFTs identifiziert und behoben. Modellphase M1 konzeptionell
+  abgeschlossen — M2 (Base-Module) kann beginnen.
+
+  STATE MACHINES ERSTELLT UND FINALISIERT:
+
+    SM_CONNECTION v0.4 → v1.5 PATCH-REIF
+      8 ChatGPT-Reviews verarbeitet. Zwei-Ebenen-Modell konvergiert.
+      32+3 Long-Running Invarianten, 47 Tests.
+      Kern: Ownership (customer_id) + op_status (ACTIVE/RESTRICTED/DISABLED).
+
+    SM_SESSION v0.1 → v0.7 PATCH-REIF
+      Komplett neu erstellt. vpn_sessions als gemeinsame Session-Truth
+      für LEGACY + MODERN (radacct ist NICHT mehr Truth).
+      AWG Session Controller (Polling-basiert, VALID/STALE/closed).
+      Drei-Säulen-Modell: Truth (vpn_sessions), Guard (active_session_locks),
+      Repair (Janitor). 27 Invarianten, 38 Tests.
+
+    SM_ONBOARDING v0.1 → v0.7 PATCH-REIF
+      Komplett neu erstellt. Verify-Wall (Customer-Scope) + Claim Weg A+B.
+      UNCLAIMED Grace + Hard-Stop. Dualstack (AWG Claim-Authorization).
+      23 Invarianten, 27 Tests, 7 Reviews.
+
+    SM_POLICY_RESTRICT v0.1 → v1.6 PATCH-REIF
+      Komplett neu erstellt. vpn-policy-apply als einziges Tool (DRY).
+      Connect-Gate (LEGACY: ip-up Hook, MODERN: Controller-basiert).
+      FAIL-CLOSED bei Apply-Failure. Single-Writer Lock.
+      23 Invarianten, 33 Tests, 12+ ChatGPT-Reviews.
+
+  CROSS-FILE-NACHZÜGE:
+    DOMAIN_MODEL v0.5 → v0.7: Session-Events, vpn_sessions Beziehung,
+      reason_registry Attribute (revocation_mode, auto_finalize).
+    TRUTH_MODEL v0.3 → v0.6: Session-Truth vereinheitlicht,
+      OPEN-TM-01 geschlossen, nftables Sets, Settings-Keys.
+    NETWORK_MODEL v0.2 → v0.3: SYSTEM-RESERVED Slot 1 dokumentiert.
+    GLOSSARY v0.1 → v0.4: 12 Begriffe ergänzt (op_status, Ownership,
+      Connect-Gate, FAIL-CLOSED, AWG Session Controller, reason_registry,
+      SoT, vpn_sessions, vpn-policy-apply, vpn-session-kill u.a.).
+
+  NEUE STEUERUNGS-DATEIEN:
+    REVIEW_STANDARD.txt v0.8: Claudes verbindlicher Review-Standard.
+      8 Prüfebenen (A-H), Review-Loop, Autonomie-Grenze, Schweregrade.
+    REVIEW_TRACKER.txt v0.3: Datei-Inventar, 5-stufiger Sweep-Plan,
+      10 Exit-Kriterien für M1-Abschluss.
+
+  SWEEP 1 — REFERENZ-DATEIEN:
+    NAVIGATIONSKARTE v0.1 → v0.5: Komplett überarbeitet.
+      57 Block-Dateien + 12 Decisions einzeln gelesen und verifiziert.
+      30 falsche Referenzen korrigiert. 23 Themen. 3 ChatGPT-Reviews.
+    00_MANIFEST v0.1 → v0.2: Session-Truth Drift korrigiert
+      (radacct → vpn_sessions Aufspaltung in Übernommen/Geändert).
+    CLAUDE_BRIEFING v0.11: Block-Zählung, Config SOLL, Pflege-Regel.
+
+  SWEEP 2 — REGELN UND BEGRIFFE:
+    01_GLOSSARY v0.3 → v0.4: 6 fehlende Begriffe (Zwei-Ebenen-Modell).
+    02_ASSUMPTIONS_AND_RULES v0.2 → v0.3: TEMPFAIL → FAIL-CLOSED.
+    PRIORITAETENLISTE v0.1 → v0.2: Status aktualisiert, M1-SWEEP ergänzt.
+
+  SWEEP 3 — CONFIG-DATEIEN:
+    CONFIG_STATUS v0.1 → v0.2: IST-Zustand → SOLL-Zustand.
+    Alle 4 Configs gegen NETWORK_MODEL §4 verifiziert — konsistent.
+
+  SWEEP 4 — GLOBALER CROSS-FILE-CHECK:
+    Finaler Abgleich aller Governance ↔ Model Paare. 1 MINOR
+    (BRIEFING §3.2 AWG Session teilweise beantwortet).
+
+  5 DRIFTS IDENTIFIZIERT UND BEHOBEN:
+    DRIFT-01: Phantomdateien im BRIEFING (analyse_chatgpt*.txt)
+    DRIFT-02: SM_SESSION Versionsreferenz im BRIEFING
+    DRIFT-03: NAVIGATIONSKARTE nie verifiziert (30 falsche Referenzen)
+    DRIFT-04: MANIFEST Verzeichnisstruktur unvollständig
+    DRIFT-05: PRIORITAETENLISTE vs aktueller Projektstand
+
+v0.2 (2026-04-11) — MODELL-DOKUMENTE + FUNDAMENTALE NEUKONZEPTION
+
+  ARCHITEKTURENTSCHEIDUNG — ZWEI-EBENEN-MODELL:
+    Erarbeitet durch 15 Review-Runden (Marco + ChatGPT + Claude).
+    Ersetzt das alte status-Feld (PREPROVISIONED|CLAIMED|DISABLED) durch:
+    - Ebene A: Ownership (abgeleitet aus customer_id IS NULL / NOT NULL)
+    - Ebene B: op_status ENUM (ACTIVE | RESTRICTED | DISABLED)
+    Alte Felder restricted_reason/restricted_effective entfallen.
+    op_reason_code als FK auf kanonische reason_registry.
+    Revocation-Modell: NONE|IMMEDIATE|AFTER_RESTORE_WINDOW|MANUAL_ONLY.
+    Materialisierte Deadlines: restrict_finalize_at, quarantine_until.
+
+  MODEL-DOKUMENTE ERSTELLT:
+    NETWORK_MODEL v0.2: 5 Pools (USER/VIP/MOD/ADMIN + SERVICE_NET),
+      Service-Anchors, IPv4/IPv6, Slot-Mapping.
+    DOMAIN_MODEL v0.5: Entities, Zwei-Ebenen-Modell, reason_registry,
+      connection_lifecycle_log. 19 Invarianten, Write-Path-Matrix.
+    TRUTH_MODEL v0.3: SoT-Map, SQL-first Regeln, Settings-Keys, Naming.
+    SM_CONNECTION v0.4: Connection Lifecycle mit Zwei-Ebenen-Modell.
+
+  02_ASSUMPTIONS_AND_RULES v0.2: Sektion 4 (Qualitäts- und
+    Betriebsstandards Q-01 bis Q-07) hinzugefügt.
+
+  Implementation: CONFIG_STATUS, hostname, hosts, resolv.conf,
+    lo-service-ips.service abgelegt.
+
+v0.1 (2026-04-10) — PROJEKT-INITIALISIERUNG
+
+  Projektname: RetroTunnel (Nachfolger von xp-vpn-stack).
+  Ordnerstruktur: Schichtenmodell (Option alpha) — model/ → base/ → modules/.
+
+  GRUNDENTSCHEIDUNGEN:
+    - MODERN Tunnel: AmneziaWireGuard (statt IKEv2/strongSwan)
+      Gründe: DNS-Zwang (DNAT53), Client-Einrichtung, QoS (tc)
+    - Zwei orthogonale Felder: tunnel_type + access_role (statt conn_group)
+    - 4 Rollen: USER, VIP, MODERATOR, ADMIN (statt 3 conn_groups)
+    - Separate IP-Pools pro access_role (5 statt 3)
+    - Range-basiertes Enforcement für Rollen (O(1), kein Sync)
+    - Dynamische nftables Sets nur für Zustände
+    - DoT/DoQ Blocking (Port 853 DROP) jetzt in-scope
+    - WG-Feldnamen nutzen Prefix wg_ (nicht awg_)
+    - WG-Server-Config komplett in SQL (Option A, SQL-first)
+
+  ÜBERNAHMEN AUS xp-vpn-stack (bestätigt):
+    SQL-first AAA, DNS-Zwang, Fail-Closed, Connect-Gate, SimUse=1,
+    Settings-System, Reason-Codes, Onboarding, Webstack, MITM Blockpage,
+    Peer-Isolation, FLUSH+REBUILD Reconcile, Hard-Cut, Logging/Monitoring,
+    Fail2ban Event-Klassifikation + NAT-Safety.
+
+  NICHT ÜBERNOMMEN:
+    IKEv2/strongSwan, VICI-Listener, conn_group als Einzelfeld.
+
+  DATEIEN ERSTELLT:
+    00_MANIFEST, 01_GLOSSARY, 02_ASSUMPTIONS_AND_RULES, 03_CHANGELOG,
+    CLAUDE_BRIEFING, NAVIGATIONSKARTE, PRIORITAETENLISTE, LICENSE.
+
+================================================================================
