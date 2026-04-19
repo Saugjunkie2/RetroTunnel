@@ -1,7 +1,7 @@
 ================================================================================
 RetroTunnel — REVIEW TRACKER
 ================================================================================
-VERSION: v1.0
+VERSION: v1.1
 DATUM: 2026-04-19
 STATUS: ACTIVE
 
@@ -39,21 +39,28 @@ Legende Status:
   00_MANIFEST.txt                    ~ PARTIAL
     Grundentscheidungen, Design-Prinzipien, Ordnerstruktur.
     v0.7: 3-stellig, tunnel_type ENUM, BASE-005, Tunnel-Tausch.
+    v1.1: IPv6 visuelle Kodierung (§4.3 Pool-Tabelle, Mapping-Regel,
+    v6_visual Spalte, SERVICE_NET Ausnahme, Normalisierungsvertrag,
+    Reverse-Derivation-Verbot, RFC 5952 Textform-Varianz).
 
   01_GLOSSARY.txt                    ~ PARTIAL
     Kanonische Begriffe. v1.1: L2TP_IPSEC/WIREGUARD,
     Auth-Tabellen umbenannt, PREFIX-LEGENDE erweitert.
 
   02_ASSUMPTIONS_AND_RULES.txt       ~ PARTIAL
-    16 Regeln (inkl. R-14, R-15, R-16), 9 Annahmen, 5 Nicht-Annahmen.
+    17 Regeln (R-01..R-17, inkl. R-17 Panel-Consumability),
+    9 Annahmen, 5 Nicht-Annahmen.
     v0.9: 3-stellig, tunnel_type ENUM, R-16 Invarianten/Tests zuletzt.
+    R-17 Panel-Consumability spaeter ergaenzt.
 
   03_CHANGELOG.txt                   ~ PARTIAL
     Zentrale Projekthistorie. v0.10: Tag-3-Sammeleintrag (7 Teile).
+    v1.1: IPv6 visuelle Kodierung Eintrag.
 
   CLAUDE_BRIEFING.txt                ~ PARTIAL
     Handoff/Arbeitsanweisungen für Claude. v0.27: Tag-3-Reorganisation,
     ERKENNTNIS 8 NEU, Teil 3.3 ueberarbeitet.
+    v1.1: Pool-Tabelle aktualisiert (IPv6 visuelle Kodierung).
 
   REVIEW_STANDARD.txt                ✓ CLEAN
     Review-Methodik, 8 Prüfebenen. Nicht von Tag-3-Reorganisation betroffen.
@@ -70,6 +77,8 @@ Legende Status:
 
   README.md                          ~ PARTIAL
     Projektbeschreibung, GitHub-ready. Tag-3-Update.
+    v1.1: Pool-Tabelle + IPv6 visuelle Kodierung Hinweis (alter
+    Hex-Hinweis ersetzt).
 
   LICENSE                            ○ STATIC
 
@@ -87,7 +96,11 @@ Legende Status:
   Datei                              Status
   ─────────────────────────────────  ──────
   model/DOMAIN_MODEL.txt             ◇ DEPRECATED (→ BASE-010)
+    v1.1: VIP IPv6 /62→/64 (Inline-Fix, Q-04 Option A).
   model/NETWORK_MODEL.txt            ◇ DEPRECATED (→ BASE-010 + BASE-005)
+    v1.1: Pool-Tabelle, Ableitungsformel (role_prefix_v6_visual),
+    §6.3 USER Prefix, §7.3 IPv6 nftables Rollen-Enforcement
+    ergaenzt (fehlte komplett). Alle Inline-Fix (Q-04 Option A).
   model/TRUTH_MODEL.txt              ◇ DEPRECATED (→ BASE-000 + BASE-090)
   model/state_machines/
     SM_CONNECTION.txt                ◇ DEPRECATED (→ BASE-010)
@@ -145,9 +158,14 @@ Legende Status:
     Gemini-Quellcode-Pruefung ($SID). Alle Befunde verarbeitet.
     Entwuerfe: boot-firewall-baseline/, psk-secret-lifecycle/.
   base/BASE-040_TUNNEL_WIREGUARD       □ EMPTY  (neuer, hoehere Nummer)
+    Entwuerfe: ENTWURF_IPV6_DUALSTACK_CONFIG.txt (v1.1, Folge-Pflicht)
   base/BASE-050_FIREWALL_CORE          □ EMPTY
+    Entwuerfe: boot-firewall-baseline/, portfreigaben/,
+    ENTWURF_IPV6_NFTABLES_ROLLEN.txt (v1.1, Folge-Pflicht)
   base/BASE-060_DNS_CORE               □ EMPTY
   base/BASE-070_SESSION_CORE           □ EMPTY
+    Entwuerfe: ENTWURF_IPV6_ALLOKATOR.txt (v1.1, Folge-Pflicht,
+    vpn_pool_config Tabelle Option B entschieden)
   base/BASE-080_POLICY_APPLY_CORE      □ EMPTY
   base/BASE-090_SETTINGS_CORE          □ EMPTY
   base/BASE-100_POLICY_CORE            □ EMPTY
@@ -175,6 +193,12 @@ Legende Status:
     Checks und Cross-File-Prüfungen NICHT berücksichtigt.
     Keine Datei in entwuerfe/ darf als Quelle für kanonische
     Dateien referenziert werden.
+    Inhalt (Stand v1.1):
+    - ENTWURF_IPV6_VISUELLE_KODIERUNG_v2.txt (946 Zeilen, 15 Sektionen,
+      3× ChatGPT-Review + 1× Claude-Review. KANN GELOESCHT WERDEN —
+      alle Inhalte sind ins Konzept propagiert.)
+    - chatgpt_drittreview_ipv6_visuelle_kodierung.txt (Review-Auftrag)
+    - chatgpt_drittreview_ipv6_visuelle_kodierung_ergebnis.txt (Review-Ergebnis)
 
 ── BEKANNTE DRIFTS (sofort sichtbar) ───────────────────────────────────
 
@@ -198,6 +222,16 @@ Legende Status:
             FERTIG: Alle kanonischen Dateien (Root-Governance, base/,
              decisions/, docs/, implementation/, README). model/-Dateien
              mit Deprecation-Header + Begriffs-Bruecke abgedeckt.
+  DRIFT-07: ERLEDIGT. v1.1 IPv6 visuelle Kodierung Propagation:
+            USER IPv6 fd77:0:0:10::/60 → fd77:0:0:16::/64,
+            VIP IPv6 /62 → /64. role_prefix_v6_visual als expliziter
+            Wert pro Rolle. SERVICE_NET als bewusste Ausnahme.
+            Mapping-Regel, Normalisierungsvertrag, Reverse-Derivation-
+            Verbot, RFC 5952 Textform-Varianz in MANIFEST §4.3.
+            IPv6 nftables Rollen-Enforcement in NETWORK_MODEL §7.3
+            ergaenzt (fehlte komplett). Folge-Entwuerfe in BASE-040/
+            050/070. 3× ChatGPT-Review + 1× Claude-Review bestanden.
+            Grep-Verifikation: 0 alte Prefixe in aktiven Dateien.
             VERIFIKATION (2026-04-17, grep-Sweep): Keine operativen
              LEGACY/MODERN oder 2-stelligen BASE-Nummern in aktiven,
              nicht-deprecated Dateien. Alle Treffer in akzeptablen
@@ -345,7 +379,7 @@ SWEEP 2 — REGELN UND BEGRIFFE
          Begriffe stimmen mit Nutzung überein?
 
   S2-02  02_ASSUMPTIONS_AND_RULES.txt                Klasse B
-         Prüfung: Sind die 16 Regeln noch aktuell? Sind die
+         Prüfung: Sind die 17 Regeln noch aktuell? Sind die
          9 Annahmen durch Model-Arbeit bestätigt/widerlegt?
 
   S2-03  03_CHANGELOG.txt                            Klasse B

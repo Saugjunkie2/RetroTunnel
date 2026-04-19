@@ -216,8 +216,8 @@ beide IPs aus dem ADMIN-Pool. tunnel_type bestimmt nur das Protokoll.
   ─────────── ──────────────── ────── ────────────── ──────────── ──────────────────── ──────
   ADMIN       10.77.2.0/24      254   Slot 0, Slot 1  2..254 (253) fd77:0:0:2::/64     Admin
   MODERATOR   10.77.3.0/24      254   Slot 0, Slot 1  2..254 (253) fd77:0:0:3::/64     Mod
-  VIP         10.77.4.0/22     1022   Slot 0, Slot 1  2..1022(1021)fd77:0:0:4::/62     VIP
-  USER        10.77.16.0/20    4094   Slot 0, Slot 1  2..4094(4093)fd77:0:0:10::/60    User
+  VIP         10.77.4.0/22     1022   Slot 0, Slot 1  2..1022(1021)fd77:0:0:4::/64     VIP
+  USER        10.77.16.0/20    4094   Slot 0, Slot 1  2..4094(4093)fd77:0:0:16::/64    User
 
   Legende:
     Hosts     = Gesamte IPv4-Hostkapazität des CIDR (ohne Netz-/Broadcastadresse)
@@ -260,16 +260,19 @@ beide IPs aus dem ADMIN-Pool. tunnel_type bestimmt nur das Protokoll.
 
   Für jeden Pool gilt eine deterministische Formel:
     fixed_ip   = pool_base_v4 + ip_slot
-    fixed_ipv6 = pool_prefix_v6 :: ip_slot  (nur wenn v6_addr_policy=FIXED_SQL)
+    fixed_ipv6 = fd77:0:0:<role_prefix_v6_visual>::A:B
+                 (A = drittes IPv4-Oktett, B = viertes IPv4-Oktett)
+                 (nur wenn v6_addr_policy=FIXED_SQL)
+                 (IPv6 VISUELLE KODIERUNG — Detail: MANIFEST §4.3)
 
   Beispiele:
     ADMIN Pool, ip_slot=5:
       fixed_ip   = 10.77.2.0 + 5 = 10.77.2.5
-      fixed_ipv6 = fd77:0:0:2::5
+      fixed_ipv6 = fd77:0:0:2::2:5
 
     USER Pool, ip_slot=42:
       fixed_ip   = 10.77.16.0 + 42 = 10.77.16.42
-      fixed_ipv6 = fd77:0:0:10::42 (nur MODERN)
+      fixed_ipv6 = fd77:0:0:16::16:42 (nur WIREGUARD)
 
   Slot 0 ist reserviert (Netzadresse, nicht allokierbar).
   Slot 1 ist SYSTEM-RESERVED (Gateway-Anchor, NIEMALS allokierbar —
@@ -298,7 +301,7 @@ beide IPs aus dem ADMIN-Pool. tunnel_type bestimmt nur das Protokoll.
   Alle Rollen haben IPv6-Bereiche definiert (Abschnitt 5.1).
   Ob IPv6 tatsächlich zugewiesen wird, hängt NUR an tunnel_type:
   - ADMIN mit Legacy-Gerät: kein IPv6 (trotz fd77:0:0:2::/64 im Pool)
-  - USER mit Modern-Gerät:  IPv6 aus fd77:0:0:10::/60
+  - USER mit Modern-Gerät:  IPv6 aus fd77:0:0:16::/64
 
 6.4) NAT66/MASQUERADE
   - nftables POSTROUTING: ip6 saddr fd77::/16 oifname ens18 → masquerade
@@ -347,10 +350,22 @@ Legende:
 7.3) nftables Enforcement-Pattern
 
   Rollen-Enforcement (CIDR-Range, statisch):
+
+    IPv4:
     ip saddr 10.77.2.0/24  → ADMIN  (alle Admin-Rechte)
     ip saddr 10.77.3.0/24  → MOD    (Moderator-Rechte)
     ip saddr 10.77.4.0/22  → VIP    (VIP-Rechte, kein Admin-Panel)
     ip saddr 10.77.16.0/20 → USER   (User-Rechte, plan-gebunden)
+
+    IPv6 (visuelle Kodierung, nur WIREGUARD/Dualstack):
+    ip6 saddr fd77:0:0:2::/64  → ADMIN
+    ip6 saddr fd77:0:0:3::/64  → MOD
+    ip6 saddr fd77:0:0:4::/64  → VIP
+    ip6 saddr fd77:0:0:16::/64 → USER
+
+    L2TP_IPSEC hat kein IPv6 (NA-05) — IPv6-Regeln greifen nur fuer
+    WIREGUARD Connections. /64 deckt den gesamten visuell kodierten
+    Hostteil ::A:B ab (A und B liegen vollstaendig in den unteren 64 Bit).
 
   Zustands-Enforcement (dynamische Sets):
     restricted_v4 / restricted_v6   → Walled Garden Allowlist

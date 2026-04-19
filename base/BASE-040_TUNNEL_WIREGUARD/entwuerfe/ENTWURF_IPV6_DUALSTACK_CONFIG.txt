@@ -1,0 +1,78 @@
+================================================================================
+ENTWURF: IPv6 DUALSTACK IN WIREGUARD CONFIG-RENDER
+================================================================================
+STATUS: ENTWURF (nicht normativ, KR-01)
+DATUM: 2026-04-19
+HERKUNFT: Folge-Pflicht aus ENTWURF_IPV6_VISUELLE_KODIERUNG_v2.txt §15 (F-02)
+SCOPE: BASE-040_TUNNEL_WIREGUARD
+
+================================================================================
+1) KONTEXT
+================================================================================
+
+WireGuard-Connections sind Dualstack (IPv4 + IPv6). Jede Connection
+hat in vpn_connections:
+  - fixed_ip:   materialisierte IPv4-Adresse (z.B. 10.77.16.42)
+  - fixed_ipv6: materialisierte IPv6-Adresse (z.B. fd77:0:0:16::16:42)
+
+Die IPv6-Adresse folgt der VISUELLEN KODIERUNG (MANIFEST §4.3):
+  10.77.A.B ↔ fd77:0:0:<role_prefix_v6_visual>::A:B
+
+================================================================================
+2) PFLICHT-REGELN FUER BASE-040
+================================================================================
+
+P-01  AllowedIPs im WireGuard-Interface MUESSEN aus den materialisierten
+      DB-Werten fixed_ip und fixed_ipv6 gelesen werden.
+      VERBOTEN: fixed_ipv6 zur Runtime aus ip_slot neu berechnen.
+      VERBOTEN: fixed_ipv6 aus fixed_ip ableiten.
+      Die DB ist die einzige Quelle fuer beide Adressen.
+
+P-02  Config-Render (Profildatei / QR-Code fuer Client) muss beide
+      Adressen enthalten:
+        [Interface]
+        Address = 10.77.16.42/32, fd77:0:0:16::16:42/128
+
+      Die IPv6-Adresse wird 1:1 aus fixed_ipv6 uebernommen.
+      Keine Re-Normalisierung, keine RFC-5952-Kanonisierung.
+
+P-03  Server-seitige AllowedIPs (wg set):
+        AllowedIPs = 10.77.16.42/32, fd77:0:0:16::16:42/128
+
+      Auch hier: nur DB-Werte, keine Neuberechnung.
+
+P-04  RFC 5952 TEXTFORM-VARIANZ:
+      wg show zeigt IPv6-Adressen moeglicherweise in RFC-5952-Form:
+        DB:       fd77:0:0:16::16:42
+        wg show:  fd77::16:0:0:16:42
+      Binaer identisch, textlich verschieden. Bei Debugging und
+      Diagnostik: Immer die DB als Referenz nutzen, nicht wg show.
+
+P-05  L2TP_IPSEC ist NICHT betroffen (kein IPv6, NA-05).
+      Diese Regeln gelten NUR fuer tunnel_type=WIREGUARD.
+
+================================================================================
+3) TESTVEKTOREN
+================================================================================
+
+  Slot   Client-Config Address                  Server AllowedIPs
+  ─────  ─────────────────────────────────────  ──────────────────────────
+  2      10.77.16.2/32, fd77:0:0:16::16:2/128  10.77.16.2/32, fd77:...
+  42     10.77.16.42/32, fd77:0:0:16::16:42/128
+  256    10.77.17.0/32, fd77:0:0:16::17:0/128   (Oktettwechsel)
+  4094   10.77.31.254/32, fd77:0:0:16::31:254/128 (Pool-Ende USER)
+  VIP 5  10.77.4.5/32, fd77:0:0:4::4:5/128
+
+================================================================================
+4) OFFENE FRAGEN (bei BASE-040 Ausarbeitung zu klaeren)
+================================================================================
+
+  - Wird fixed_ipv6 als /128 oder als /64 im Client-Config gesetzt?
+    /128 = nur diese eine Adresse. /64 = Client routet ganzes Subnetz.
+    Empfehlung: /128 (punkt-zu-punkt, kein Subnetz-Routing noetig).
+  - DNS-Konfiguration im Client-Config: IPv4-only (10.77.0.1) oder
+    auch IPv6 (fd77:0:0:0::1)?
+
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

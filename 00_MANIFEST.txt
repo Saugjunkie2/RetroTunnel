@@ -191,10 +191,31 @@ DP-08  Plans differenzieren über Leistung, nicht über Sicherheit
   SERVICE_NET   10.77.0.0/28      fd77:0:0:0::/64    7 Anchors: DNS, Resolver,
                                                      Web/Panel, SSH, NTP, PMA,
                                                      GW_PPP. Details: BASE-005_030 §1.
-  ADMIN         10.77.2.0/24      fd77:0:0:2::/64
-  MODERATOR     10.77.3.0/24      fd77:0:0:3::/64
-  VIP           10.77.4.0/22      fd77:0:0:4::/62
-  USER          10.77.16.0/20     fd77:0:0:10::/60
+                                                     AUSNAHME: Infrastruktur,
+                                                     nicht visuell kodiert.
+  ADMIN         10.77.2.0/24      fd77:0:0:2::/64    v6_visual: 2
+  MODERATOR     10.77.3.0/24      fd77:0:0:3::/64    v6_visual: 3
+  VIP           10.77.4.0/22      fd77:0:0:4::/64    v6_visual: 4
+  USER          10.77.16.0/20     fd77:0:0:16::/64   v6_visual: 16
+
+  IPv6 VISUELLE KODIERUNG (Connection-Adressen):
+  IPv6-Adressen fuer Connections werden NICHT numerisch aus IPv4
+  abgeleitet, sondern visuell kodiert. Pro Rolle ist ein expliziter
+  role_prefix_v6_visual (v6_visual) definiert.
+  Regel: 10.77.A.B ↔ fd77:0:0:<v6_visual>::A:B
+  Beispiel USER Slot 42: 10.77.16.42 ↔ fd77:0:0:16::16:42
+  Kanonische Textform: fd77:0:0:<v6_visual>::A:B (keine fuehrenden
+  Nullen, :: Komprimierung). Allokator (BASE-070) ist einziger Writer.
+  Consumer lesen den DB-Wert AS-IS, keine Re-Normalisierung.
+  Reverse-Derivation-Verbot: Consumer duerfen aus fixed_ipv6
+  NICHT ip_slot oder Pool zurueckrechnen. Wer den Slot braucht,
+  liest ip_slot aus der DB.
+  RFC 5952 Textform-Varianz: CLI-Tools (wg show, ip addr, nftables)
+  koennen dieselbe Adresse in anderer Textform anzeigen als der
+  DB-String (fd77::16:0:0:16:42 statt fd77:0:0:16::16:42).
+  Binaer identisch. Beim Debugging: DB ist Referenz, nicht CLI.
+  SERVICE_NET ist AUSNAHME (Infrastruktur, nicht Connection).
+  Detail: entwuerfe/ENTWURF_IPV6_VISUELLE_KODIERUNG_v2.txt
 
   Ein Admin mit einem XP-Gerät (L2TP_IPSEC) und einem modernen Gerät
   (WIREGUARD) bekommt beide IPs aus dem ADMIN-Pool. tunnel_type bestimmt

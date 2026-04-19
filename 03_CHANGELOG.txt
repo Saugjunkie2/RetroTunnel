@@ -14,6 +14,47 @@ sind leer (Verweis auf diese Datei).
 VERSIONSHISTORIE
 ================================================================================
 
+v1.1 (2026-04-19) — IPv6 VISUELLE KODIERUNG
+
+  DESIGN-AENDERUNG: IPv6-Adressen fuer Connection-Pools werden
+  visuell kodiert statt numerisch gespiegelt.
+  Regel: 10.77.A.B ↔ fd77:0:0:<role_prefix_v6_visual>::A:B
+  Beispiel USER Slot 42: 10.77.16.42 ↔ fd77:0:0:16::16:42
+  Ausloeser: Marco-Beobachtung (fd77:0:0:10:: sieht nicht aus
+  wie 10.77.16.0), ChatGPT-Loesung (visuelle Kodierung statt
+  numerische Spiegelung — Designfamilie die Claude uebersehen hatte).
+  3× ChatGPT-Review + 1× Claude-Review (RFC 5952 Textform-Varianz).
+
+  POOL-AENDERUNGEN:
+  - USER IPv6: fd77:0:0:10::/60 → fd77:0:0:16::/64
+  - VIP IPv6: fd77:0:0:4::/62 → fd77:0:0:4::/64
+  - Alle IPv6-Pools einheitlich /64 (kein Kapazitaetsverlust in IPv6)
+  - IPv4-Pools: UNVERAENDERT
+
+  NEUE KONZEPTE:
+  - role_prefix_v6_visual: Expliziter visueller IPv6-Prefix pro Rolle
+    (nicht dynamisch aus IPv4-Startoffset abgeleitet)
+  - Kanonische Textform: fd77:0:0:<v6_visual>::A:B
+    (keine fuehrenden Nullen, Allokator ist einziger Writer)
+  - Reverse-Derivation-Verbot: Consumer duerfen aus fixed_ipv6
+    nicht ip_slot zurueckrechnen
+  - SERVICE_NET: Bewusste Ausnahme (Infrastruktur, nicht Connection)
+  - RFC 5952 Textform-Varianz: CLI-Tools (wg show, ip addr) koennen
+    die Adresse in anderer Textform anzeigen als der DB-String
+
+  BETROFFENE DATEIEN:
+  - 00_MANIFEST.txt §4.3: Pool-Tabelle + Mapping-Regel + v6_visual
+  - CLAUDE_BRIEFING.txt Teil 3.1: Pool-Tabelle aktualisiert
+  - README.md: Pool-Tabelle + IPv6-Hinweis ersetzt
+  - model/NETWORK_MODEL.txt: Formel, Pool-Tabelle, §6.3, §7.3 IPv6-
+    Rollen-Enforcement ergaenzt (fehlte komplett — Luecke geschlossen)
+  - model/DOMAIN_MODEL.txt: VIP /62→/64 (Inline-Fix)
+
+  NICHT BETROFFEN: BASE-000 bis BASE-030, D002, D003, alle
+  Governance-Dateien, lo-service-ips.service, DB-Schema.
+
+  ENTWURF: entwuerfe/ENTWURF_IPV6_VISUELLE_KODIERUNG_v2.txt (900+ Zeilen)
+
 v1.0 (2026-04-19) — VERSIONS-KONSOLIDIERUNG + CHATGPT FULL-AUDIT
 
   VERSIONS-KONSOLIDIERUNG:

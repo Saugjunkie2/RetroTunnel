@@ -1,0 +1,141 @@
+================================================================================
+ENTWURF: IPv6 ALLOKATOR — VISUELLE KODIERUNG + KANONISCHE TEXTFORM
+================================================================================
+STATUS: ENTWURF (nicht normativ, KR-01)
+DATUM: 2026-04-19
+HERKUNFT: Folge-Pflicht aus ENTWURF_IPV6_VISUELLE_KODIERUNG_v2.txt §15 (F-02)
+SCOPE: BASE-070_SESSION_CORE (IP-Allokator-Komponente)
+
+================================================================================
+1) KONTEXT
+================================================================================
+
+Der IP-Allokator ist der EINZIGE Writer fuer fixed_ip und fixed_ipv6
+in vpn_connections (BASE-010_080 Write-Path-Matrix: nur SYSTEM hat W).
+Er muss die visuelle IPv6-Kodierung implementieren und die kanonische
+Textform rendern.
+
+================================================================================
+2) ABLEITUNGSFORMEL (implementiert MANIFEST §4.3)
+================================================================================
+
+  Input:
+    - ip_slot (allokierter Slot aus dem Rollen-Pool)
+    - pool_base_v4 (IPv4-Basisadresse des Pools, z.B. 10.77.16.0)
+    - role_prefix_v6_visual (expliziter visueller IPv6-Prefix der Rolle)
+
+  Schritt 1: fixed_ip berechnen
+    fixed_ip = pool_base_v4 + ip_slot
+    Beispiel: 10.77.16.0 + 42 = 10.77.16.42
+
+  Schritt 2: IPv4-Oktette extrahieren
+    A = drittes Oktett der berechneten IPv4-Adresse
+    B = viertes Oktett der berechneten IPv4-Adresse
+    Beispiel: A=16, B=42
+
+  Schritt 3: role_prefix_v6_visual lesen
+    Der Allokator liest diesen Wert aus der Runtime-Konfiguration
+    (siehe §4 — OFFENE DESIGN-ENTSCHEIDUNG).
+    Beispiel USER: role_prefix_v6_visual = 16
+
+  Schritt 4: fixed_ipv6 in kanonischer Textform rendern
+    fixed_ipv6 = sprintf("fd77:0:0:%d::%d:%d", v6_visual, A, B)
+    Beispiel: fd77:0:0:16::16:42
+
+  Schritt 5: Atomar in vpn_connections schreiben
+    INSERT INTO vpn_connections (..., fixed_ip, fixed_ipv6, ...)
+    VALUES (..., '10.77.16.42', 'fd77:0:0:16::16:42', ...);
+    Beide Werte sind danach immutable (VC-04, INV-30).
+
+================================================================================
+3) KANONISCHE TEXTFORM — RENDERING-REGELN
+================================================================================
+
+Der Allokator ist der EINZIGE Erzeuger der fixed_ipv6 Textform.
+Alle anderen Systemkomponenten lesen den DB-Wert AS-IS.
+
+  REGELN:
+  - Keine fuehrenden Nullen in Hextets (16, nicht 016 oder 0016)
+  - :: Komprimierung fuer aufeinanderfolgende Null-Hextets
+  - A und B als Dezimalzahlen OHNE fuehrende Nullen
+  - Projektform: fd77:0:0:<v6_visual>::A:B
+
+  KORREKT:   fd77:0:0:16::16:42
+  FALSCH:    fd77:0:0:16::16:042     (fuehrende Null)
+  FALSCH:    fd77:0000:0000:0016::0016:002a  (expanded)
+  FALSCH:    fd77::16:0:0:16:42      (RFC 5952 Form — wird NICHT verwendet)
+
+  VERGLEICHE:
+  String-Vergleich auf dem DB-Wert. Keine binaere IPv6-Normalisierung.
+  UNIQUE-Constraint in der DB schuetzt gegen Duplikate.
+
+  REVERSE-DERIVATION-VERBOT:
+  Consumer duerfen aus fixed_ipv6 NICHT den ip_slot oder Pool
+  zurueckrechnen. Wer den Slot braucht, liest ip_slot aus der DB.
+
+================================================================================
+4) OFFENE DESIGN-ENTSCHEIDUNG: WO LEBT role_prefix_v6_visual?
+================================================================================
+
+role_prefix_v6_visual ist pro Rolle definiert (MANIFEST §4.3 SoT).
+Zur Runtime muss der Allokator diesen Wert irgendwoher lesen.
+
+  OPTION A: settings_catalog (Settings-Keys)
+    pool.admin.v6_visual     = 2
+    pool.moderator.v6_visual = 3
+    pool.vip.v6_visual       = 4
+    pool.user.v6_visual      = 16
+    Nachteil: Pool-Konfiguration verteilt auf mehrere Settings-Keys.
+
+  OPTION B: Eigene Pool-Konfigurationstabelle ← GEWAEHLT (Marco)
+    vpn_pool_config (access_role, pool_base_v4, pool_cidr_v4,
+                     v6_visual, pool_prefix_v6, pool_cidr_v6)
+    Vorteil: Alle Pool-Parameter an einem Ort, direkt JOIN-bar.
+    Hinweis: Neue Tabelle, muss in BASE-000 Registry aufgenommen werden.
+    Bei BASE-070 Ausarbeitung: Schema detailliert definieren,
+    Tabelle in BASE-000_040_TABELLEN_REGISTRY registrieren.
+
+  OPTION C: Hardcoded im Allokator-Code
+    VERBOTEN — verletzt R-03 (keine Magic Numbers).
+
+  ENTSCHEIDUNG: OPTION B (Marco, 2026-04-19).
+  Bis zur Ausarbeitung von BASE-070 ist MANIFEST §4.3 die SoT.
+
+================================================================================
+5) TESTVEKTOREN FUER DEN ALLOKATOR
+================================================================================
+
+  Jeder Testvektor prueft: ip_slot → fixed_ip → fixed_ipv6
+
+  Rolle  Slot   fixed_ip         fixed_ipv6                      Grenzfall
+  ─────  ─────  ───────────────  ──────────────────────────────  ──────────────
+  USER   2      10.77.16.2       fd77:0:0:16::16:2              Erster Slot
+  USER   42     10.77.16.42      fd77:0:0:16::16:42             Standard
+  USER   255    10.77.16.255     fd77:0:0:16::16:255            Vor Oktettwechsel
+  USER   256    10.77.17.0       fd77:0:0:16::17:0              Erster Wechsel
+  USER   300    10.77.17.44      fd77:0:0:16::17:44             Nach Wechsel
+  USER   4094   10.77.31.254     fd77:0:0:16::31:254            Letzter Slot
+  VIP    5      10.77.4.5        fd77:0:0:4::4:5                VIP Standard
+  VIP    1022   10.77.7.254      fd77:0:0:4::7:254              VIP letzter
+  ADMIN  5      10.77.2.5        fd77:0:0:2::2:5                ADMIN Standard
+  MOD    12     10.77.3.12       fd77:0:0:3::3:12               MOD Standard
+
+  Negative Tests:
+  - Slot 0 → REJECT (Netzadresse, nicht allokierbar)
+  - Slot 1 → REJECT (Gateway-Anchor, SYSTEM-RESERVED)
+  - Slot 4095+ (USER) → REJECT (ausserhalb Pool-Range)
+  - tunnel_type=L2TP_IPSEC → fixed_ipv6 = NULL (NA-05)
+
+================================================================================
+6) ABGRENZUNG — WAS DER ALLOKATOR NICHT TUT
+================================================================================
+
+  - Keine Re-Normalisierung von bestehenden fixed_ipv6 Werten
+  - Keine Rueckrechnung aus fixed_ipv6 zu ip_slot
+  - Keine SERVICE_NET Adressen (Infrastruktur, AUSNAHME)
+  - Keine WireGuard-Config-Erzeugung (→ BASE-040)
+  - Keine Firewall-Regel-Erzeugung (→ BASE-050)
+
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

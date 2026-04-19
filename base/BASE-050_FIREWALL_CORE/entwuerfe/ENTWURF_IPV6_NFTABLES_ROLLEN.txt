@@ -1,0 +1,80 @@
+================================================================================
+ENTWURF: IPv6 ROLLEN-ENFORCEMENT IN NFTABLES
+================================================================================
+STATUS: ENTWURF (nicht normativ, KR-01)
+DATUM: 2026-04-19
+HERKUNFT: Folge-Pflicht aus ENTWURF_IPV6_VISUELLE_KODIERUNG_v2.txt §15 (F-02)
+SCOPE: BASE-050_FIREWALL_CORE
+
+================================================================================
+1) KONTEXT
+================================================================================
+
+Rollen-Enforcement in nftables nutzt statische CIDR-Ranges um
+Traffic pro access_role zu klassifizieren. IPv4-Regeln existieren
+bereits im NETWORK_MODEL §7.3. IPv6-Regeln muessen bei BASE-050
+Ausarbeitung von Anfang an mit den visuellen Prefixen und /64
+implementiert werden.
+
+================================================================================
+2) IPv6 ROLLEN-ENFORCEMENT REGELN
+================================================================================
+
+Die folgenden IPv6-CIDRs sind die kanonische Grundlage fuer
+Rollen-Enforcement. Sie stammen aus MANIFEST §4.3 (SoT).
+
+  IPv4 (unveraendert):                IPv6 (visuelle Kodierung):
+  ip saddr 10.77.2.0/24  → ADMIN     ip6 saddr fd77:0:0:2::/64  → ADMIN
+  ip saddr 10.77.3.0/24  → MOD       ip6 saddr fd77:0:0:3::/64  → MOD
+  ip saddr 10.77.4.0/22  → VIP       ip6 saddr fd77:0:0:4::/64  → VIP
+  ip saddr 10.77.16.0/20 → USER      ip6 saddr fd77:0:0:16::/64 → USER
+
+PFLICHT-REGELN:
+
+P-01  IPv6-Rollen-CIDRs MUESSEN aus MANIFEST §4.3 uebernommen werden.
+      Keine historischen /60 oder /62 Prefixe verwenden.
+      Alle Rollen-Pools sind einheitlich /64.
+
+P-02  IPv6-Regeln greifen NUR fuer WIREGUARD-Traffic (awg0 Interface).
+      L2TP_IPSEC (ppp* Interfaces) hat kein IPv6 (NA-05).
+
+P-03  /64 deckt den gesamten visuell kodierten Hostteil ab.
+      Die Hextets ::A:B liegen vollstaendig in den unteren 64 Bit.
+      Beispiel: fd77:0:0:16::31:254 liegt in fd77:0:0:16::/64.
+
+P-04  SERVICE_NET (fd77:0:0:0::/64) ist AUSNAHME — Infrastruktur,
+      nicht Connection-basiert. SERVICE_NET hat eigene Firewall-Regeln
+      die sich nicht aus der visuellen Kodierung ableiten.
+
+================================================================================
+3) DYNAMISCHE SETS (IPv6-Seite)
+================================================================================
+
+  restricted_v6    → Walled Garden Allowlist (Connection-IPs aus DB)
+  connect_pending_v6 → Connect-Gate
+  banned_v6        → Fail2ban Banset
+
+  Diese Sets enthalten konkrete IPv6-Adressen (nicht CIDRs).
+  Die Adressen kommen aus vpn_connections.fixed_ipv6 — also in
+  der kanonischen Projektform (fd77:0:0:16::16:42).
+
+  ACHTUNG: nftables normalisiert IPv6-Adressen intern moeglicherweise
+  nach RFC 5952. Bei Set-Operationen (add/delete) muss die Adresse
+  in der Form verwendet werden die nftables erwartet. Die DB ist
+  die SoT, aber der Set-Loader muss pruefen ob nftables die
+  Projekt-Textform akzeptiert oder ob eine Konvertierung noetig ist.
+  Das ist ein Implementierungsdetail fuer BASE-050 Ausarbeitung.
+
+================================================================================
+4) REIHENFOLGE IN NFTABLES (IPv4 + IPv6 parallel)
+================================================================================
+
+  1. Banned-Check       (banned_v4 + banned_v6)
+  2. Connect-Pending    (connect_pending_v4 + connect_pending_v6)
+  3. Restricted         (restricted_v4 + restricted_v6)
+  4. Rollen-Enforcement (IPv4 CIDR + IPv6 CIDR parallel)
+  5. Forward/NAT        (IPv4 NAT + IPv6 NAT66/MASQUERADE)
+
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

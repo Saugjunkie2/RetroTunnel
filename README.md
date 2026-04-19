@@ -53,10 +53,14 @@ Rollen gehören zum **Customer** (Webpanel-Rang), nicht zur Connection. Alle Con
 | SERVICE_NET | 10.77.0.0/28 | fd77:0:0:0::/64 | 7 Anchors |
 | ADMIN | 10.77.2.0/24 | fd77:0:0:2::/64 | 253 Slots |
 | MODERATOR | 10.77.3.0/24 | fd77:0:0:3::/64 | 253 Slots |
-| VIP | 10.77.4.0/22 | fd77:0:0:4::/62 | 1021 Slots |
-| USER | 10.77.16.0/20 | fd77:0:0:10::/60 | 4093 Slots |
+| VIP | 10.77.4.0/22 | fd77:0:0:4::/64 | 1021 Slots |
+| USER | 10.77.16.0/20 | fd77:0:0:16::/64 | 4093 Slots |
 
 Ein Admin mit einem XP-Gerät (L2TP_IPSEC) und einem Android (WIREGUARD) bekommt beide IPs aus dem ADMIN-Pool. `tunnel_type` bestimmt nur den technischen Pfad, nicht die Rechte.
+
+> **IPv6 visuelle Kodierung:** Dualstack-Connections (WireGuard) bekommen IPv6-Adressen die visuell zur IPv4 passen: `10.77.16.42` ↔ `fd77:0:0:16::16:42`. Im Panel und Support ist sofort erkennbar welche Adressen zusammengehören. SERVICE_NET ist als Infrastruktur von dieser Regel ausgenommen.
+>
+> **Warum die Lücke zwischen VIP und USER?** VIP endet bei Offset 7 (`10.77.7.255`), USER beginnt erst bei Offset 16 (`10.77.16.0`). Der Bereich 8–15 (2048 IPv4-Adressen) ist bewusster Wachstumspuffer — falls VIP oder MODERATOR später größere Pools brauchen oder eine neue Rolle eingefügt wird.
 
 ## Design-Prinzipien
 
