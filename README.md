@@ -1,15 +1,18 @@
 # RetroTunnel
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
+![Concept version: v2.1.15](https://img.shields.io/badge/Concept-v2.1.15-blue.svg)
 ![Status: M2 In Progress](https://img.shields.io/badge/Phase-M2%20In%20Progress-yellow.svg)
 ![Platform: Debian 13](https://img.shields.io/badge/Platform-Debian%2013-informational.svg)
 
-Debian-basierter Dual-Tunnel VPN-Stack, der zwei grundverschiedene Client-Welten auf einem Server bedient:
+RetroTunnel ist ein in Entwicklung befindliches Architektur- und Implementierungskonzept für einen Debian-basierten Dual-Tunnel-VPN-Stack. Die Zielarchitektur soll zwei grundverschiedene Client-Welten auf einem Server bedienen:
 
 - **L2TP_IPSEC** — Windows XP / Vista über L2TP/IPsec (accel-ppp)
-- **WIREGUARD**  — Alle modernen Geräte über AmneziaWireGuard (DPI-resistent)
+- **WIREGUARD**  — Moderne Geräte über AmneziaWireGuard (DPI-Obfuskation als Designziel)
 
-Full-Tunnel VPN mit deterministischer Server-Side Policy, SQL-first AAA, rollenbasiertem Enforcement, DNS-Zwang, internem Webpanel und einem produktionsfähigen Betriebsmodell.
+Geplant ist ein Full-Tunnel-VPN mit deterministischer Server-Side Policy, SQL-first AAA, rollenbasiertem Enforcement, DNS-Zwang, internem Webpanel und einem auf Produktivbetrieb ausgerichteten Betriebsmodell.
+
+> **Projektstand: Konzeptentwicklung (v2.1.15).** Die dokumentierten Module und Entscheidungen beschreiben den vorgesehenen Systemaufbau. Das Repository stellt derzeit **keine fertig implementierte oder als produktionsreif abgenommene VPN-Gesamtlösung** bereit. Fortschrittsangaben beziehen sich auf die Konzeptarbeit, soweit nicht ausdrücklich anders bezeichnet. Die [Prioritätenliste](PRIORITAETENLISTE.txt) dokumentiert die Arbeitsreihenfolge; der [Phasenplan](04_PHASE_PLAN.txt) beschreibt die erforderlichen Reife- und Abnahmekriterien. Einzelne Quelldateien können eigene Versionsstände führen; v2.1.15 bezeichnet den zentral dokumentierten Projektstand im [Changelog](03_CHANGELOG.txt).
 
 ## Warum existiert dieses Projekt?
 
@@ -19,7 +22,7 @@ RetroTunnel ist der Nachfolger von **xp-vpn-stack** (8 Monate Konzeptarbeit). De
 2. **Client-Einrichtung zu komplex** — Windows 11 brauchte manuelle IPv6-Routen, Android brauchte die strongSwan-App.
 3. **QoS unlösbar** — IKEv2 hat keine pppX-Interfaces, tc pro Client war nicht anwendbar.
 
-AmneziaWireGuard löst alle drei Probleme: Dediziertes Interface (awg0), native Apps, tc-basiertes QoS pro Peer, und zusätzlich DPI-Obfuskation.
+AmneziaWireGuard ist im Konzept vorgesehen, um diese drei Probleme zu adressieren: dediziertes Interface (`awg0`), native Apps, tc-basiertes QoS pro Peer und zusätzliche DPI-Obfuskation. Die erfolgreiche Umsetzung ist damit noch nicht nachgewiesen.
 
 ## Architektur auf einen Blick
 
@@ -79,14 +82,15 @@ Vollständige Beschreibung: [`00_MANIFEST.txt`](00_MANIFEST.txt) §3.
 
 ## Projektstruktur
 
-> **Reifehinweis:** Die folgende Baumstruktur zeigt die **Ziel-Architektur**. Nur mit ✅ markierte Ordner haben normativen Inhalt. Ordner ohne Markierung sind Platzhalter für zukünftige Arbeitspakete (M2-M4). `model/` enthält das durchreviewte Denkmodell (DEPRECATED — wird bei Base-Ausarbeitung aufgelöst). Der aktuelle Arbeitsstand ist in der Status-Tabelle am Ende dokumentiert.
+> **Reifehinweis:** Der folgende Baum ist eine **Übersicht der Ziel-Architektur**, kein Anspruch auf ein vollständiges Dateiinventar. Nur mit ✅ markierte Ordner haben normativen Konzeptinhalt. Ordner ohne Markierung sind Platzhalter für zukünftige Arbeitspakete (M2–M4) und möglicherweise noch nicht als Verzeichnis auf GitHub vorhanden (Git verwaltet keine leeren Ordner). `model/` enthält das durchreviewte Denkmodell (DEPRECATED — wird bei Base-Ausarbeitung aufgelöst). Der aktuelle Konzept-Arbeitsstand ist in der Status-Tabelle am Ende dokumentiert.
 
 ```
 RetroTunnel/
 ├── 00_MANIFEST.txt                 Grundentscheidungen, Design-Prinzipien
 ├── 01_GLOSSARY.txt                 Kanonische Begriffe + PREFIX-LEGENDE
-├── 02_ASSUMPTIONS_AND_RULES.txt    17 System-Regeln, 9 Annahmen
+├── 02_ASSUMPTIONS_AND_RULES.txt    19 System-Regeln, 9 Annahmen
 ├── 03_CHANGELOG.txt                Zentrale Projekthistorie
+├── 04_PHASE_PLAN.txt                Soll-Phasen, Reifegrad, Abnahmekriterien
 ├── README.md                       Dieses Dokument
 ├── LICENSE                         MIT
 │
@@ -150,9 +154,12 @@ Seit 2026-04-16 ist die Nummerierung konsequent 3-stellig: Base-Ordner BASE-000 
 
 | Datei | Inhalt |
 |---|---|
-| `00_MANIFEST.txt` | Design-Prinzipien, Architektur-Achsen, Ordnerstruktur, Vorgänger-Referenz |
-| `01_GLOSSARY.txt` | Kanonische Begriffe + PREFIX-LEGENDE (alle Identifier-Namensräume) |
-| `02_ASSUMPTIONS_AND_RULES.txt` | 17 bindende System-Regeln, 9 Annahmen, 5 Nicht-Annahmen |
+| [`00_MANIFEST.txt`](00_MANIFEST.txt) | Design-Prinzipien, Architektur-Achsen, Ordnerstruktur, Vorgänger-Referenz |
+| [`01_GLOSSARY.txt`](01_GLOSSARY.txt) | Kanonische Begriffe + PREFIX-LEGENDE (alle Identifier-Namensräume) |
+| [`02_ASSUMPTIONS_AND_RULES.txt`](02_ASSUMPTIONS_AND_RULES.txt) | 19 bindende System-Regeln, 9 Annahmen, 5 Nicht-Annahmen |
+| [`03_CHANGELOG.txt`](03_CHANGELOG.txt) | Zentrale Versions- und Projekthistorie (aktuell v2.1.15) |
+| [`04_PHASE_PLAN.txt`](04_PHASE_PLAN.txt) | Soll-Phasen und getrennte Kriterien für Konzeptreife sowie Implementierungsabnahme |
+| [`PRIORITAETENLISTE.txt`](PRIORITAETENLISTE.txt) | Aktueller Arbeitsstand und Reihenfolge der Entwicklungsschritte |
 | `base/BASE-000_SQL_FIRST/` | SQL-first Governance: Prefixe, Naming, Registry, Auth-Split |
 | `base/BASE-005_PLATFORM_CORE/` | Plattform-Grundnorm: OS, Endpoints, Users, Secrets, Lifecycle |
 | `model/DOMAIN_MODEL.txt` | Zwei-Ebenen-Modell, Policy-System, reason_registry, Zählregel |
@@ -185,7 +192,9 @@ Governance-Dateien für die Zusammenarbeit mit Claude (AI Co-Architect):
 | Netzwerk | 1 Gbit/s, 40 TB/Monat, Single Server |
 | E-Mail | Funktionaler E-Mail-Server (SPF/DKIM/DMARC) |
 
-## Server
+## Server (dokumentierte Referenzumgebung)
+
+Die folgenden Angaben stammen aus der bisherigen Projektdokumentation. Sie beschreiben eine dokumentierte Serverumgebung und **belegen weder einen aktuell erreichbaren Server noch eine dort bereits lauffähige RetroTunnel-Installation**.
 
 | Parameter | Wert |
 |---|---|
@@ -200,6 +209,8 @@ Governance-Dateien für die Zusammenarbeit mit Claude (AI Co-Architect):
 | Volume | 40 TB/Monat (danach 100 Mbit/s) |
 
 ## Status
+
+Die Statusangaben unten betreffen die **Konzeptausarbeitung** (M0–M4). Insbesondere bedeutet `✅ Done`, dass der jeweilige Konzept-Arbeitsschritt als bearbeitet geführt wird – **nicht**, dass die entsprechende VPN-Komponente installiert, auf Zielhardware getestet oder produktiv abgenommen ist. Für Implementierungs- und Abnahmekriterien gilt [`04_PHASE_PLAN.txt`](04_PHASE_PLAN.txt).
 
 | Phase | Inhalt | Status |
 |---|---|---|
@@ -216,7 +227,7 @@ Governance-Dateien für die Zusammenarbeit mit Claude (AI Co-Architect):
 
 ## Vorgänger
 
-Das vollständige Vorgänger-Konzept (xp-vpn-stack, 8 Monate, 57 Blocks, 12 Decisions) liegt unter `../xp-vpn-stack/`. Architekturentscheidungen werden nicht blind übernommen — sie müssen im neuen Konzept explizit bestätigt oder geändert werden. Details zu Übernahmen und Änderungen: [`00_MANIFEST.txt`](00_MANIFEST.txt) §5.
+Das vollständige Vorgänger-Konzept (xp-vpn-stack, 8 Monate, 57 Blocks, 12 Decisions) wird im bisherigen lokalen Projektkontext unter `../xp-vpn-stack/` referenziert; es ist **nicht Bestandteil dieses GitHub-Repositories**. Architekturentscheidungen werden nicht blind übernommen — sie müssen im neuen Konzept explizit bestätigt oder geändert werden. Details zu Übernahmen und Änderungen: [`00_MANIFEST.txt`](00_MANIFEST.txt) §5.
 
 **Begriffs-Brücke Alt ↔ Neu:** Im Altkonzept hießen die beiden Tunnel-Welten LEGACY (L2TP/IPsec für XP) und MODERN (damals IKEv2, heute WireGuard). In RetroTunnel sind die kanonischen Begriffe L2TP_IPSEC und WIREGUARD. Die NAVIGATIONSKARTE erklärt die Begriffs-Brücke im Detail.
 
