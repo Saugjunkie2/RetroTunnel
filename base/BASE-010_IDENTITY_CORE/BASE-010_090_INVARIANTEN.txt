@@ -216,31 +216,61 @@ NUMMERIERUNG: INV-01..INV-XX fortlaufend, nach Kategorie gruppiert.
           RESTRICTED haben. Alle werden DISABLED
           (DISABLE_CUSTOMER_SUSPENDED).
   INV-66  web_customers.status=DELETED → alle CLAIMED Connections
-          dieses Customers werden physisch geloescht. Connection-Rows,
-          Auth-Kindtabellen-Rows und Credentials werden entfernt.
-          Die Zuordnung (customer_id, connection_ref) bleibt als
-          DELETED-Event in log_connection_lifecycle erhalten.
+          dieses Customers werden in Tombstone-Zustand versetzt:
+          op_status=DISABLED, op_reason_code=DISABLE_CUSTOMER_DELETED,
+          revoked_at=NOW() und quarantine_until=NOW()+quarantine_days
+          atomar gesetzt (LR-01, IMMEDIATE-Mode). customer_id bleibt
+          fuer Forensik-Zuordbarkeit. Auth-Kindtabellen-Rows werden im
+          selben atomaren Write physisch entfernt (Credentials sofort
+          weg). Tombstone-Row wird nach Ablauf von quarantine_until
+          durch Janitor physisch entfernt — vor Loeschung wird
+          CONNECTION_DELETED-Event in log_connection_lifecycle
+          geschrieben (INV-78). Detail-Mechanik: INV-81.
   INV-67  suspended_at IS NOT NULL ↔ status=SUSPENDED
   INV-68  deleted_at IS NOT NULL ↔ status=DELETED
   INV-69  deleted_at ist monotonic (einmal gesetzt, nie zurueck auf NULL).
           DELETED ist terminal — kein Rueckweg.
 
-  OPEN-010-01: [CLOSED] DELETE-Semantik (Marco-Entscheidung 2026-04-18)
-  Entscheidung:
-  a) Physische Loeschung: Connection-Row + Auth-Kindtabellen-Rows
-     werden physisch entfernt (CASCADE). Keine Anonymisierung,
-     kein Soft-Delete, kein Archiv-Zwischenschritt.
-  b) Historie bleibt: log_connection_lifecycle behaelt die
-     DELETED-Events (Forensik, Zuordnungshistorie). radacct-
-     Eintraege bleiben erhalten (Accounting-Pflicht).
-  c) IP-Recycling sofort: ip_slot wird umgehend freigegeben und
-     dem Recycling-/Quarantaene-Prozess zugefuehrt (B064-Muster).
-     Keine verzoegerte Freigabe fuer DELETE.
-  d) FK-Verhalten: CASCADE auf vpn_connection_l2tp_ipsec_auth und
-     wg_connection_auth (1:1, gehen mit der Connection). vpn_sessions
-     mit Referenz: SET NULL oder Retention (Detail BASE-070).
-  Implementation: Loeschlogik lebt in BASE-010 (Identity-Owner).
-  Jobs/Timer fuer Batch-DELETE ggf. in BASE-070 oder MOD-001.
+  OPEN-010-01: [REVISED] DELETE-Semantik (Marco-Entscheidung 2026-05-11)
+
+  HISTORIE:
+  - 2026-04-18 [CLOSED]: Hard-Delete-Vertrag (CASCADE, sofortiges
+    Recycling). Begruendung wurde nicht dokumentiert.
+  - 2026-05-11 [REVISED]: Rueckkehr zum Altkanon-Soft-Delete
+    (B064 §5.1 MUST). Ausloeser: M-02-Befund "Quarantaene-State
+    nach DELETE nicht persistierbar". Bei Rekonstruktion der
+    Hard-Delete-Begruendung 2026-05-11 war diese nicht mehr nach-
+    vollziehbar. Im Lichte von Marcos Quarantaene-Anforderung
+    (Anti-Reuse-Confusion, B064 §5.4) ist Soft-Delete der direktere
+    Weg zur Zuordbarkeit IP→Account. Hard-Delete wurde verworfen.
+
+  Entscheidung (aktuell):
+  a) Tombstone statt Hard-Delete: Bei web_customers.status=DELETED
+     wird jede CLAIMED Connection in den Tombstone-Zustand versetzt
+     (op_status=DISABLED, op_reason_code=DISABLE_CUSTOMER_DELETED,
+     revoked_at=NOW(), quarantine_until=NOW()+quarantine_days).
+     customer_id bleibt fuer Forensik-Zuordbarkeit. Mechanik: INV-66
+     + INV-81.
+  b) Auth-Kindtabellen werden im selben atomaren Write physisch
+     geloescht (Credentials sofort weg, kein RADIUS-Login mehr
+     moeglich). Atomicity: BASE-010_080 R5).
+  c) Tombstone-Row wird nach Ablauf von quarantine_until durch
+     Janitor physisch entfernt. Vor der Loeschung: CONNECTION_DELETED-
+     Event in log_connection_lifecycle (INV-78). Danach: ip_slot
+     wird vergebbar (B064 §5.4, INV-82).
+  d) Janitor-Owner: vertagt auf BASE-070_SESSION_CORE-Ausarbeitung
+     (oder MOD-001). M-02 schreibt nur die Pflicht zur Janitor-
+     Existenz fest, nicht die Implementation.
+  e) DSGVO-Sonderpfad: Falls Customer expliziten Loeschungsanspruch
+     geltend macht, darf ADMIN den Hard-Delete der Tombstone-Row
+     vor Ablauf von quarantine_until manuell ausloesen. Dann gilt
+     bewusst: Compliance > IP-Reuse-Confusion-Schutz. NICHT in M-02
+     implementiert — dokumentiert als spaetere Erweiterung.
+
+  Implementation: Tombstone-Trigger lebt in BASE-010 (Identity-Owner).
+  Janitor-Detail-Verortung folgt bei BASE-070-Ausarbeitung.
+  Settings-Key vpn_quarantine_days (B057 kanonisch): aktuell 365 Tage
+  (variabel reduzierbar auf 180 oder 90, Marco 2026-05-11).
 
 ================================================================================
 17) CLAIM-/TOKEN-/DEADLINE KONSISTENZ
@@ -323,6 +353,36 @@ NUMMERIERUNG: INV-01..INV-XX fortlaufend, nach Kategorie gruppiert.
           Credential-Schutz obliegt dem User.
           Detail → BASE-110 (technisch) + MOD-006 (Features).
           Marco-Entscheidung 2026-04-18.
+
+================================================================================
+23) TOMBSTONE-LIFECYCLE (OPEN-010-01 [REVISED], 2026-05-11)
+================================================================================
+
+  INV-81  Tombstone-Vertrag bei web_customers.status=DELETED:
+          (a) Connection-Row bleibt erhalten mit op_status=DISABLED,
+              op_reason_code=DISABLE_CUSTOMER_DELETED, revoked_at und
+              quarantine_until atomar gesetzt (LR-01 IMMEDIATE).
+          (b) customer_id bleibt erhalten fuer Forensik-Zuordbarkeit
+              (Anti-Reuse-Confusion, B064 §5.4).
+          (c) Auth-Kindtabellen-Rows werden im selben atomaren Write
+              physisch geloescht (Credentials sofort weg).
+          (d) Tombstone-Row darf NICHT geclaimt, restoret oder
+              modifiziert werden. INV-69 (deleted_at monotonic) gilt
+              transitiv: ein Customer-DELETED ist terminal — auch
+              die zugehoerigen Connections sind nicht wiederherstellbar.
+          (e) Tombstone-Row wird nach Ablauf von quarantine_until
+              durch Janitor physisch entfernt. Vor Loeschung wird
+              CONNECTION_DELETED-Event geschrieben (INV-78).
+          (f) Settings-Key vpn_quarantine_days bestimmt die Wartezeit
+              (B057 kanonisch, aktuell 365 Tage).
+
+  INV-82  Allokator Reuse-Gate (B064 §5.4 Wiederherstellung):
+          Slot-Vergabe einer fixed_ip ist nur moeglich, wenn fuer
+          dieselbe IP keine Connection mit
+          (revoked_at IS NOT NULL AND now < quarantine_until)
+          existiert. Wenn doch: POOL_EXHAUSTED_OR_QUARANTINED
+          Failure (B344 §11.1) — kein stiller Fallback, kein
+          Pool-Wechsel.
 
 ================================================================================
 MAPPING: SM_CONNECTION INV → BASE-010 INV

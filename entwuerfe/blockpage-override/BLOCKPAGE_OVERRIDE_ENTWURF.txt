@@ -1,0 +1,184 @@
+================================================================================
+ENTWURF — BLOCKPAGE-OVERRIDE (Temporaere DNS-Freigabe)
+================================================================================
+STATUS: ENTWURF (KR-01, nicht normativ)
+DATUM: 2026-05-01
+AUTOR: Marco (Owner) + Claude (Co-Architekt)
+ZUORDNUNG: Noch keinem Base/Modul zugeordnet.
+            Beruehrt: DNS-Stack (BASE-050), Webstack/Panel (BASE-110),
+            Blockpage (BASE-120+), Audit/Logging (BASE-010)
+
+================================================================================
+1. PROBLEM
+================================================================================
+
+Der aktuelle DNS-Schutzpfad (AdGuard-Filterung mit DNS-Zwang via DNAT53)
+blockiert Domains korrekt, bietet aber keinen praxistauglichen Weg fuer
+den Betreiber (Owner), eine einzelne Domain gezielt und temporaer
+freizugeben.
+
+Der vorgesehene Weg ist zu umstaendlich:
+  1. AdGuard-Oberflaeche oeffnen
+  2. Einloggen
+  3. Betroffene Domain identifizieren
+  4. Freigaberegel erstellen
+  5. Speichern
+  6. Aufruf erneut testen
+
+In der Praxis ist ein vollstaendiges Deaktivieren der VPN-Verbindung
+(WireGuard aus) schneller und einfacher als dieser Weg. Damit wird
+der gesamte Schutzpfad verlassen: DNS-Zwang, AdGuard-Filterung,
+Protokollierung und Schutzlogik greifen nicht mehr.
+
+Das System erreicht damit das Gegenteil seines Ziels: Der Betreiber
+wird durch eine zu umstaendliche Ausnahmebehandlung dazu verleitet,
+den Schutz komplett zu umgehen.
+
+KERNPROBLEM (Marco, woertlich):
+  "Mich nervt mein eigener VPN-Server so sehr, dass ich ihn freiwillig
+   deaktiviere und ohne aktiven VPN online bin. [...] Der Klick auf
+   'Deaktiviere WireGuard' ist schneller und einfacher."
+
+================================================================================
+2. LOESUNGSIDEE
+================================================================================
+
+Die Blockseite wird von einem passiven Informationsmedium zu einem
+aktiven Entscheidungspunkt ausgebaut:
+
+FUER NORMALE USER:
+  - Blockseite zeigt: "Diese Domain wurde blockiert"
+  - Option: "Freigabe anfragen" (Antrag an Owner/Admin)
+  - Keine Moeglichkeit, selbst freizugeben
+
+FUER OWNER/ADMIN:
+  - Blockseite erkennt automatisch die Rolle des Aufrufenden
+    (Connection-IP → vpn_connection → customer → access_role)
+  - Zusaetzliche Option: "Webseite temporaer freigeben"
+  - Zeitauswahl: 15 Minuten / 30 Minuten / 1 Stunde / bis Tagesende
+  - Freigabe gilt NUR fuer:
+    - die konkret blockierte Domain
+    - das aktuelle Geraet / die aktuelle VPN-Verbindung
+    - den gewaehlten Zeitraum
+  - Nach Ablauf: automatische Ruecknahme, Filterlogik greift wieder
+
+ZENTRALE EIGENSCHAFT:
+  Der VPN bleibt aktiv. DNS-Zwang bleibt aktiv. AdGuard bleibt aktiv.
+  Nur die einzelne Domain wird kontrolliert, zeitlich begrenzt und
+  auditierbar freigegeben. Kein kompletter Bypass.
+
+================================================================================
+3. ABGRENZUNG ZUM ALTKONZEPT
+================================================================================
+
+Das Altkonzept (xp-vpn-stack) definiert die Blockseite in B230 explizit
+als passives Medium:
+
+  B230 §5: "Keine Admin-Funktionen/Endpoints auf der Blockpage-Route
+            (Scope-Trennung ist Pflicht; admin-only bleibt admin-only)."
+
+  B230 §5: "Minimal info: blocked + reason-code, optional: allowlist
+            request Hinweistext (ohne Kontakt-/Admin-Infos)."
+
+Dieser Entwurf weicht bewusst von B230 ab, indem die Blockseite fuer
+berechtigte Rollen (OWNER/ADMIN) eine aktive Handlung ermoeglicht.
+
+Die Abweichung ist begruendet:
+  - B230 wurde geschrieben, bevor das Usability-Problem erkannt wurde
+  - Das Verbot von Admin-Funktionen auf der Blockpage zielte auf
+    Scope-Trennung (keine vollen Panel-Features exponieren), nicht auf
+    das Verhindern einer gezielten, minimalen Override-Funktion
+  - Die Alternative (VPN deaktivieren) ist architektonisch schlimmer
+    als eine kontrollierte Ausnahme auf der Blockpage
+
+================================================================================
+4. ARCHITEKTONISCHE ECKPFEILER (grob, noch nicht ausgearbeitet)
+================================================================================
+
+a) ROLLENERKENNUNG AUF DER BLOCKSEITE
+   - Blockseite wird ueber SERVICE_WEB (10.77.0.3) ausgeliefert
+   - Client-IP ist bekannt (VPN-IP des Aufrufenden)
+   - System kann: Client-IP → vpn_connection → customer → access_role
+   - Keine separate Anmeldung noetig (passt zum bestehenden
+     Identitaetsmodell aus BASE-010/BASE-020)
+
+b) SQL-FIRST
+   - Temporaere Freigabe wird in der Datenbank gespeichert
+   - Nicht in AdGuard-Config-Dateien oder fluechtigen Strukturen
+   - Neue Tabelle oder Erweiterung einer bestehenden (offen)
+
+c) PROPAGATION AN ADGUARD
+   - System schreibt befristete Allow-Regel und uebertraegt sie
+     an AdGuard (API oder Config-Reload)
+   - Mechanismus noch offen
+
+d) JANITOR / ABLAUF
+   - Abgelaufene Freigaben werden automatisch entfernt
+   - Janitor-Prozess oder TTL-basiert (offen)
+
+e) AUDIT / LOGGING
+   - Jede temporaere Freigabe wird protokolliert:
+     Domain, Client, VPN-Verbindung, Zeitpunkt, Dauer,
+     ausloesender Admin, urspruenglicher Blockgrund
+   - Passt zu OPEN-DOM-05 (jede Admin-Aktion geloggt + E-Mail)
+   - Kein unkontrollierter Bypass, sondern auditierbares Override
+
+f) USER-ANFRAGEN
+   - Normale User koennen eine Freigabe anfragen
+   - Anfrage wird dem Owner/Admin angezeigt (Panel? E-Mail? offen)
+   - Owner kann genehmigen oder ablehnen
+
+================================================================================
+5. OFFENE FRAGEN (fuer spaetere Ausarbeitung)
+================================================================================
+
+OF-01: Wie authentifiziert die Blockseite den Owner/Admin?
+       Option A: Implizit ueber Client-IP (kein Login noetig)
+       Option B: Expliziter Login-Button auf der Blockseite
+       Tendenz: Option A (konsistent mit IP-bound Panel-Login aus B280)
+
+OF-02: Wie kommuniziert das System mit AdGuard?
+       AdGuard hat eine REST-API. Direkte API-Calls oder
+       Config-Datei-Manipulation + Reload?
+
+OF-03: Wo lebt die temporaere Freigabe in der Datenbank?
+       Neue Tabelle (z.B. dns_override_temporary) oder
+       Erweiterung einer bestehenden Struktur?
+
+OF-04: Welchem Base/Modul gehoert dieses Feature?
+       Kandidaten: BASE-050 (DNS), neues Modul MOD-xxx,
+       oder Teil von BASE-120 (Blockpage, falls eigenstaendig)
+
+OF-05: Soll die Freigabe pro Domain oder pro Domain+Pfad gelten?
+       DNS-Filter arbeitet domainbasiert → wahrscheinlich nur Domain.
+
+OF-06: Wie sieht die User-Anfrage-Seite aus?
+       Formular? Einfacher Button? Wie wird der Owner benachrichtigt?
+
+OF-07: Soll es ein Limit fuer temporaere Freigaben geben?
+       (z.B. max 10 aktive Overrides gleichzeitig)
+
+================================================================================
+6. REFERENZEN
+================================================================================
+
+ALTKONZEPT (xp-vpn-stack):
+  B200_DNS_UNBOUND_ADGUARD.txt         → DNS-Stack Architektur
+  B210_DNS_ENFORCEMENT_DNAT53.txt       → DNS-Zwang (DNAT53)
+  B230_HTTPS_BLOCKPAGE_MITM_CA.txt      → Blockseite (passiv, MITM/CA)
+  B150_Walled_Garden_Restricted_Mode    → Restricted/Walled Garden
+  B280_PANEL_FEATURES_USER_ADMIN.txt    → Panel-Rollen, IP-bound Login
+  D004_MITM_BLOCKPAGE_APPROACH.txt      → Decision MITM Approach
+
+NEUES KONZEPT (RetroTunnel):
+  BASE-010 (IDENTITY_CORE)              → Rollenmodell, access_role
+  BASE-010_060 (LIFECYCLE_LOG)          → Audit-Logging
+  OPEN-DOM-05 (PRIORITAETENLISTE)       → Admin-Aktionen loggen + E-Mail
+
+================================================================================
+CHANGELOG
+================================================================================
+- v0.1 (2026-05-01): Initiale Problemdokumentation und Loesungsidee.
+  Ausloeser: Marcos Erfahrung mit Overblocking beim Browsing.
+  Status: Konzeptskizze, keine technische Ausarbeitung.
+================================================================================

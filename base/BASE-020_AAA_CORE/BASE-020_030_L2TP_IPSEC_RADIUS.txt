@@ -71,17 +71,18 @@ VORGAENGER: B050_SQL_AAA_RADIUS, B056_RADIUS_SCHEMA_MAPPING
       - fixed_ip (fuer Framed-IP-Address Reply)
       - fixed_ipv6 (NULL bei L2TP_IPSEC, Vollstaendigkeit)
 
-    Wenn kein Treffer → REJECT (unbekannte Identitaet)
-    Wenn tunnel_type != L2TP_IPSEC → REJECT (Fehlkonfiguration)
+    Wenn kein Treffer → REJECT (R_AUTH_UNKNOWN_IDENTITY, BASE-020_070)
+    Wenn tunnel_type != L2TP_IPSEC → REJECT (R_AUTH_TUNNEL_TYPE_MISMATCH,
+                                              BASE-020_070; Fehlkonfiguration)
 
   2.3) STATUS-PRUEFUNG
-    op_status = DISABLED → REJECT (R_ACCOUNT_DISABLED, B342)
+    op_status = DISABLED → REJECT (R_ACCOUNT_DISABLED, BASE-020_070)
     op_status = ACTIVE oder RESTRICTED → weiter
 
   2.4) CREDENTIAL-VERIFIKATION
     FreeRADIUS MSCHAPv2-Modul vergleicht Client-Challenge gegen
     den aus der DB geladenen NT-Hash (NT-Password Attribut).
-    Bei Mismatch → REJECT (R_AUTH_CREDENTIALS_INVALID)
+    Bei Mismatch → REJECT (R_AUTH_CREDENTIALS_INVALID, BASE-020_070)
 
   2.5) ON-DEMAND JANITOR (vor SimUse)
     Vor der SimUse-Pruefung: On-Demand Cleanup fuer die
@@ -92,7 +93,7 @@ VORGAENGER: B050_SQL_AAA_RADIUS, B056_RADIUS_SCHEMA_MAPPING
   2.6) SIMUSE-PRUEFUNG
     Pruefe vpn_sessions: Offene Session (closed_at IS NULL) fuer
     diese vpn_connection_id?
-    Wenn ja (nach On-Demand Janitor) → REJECT (R_SIMUSE_ACTIVE)
+    Wenn ja (nach On-Demand Janitor) → REJECT (R_SIMUSE_ACTIVE, BASE-020_070)
 
   2.7) GUARD ERWERBEN (vpn_session_locks)
     INSERT INTO vpn_session_locks (vpn_connection_id, acquired_at,
@@ -177,13 +178,13 @@ VORGAENGER: B050_SQL_AAA_RADIUS, B056_RADIUS_SCHEMA_MAPPING
     → FreeRADIUS SQL-Modul erhaelt Connection-Fehler
     → RADIUS antwortet mit Access-Reject (DENY)
     → KEIN Haengen, KEIN Timeout-Warten
-    → Reason: R_AUTH_BACKEND_SQL_DOWN (B342)
+    → Reason: R_AUTH_BACKEND_SQL_DOWN (BASE-020_070)
     → Backend-Fehler DUERFEN NIEMALS Bans triggern (B340/B341)
     → Recovery: DB kommt wieder → naechster Login funktioniert
 
   SQL-Query-Fehler (Syntax, Timeout, Permission):
     → RADIUS antwortet mit Access-Reject (DENY)
-    → Reason: R_AUTH_BACKEND_SQL_FAIL (B342)
+    → Reason: R_AUTH_BACKEND_SQL_FAIL (BASE-020_070)
     → Wird als Health-Event geloggt, nicht als Auth-Event
 
 ================================================================================

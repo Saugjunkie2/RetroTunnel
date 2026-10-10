@@ -1,8 +1,8 @@
 ================================================================================
 RetroTunnel — REVIEW TRACKER
 ================================================================================
-VERSION: v1.1
-DATUM: 2026-04-19
+VERSION: v1.15
+DATUM: 2026-05-30
 STATUS: ACTIVE
 
 ZWECK:
@@ -48,7 +48,7 @@ Legende Status:
     Auth-Tabellen umbenannt, PREFIX-LEGENDE erweitert.
 
   02_ASSUMPTIONS_AND_RULES.txt       ~ PARTIAL
-    17 Regeln (R-01..R-17, inkl. R-17 Panel-Consumability),
+    18 Regeln (R-01..R-18, inkl. R-18 Auth-Domain-Trennung),
     9 Annahmen, 5 Nicht-Annahmen.
     v0.9: 3-stellig, tunnel_type ENUM, R-16 Invarianten/Tests zuletzt.
     R-17 Panel-Consumability spaeter ergaenzt.
@@ -131,24 +131,37 @@ Legende Status:
     24 Tabellen + 1 geplant. Auth-Split verifiziert.
     Panel-Fallback: connection_ref fuer alle Tunnel-Typen.
   base/BASE-005_PLATFORM_CORE          ✓ CLEAN (ACTIVE, 11 Dateien)
-    17 Invarianten (PF-01..17), 19 Tests (T-PF-01..19).
+    19 Invarianten (PF-01..19), 21 Tests (T-PF-01..21).
     Alle Skelette gefuellt. 3 Design-Entscheidungen geschlossen
     (Hybrid-Logging, GPG-Backup, systemd-Default-Shutdown).
     2 deferred auf BASE-040 (AmneziaWG-Port, WG-Config-Pfad).
+    PF-19/T-PF-21 (DNS-Topologie tunnel-uebergreifend, 2026-05-23).
   base/BASE-010_IDENTITY_CORE          ✓ CLEAN (ACTIVE, 11 Dateien)
-    80 Invarianten (INV-01..80) + 3 Lifecycle-Regeln (LR-01..03).
-    ~60 Tests in 18 Kategorien. Auth-Split (3-Parteien-Konvergenz).
+    84 numerische Invarianten (INV-01..84, fortlaufend) + 6 benannte
+    Runtime-Aggregat-Invarianten (§24, EB-VOLLSCAN-07, = VC-12..17)
+    + 3 Lifecycle-Regeln (LR-01..03) = 90 Inv + 3 LR.
+    116 Tests in 21 Kategorien (T-OW/SR/TS/RV/MR/SF/LC/ID/AS/SI/WP/RR/
+    CL/CS/...; §21 RUNTIME-AGGREGAT T-RA-01..13 NEU mit EB-VOLLSCAN-07).
+    COUNT-KORREKTUR 2026-05-28: vorher "82 Invarianten (INV-01..82) +
+    3 LR, ~60 Tests in 18 Kategorien" — doppelt stale (INV-83/84 seit
+    Tombstone-Revision 2026-05-11 nie nachgezogen; Test-/Kategorienzahl
+    veraltet). Zahlen durch Lesen von _090/_095 verifiziert (nicht aus
+    Gedaechtnis).
+    Auth-Split (3-Parteien-Konvergenz).
     connection_ref con_[a-z2-7]{12}, wg_connection_name deterministisch.
     SM_CONNECTION + DOMAIN_MODEL aufgeloest. ChatGPT-Drittreview bestanden.
-    OPEN-010-01 geschlossen (DELETE-Semantik, Marco 2026-04-18).
-  base/BASE-020_AAA_CORE               ✓ CLEAN (ACTIVE, 9 Dateien)
-    30 Invarianten (AAA-01..30) + 35 Tests (T-AAA-01..35).
+    OPEN-010-01 REVISED 2026-05-11 (Tombstone-Vertrag, M-02-Korrektur,
+    Rueckkehr zum Altkanon Soft-Delete B064 §5.1). Ursprung 2026-04-18
+    Hard-Delete verworfen.
+  base/BASE-020_AAA_CORE               ✓ CLEAN (ACTIVE, 10 Dateien)
+    31 Invarianten (AAA-01..31) + 36 Tests (T-AAA-01..36).
     Gemeinsamer Admission-Vertrag + L2TP/RADIUS direct-read.
     WireGuard-Admission als abweichender Vertragspfad.
     vpn_session_locks tunnelneutral (BASE-070 owned, RADIUS als Runner).
     Hybrid-Fail-Closed WG bei DB-Down. Key-Rotation = Session-Grenze.
+    Reject-Code-Allowlist BASE-020_070 (AAA-31, T-AAA-36) kanonisch.
     ChatGPT-Drittreview v1+v2 bestanden. Alle Befunde verarbeitet.
-  base/BASE-030_TUNNEL_L2TP_IPSEC      ✓ CLEAN  (10 Dateien, 40 INV, 45 Tests)
+  base/BASE-030_TUNNEL_L2TP_IPSEC      ✓ CLEAN  (10 Dateien, 41 INV, 46 Tests)
     M2-030 DONE (2026-04-18). accel-ppp + strongSwan (swanctl/vici).
     Konsistenzfehler xl2tpd/pppd → accel-ppp aufgeloest.
     Default-Deny auf ppp* (nicht Hook-basiert), radacct-Korrelation.
@@ -182,6 +195,14 @@ Legende Status:
     Policy-System, Rolle am Customer, Zaehlregel.
     Tag-3-Update: erledigt via Terminologie-Hinweis (ADR-Konvention,
     kein Rewrite, nur Begriffs-Bruecke). v0.3 (2026-04-16).
+  decisions/D004_RUNTIME_TRUTH_VS_SQL_PERSISTENZ.txt  ✓ CLEAN
+    Runtime-Truth-vs-SQL-Persistenz-Trennung. 9 Entscheidungen
+    D004-E01..E09. ADR-Format analog D002/D003.
+    vpn_sessions als DB-Tabelle DEPRECATED. Daemon (radacct/wg show)
+    ist Wahrheit fuer Runtime-Liveness, SQL fuer Policy/Aggregat.
+    Drittreview ChatGPT 2026-05-26 (6 Zusatzbefunde ZB-001..006 alle
+    in D004 integriert). Self-Review 6 Befunde EB-009-FIX-01..06
+    gepatcht. v1.0 (2026-05-26). Siehe 03_CHANGELOG v2.1.4.
   docs/
     MAIL_ABSENDERLOGIK.txt             ✓ CLEAN
 
@@ -245,6 +266,512 @@ Legende Status:
             model/-Dateien in die Ziel-Bases (ab M2-010) werden
             die OPEN-Referenzen direkt mit korrekten 3-stelligen
             Nummern uebernommen. Kein separater Fix noetig.
+
+  DRIFT-08: VOLLSTAENDIG ERLEDIGT (Ursprungs- + Rest-Scope)
+            (entstanden durch D004, 2026-05-26).
+            D004 hat vpn_sessions als DB-Tabelle aus aktivem Truth-Pfad
+            entfernt. Die ehemals ausstehenden D004-Folgepatches sind
+            mit EB-VOLLSCAN-07 (2026-05-28, CHANGELOG v2.1.5, Bloecke
+            A-F) eingepflegt und verifiziert:
+              - BASE-020_020 §5: vpn_sessions aus aktivem Pfad raus  [DONE]
+              - BASE-020_040 §3: WG-GRACE-01 umformuliert (D004-E06) [DONE]
+              - BASE-020_050: Accounting-Abgrenzung angepasst        [DONE]
+              - BASE-020_090: Invarianten (vpn_sessions-Ref. raus)   [DONE]
+              - 01_GLOSSARY: vpn_sessions DEPRECATED + 3 Session-
+                Begriffe (wg_secure_session, runtime_activity,
+                operational_session)                                 [DONE]
+              - 04_PHASE_PLAN: BASE-070-Zweck umdefiniert            [DONE]
+            Zusaetzlich mit EB-VOLLSCAN-07 (ueber den Ursprungs-Scope
+            hinaus): Counter-/Quota-Schema-Heimat (D004-R-03 CLOSED),
+            Feldname last_handshake_seen_at → last_runtime_seen_at,
+            Cursor/Aggregat-Trennung, counter_epoch-Trigger-Drift in
+            BASE-030 entfernt. Detail: PFLEGE-2026-05-28 unten.
+
+            ERLEDIGT (war Rest-Scope unter DRIFT-08, NICHT in EB-VOLLSCAN-07
+            adressiert):
+              - EB-VOLLSCAN-11: Hook-Pfad-Drift   [CLOSED 2026-05-29, v2.1.6]
+              - EB-VOLLSCAN-12: PSK-Pfad-Drift     [CLOSED 2026-05-29, v2.1.6]
+            Beide am 2026-05-29 vollstaendig analysiert, an der echten
+            Installation (.184) software-belegt und gepatcht (CHANGELOG
+            v2.1.6; fuer EB-VOLLSCAN-11 zusaetzlich Deviation-Record
+            pppd -> accel-ppp, Regel 5). Zusaetzlich EB-VOLLSCAN-06 (NICE)
+            erledigt. Detail: PFLEGE-2026-05-29 unten.
+
+================================================================================
+1a) PFLEGE-HISTORIE (Bookkeeping-Notizen nach CLEAN-Status)
+================================================================================
+
+  PFLEGE-2026-05-29 — EB-VOLLSCAN-06/11/12 (BASE-005 Pfad-Drifts) = CLEAN
+
+    Durchgefuehrt: Die nach EB-VOLLSCAN-07 offenen DRIFT-08-Rest-Punkte
+    EB-VOLLSCAN-11 (Hook-Pfad) und EB-VOLLSCAN-12 (PSK-Pfad) sowie der NICE-
+    Befund EB-VOLLSCAN-06 (accel-ppp-Config-Pfad) analysiert und gepatcht.
+    Software-abhaengige Punkte zuvor an der echten Installation am L2TP-
+    Testserver .184 (rt-gw-001, Debian 13) verifiziert: accel-ppp quellcode-
+    kompiliert, pppd_compat Einzelskript-Hooks ohne run-parts, ppp-Paket
+    nicht installiert; strongSwan swanctl/vici, kein ipsec.conf/secrets.
+
+    KERNPUNKTE:
+      - BASE-005_040 §2: PPP-Hooks /etc/ppp/ip-up.d/ -> /etc/accel-ppp/
+        ip-* (ip-pre-up/ip-up/ip-down an BASE-030), inkl. ip-pre-up (vorher
+        gar nicht gelistet) + Deviations-Marker im Header.
+      - ABWEICHUNG VOM ALTKONZEPT (Regel 5): B167 ist pppd-basiert
+        (/etc/ppp/ip-up.d/); Neukonzept nutzt accel-ppp. Erstmals offen
+        dokumentiert (CHANGELOG v2.1.6).
+      - BASE-005_050 §3 + BASE-005_060 §1B: PSK /etc/ipsec.secrets
+        -> /etc/swanctl/swanctl.conf (keine Altkonzept-Abweichung).
+      - BASE-005_040 §1: Config /etc/accel-ppp/ -> /etc/accel-ppp.conf.
+
+    STATUS: CLEAN. EB-VOLLSCAN-06/11/12 = CLOSED. Alle Edits guarded, UTF-8
+    ohne BOM + LF erhalten, je Datei durch erneutes Lesen verifiziert.
+    Konzeptweit /etc/ipsec.secrets = 0, /etc/ppp/ip-up.d = 0 (nur Marker).
+
+  PFLEGE-2026-05-28 — EB-VOLLSCAN-07 (D004-R-03 CLOSED) = CLEAN
+
+    Durchgefuehrt: Vollscan-Runde EB-VOLLSCAN-07. Schliesst D004-R-03
+    (Collector-/Counter-State-Schema). Zwei ChatGPT-Drittreview-Runden
+    (drittreviews/chatgpt_drittreview_EB-VOLLSCAN-07.txt + _runde2.txt)
+    + Claude-Gegenpruefung + eigene Zusatzbefunde. Marco-Entscheidung
+    Option A. Konsens E6-E12.
+
+    STATUS: CLEAN. Alle Bloecke A-F eingepflegt und je Datei durch
+    erneutes Lesen verifiziert. Kein offener Befund aus dem
+    EB-VOLLSCAN-07-Scope.
+
+    Inhaltliche Kernpunkte (Konsens E6-E12):
+      E6  last_handshake_seen_at → last_runtime_seen_at (tunnel-neutral)
+      E7  quota_used = einziges Aggregat; last_known_* = WG-Polling-Cursor
+          (bei L2TP unbenutzt, L2TP bucht direkt auf quota_used)
+      E8  counter_epoch nur bei Counter-Reset-Detection (BASE-030-Drift
+          counter_epoch+1 bei ip-up/ip-down entfernt)
+      E9  INV-QUOTA-RESET-ATOMARITY (BASE-010_090 §24)
+      E10 last_runtime_seen_at (Liveness) + last_counter_seen_at
+          (Buchhaltung) beide behalten
+      E11 quota_used: Einheit Bytes, Summe RX+TX
+      E12 last_counter_seen_at auch bei delta=0
+
+    Gepatchte Dateien (Bloecke A-F):
+      Block A-E (Schema/Owner + Konsumenten):
+        - BASE-010_020 §1 Gruppe D (Schema-Owner), _080, _090 (§24,
+          6 neue Invarianten = VC-12..17), _095 (§21, T-RA-01..13)
+        - decisions/D004 (Kopf-Nachtrag, R-03 CLOSED, E05-Pseudocode)
+        - BASE-030_040/_050/_090/_095 (counter_epoch-Drift, Feldname,
+          Cursor/Aggregat)
+        - BASE-020_040/_050/_090/_095 (_060 nicht betroffen)
+        - BASE-000-Registry 040_TABELLEN_REGISTRY_020_VPN
+        - 00_MANIFEST
+      Block F (Governance/Index + Rest-Konsumenten):
+        - 01_GLOSSARY (AWG Session Controller, vpn_sessions DEPRECATED,
+          runtime_activity)
+        - NAVIGATIONSKARTE_ALTES_KONZEPT (Session-Truth-Block)
+        - PRIORITAETENLISTE (M1-05)
+        - 04_PHASE_PLAN (PH7 STACK-BEZUG + K-PH7-02; K-PH7-01 geprueft,
+          counter_epoch nur BASE-070-Scope, kein Patch noetig)
+        - 03_CHANGELOG (v2.1.5-Eintrag NEU; v2.1.4 als Zeitdokument
+          unangetastet)
+        - REVIEW_TRACKER (diese Notiz + Count-Korrektur + DRIFT-08)
+      Nachzug-Stellen (Feldname/E7, 2. Welle nach Verifikation):
+        - BASE-030_050 §6 operational_session (Feldname)
+        - decisions/D004 E09 (wg_session_offline_threshold_seconds,
+          Feldreferenz)
+        - BASE-000_010 (Counter-State-GRANT-Beschreibung, Feldname + E7)
+        - BASE-020_020 (Cross-Tunnel-Aggregat aufgeloest, Feldname + E7)
+        - BASE-000-Registry ..._040_RAD (L2TP-Bridge: quota_used direkt;
+          last_known_*/counter_epoch bei L2TP NICHT beruehrt)
+
+    EIGENE ZUSATZBEFUNDE (Claude, ueber die Drittreview-Punkte hinaus):
+      - E7-Mislabel "Aggregat" fuer last_known_* in mehreren Governance-
+        Dateien (GLOSSARY, NAVIGATIONSKARTE, PRIORITAETENLISTE,
+        PHASE_PLAN, BASE-000_010, BASE-020_020) — Cursor/Aggregat-
+        Trennung jeweils explizit gemacht.
+      - E8-Drift-Residuum in der rad-Tabellen-Registry (L2TP-Bridge
+        "aktualisiert counter_epoch") — entfernt, konsistent zu INV-24
+        (§24) und zur in BASE-030 entfernten Drift.
+      - CHANGELOG-Zeitdokument-Konflikt: zwei v2.1.4-Tokens zunaechst
+        umbenannt, nach Marco-Entscheid auf das Zeitdokument-Prinzip
+        zurueckgesetzt; Rename ausschliesslich im v2.1.5-Eintrag
+        dokumentiert.
+
+    COUNT-VERIFIKATION (durch Lesen der _090/_095, nicht aus Gedaechtnis):
+      - BASE-005: 19 Inv (PF-01..19) / 21 Tests (T-PF-01..21)
+                  [unveraendert, bestaetigt]
+      - BASE-010: 84 num. Inv (INV-01..84) + 6 §24-Inv (=VC-12..17)
+                  + 3 LR / 116 Tests in 21 Kat.
+                  [KORRIGIERT von "82 / ~60 / 18 Kat" — doppelt stale]
+      - BASE-020: 31 Inv (AAA-01..31) / 36 Tests (T-AAA-01..36)
+                  [unveraendert, bestaetigt]
+      - BASE-030: 41 Inv (LT-01..41) / 46 Tests (T-LT-01..46)
+                  [unveraendert, bestaetigt]
+
+    OFFEN (nicht EB-VOLLSCAN-07-Scope): DRIFT-08 Rest = EB-VOLLSCAN-11/12
+    (Hook-/PSK-Pfad-Drift), siehe DRIFT-Liste oben. In diesem Durchgang
+    nur registriert, nicht analysiert/gepatcht.
+
+    Status-Auswirkung: BASE-010 bleibt CLEAN (Schema-Erweiterung +
+    Invarianten/Tests konsistent). Alle anderen beruehrten Dateien
+    behalten ihren Status; die Aenderungen sind Drift-Korrektur und
+    Praezisierung, keine neue offene Substanz.
+
+  PFLEGE-2026-05-22 — PHASE A+B KONSISTENZ-CHECK ueber 90 Dateien
+
+    Durchgefuehrt: Vollstaendiger Phase A+B Review (frische Augen,
+    ohne REVIEW_TRACKER-Vorbelastung) ueber BASE-000..BASE-030,
+    decisions/, docs/, implementation/configs/. Methodik: Briefing
+    Schritt 7, REVIEW_STANDARD §3 + §4 vollstaendig.
+
+    Ergebnis: 0 BLOCKER, 0 MAJOR, 6 MINOR, 5 NICE-TO-HAVE.
+    Status der betroffenen Dateien bleibt CLEAN — alle 6 MINOR-Befunde
+    waren Bookkeeping, Klarstellungen und Brueckenmarkierungen. Keine
+    fachliche Substanz-Aenderung. Die NICE-Befunde sind Observations
+    ohne Aenderungsbedarf (Vorbilder fuer kuenftige Bases).
+
+    Gepatchte Dateien (Detail siehe 03_CHANGELOG v1.5):
+    - BASE-000_090_TRANSITION_DOMAIN_MODEL_PROPAGATION (M-01)
+    - BASE-005_070_SERVICE_INVENTAR §4 (M-02)
+    - decisions/D002_ROLLENWECHSEL_INPLACE (M-03)
+    - decisions/D003_POLICY_SYSTEM_UND_ROLLE_AM_CUSTOMER (M-03)
+    - BASE-030_040_PPP_INTERFACE_LIFECYCLE §3 + §5 (M-04)
+    - 03_CHANGELOG (M-05, SMTP-Migration retrospektiv)
+    - REVIEW_TRACKER (M-06, diese Pflege-Notiz)
+
+    Verifizierte Konsistenzen:
+    - 12/12 Korrekturen K-01..K-12 aus BASE-000_090 in BASE-010 propagiert
+    - Tabellennamen, Identifier-Formate, Auth-Split GRANTs durchgaengig
+    - Boot-Reihenfolge konsistent (Tunnel vor nftables, PF-18 Reparatur)
+    - Tombstone-Vertrag vollstaendig (INV-66/77/78/81/82, LR-01)
+    - Session-Signal-Vertrag (8 Pflichtfelder) BASE-020_020 §5 ↔
+      BASE-030_050 §2 Schritt 6 konsistent
+
+    Tracking-Items fuer kuenftige Bases (nicht blockierend fuer M2-040):
+    - BASE-040: WG-Config-Download-Pfad, AmneziaWG-WAN-Port, Health-Check-Service
+    - BASE-070: vpn_sessions Schema/Invarianten, vpn_session_locks
+      TTL/Janitor, Boot-Janitor radacct-Cleanup, On-Demand-Janitor
+    - BASE-080: vpn-policy-apply Tool, Reconcile-Mechanik, Hard-Cut
+    - BASE-090: Settings-Keys mit Prefix-Normierung
+      (vpn_l2tp_radacct_correlation_window_seconds, vpn_l2tp_radacct_retry_count,
+      vpn_l2tp_radacct_retry_interval_seconds, wg_failclosed_grace_seconds,
+      vpn_active_session_lock_ttl_seconds, vpn_disabled_connection_buffer,
+      janitor_interval_seconds, boot_janitor_delay_seconds,
+      accel_ppp_thread_count, accel_ppp_fork_limit)
+
+    Konvention: Marco's BEFUND-REGEL ("Alle Befunde gefixt, keine
+    Ausnahme") wird auch bei MINOR-Bookkeeping befolgt. Der CLEAN-
+    Status bleibt erhalten, weil die Fixes keine Substanz aendern,
+    sondern bereits Bestehendes praeziser dokumentieren.
+
+    NICE-FIXES (zweite Fix-Welle, 2026-05-22):
+    Im Anschluss wurden auch die 5 NICE-TO-HAVE-Befunde umgesetzt
+    (Marco's Erweiterung der BEFUND-REGEL: "und die nices auch
+    umsetzen"). Diese erzeugen keine Code-Aenderungen sondern
+    festigen bestehende Vorbilder als kanonische Patterns.
+
+    Gepatchte Dateien (NICE-Welle):
+    - REVIEW_STANDARD.txt §9 NEU: PATTERN-BIBLIOTHEK mit PATTERN-01..05
+      (Owner-Grenzen, Drittreview-Integration, ADR-Bruecken,
+      IST-vs-SOLL-Transparenz, Auth-Domain-Trennung)
+    - 02_ASSUMPTIONS_AND_RULES.txt NEU: R-18 AUTH-DOMAIN-TRENNUNG
+      (Phase A+B NICE-Befund N-05 verankert)
+    - PRIORITAETENLISTE.txt NEU: PATTERN-CHECK-Block bei M2-Header
+      (PFLICHT bei allen kuenftigen Bases ab BASE-040)
+    - implementation/configs/CONFIG_STATUS.txt NEU: PATTERN-MARKIERUNG
+      als kanonische Vorlage fuer kuenftige implementation/-Unterordner
+
+    Pattern-Anwendung gilt ab 2026-05-22 als Teil jedes Vollreviews
+    (REVIEW_STANDARD §3 Ebene H + §9). Fehlende Pattern-Anwendung
+    gilt als MAJOR-Befund (Architektur-Drift, nicht Bookkeeping).
+
+    Status-Auswirkung: Alle Pattern-Verankerungen sind semantik-
+    neutrale Festschreibungen bestehender Vorbilder. Der CLEAN-Status
+    der referenzierten Dateien (BASE-020_060, BASE-030, D002, D003,
+    BASE-010_030, BASE-000_010, CONFIG_STATUS.txt) bleibt unveraendert.
+
+================================================================================
+1b) OFFENE / DEFERRED VOLLSCAN-BEFUNDE (registriert 2026-05-29)
+================================================================================
+
+  Quelle: PHASE_AB_VOLLSCAN_2026-05-28 (Proof-Doc, transient - wird nach
+  Abschluss aller Befunde geloescht; hier dauerhaft registriert, damit
+  nichts verloren geht). Count-Drifts 05/09/10 liefen bereits in v2.1.5
+  (Count-Drift-Korrektur); 06/11/12 in v2.1.6.
+
+  EB-VOLLSCAN-01 (MINOR) - Unbound-Port:
+    5353 BESTAETIGT (erprobt auf Live-.182). Unbound ist Backend-only, nur
+    an Service-Net-IP gebunden, spricht ausschliesslich mit AdGuardHome;
+    AdGuardHome ist einziger Client-DNS. Port bleibt 5353. Aufgabe:
+    Abweichung Altkanon 5335 -> 5353 benennen (Regel 5).
+    Status: [CLOSED 2026-05-29] - Regel-5-Deviation-Note in BASE-005_030
+    (HINWEISE) ergaenzt: Altkanon 00_MASTER 127.0.0.1:5335 -> .2:5353 offen
+    benannt (Port + Bind). Werte unveraendert (erprobt).
+
+  EB-VOLLSCAN-02 (MINOR) - AmneziaWG-WAN-Port:
+    49392 bestaetigt (Server laeuft darauf). Cross-File-Drift: 04_PHASE_PLAN
+    fuehrt 49392 (fest+live), BASE-005_030 fuehrt TODO/OPEN-NET-01.
+    Aufgabe: OPEN-NET-01 gegen 49392 aufloesen (formale Entscheidung BASE-040).
+    Status: [OFFEN, registriert] - an BASE-040 gekoppelt.
+
+  EB-VOLLSCAN-03 (NICE) - WG-Session-Controller / WG-DB-Health-Check:
+    Fehlt im Service-Inventar BASE-005_070, obwohl awg-quick@awg0 gelistet
+    und in BASE-020_040 als MUST. Durch BASE-040-WAITING erklaerbar.
+    Status: [DEFER BASE-040].
+
+  EB-VOLLSCAN-04 (TEILWEISE GELOEST durch F-001) - Boot-Order / awg0-PostUp:
+    Boot-Order-Praemisse ("awg-quick Phase 3 vor nftables Phase 4") ist durch
+    F-001-REV2 ueberholt: nftables laedt frueh (Phase 1) + awg-quick@awg0 erbt
+    den Gating-Vertrag Requires/After=nftables (BASE-005_080 §3 + 3a). RESIDUUM
+    (weiter offen): awg0.conf-PostUp ergaenzt Service-Regeln (DNS/Web/NTP); ein
+    GLOBALER "nft flush ruleset" (nftables.service-ExecStop bzw. Stop/Restart)
+    wuerde diese mitloeschen -> WG-Clients ohne Service-Zugang. Das ist exakt
+    das Neu-6-Problem (globaler ExecStop-Flush) + die Frage, ob Service-Regeln
+    ueberhaupt in PostUp statt im Haupt-Ruleset gehoeren (Single-Source-of-
+    Truth). Betrifft awg0-PostUp, NICHT ppp* (dort Wildcard-Default-Deny).
+    Aufgabe: bei BASE-050/BASE-040 klaeren + Live-Check.
+    Status: [DEFER BASE-050/BASE-040 + Live-Check] (Boot-Order-Teil erledigt).
+
+  EB-VOLLSCAN-08 (NICE) - DB-User-Naming:
+    BASE-010 (_030 / _080) nutzt radius_user/system_user/webpanel_user,
+    BASE-000 (Naming-Owner = SoT) + BASE-005_050 nutzen radius/webpanel/
+    system. Aufgabe: BASE-010 an BASE-000 angleichen.
+    Status: [CLOSED 2026-05-29] - radius_user/system_user/webpanel_user in
+    BASE-010_030/_080/_090 auf radius/system/webpanel (Prosa: X DB-User)
+    angeglichen, BASE-000-SoT-konform. Entwurf (webpanel_user) offen - Draft.
+
+  EB-VOLLSCAN-09 (MINOR, BASE-010-Count) - GEKLAERT, bereits korrigiert:
+    Count ist settled und projektweit konsistent: 90 INV + 3 LR / 116 Tests
+    / 21 Test-Kategorien. INV-Zusammensetzung: 84 numerische (INV-01..84) +
+    6 benannte §24-Invarianten (= VC-12..17, Runtime-Aggregat). VC-04/08
+    sind Inline-Verweise in INV-30/39, KEINE eigenen Invarianten. Die 116 sind
+    definierte Tests; die fruehere 118-Zaehlung enthielt 2 SM_CONNECTION-Alt-
+    verweise (T-SM-01/47 in der VORGAENGER-Zeile), keine BASE-010-Tests.
+    Beleg: direktes Zaehlen in BASE-010_090 / _095 (2026-05-29). Die Count-
+    KORREKTUR selbst erfolgte am 2026-05-28 (Inventar-Eintrag BASE-010 oben +
+    CLAUDE_BRIEFING + PRIORITAETENLISTE, alle 90+3 / 116).
+    Hinweis: Eine fruehere Fassung dieser Notiz fuehrte "8 VC / 118 / 95" als
+    offene Konvention - das war ein Analyse-Artefakt, keine echte Offenheit
+    (2026-05-29 korrigiert).
+    Status: [CLOSED 2026-05-29] - bereits konsistent, nichts am Konzept zu aendern.
+
+================================================================================
+1c) ChatGPT-FULL-AUDIT 2026-05-30 (chatgpt_audit.txt, 27 Befunde)
+================================================================================
+
+QUELLE: chatgpt_audit.txt (Root). 27 Befunde F-001..F-027 (3 Blocker, 15
+Major, 7 Minor, 2 Nice) + PH1..PH10-Reifegrad. ChatGPT-Disclaimer: KEINE
+Live-Pruefung, nur Snapshot konzept(3).zip. Diese Datei ist vermutlich
+transient (wie das geloeschte VOLLSCAN-Proof-Doc) - daher hier vollstaendig
+getrackt, damit beim Loeschen nichts verloren geht.
+
+GESAMTEINORDNUNG (Claude): (1) Snapshot-Basis ohne Live-Realitaet. (2) Ein
+Grossteil der Befunde zielt auf BEWUSST ungeschriebene WAITING-Module
+(Model-Layer-vs-Implementation-Layer-Verwechslung) - deckt sich mit der
+PRIORITAETENLISTE, kein Drift. (3) Konvergenz mit eigenen Befunden:
+F-004 = EB-VOLLSCAN-02, F-007 ~ EB-VOLLSCAN-03 (beide §1b deferred).
+
+STATUS-LEGENDE: [DONE]=gefixt v2.1.9 | [OFFEN]=aktive Datei, diese Runde noch
+offen | [WAITING]=korrekt, aber betrifft ungeschriebenes Modul (kein Patch,
+gehoert ins Modul) | [SNAPSHOT]=Snapshot-Artefakt | [REDAKTIONELL] | [REJECT]
+=als angegebene Schwere zurueckgewiesen (mit Begruendung).
+
+  F-001 (Blocker) Boot-Firewall "nftables Default-DROP ohne Ruleset"
+    -> KORREKT. BASE-005_080 L93-94 technisch falsch (nftables hat keine
+    Default-DROP ohne base chain). BASE-050-Entwurf markiert es selbst als
+    "streng falsch". Claude-Zusatz: auch Begruendung b) bruechig (connect_
+    pending-Sets laden erst Phase 4, nach Tunneln Phase 3); Drift Entwurf
+    (Phase 1) vs aktive Sequenz (Phase 4).
+    Status: [DONE] v2.1.14 (F-001-REV2). Entscheidung Marco+ChatGPT(2x)+
+    Claude: Early FULL fail-closed Ruleset frueh laden (vor Tunnel), KEINE
+    separate Baseline (nur Fallback); Gating-Vertrag Requires=nftables.service
+    + After=nftables.service auf accel-ppp/strongswan/awg-quick@awg0 +
+    generische Klausel (BindsTo NICHT Standard, spaetere Option). Falsche
+    Default-DROP-Aussage + Phase-Ordering (nftables vorgezogen) korrigiert.
+    .184-Live-Evidenz (Debian 13, natives nftables) belegt Early-Load und die
+    nur transitive Stock-Ordnung -> Notwendigkeit des expliziten Gatings.
+    Umsetzung: BASE-005_080 Abschnitt 3 + 3a, _090 PF-18 (+VERLUST-TRIGGER),
+    _095 T-PF-20, ENTWURF_BOOT_FIREWALL_BASELINE Abschnitt 0. Eigenbefund-
+    Erweiterung: AWG-Unit erbt den Gating-Vertrag (BASE-040, parkiert).
+    Admission-Fail-Open-Restpunkt (Neu-8) NICHT hier, ausgelagert -> F-002.
+    REDAKTIONELL-OFFEN (F-001-Folgepunkt, registriert 2026-05-31): Die
+    Section-Headings "CRASH-RECOVERY-*" in BASE-005_090 + _095 (Abschnitt 7)
+    stehen in AKTIVEN Dateien; der Inhalt ist bereits auf Ruleset-Verlust /
+    Drift / Flush / Reload-/Stop-/Restart umgestellt, aber der Heading-Begriff
+    "Crash" passt nicht mehr zum Kanon (nftables.service oneshot, kein Daemon-
+    Crash). Bei naechster redaktioneller Konsistenzrunde auf
+    "RULESET-DRIFT-RECOVERY" o.ae. normalisieren. Nicht blockierend.
+
+  F-002 (Blocker) WG-DB-Down-Grace nicht als Fail-Closed-Ausnahme benannt
+    -> REJECT als Blocker (teilweise korrekt). Prämisse falsch: BASE-020_020
+    L155-170 dokumentiert die WG-Grace explizit als bewusste Marco-Entschei-
+    dung (2026-04-18, 5min Grace -> Dienst-Stop); _020/_040 sind konsistent.
+    Realer Restkern (Peer kann waehrend Grace ohne DB-Recheck handshaken) ist
+    bewusst akzeptiert + zeitlich begrenzt = MINOR, gekoppelt an F-014/BASE-040.
+    Status: [REJECT als Blocker] - MINOR-Restnotiz offen (Grace-Restrisiko).
+
+  F-002-ERWEITERUNG (Neu-8 / Z-A, aus F-001-Analyse ausgelagert, 2026-05-30;
+  revidiert 2026-05-31 -- konzeptbasiert statt testserverbasiert):
+    -> Zweiter, mechanisch GETRENNTER Admission-Befund (kein Boot, daher NICHT
+    F-001; eigenes Thema neben der WG-Grace oben).
+    KONZEPT-STAND (aktive Dateien): connect_pending ist kanonisch ein DENY-
+    Overlay -- Mitgliedschaft DROPpt Forward, bis Policy-Apply die IP entfernt
+    (02_ASSUMPTIONS_AND_RULES Connect-Gate; 01_GLOSSARY; PRIORITAETENLISTE:
+    "Admission ACCEPT -> connect_pending -> Policy-Apply"). Was einen
+    autorisierten Client nach dem Entfernen durchlaesst -- die BASIS-ACCEPT-
+    FORM (pool-weiter Subnetz-Accept vs. positiver Per-IP-Allow-Set) -- ist in
+    KEINER aktiven BASE-Datei festgelegt; alle Referenzen zeigen auf BASE-050
+    (ungeschrieben). Die connect_pending-Detailsemantik in
+    model/SM_POLICY_RESTRICT ist DEPRECATED (Alt-Kanon), nicht normativ.
+    KERNFRAGE: Ein Deny-Overlay ist NUR fail-closed, wenn die Basis-Accept-Form
+    ohne das Overlay selbst fail-closed ist. Bei pool-weitem Basis-Accept (wie
+    ihn der NICHT-normative Alt-Kanon-Testserver .184 prototypisch hatte) ist
+    ein leeres/unpopuliertes connect_pending fail-OPEN -- die Sperre haengt dann
+    allein an korrekter Population beim Connect (Wiring). .184 hat hierfuer
+    KEINE Beweiskraft (nftables dort nie vollstaendig/korrekt umgesetzt); die
+    Frage ist rein konzeptionell aus BASE-050 zu entscheiden.
+    SPANNUNG MIT BASE-030 (Mini-Review 2026-05-31): LT-18/LT-19 (BASE-030_090,
+    ACTIVE) beschreiben fuer L2TP bereits ein ALLOW-Gate -- "Traffic NUR
+    moeglich wenn Client-IP explizit in ein Freigabe-Set" + "nicht im Set ->
+    gesperrt -> Fail-Closed automatisch". Diese Eigenschaft liefert ein Deny-
+    Overlay ueber pool-weitem Accept NICHT. BASE-030 ist damit bereits auf das
+    Allow-Gate festgelegt; F-002 muss das entweder bestaetigen (Allow-Gate
+    kanonisch) oder LT-18/LT-19 korrigieren (falls Deny-Overlay + pool-Accept).
+    OPTION Z-A (Claude, zu entscheiden): forward-Admission als ALLOW-Gate
+    (accept NUR fuer ein @authorized-Set, sonst default drop) -- strukturell
+    fail-closed (leeres Set = alles gesperrt), deckt sich mit LT-18/LT-19.
+    connect_pending wuerde als separates Deny-Set teils redundant (Nicht-
+    Mitgliedschaft im authorized-Set sperrt bereits) -- Rolle neu zu bestimmen.
+    Trade-off: jede zulaessige Session MUSS aktiv ins authorized-Set gewiremt
+    werden; die Population wird der sicherheitskritische Pfad. Gegen-Argument:
+    hoehere Wiring-Komplexitaet + Connect-Latenz-Risiko.
+    Status: [ENTSCHIEDEN: Option C, 2026-05-31 (Marco)]. Policy-Endzustand
+    tunnelneutral (Rolle+Status entscheiden, in nftables umgesetzt); Admission-/
+    Forward-Gate TUNNELSPEZIFISCH. WG/AWG: Deny-Overlay + Gate vor Peer-Add
+    (connect_pending transient, Steady-State-Accept via Rollen-CIDR). L2TP:
+    strukturelles ppp*-Default-Deny + persistentes Freigabe-Set (LT-18/19),
+    weil accel-ppp/ip-up async ist und ein reiner Deny-Overlay dort ein
+    unpoliced window (R-04-Verletzung) riskierte. Option B (Allow-Gate fuer
+    beide) erwogen, verworfen: redundante Set-Pflege fuer WG ohne Sicherheits-
+    gewinn. KANON-AUFLOESUNG (dieser Patch): ASSUMPTIONS R-04/R-05 L2TP-
+    Klauseln; GLOSSARY Connect-Gate/connect_pending L2TP-Klausel; BASE-030
+    LT-18/19 bestaetigt+praezisiert; nftables-Rollen-Entwurf Abschnitt 4
+    L2TP-Pfad (Entscheidung verbindlich, BASE-050-Ausarbeitung folgt).
+    REGISTRIERTE BASE-080-PFLICHT (ungeschrieben): L2TP-Freigabe-Set-Lifecycle
+    definieren -- Add bei Apply-Erfolg, Remove bei ip-down (LT-20), Verhalten
+    bei Apply-Failure / Disconnect / Reconcile (vpn_connect_gate_ttl_seconds).
+    KEINE .184-Re-Probe (nicht normativ).
+    Querverweis: F-014/Hardcut + connect_pending-Wiring.
+
+  F-003 (Blocker) wg0/awg-quick-Drift -> KORREKT. Siehe Changelog v2.1.9.
+    Status: [DONE] v2.1.9 (8 Stellen, inkl. sicherheitskrit. Not-Aus).
+
+  F-004 (Major) AWG-Port-Konsistenz -> = EB-VOLLSCAN-02 (bereits registriert).
+    Status: [WAITING] §1b deferred -> BASE-040.
+
+  F-005 (Major) NAT66-fuer-Legacy-Widerspruch -> KORREKT. Siehe v2.1.9.
+    Status: [DONE] v2.1.9 (Modern=ULA+NAT66, Legacy=IPv4-only).
+
+  F-006 (Major) SQL-First vs Settings-Modul -> kontextabhaengig. Zielt auf
+    BASE-090_SETTINGS_CORE (leer). Bereits in §5 Scope-Klarstellung adressiert.
+    Status: [WAITING] -> BASE-090.
+
+  F-007 (Major) AWG-Controller/Reconcile fehlt -> ~ EB-VOLLSCAN-03.
+    Status: [WAITING] §1b deferred -> BASE-040.
+
+  F-008 (Major) Credential-Visibility Admin/Audit -> reconciled. User sieht
+    eigene; Admin-Fremdeinsicht reveal-gated ("Anzeigen"-Klick + Pflicht-
+    Audit), MOD kein Klartext fremder Credentials. L2TP-Passwort server-
+    erzeugt (AS-08), CEK-verschluesselt (subaccount_password_enc, AEAD-
+    Mindestvertrag) + NT-Hash bleibt. WG-Config/Keys datei-basiert (.conf auf
+    Platte, Panel liest die Datei, dauerhaft), nicht in der DB.
+    Status: [DONE] v2.1.13 (BASE-010_030 AS-07/AS-08/Abschnitt 4,
+    BASE-005_060 Abschnitt 5B/6, BASE-000_010,
+    BASE-010_095 T-SE-02/03/04/05/06, 01_GLOSSARY, BASE-010_INDEX,
+    ENTWURF_ADMIN_DASHBOARD; Entwuerfe panel-zentrale + psk-secret
+    UEBERHOLT/reconciled).
+
+  F-009 (Major) Onboarding/Claim-Flow fehlt -> kontextabhaengig (MOD-001 leer).
+    Status: [WAITING] -> MOD-001.
+
+  F-010 (Major) "webpanel sammelstelle" unklar -> Snapshot-Artefakt (externer
+    Ordner, Marco bekannt).
+    Status: [SNAPSHOT].
+
+  F-011 (Major) BASE-080/100 leer -> kontextabhaengig (bewusst ungeschrieben).
+    Status: [WAITING] -> BASE-080/100.
+
+  F-012 (Major) BASE-110/MOD-004 Webstack/TLS -> kontextabhaengig (leer).
+    Status: [WAITING] -> BASE-110/MOD-004.
+
+  F-013 (Major) Resource-Exhaustion/Limits -> kontextabhaengig (MOD-007 leer).
+    Status: [WAITING] -> MOD-007.
+
+  F-014 (Major) Hardcut-Pfade unvollstaendig -> kontextabhaengig (OPEN-PHP-04,
+    bewusst offen). Koppelt an F-002-Restnotiz.
+    Status: [WAITING] -> BASE-040/OPEN-PHP-04.
+
+  F-015 (Major) webpanel-DB-Rechte zu weit -> noch zu pruefen (aktive Datei
+    BASE-000_010).
+    Status: [OFFEN].
+
+  F-016 (Major) XP/TLS/CA-Kette -> kontextabhaengig (MOD-004 leer).
+    Status: [WAITING] -> MOD-004.
+
+  F-017 (Major) BASE-070 Session-Core nur Entwurf -> kontextabhaengig.
+    Status: [WAITING] -> BASE-070.
+
+  F-018 (Major) D009-Referenz ohne decisions/-Datei -> teilweise korrekt.
+    D009 fehlt in decisions/ (Altkonzept), referenziert in BASE-005_080 L90
+    (D009,B167 §3); connect_pending-Konzept selbst voll kanonisch. =
+    unmarkierte Altkanon-Referenz, kein inhaltliches Loch.
+    Status: [DONE] v2.1.11 - Option A: R-19 (ASSUMPTIONS) etabliert die
+    Altkanon-vs-RetroTunnel-Decision-Konvention (-Alt-Suffix, Kollision
+    D002/003/004 benannt). Eigener Zusatzbefund: Scope breiter als D009
+    (auch D005/D012). 4 Inline-Refs markiert: BASE-005_020/080/040 +
+    BASE-020_020 (D004 dort bleibt RetroTunnel). INDEX/BRIEFING/PRIORITAET
+    schon korrekt ausgewiesen, nicht angefasst.
+
+  F-019 (Minor) vpn_*-Wording vs Grants -> KORREKT (teilw., Sicherheit).
+    L97 praezisiert: RADIUS Lese + Schreibrechte NUR auf vpn_session_locks;
+    vpn_connections-Counter schreibt der system-User. Keine Grant-Aenderung.
+    Status: [DONE] v2.1.10.
+
+  F-020 (Minor) Pseudocode nicht als solcher markiert -> KORREKT.
+    swanctl.conf connections-Block (BASE-030_020): alle Erlaeuterungen mit #
+    versehen, copy-safe. secrets-Block war bereits sauber. Keine Semantik.
+    Status: [DONE] v2.1.10.
+
+  F-021 (Minor) IKEv2/PSK zu absolut formuliert -> KORREKT.
+    Satz "IKEv2 nutzt Zertifikats-Auth" (BASE-030_020) ganz gestrichen:
+    zu absolut + RetroTunnel hat keinen IKEv2-Pfad (steht bereits L50/L99).
+    Status: [DONE] v2.1.10.
+
+  F-022 (Minor) Tabellen-Ausrichtung -> KORREKT (eng begrenzt).
+    BASE-005_070 §2 neu ausgerichtet (Owner@30/Typ@42/User@49/Krit@62);
+    User-Spalte 10->13 fuer "adguardhome". §3/§4 schon ok. §5-Header offen.
+    Status: [DONE] v2.1.10.
+
+  F-023 (Minor) OPEN-PHP-07 "vermutlich" -> bewusst offen (ehrlich markiert).
+    Status: [REDAKTIONELL] - Marco-Frage offen.
+
+  F-024 (Minor) phase_003_analyse-Datei -> Snapshot-Artefakt.
+    Status: [SNAPSHOT].
+
+  F-025 (Minor) Ordnerstruktur.txt veraltet -> bekannt (Phase-1-Diff).
+    Status: [SNAPSHOT].
+
+  F-026 (Nice) Manifest IKEv2-Wording -> redaktionell (aktiv).
+    Status: [REDAKTIONELL].
+
+  F-027 (Nice) Live-Fakten ohne Zeitstempel -> redaktionell.
+    Status: [REDAKTIONELL].
+
+ZUSATZBEFUND CLAUDE (nicht von ChatGPT): Config-Pfad /etc/wireguard/ falsch
+fuer AmneziaWG (awg-quick liest aus /etc/amnezia/amneziawg/). 12 Stellen
+korrigiert. Status: [DONE] v2.1.9.
+
+OFFENE-BEFUNDE-UEBERSICHT (Stand 2026-05-30, nach v2.1.14):
+  [DONE]: F-001, F-003, F-005, F-008, F-018, F-019, F-020, F-021, F-022, Config-Pfad-Zusatzbefund.
+  [OFFEN aktive Dateien]: F-015; F-002-MINOR-Restnotiz + F-002-ERWEITERUNG (Neu-8/Z-A).
+  [WAITING Module]: F-004, F-006, F-007, F-009, F-011, F-012, F-013, F-014,
+    F-016, F-017.
+  [SNAPSHOT/REDAKTIONELL]: F-010, F-023, F-024, F-025, F-026, F-027.
 
 ================================================================================
 2) REVIEW-TIEFE-KLASSEN
@@ -379,7 +906,7 @@ SWEEP 2 — REGELN UND BEGRIFFE
          Begriffe stimmen mit Nutzung überein?
 
   S2-02  02_ASSUMPTIONS_AND_RULES.txt                Klasse B
-         Prüfung: Sind die 17 Regeln noch aktuell? Sind die
+         Prüfung: Sind die 18 Regeln noch aktuell? Sind die
          9 Annahmen durch Model-Arbeit bestätigt/widerlegt?
 
   S2-03  03_CHANGELOG.txt                            Klasse B
@@ -502,6 +1029,176 @@ SCOPE-KLARSTELLUNG (ChatGPT-Audit F-006, 2026-04-13):
 HINWEIS: Modellphase M1 schließt NUR bestehende Dateien ab. Sie erzeugt
 KEINE neuen Base- oder Module-Dateien. M2 (Base) beginnt erst
 nach M1-Abschluss.
+
+================================================================================
+SELF-CONTAINMENT-TRACKING (Inline-Altkanon-Refs, 2026-05-30)
+================================================================================
+
+ZWECK:
+  Fortschritt der Querschnitts-Aufgabe QS-01 (PRIORITAETENLISTE) je Base-
+  Modul. Zielprinzip: 02_ASSUMPTIONS_AND_RULES R-19 (ZIELPRINZIP Self-
+  Containment). Das aktive Konzept soll ohne Altkanon verstaendlich sein;
+  Inline-Bxxx/Dxxx-Alt-Refs im Body werden modulweise (verify-first)
+  entfernt, Herkunft wandert auf Modulebene (INDEX "VORGAENGER (Altkonzept)").
+
+EXIT-KRITERIUM je Base-Modul (zusaetzlich zu den Modul-Review-Kriterien):
+  SC-EXIT  Ein Base-Modul gilt erst als self-contained/final, wenn
+           (a) keine Inline-Altkanon-Refs (Bxxx / Dxxx-Alt) mehr im Body
+               stehen, ODER jede verbliebene Ref nachweislich noetig +
+               bewusst ist, und
+           (b) die Herkunft in der Modul-INDEX-Sektion "VORGAENGER
+               (Altkonzept)" vollstaendig steht.
+
+AUSGANGSSTAND 2026-05-30 (Inline-Refs in Body-Dateien, ohne INDEX/entwuerfe):
+  Modul                       B-Refs  D-Alt  INDEX-VORGAENGER
+  --------------------------- ------  -----  ----------------
+  BASE-000_SQL_FIRST          3       0      fehlt
+  BASE-005_PLATFORM_CORE      35      3      fehlt
+  BASE-010_IDENTITY_CORE      27      0      vorhanden
+  BASE-020_AAA_CORE           38      1      vorhanden
+  BASE-030_TUNNEL_L2TP_IPSEC  2       0      fehlt
+  --------------------------- ------  -----  ----------------
+  SUMME                       105     4      
+
+STATUS: [OFFEN] - QS-01 laeuft modulweise. Noch kein Modul self-contained.
+  D-Alt-Refs sind aktuell korrekt mit "-Alt" markiert (Uebergang, R-19).
+  Reihenfolge sinnvoll an die Modul-Finalisierung gekoppelt; kleine Module
+  (BASE-000: 3, BASE-030: 2) sind schnelle erste Kandidaten.
+
+================================================================================
+SETTINGS-KEYS-TRACKING (Vorläufiger Index für BASE-090, 2026-05-23)
+================================================================================
+
+ZWECK:
+  Vorläufiger Sammelpunkt aller operativen Werte aus den aktiven Bases,
+  klassifiziert nach DP-02 (MANIFEST):
+    SETTING        = Operationaler Parameter, gehoert in
+                     settings_catalog (BASE-090)
+    POLICY         = Kundenrecht/Limit, gehoert in policy_catalog
+                     (BASE-100)
+    DAEMON-KONST   = Bewusst lokale Daemon-Konstante, KEIN Settings-
+                     Kandidat (Daemon-internes Verhalten, aendert
+                     sich nicht zur Laufzeit pro Connection/Customer)
+    PROTOKOLL-KONST= Durch Protokoll-Standard vorgegeben (Ports,
+                     RFC-Konstanten), nicht aenderbar
+    ALTKANON       = Wert aus xp-vpn-stack uebernommen, Klassifikation
+                     bei BASE-090 zu pruefen
+    OFFEN          = Klassifikation steht aus
+
+  Diese Sektion adressiert ChatGPT-Audit F-005 (Variante A:
+  Pflege-Notiz, kein BASE-090-Pre-Pull). Sie ist NICHT-NORMATIV
+  und dient als Inputliste fuer M2-090. Bei BASE-090-Ausarbeitung
+  wird sie aufgeloest.
+
+  HINWEIS:
+  Stand der Erhebung: Aktive Bases (BASE-000, BASE-005, BASE-010,
+  BASE-020, BASE-030). BASE-040+ ist M2-Scope (leer/WAITING) —
+  weitere Settings-Kandidaten entstehen dort und werden bei
+  Ausarbeitung ergaenzt.
+
+──────────────────────────────────────────────────────────────────────
+A) EXPLIZIT ALS SETTINGS-KEY MARKIERT (sauber dokumentiert)
+──────────────────────────────────────────────────────────────────────
+
+  KEY                                     KLASSE   ORT                                     DEFAULT
+  ─────────────────────────────────────── ──────── ─────────────────────────────────────── ──────────
+  wg_failclosed_grace_seconds             SETTING  BASE-020_040 §3 Phase 1                 300
+  wg_grace_reset_stable_seconds           SETTING  BASE-020_040 §3 WG-GRACE-03 (D004-E09)  600
+  wg_grace_warn_seconds                   SETTING  BASE-020_040 §3 WG-GRACE-04 (D004-E09)  30
+  wg_grace_alert_seconds                  SETTING  BASE-020_040 §3 WG-GRACE-04 (D004-E09)  240
+  wg_grace_accounting_buffer_max          SETTING  BASE-020_040 §3 WG-GRACE-01 (D004-E09)  10000
+  vpn_active_session_lock_ttl_seconds     SETTING  BASE-020_030 §2.7                       (B057 Fail-Class)
+  vpn_reconcile_interval_seconds          SETTING  BASE-005_090 PF-18 (Verweis B057)       (B057)
+  default_restore_window_days             SETTING  BASE-010_050 §1 vpn_reason_registry     pro Code
+  default_restrict_window_days            SETTING  BASE-010_050 §1 vpn_reason_registry     pro Code
+  quarantine_days                         SETTING  BASE-010_050 §3                         pro Code
+  quota_scope                             SETTING  D004-E04                                'per_connection'
+  quota_reset_mode                        SETTING  D004-E08                                'calendar_month'
+  wg_counter_poll_interval_seconds        SETTING  D004-E05/E09                            5
+  wg_handshake_stale_threshold_seconds    SETTING  D004-E05/E09                            180
+  wg_counter_wrap_detection               SETTING  D004-E05/E09                            'enabled'
+  l2tp_radacct_stale_threshold_seconds    SETTING  D004-E03/E09                            300
+  runtime_activity_check_interval_seconds SETTING  D004-E03/E09                            30
+
+──────────────────────────────────────────────────────────────────────
+B) KANDIDATEN FUER SETTINGS-KEY (markiert, aber nicht abschliessend)
+──────────────────────────────────────────────────────────────────────
+
+  ORT                                     WERT     ROHE LABEL                              KLASSE
+  ─────────────────────────────────────── ──────── ─────────────────────────────────────── ──────────
+  BASE-030_010 §3 [modules] thread-count  4        "KANDIDAT FUER SETTINGS-KEY (BASE-090)" SETTING?
+  BASE-030_010 §3 [pppd-compat]           8        Implizit von thread-count*2 abgeleitet  SETTING?
+    fork-limit
+
+──────────────────────────────────────────────────────────────────────
+C) HARTKODIERTE WERTE OHNE KLASSIFIKATION (Hygiene-Lücke F-005)
+──────────────────────────────────────────────────────────────────────
+
+  Diese Werte sind in den Bases ohne explizite Klassifikation
+  gesetzt. Inline-Begruendung ist meist vorhanden, aber die
+  Trennung "Setting vs Daemon-Konstante vs Protokoll-Konstante"
+  ist nicht explizit. Bei BASE-090-Ausarbeitung pruefen:
+
+  ORT                                     WERT          CLAIM                              KLASSE-VORSCHLAG
+  ─────────────────────────────────────── ──────────── ─────────────────────────────────── ────────────────
+  BASE-030_010 §3 [l2tp] lcp-echo-interval 30s          PPP Dead-Peer-Detection             DAEMON-KONST
+  BASE-030_010 §3 [l2tp] lcp-echo-failure  3            Disconnect nach 3x30=90s            DAEMON-KONST
+  BASE-030_010 §3 [l2tp] ppp-max-mtu       1400         Berechnet aus BASE-030_060          DAEMON-KONST
+  BASE-030_010 §3 [ppp] mtu                1400         L2TP/IPsec NAT-T Overhead            DAEMON-KONST
+  BASE-030_010 §3 [ppp] mru                1400         Symmetrisch zu mtu                   DAEMON-KONST
+  BASE-030_010 §3 [ppp] min-mtu            1280         IPv6-Untergrenze                     DAEMON-KONST
+  BASE-030_010 §3 [radius]                 300s         Interim-Accounting alle 5min,        SETTING?
+    acct-interim-interval                               haelt radacct fuer SimUse aktuell
+  BASE-030_010 §3 [radius]                 0            MUSS 0 sein (LT-25)                  PROTOKOLL-KONST
+    acct-delay-start
+  BASE-030_010 §3 [radius] acct-timeout    0            Fail-Closed gilt nur NEUE Sessions   DAEMON-KONST
+                                                        (LT-39)
+  BASE-030_010 §3 [modules] level          3            Info-Log (Produktion: 1 oder 2)      SETTING?
+  BASE-030_020 §2 dpd_delay                30s          IKEv1 Dead-Peer-Detection            DAEMON-KONST
+  BASE-030_020 §2 dpd_timeout              90s          Session-Kill bei DPD-Ausfall         DAEMON-KONST
+  BASE-030_020 §2 rekey_time (IKE+CHILD)   0            MUSS 0 wegen NAT-Probleme XP/Vista   PROTOKOLL-KONST
+  BASE-005_080 §3                          60s          Wiring-Tick-Jitter (PF-18)           DAEMON-KONST?
+    Wiring-Tick-Jitter
+
+──────────────────────────────────────────────────────────────────────
+D) PROTOKOLL-/PORT-KONSTANTEN (keine Settings-Kandidaten, Klarstellung)
+──────────────────────────────────────────────────────────────────────
+
+  Alle Werte aus BASE-005_030 Port-Registry:
+    53, 2000, 5353, 80, 443, 123, 27812, 500, 4500, 1701, 1812, 1813, 3306
+  Klassifikation: PROTOKOLL-KONST (Daemon-Bind-Ziele, standardisiert
+  oder bewusst lokal). SSH-Port 27812 ist der einzige bewusst lokale
+  Wert, aber durch Hardening-Entscheidung (Custom-Port statt 22) fest.
+  KEIN Settings-Kandidat — Aenderung waere ein nftables/Service-
+  Inventar-Eingriff, kein operatives Tuning.
+
+──────────────────────────────────────────────────────────────────────
+E) OFFEN — Klassifikation steht aus
+──────────────────────────────────────────────────────────────────────
+
+  KEY/ORT                                 ANMERKUNG
+  ─────────────────────────────────────── ──────────────────────────────────────────
+  AmneziaWG WAN-Port (BASE-005_030)       OPEN-NET-01, wird in BASE-040 entschieden.
+                                          Klassifikation: vermutlich PROTOKOLL-KONST
+                                          (Bind-Port, einmal gesetzt fest).
+
+──────────────────────────────────────────────────────────────────────
+PFLEGE-REGELN
+──────────────────────────────────────────────────────────────────────
+
+  1. Bei jeder neuen Base oder Datei-Anpassung mit operativen Werten:
+     Eintrag hier ergaenzen oder Klassifikation in der Datei selbst
+     inline vermerken (Format: "(Settings-Key, BASE-090)" oder
+     "(Daemon-Konstante, kein Settings-Key)").
+
+  2. Bei BASE-090-Ausarbeitung (M2-090): Diese Sektion als Inputliste
+     verwenden. Alle SETTING-Eintraege werden in settings_catalog
+     aufgenommen. DAEMON-KONST/PROTOKOLL-KONST werden in den
+     jeweiligen Base-Dateien explizit klassifiziert und aus dieser
+     Liste entfernt.
+
+  3. Diese Sektion ist NICHT die SoT. SoT bleibt die jeweilige
+     Base-Datei. Hier nur Aggregation und Klassifikation.
 
 ================================================================================
 CHANGELOG

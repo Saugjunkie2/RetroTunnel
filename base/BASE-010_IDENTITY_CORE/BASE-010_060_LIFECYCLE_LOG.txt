@@ -67,13 +67,19 @@ VORGAENGER: DOMAIN_MODEL §7B
   SESSION_HARDCUT        VPN-Session per Hard-Cut beendet
   SESSION_JANITOR_CLOSE  Stale Session durch Janitor geschlossen
   SESSION_SIMUSE_REJECT  SimUse-Guard hat Login abgelehnt
-  CONNECTION_DELETED     Connection physisch geloescht
-                         (CASCADE nach Customer-DELETE oder
-                         einzelne Connection-Loeschung).
-                         Snapshot-Felder tragen Identitaet.
-  CUSTOMER_DELETED       Customer-Account physisch geloescht.
-                         Loest CONNECTION_DELETED fuer alle
-                         zugehoerigen Connections aus.
+  CONNECTION_DELETED     Connection physisch geloescht durch Janitor
+                         nach Ablauf der Tombstone-Quarantaene
+                         (INV-81e). MUSS vor dem physischen DELETE
+                         geschrieben werden (INV-78).
+                         Snapshot-Felder tragen Identitaet weiter.
+  CUSTOMER_DELETED       Customer-Account physisch geloescht
+                         (web_customers.status=DELETED Trigger).
+                         Loest pro CLAIMED Connection ein
+                         STATUS_CHANGE-Event aus (→DISABLED mit
+                         Reason DISABLE_CUSTOMER_DELETED, INV-66).
+                         CONNECTION_DELETED-Events folgen erst
+                         nach Ablauf von quarantine_until durch
+                         Janitor (INV-81e).
 
 ================================================================================
 3) WRITE-PATH
@@ -83,13 +89,19 @@ VORGAENGER: DOMAIN_MODEL §7B
   Events werden automatisch bei Lifecycle-Transitionen erzeugt.
   INSERT-only: Keine UPDATEs, keine DELETEs (Audit-Trail).
 
-  FK-STRATEGIE BEI PHYSISCHER LOESCHUNG (OPEN-010-01 CLOSED):
+  FK-STRATEGIE BEI PHYSISCHER LOESCHUNG (OPEN-010-01 [REVISED] 2026-05-11):
     vpn_connection_id FK: ON DELETE SET NULL.
-    Bei Loeschung der Connection wird vpn_connection_id auf NULL
-    gesetzt, aber die Log-Row bleibt erhalten.
+    Physische Loeschung erfolgt jetzt verzoegert: erst nach Tombstone-
+    Phase durch Janitor (Ablauf von quarantine_until, INV-81e). Vor
+    der physischen Loeschung wird CONNECTION_DELETED-Event geschrieben
+    (INV-78). Beim DELETE der Connection-Row wird vpn_connection_id
+    in allen vorhandenen Log-Rows auf NULL gesetzt, die Log-Rows
+    bleiben erhalten.
     connection_ref (Snapshot) traegt die forensische Identitaet.
     customer_id (Snapshot) traegt die Customer-Zuordnung.
-    → Log ist nach Loeschung weiterhin auswertbar ueber
+    → Tombstone-Phase: Connection-Row + Log-Rows existieren beide.
+      Direkte Abfrage via JOIN auf vpn_connection_id moeglich.
+    → Nach Janitor-DELETE: Log ist weiterhin auswertbar ueber
       connection_ref + customer_id Snapshots.
 
 ================================================================================

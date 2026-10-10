@@ -131,3 +131,28 @@ ZWECK:
             provisioniert → naechster Handshake = neuer Session-
             Start-Kandidat. Kein paralleler alter+neuer Peer.
             [AAA-30]
+
+================================================================================
+6) REPLY-CODE-ALLOWLIST TESTS
+================================================================================
+
+  T-AAA-36  Reply-Code-Allowlist Compliance:
+            (a) Stichprobe radpostauth.reply ueber 24h Produktivbetrieb.
+                JEDE non-NULL Reply-Message MUSS exakt einem
+                Code-String aus BASE-020_070 §2 entsprechen.
+                Keine Freitext-Messages, keine unregistrierten Codes.
+                SQL-Pruefung:
+                  SELECT DISTINCT reply FROM radpostauth
+                  WHERE reply IS NOT NULL AND reply != ''
+                Erwartet: ausschliesslich Strings aus BASE-020_070 §2.
+            (b) Code-Review: Jeder Reject-Pfad in BASE-020_030 §2/§6
+                endet mit einem in BASE-020_070 §2 registrierten
+                Code-String (1:1, kein Praefix/Suffix).
+            (c) ACCEPT-Antworten haben radpostauth.reply IS NULL
+                (oder leer). Pruefung:
+                  SELECT COUNT(*) FROM radpostauth
+                  WHERE authdate > NOW() - INTERVAL 1 DAY
+                  AND reply NOT IN (<BASE-020_070 Codes>)
+                  AND reply IS NOT NULL
+                Erwartet: 0.
+            [AAA-31]

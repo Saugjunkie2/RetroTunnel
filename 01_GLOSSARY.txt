@@ -1,8 +1,8 @@
 ================================================================================
 RetroTunnel — GLOSSAR
 ================================================================================
-VERSION: v1.0
-DATUM: 2026-04-19
+VERSION: v1.1
+DATUM: 2026-05-26
 STATUS: ACTIVE
 
 ================================================================================
@@ -44,14 +44,27 @@ AmneziaWireGuard (AWG)
 
 AWG Session Controller
   Polling-basierte Session-Erkennung für WIREGUARD-Verbindungen.
-  Prüft periodisch den AWG-Peer-State (last_handshake) und leitet
-  daraus Session-Events ab (VALID → STALE → closed). Schreibt in
-  vpn_sessions. Ersetzt den RADIUS-Accounting-Flow für WIREGUARD.
-  SM_SESSION §4, §8.
+  Prüft periodisch den AWG-Peer-State (wg show transfer +
+  latest-handshake) und leitet daraus Liveness und Counter-Deltas
+  ab. Schreibt auf vpn_connections: quota_used (einziges Aggregat,
+  += Delta, Einheit Bytes, Summe RX+TX), last_known_rx_bytes /
+  last_known_tx_bytes (Polling-CURSOR, NICHT Aggregat),
+  counter_epoch (inkrementiert AUSSCHLIESSLICH bei Counter-Reset-
+  Detection, D004-E05), last_runtime_seen_at (Liveness-Hint) und
+  last_counter_seen_at (Buchhaltungs-Marker, auch bei delta=0).
+  Ersetzt den RADIUS-Accounting-Flow für WIREGUARD.
+  SM_SESSION §4, §8. (D004-E01/E05, EB-VOLLSCAN-07.)
 
 claim_token
   App-Layer Token für die Zuordnung einer VPN-Connection zu einem Customer.
   Nicht für VPN-Login. Persistiert als claim_token_hash (kein Klartext in DB).
+
+CEK (Credential-Encryption-Key)
+  Symmetrischer Klasse-A-Schluessel, mit dem das L2TP-Passwort in
+  subaccount_password_enc at-Rest verschluesselt wird; Entschluesselung nur
+  zur Panel-Anzeige. Liegt AUSSERHALB des Webpanel-Pfads (nicht in der DB),
+  ein DB-Leak allein gibt keinen Klartext. AEAD-Pflicht, Key-ID, AAD-Bindung
+  an connection_id. Definition + Mindestvertrag: BASE-005_060 Abschnitt 6.
 
 Connect-Gate (D1a)
   No-Unpoliced-Window Mechanik. Client-IP wird in connect_pending Set
@@ -59,10 +72,17 @@ Connect-Gate (D1a)
   WIREGUARD: Gate MUSS vor Peer-Add gesetzt sein (POL-23, SM_POLICY_RESTRICT §6.2).
   Gate-Entfernung ist Teil des Apply-Erfolgskriteriums.
   Bei Apply-Failure: FAIL-CLOSED (Peer/Session-Kill, Pending bleibt).
+  L2TP_IPSEC (F-002, Option C): das No-Unpoliced-Window wird strukturell
+  ueber ppp*-Default-Deny + positives Freigabe-Set realisiert (LT-18/19),
+  nicht ueber connect_pending -- weil accel-ppp/ip-up async ist. Tunnel-
+  neutral ist nur der Policy-Endzustand, nicht der Gate-Mechanismus.
 
 connect_pending_v4 / connect_pending_v6
   Dynamische nftables Sets. Enthalten Client-IPs deren Policy-Apply noch
   nicht erfolgreich abgeschlossen ist. Effekt: DROP ALL FORWARD.
+  Aktiv v.a. fuer WIREGUARD (Deny-Overlay). Fuer L2TP_IPSEC ist die
+  Connect-Sperre durch das positive Freigabe-Set subsumiert (Nicht-
+  Mitgliedschaft = kein Forward), F-002 Option C.
   Lifecycle: SM_POLICY_RESTRICT §6 (Connect-Gate) + §7 Schritt 5 (Reconcile).
   Harmlose Stale-Reste (Peer weg) werden durch Reconcile entfernt.
   Kritische Reste (Peer/Session aktiv) werden geschützt bis Kill erfolgreich.
@@ -263,9 +283,13 @@ settings_catalog
 
 SimUse=1
   Simultaneous-Use = 1 pro VPN-Connection. Maximal eine aktive Session
-  pro subaccount_login/vpn_connection_id. Enforcement dreistufig:
-  vpn_sessions=Truth, vpn_session_locks=Guard, Janitor=Backstop
-  (SM_SESSION §5). Kein Takeover. Fail-Closed.
+  pro subaccount_login/vpn_connection_id. Enforcement dreistufig
+  (D004-E01-konform):
+    Truth (Liveness): tunnel-spezifisch — radacct (L2TP) bzw.
+                      wg show transfer + latest-handshake (WG)
+    Guard (Mutex):    vpn_session_locks (tunnelneutral)
+    Backstop:         On-Demand- und periodischer Janitor (BASE-070)
+  Kein Takeover. Fail-Closed. SM_SESSION §5.
 
 Slot-Relevanz (Zählregel)
   Aktiv-Budget + Ableitungsregel für Connection-Limits (D003-E06).
@@ -286,6 +310,12 @@ subaccount_login
   Server-generierter, nicht-enumerierbarer VPN-Login pro Connection.
   Format: ^vpn_[a-z2-7]{16}$. Immutable nach Erstellung.
   Persistiert in: vpn_connection_l2tp_ipsec_auth (BASE-000 K-08).
+
+subaccount_password_enc
+  Spalte in vpn_connection_l2tp_ipsec_auth (VARBINARY): das L2TP-Passwort
+  CEK-verschluesselt at-Rest (AEAD), nur zur Panel-Anzeige entschluesselt.
+  Klartext liegt NIE in der DB; der NT-Hash bleibt das separate RADIUS-Auth-
+  Artefakt. Siehe BASE-010_030 (AS-07) und CEK (BASE-005_060 Abschnitt 6).
 
 tunnel_type
   Technischer Verbindungspfad. ENUM: L2TP_IPSEC | WIREGUARD.
@@ -338,12 +368,20 @@ vpn_session_locks
   Kanonischer Tabellenname für atomaren SimUse-Guard (Mutex).
   Altname: "active_session_locks" (DOMAIN_MODEL §4, BASE-000 K-02).
 
-vpn_sessions
-  Session-Truth-Tabelle. EINZIGE Quelle für "Session aktiv"
-  (L2TP_IPSEC + WIREGUARD). Offene Session = closed_at IS NULL.
-  SimUse=1 pro Connection.
-  L2TP_IPSEC schreibt über radacct-Bridge, WIREGUARD über AWG
-  Session Controller. Schema und Lifecycle: SM_SESSION §3–§4.
+vpn_sessions (DEPRECATED in RetroTunnel, D004-E02)
+  Frueher (vor D004) als "Session-Truth-Tabelle" eingefuehrt —
+  diese Annahme war stille Drift gegen den Altkanon (B055/B165),
+  wo Session-Wahrheit beim Daemon liegt (radacct fuer L2TP,
+  Filesystem-Mapping unter /run/vpn-sessions/*.env). D004 fuehrt
+  die Trennung wieder ein:
+    - Runtime-Liveness/Counter: Daemon (radacct + wg show)
+    - Counter-Aggregat-Persistenz: vpn_connections (quota_used =
+      Aggregat; last_known_* = Polling-Cursor; counter_epoch;
+      last_runtime_seen_at)
+    - SimUse-Mutex: vpn_session_locks (tunnelneutral)
+  vpn_sessions wird in keinem aktiven Pfad mehr gelesen oder
+  geschrieben. Drop-Termin offen (nach Entwoehnung aller Module).
+  Siehe D004_RUNTIME_TRUTH_VS_SQL_PERSISTENZ.txt.
 
 web_customers
   Kanonischer Tabellenname für Panel-Accounts (Menschen).
@@ -355,6 +393,28 @@ wg_connection_auth
   Nur für tunnel_type=WIREGUARD belegt. RADIUS hat KEINEN Zugriff
   auf wg_*-Tabellen (Auth-Split aus BASE-000 K-08, Sicherheitszone).
 
+wg_secure_session (Session-Begriff a, D004-E07)
+  Kryptographische Session auf Kernel-Ebene zwischen WG-Peer und
+  Server. Lifecycle ist WireGuard-intern: alle ~120s findet ein
+  Rekey (neuer Handshake) statt, ohne dass dies eine logische
+  Session-Grenze im Sinne von Admission/Quota/Lock darstellt.
+  Source: Kernel/wg show. NICHT identisch mit runtime_activity
+  oder operational_session.
+
+runtime_activity (Session-Begriff b, D004-E07)
+  Tatsaechliche Verbindungs-Aktivitaet aus Daemon-Sicht (radacct
+  fuer L2TP, wg show transfer + latest-handshake fuer WG). Dies
+  ist die Truth-Quelle fuer SimUse-Pruefung, Stale-Detection und
+  Counter-Delta-Berechnung. Nicht persistiert als eigene DB-
+  Tabelle — lebt im Daemon-State. Aggregat-Hinweise (Counter,
+  last_runtime_seen_at) gehen auf vpn_connections.
+
+operational_session (Session-Begriff c, D004-E07)
+  Projektion fuer Panel/Reports/Admin-Sicht ("diese Verbindung
+  ist seit 12 min online und hat 340 MB verbraucht"). Wird aus
+  vpn_connections-Aggregat-Feldern abgeleitet (MOD-006 Owner).
+  Keine eigene Truth, nur darstellbare Sicht.
+
 ================================================================================
 PREFIX-LEGENDE (Identifier-Namensräume im Projekt)
 ================================================================================
@@ -365,7 +425,7 @@ Jeder Prefix gehört zu genau einer Datei/Domäne. Keine Doppelnutzung.
 
   KR-xx     Konzept-Regeln (MANIFEST §7, KR-01..KR-06)
               Wie die Dokumentation/das Projekt funktioniert.
-  R-xx      System-Regeln (ASSUMPTIONS §2, R-01..R-16)
+  R-xx      System-Regeln (ASSUMPTIONS §2, R-01..R-18)
               Wie das VPN-System funktioniert.
   DP-xx     Design-Prinzipien (MANIFEST §3, DP-01..DP-08)
   A-xx      Annahmen (ASSUMPTIONS §1, A-01..A-09)
@@ -377,14 +437,20 @@ Jeder Prefix gehört zu genau einer Datei/Domäne. Keine Doppelnutzung.
   M0..M4    Modellphasen — Konzeptarbeit (PRIORITAETENLISTE)
               M0=Fundament, M1=Denkmodell, M2=Kern-Module,
               M3=Erweiterungsmodule, M4=Decisions/Proofs/Implementation
-  PH1..PH10 Rollout-Phasen — Server-Implementierung (aus B290)
-              PH1=VPN-Baseline, PH2=QoS, PH3=DNS, ..., PH10=Extras
+  PH1..PH10 Rollout-Phasen / Funktionsbereiche — Konzept-Reife + Acceptance
+              kanonisch in 04_PHASE_PLAN.txt definiert (SOLL-Liste).
+              Uebersicht: PH1=VPN-Baseline, PH2=QoS, PH3=DNS, PH4=CA/Webstack,
+              PH5=Webpanel Core, PH6=Operability, PH7=Accounting, PH8=Restricted
+              Mode, PH9=Monitoring, PH10=Extras. Stack-Bezug, Modul-Mapping und
+              Acceptance-Kriterien siehe 04_PHASE_PLAN.txt.
+              HINWEIS: Ersetzt B290_PHASE_PLAN_ROLLOUT.txt (Altkanon mit IKEv2-
+              Annahmen) als verbindliche Quelle fuer RetroTunnel.
   D00x      Architecture Decision Records (decisions/)
   BASE-xxx  Kern-Module (base/, BASE-000..BASE-110)
               3-stellige Nummerierung seit 2026-04-16.
   MOD-xxx   Erweiterungs-Module (modules/, MOD-001..MOD-010)
               3-stellige Nummerierung seit 2026-04-16.
-  PF-xx     BASE-005 Plattform-Invarianten (PF-01..PF-17)
+  PF-xx     BASE-005 Plattform-Invarianten (PF-01..PF-19)
   SQL-xx    BASE-000 SQL-first Invarianten (SQL-01..SQL-10)
   PR-xx     BASE-000 Prefix-Regeln (PR-01..PR-06)
   TN-xx     BASE-000 Tabellen-Namensregeln (TN-01..TN-07)
@@ -417,7 +483,7 @@ Jeder Prefix gehört zu genau einer Datei/Domäne. Keine Doppelnutzung.
   T-DOM-xx  DOMAIN_MODEL §11 — Domain-Tests
   T-D003-xx D003 §5 — Policy-Decision Tests
   T-SQL-xx  BASE-000 Tests (T-SQL-01..T-SQL-07)
-  T-PF-xx   BASE-005 Tests (T-PF-01..T-PF-19)
+  T-PF-xx   BASE-005 Tests (T-PF-01..T-PF-21)
 
 ── Model-Layer: Sonstige ───────────────────────────────────────────────
 

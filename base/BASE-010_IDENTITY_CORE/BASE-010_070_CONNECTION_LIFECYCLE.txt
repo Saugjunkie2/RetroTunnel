@@ -140,7 +140,76 @@ VORGAENGER: SM_CONNECTION.txt (deprecated model/)
   5. Bei Pool-Full: INSERT scheitert fail-closed.
 
 ================================================================================
-5) PANEL-CONSUMABILITY
+5) TOMBSTONE-FLOW (Customer DELETED, OPEN-010-01 [REVISED] 2026-05-11)
+================================================================================
+
+  AUSLOESER:
+  Customer wechselt nach web_customers.status=DELETED. Reconcile-Job
+  identifiziert alle CLAIMED Connections dieses Customers und
+  kaskadiert pro Connection den Tombstone-Trigger (INV-66 + INV-81).
+
+  ATOMARER TOMBSTONE-WRITE (pro Connection, EINE Transaktion):
+  1. UPDATE vpn_connections SET
+       op_status         = 'DISABLED',
+       op_reason_code    = 'DISABLE_CUSTOMER_DELETED',
+       disabled_at       = NOW(),
+       revoked_at        = NOW(),
+       quarantine_until  = NOW() + vpn_quarantine_days
+     WHERE id = :connection_id;
+  2. DELETE FROM vpn_connection_l2tp_ipsec_auth
+       WHERE vpn_connection_id = :connection_id;   -- L2TP_IPSEC
+     -- ODER --
+     DELETE FROM wg_connection_auth
+       WHERE vpn_connection_id = :connection_id;   -- WIREGUARD
+  3. INSERT INTO log_connection_lifecycle (event_type='STATUS_CHANGE',
+       old_op_status='ACTIVE'|'RESTRICTED', new_op_status='DISABLED',
+       new_reason_code='DISABLE_CUSTOMER_DELETED', actor='SYSTEM',
+       actor_detail='customer_deleted_cascade', connection_ref=...,
+       customer_id=...);
+  4. Bei Fehler: kompletter Rollback. Kein Halbzustand (INV-50).
+  5. Hard-Cut: aktive VPN-Sessions dieser Connection werden beendet
+     (Conntrack-Flush, Session-Kill — analog zu T-04).
+
+  WIRKUNG:
+  - Connection-Row bleibt als Tombstone. customer_id bleibt fuer
+    Forensik-Zuordbarkeit (INV-66, INV-81b).
+  - Auth-Kindtabelle ist physisch weg → RADIUS-/WG-Auth fail-closed,
+    keine Login-Moeglichkeit mehr.
+  - IP-Slot ist via fixed_ip UNIQUE (INV-79) weiterhin belegt.
+    Allokator sieht IP zusaetzlich via INV-82 als nicht-vergebbar
+    (Quarantaene-Gate: revoked_at IS NOT NULL AND now < quarantine_until).
+  - Quarantaene-Wartezeit laeuft computed via revoked_at + quarantine_until
+    (B064 §5.2).
+
+  JANITOR-PHASE (Detail-Verortung BASE-070 oder MOD-001):
+  Nach Ablauf von quarantine_until (NOW() >= quarantine_until):
+  1. INSERT INTO log_connection_lifecycle (event_type='CONNECTION_DELETED',
+       actor='SYSTEM', actor_detail='quarantine_janitor',
+       connection_ref=..., customer_id=...);
+     // INV-78: Event MUSS vor physischer Loeschung geschrieben werden.
+  2. DELETE FROM vpn_connections WHERE id = :connection_id;
+     // log_connection_lifecycle.vpn_connection_id wird via
+     // ON DELETE SET NULL automatisch entkoppelt (INV-77).
+     // Snapshot-Felder (connection_ref, customer_id) tragen Identitaet weiter.
+  3. ip_slot wird durch Allokator wieder vergebbar (B064 §5.4, INV-82).
+
+  ABGRENZUNG ZU T-04 (ADMIN-DISABLE):
+  T-04 setzt eine Connection wegen Admin-Aktion auf DISABLED — der
+  Customer existiert weiter, Connection ist je nach Reason potenziell
+  restorebar (is_restoreable). Im TOMBSTONE-FLOW ist der Customer
+  geloescht — Connection ist nicht restorebar (INV-81d, INV-69
+  terminal). Beide Pfade nutzen LR-01/02 fuer revocation_mode, aber
+  TOMBSTONE ist immer IMMEDIATE (LR-01).
+
+  DSGVO-SONDERPFAD (NICHT in M-02 implementiert, dokumentiert):
+  ADMIN kann auf expliziten Loeschungsanspruch die Tombstone-Row
+  manuell vor Ablauf von quarantine_until physisch entfernen — der
+  Janitor-Pfad (Schritte 1+2 oben) wird manuell getriggert.
+  Quarantaene-Schutz entfaellt dann bewusst (Compliance > IP-Reuse-
+  Confusion). Detail: spaetere Erweiterung.
+
+================================================================================
+6) PANEL-CONSUMABILITY
 ================================================================================
 
   Panel zeigt: op_status Badge, op_reason_code Beschreibung,

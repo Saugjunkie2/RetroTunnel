@@ -176,11 +176,34 @@ VORGAENGER: SM_CONNECTION §8 (T-SM-01..T-SM-47), B310
 
   T-CS-01  Customer SUSPENDED: alle CLAIMED Connections werden DISABLED
            (DISABLE_CUSTOMER_SUSPENDED) nach Reconcile. [INV-65]
-  T-CS-02  Customer DELETED: alle CLAIMED Connection-Rows + Auth-Rows
-           physisch entfernt. DELETED-Event in Lifecycle-Log. [INV-66]
+  T-CS-02  Customer DELETED: alle CLAIMED Connections werden Tombstones:
+           op_status=DISABLED, op_reason_code=DISABLE_CUSTOMER_DELETED,
+           revoked_at + quarantine_until atomar gesetzt.
+           Auth-Kindtabellen-Rows physisch entfernt (Credentials weg).
+           customer_id bleibt fuer Forensik. STATUS_CHANGE-Event in
+           log_connection_lifecycle. [INV-66, INV-81]
   T-CS-03  suspended_at gesetzt ↔ status=SUSPENDED. [INV-67]
   T-CS-04  deleted_at gesetzt ↔ status=DELETED. [INV-68]
   T-CS-05  deleted_at einmal gesetzt, UPDATE auf NULL → Fehler. [INV-69]
+  T-CS-06  Tombstone-Atomarmickeit: Crash zwischen UPDATE vpn_connections
+           und DELETE Auth-Kindtabellen-Row → Rollback, kein Halbzustand.
+           [INV-50, INV-81]
+  T-CS-07  Tombstone-Forensik-Query: SELECT customer_id, connection_ref,
+           fixed_ip, revoked_at FROM vpn_connections WHERE
+           op_reason_code='DISABLE_CUSTOMER_DELETED' liefert alle
+           Tombstones eines geloeschten Customers. [INV-66, INV-81b]
+  T-CS-08  Tombstone-Reuse-Gate: Allokator versucht fixed_ip einer
+           Tombstone-Connection an neue Connection zu vergeben →
+           abgelehnt mit POOL_EXHAUSTED_OR_QUARANTINED solange
+           now < quarantine_until. [INV-82, B064 §5.4]
+  T-CS-09  Janitor-Phase: Nach Ablauf quarantine_until löscht Janitor
+           Tombstone-Row physisch. CONNECTION_DELETED-Event MUSS VOR
+           dem physischen DELETE in log_connection_lifecycle geschrieben
+           werden. [INV-78, INV-81e]
+  T-CS-10  Tombstone-Restore-Verbot: Versuch T-08 (Restore) auf
+           Tombstone-Connection → abgelehnt. INV-81d gilt: ein
+           Customer-DELETED ist terminal, Connection nicht
+           wiederherstellbar. [INV-81d, INV-69]
 
 ================================================================================
 15) CLAIM-/TOKEN-PAKET TESTS
@@ -238,9 +261,12 @@ VORGAENGER: SM_CONNECTION §8 (T-SM-01..T-SM-47), B310
   T-LF-01  Connection loeschen → CONNECTION_DELETED Event in Log
            mit connection_ref Snapshot. vpn_connection_id = NULL
            (SET NULL FK). Log-Row bleibt erhalten. [INV-77, INV-78]
-  T-LF-02  Customer loeschen → CUSTOMER_DELETED Event + je ein
-           CONNECTION_DELETED Event pro Connection. Alle Log-Rows
-           bleiben mit connection_ref + customer_id Snapshots. [INV-78]
+  T-LF-02  Customer loeschen → CUSTOMER_DELETED Event + pro CLAIMED
+           Connection ein STATUS_CHANGE-Event (→DISABLED mit
+           DISABLE_CUSTOMER_DELETED, INV-66). CONNECTION_DELETED-
+           Events folgen erst nach Ablauf von quarantine_until durch
+           Janitor (INV-81e). Alle Log-Rows tragen connection_ref +
+           customer_id Snapshots. [INV-66, INV-78, INV-81]
   T-LF-03  Forensik-Query nach Loeschung: SELECT * FROM
            log_connection_lifecycle WHERE connection_ref = 'con_xxx'
            liefert vollstaendige Historie trotz geloeschter

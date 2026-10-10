@@ -1,0 +1,219 @@
+================================================================================
+BASE-020 — REJECT REASONS (Allowlist erlaubter R_*-Strings)
+================================================================================
+DATEI: BASE-020_070_REJECT_REASONS.txt
+VERSION: v1.0
+DATUM: 2026-05-11
+STATUS: ACTIVE
+
+ZWECK:
+  Kanonische Allowlist aller R_*-Strings, die FreeRADIUS als
+  Reply-Message bei Access-Reject verwenden darf. Verhindert
+  Drift durch unkontrollierten Freitext in radpostauth.reply.
+
+ABGRENZUNG ZU vpn_reason_registry (BASE-010_050):
+  vpn_reason_registry haelt PERSISTENTE, OPERATIVE Reason-Codes
+  (RESTRICT_*, DISABLE_*). Diese sind FK-Ziele von
+  vpn_connections.op_reason_code und beschreiben den DAUERHAFTEN
+  Zustand einer Connection.
+
+  BASE-020_070 haelt TRANSIENTE AAA-REJECT-CODES (R_AUTH_*,
+  R_ACCOUNT_*, R_SIMUSE_*). Diese erscheinen NUR in der FreeRADIUS
+  Reply-Message und in radpostauth.reply als Audit-Spur. Sie
+  beschreiben den GRUND EINER EINZELNEN AUTH-ENTSCHEIDUNG.
+
+  Beide Tabellen sind getrennt. Es gibt KEINEN FK zwischen ihnen.
+  Beispiel: Eine Connection kann op_status=DISABLED mit
+  op_reason_code=DISABLE_ADMIN_ABUSE haben (persistent), und der
+  RADIUS-Login wird mit R_ACCOUNT_DISABLED abgewiesen (transient).
+  Beide Codes existieren parallel und unabhaengig.
+
+VORGAENGER (Altkonzept):
+  B342_POLICY_OUTCOME_REASON_CODES_MATRIX.txt — Reason-Registry mit
+  Domain/Outcome/Alias-Mechanik. RetroTunnel uebernimmt das KONZEPT
+  der Allowlist, aber NICHT den vollen Code-Umfang: viele Codes
+  in B342 sind als OPTIONAL markiert und im Live-Betrieb nicht
+  verwendet (R_REGION_BLOCKED, R_ADMIN_ONLY_SCOPE, R_MAINTENANCE_LOCK).
+  Diese werden hier nicht registriert. Wenn sie spaeter benoetigt
+  werden: separater Entscheidungsschritt + Allowlist-Erweiterung.
+  Auch die Alias-Mechanik aus B342 wird NICHT uebernommen
+  (siehe §3 R-05).
+
+================================================================================
+1) DOMAIN-/OUTCOME-SCHEMA
+================================================================================
+
+DOMAIN (welcher Layer erzeugt den Code):
+  AAA      RADIUS-Authentifizierungs-Pipeline (Identitaet, Credential,
+           SimUse, Status-Check)
+  OPS      Backend-/Infrastruktur-Fehler (DB-Down, SQL-Fehler)
+
+OUTCOME (was bedeutet der Code fuer RADIUS):
+  DENY     Access-Reject wird gesendet, kein Tunnel
+
+KLARSTELLUNG ACCEPT-PFAD:
+  Erfolgreiche Logins (Access-Accept) erhalten KEINEN Reply-Code.
+  radpostauth.reply ist bei ACCEPT leer/NULL. Diese asymmetrische
+  Behandlung ist bewusst — der ACCEPT-Pfad ist selbsterklaerend
+  (Framed-IP-Address, Session-Timeout etc. sind die Reply-Attribute),
+  REJECT braucht einen Code-String fuer Diagnose und Support.
+
+KLARSTELLUNG SCOPE:
+  BASE-020_070 codiert NUR AAA-/RADIUS-Reject-Outcomes fuer L2TP_IPSEC.
+  RESTRICT-Outcomes leben in vpn_connections.op_status +
+  vpn_reason_registry — RESTRICTED ist Access-Accept mit Walled
+  Garden, also KEIN Reject und braucht keinen Reply-Reason-String.
+  WIREGUARD hat keinen RADIUS-Flow und nutzt keine R_*-Codes
+  (siehe BASE-020_040).
+
+================================================================================
+2) KANONISCHE REJECT-CODES (Allowlist, MUST)
+================================================================================
+
+R_AUTH_UNKNOWN_IDENTITY
+  Domain:        AAA
+  Outcome:       DENY
+  Beschreibung:  Identitaets-Lookup lieferte keinen Treffer.
+                 subaccount_login existiert nicht in
+                 vpn_connection_l2tp_ipsec_auth.
+  Trigger-Stelle: BASE-020_030 §2.2 (Identity Lookup, kein Treffer)
+
+R_AUTH_TUNNEL_TYPE_MISMATCH
+  Domain:        AAA
+  Outcome:       DENY
+  Beschreibung:  subaccount_login wurde gefunden, aber die zugehoerige
+                 vpn_connection hat tunnel_type != L2TP_IPSEC.
+                 Defense-in-Depth gegen Fehlkonfigurationen.
+                 Realistisch nicht erwartet (Auth-Split, BASE-010_030),
+                 aber explizit codifiziert.
+  Trigger-Stelle: BASE-020_030 §2.2 (tunnel_type-Plausibilitaet)
+  Invariante:    AAA-16
+
+R_ACCOUNT_DISABLED
+  Domain:        AAA
+  Outcome:       DENY
+  Beschreibung:  vpn_connections.op_status = DISABLED.
+                 RADIUS prueft Status vor Credential-Check und
+                 weist sofort ab. Der konkrete persistente
+                 DISABLE_*-Reason (vpn_reason_registry) ist
+                 ORTHOGONAL — der RADIUS-Reply-Code bleibt
+                 R_ACCOUNT_DISABLED unabhaengig davon, ob die
+                 Connection wegen DISABLE_ADMIN_ABUSE,
+                 DISABLE_QUOTA_TIMEOUT oder einem anderen Reason
+                 deaktiviert wurde.
+  Trigger-Stelle: BASE-020_030 §2.3
+  Invariante:    AAA-02
+
+R_AUTH_CREDENTIALS_INVALID
+  Domain:        AAA
+  Outcome:       DENY
+  Beschreibung:  MSCHAPv2-Verifikation gegen subaccount_nt_hash
+                 fehlgeschlagen. Client-Challenge stimmt nicht
+                 mit dem aus der DB geladenen NT-Hash ueberein.
+  Trigger-Stelle: BASE-020_030 §2.4
+
+R_SIMUSE_ACTIVE
+  Domain:        AAA
+  Outcome:       DENY
+  Beschreibung:  Eine andere Session fuer dieselbe vpn_connection_id
+                 ist bereits aktiv (vpn_sessions.closed_at IS NULL).
+                 On-Demand-Janitor wurde vor dieser Pruefung
+                 ausgefuehrt — die Session ist also nicht stale.
+                 Kein Takeover (R-04).
+  Trigger-Stelle: BASE-020_030 §2.6
+  Invariante:    AAA-04, AAA-05
+
+R_AUTH_BACKEND_SQL_DOWN
+  Domain:        OPS
+  Outcome:       DENY
+  Beschreibung:  MariaDB nicht erreichbar (Connection-Refused,
+                 Connect-Timeout). FreeRADIUS antwortet sofort
+                 mit Access-Reject (Fail-Closed, R-02).
+                 Recovery: DB wieder erreichbar -> naechster
+                 Login funktioniert ohne weitere Aktion.
+  Trigger-Stelle: BASE-020_030 §6 (DB nicht erreichbar)
+  Invariante:    AAA-03, AAA-07
+  Pflicht-Schutz: DARF KEIN Fail2ban-Ban-Event triggern (B340/B341,
+                 AAA-07). Backend-Fehler sind Infrastruktur-Probleme,
+                 keine boesartigen Login-Versuche.
+
+R_AUTH_BACKEND_SQL_FAIL
+  Domain:        OPS
+  Outcome:       DENY
+  Beschreibung:  SQL-Query-Fehler (Syntax-Error, Query-Timeout,
+                 Permission-Denied). Strukturell unterschiedlich
+                 von SQL_DOWN: hier ist die Verbindung etabliert,
+                 die Operation scheitert. Wird als Health-Event
+                 geloggt, nicht als Auth-Event.
+  Trigger-Stelle: BASE-020_030 §6 (SQL-Query-Fehler)
+  Invariante:    AAA-07
+  Pflicht-Schutz: DARF KEIN Fail2ban-Ban-Event triggern (B340/B341,
+                 AAA-07).
+
+================================================================================
+3) REGELN FUER REPLY-MESSAGE-FORMATIERUNG (MUST)
+================================================================================
+
+  R-01  Die FreeRADIUS Reply-Message bei REJECT MUSS GENAU EINEN
+        Code-String aus §2 enthalten. Kein Freitext, kein zweiter
+        Code.
+  R-02  Der Code-String wird unveraendert (1:1) in die Reply-Message
+        geschrieben. Keine Praefixe, keine Suffixe, keine i18n,
+        keine User-faehigen Erlaeuterungen. Lokalisierung passiert
+        im Panel (BASE-110), nicht in RADIUS.
+  R-03  Der Code-String wird identisch in radpostauth.reply abgelegt.
+        Korrelation zwischen Auth-Event und Reason ist 1:1.
+  R-04  Wenn ein neuer Reject-Pfad benoetigt wird, MUSS dieser
+        Block §2 zuerst ergaenzt werden BEVOR der Code produktiv
+        verwendet wird. Kein "vorlaeufiges Hinzufuegen" ohne
+        Registry-Eintrag.
+  R-05  Aliases sind NICHT vorgesehen. Im Gegensatz zu B342 (Altkanon)
+        gibt es keine Alias-Mechanik. Wenn ein Code umbenannt werden
+        muss: neue Entscheidung, neuer Code, kein paralleler Betrieb.
+
+================================================================================
+4) BEZIEHUNG ZU ANDEREN MODULEN
+================================================================================
+
+  BASE-010_050 vpn_reason_registry: ORTHOGONAL.
+    Persistente op_reason_codes (RESTRICT_*, DISABLE_*) leben dort.
+    BASE-020_070-Codes sind transient und referenzieren NICHT auf
+    vpn_reason_registry. Keine FK, keine Mapping-Tabelle.
+
+  BASE-020_030 §2, §6: KONSUMENT.
+    Trigger-Stellen sind dort kanonisch beschrieben. Code-Strings
+    werden hier registriert. Kein zweiter Registry-Ort.
+
+  BASE-020_090 AAA-31: ENFORCEMENT.
+    Invariante macht die Allowlist verbindlich.
+
+  BASE-020_095 T-AAA-36: TEST.
+    Code-Review-Test prueft dass nur registrierte Codes verwendet
+    werden.
+
+  MOD-005 Fail2ban (spaeter): KONSUMENT.
+    Fail2ban-Filter matchen gegen die hier registrierten Strings
+    (z.B. R_AUTH_CREDENTIALS_INVALID als Login-Failure-Pattern).
+    R_AUTH_BACKEND_SQL_DOWN/FAIL DUERFEN keine Fail2ban-Regel
+    matchen (AAA-07, B340/B341).
+
+================================================================================
+5) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  - Panel-Log-Viewer (DP-07a) liest radpostauth und zeigt pro
+    Auth-Event den Reply-Code.
+  - Panel kann pro Code-String eine User-faehige Erlaeuterung
+    rendern (i18n im Panel, nicht in RADIUS).
+  - Admin-Panel: Statistik pro Code (wie viele Logins wurden
+    in letzter Stunde mit R_AUTH_CREDENTIALS_INVALID abgewiesen?).
+  - Health-Indikator: Anzahl R_AUTH_BACKEND_SQL_*-Codes in den
+    letzten 5 Minuten als DB-Health-Signal.
+  - ACCEPT-Statistik: COUNT(*) FROM radpostauth WHERE reply IS NULL
+    bzw. reply = '' (selbsterklaerende ACCEPT-Konvention, §1).
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

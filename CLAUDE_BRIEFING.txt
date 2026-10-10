@@ -1,8 +1,9 @@
 ================================================================================
 RETROTUNNEL — CLAUDE BRIEFING / HANDOFF DOKUMENT
 ================================================================================
-VERSION: v1.0
-DATUM: 2026-04-19
+VERSION: v1.1
+DATUM: 2026-05-02
+AKTUALISIERT: 2026-06-01
 ZWECK: Dieses Dokument bringt eine neue Claude-Instanz auf den aktuellen
        Arbeitsstand. Marco öffnet ein neues Chat-Fenster und sagt:
        "Lies diese Datei und halte dich an die Anweisungen."
@@ -64,33 +65,123 @@ Diese Regeln gelten ab dem ersten Wort. Sie sind nicht optional.
    überhaupt durchdiskutiert waren. Das ist ein Overreach. Eine Idee
    die Marco ausspricht, ist kein Arbeitsauftrag — sie ist der Anfang
    eines Gesprächs.
-   DRITTPRÜFUNG: Wenn Marco aktiv darum bittet, ein Thema mit ChatGPT
-   oder einem anderen Prüfer zu besprechen, schreibt Claude einen
-   Kontext-Text der das aktuelle Thema, den Diskussionsstand, die
-   offenen Fragen und den gewünschten Input zusammenfasst. Der Text
-   muss so geschrieben sein, dass Marco ihn direkt kopieren und beim
-   Prüfer einfügen kann — ohne eigenen Kontext ergänzen zu müssen.
+   DRITTPRÜFUNG (erweitert):
+   Eine Drittprüfung holt ein zweites, unabhängiges Augenpaar (meist
+   ChatGPT, bei Bedarf Gemini oder eine andere KI-/Review-Instanz) auf
+   einen entscheidungsbedürftigen Punkt, BEVOR gepatcht wird. Ziel:
+   Fehler, Drift, Scope-Overreach und verdeckte Seiteneffekte fangen,
+   bevor sie im Kanon landen — und die spätere Full-Audit-Fundliste
+   kleinhalten.
 
-9) Websuche vor Rückfrage (Das Rad nicht neu erfinden):
-   Bevor Claude Marco eine technische Frage stellt, MUSS Claude
-   zuerst die Websuche nutzen. Technische Fakten — Paketnamen,
-   Default-Pfade, Default-User, Ports, Kernel-Module, Konfigurations-
-   optionen, Daemon-Verhalten, systemd-Unit-Strukturen, Debian-
-   Spezifika, Software-Dokumentation — sind öffentlich dokumentiert.
-   Claude recherchiert diese selbst und präsentiert Marco das Ergebnis
-   zur Diskussion oder zum Absegnen.
-   Marco fragen ist NUR erlaubt für:
-   - Konzeptionelle Entscheidungen (was soll das System tun?)
-   - Marcos Erfahrungswissen (bestehender Server, iptables-Regeln)
-   - Dinge die nur Marco weiß (Kundenanforderungen, Prioritäten)
-   Das alte Konzept zeigt klar die Richtung und den Anspruch. Claude
-   muss daraus ableiten was gewollt ist, nicht Marco abfragen was
-   im Netz steht. "Unter welchem User läuft AdGuardHome?" ist eine
-   Websuche, keine Marco-Frage.
-   Hintergrund: Bei BASE-005 hat Claude Marco technische Fragen
-   gestellt die per Websuche in 30 Sekunden klärbar gewesen wären.
-   Das widerspricht dem Grundsatz "das Rad nicht neu erfinden" und
-   verschwendet Marcos Zeit.
+   GELTUNGSBEREICH: Ergänzt das große Base-/Modul-Drittreview aus
+   Qualitäts-Gate Schritt 4 (Regel 10), ersetzt es nicht. Gilt für
+   einzelne entscheidungsbedürftige Punkte innerhalb laufender
+   Arbeitspakete.
+
+   AUSLÖSER: Sobald ein Punkt nach Diskussion/Analyse entscheidungsreif
+   ist UND Marcos Entscheidung braucht — konzeptionell, Major-/Blocker-
+   Charakter, mehrere Dateien, Architektur, neue Invariante, Sicherheits-
+   annahme oder kanonische Regel — bereitet Claude das Drittreview-Paket
+   automatisch vor, ohne vorher "soll ich?" zu fragen. Automatisch heißt
+   NICHT: jede laut gedachte Idee paketieren (siehe Absatz oben — eine
+   Idee ist erst ein Gespräch). Reiner Kleinkram (Tippfehler, Redaktion,
+   Format) löst keine Drittprüfung aus.
+
+   ANGEBOT, KEIN ZWANG: Das vorbereitete Paket ist ein Angebot. Marco
+   kann den Punkt auch direkt selbst entscheiden, ohne Prüfer.
+
+   ABLAGE — temp_drittreviews/ (TEMPORÄR):
+   - Alle Artefakte liegen in temp_drittreviews/, nicht im Root, nicht
+     verstreut. Pro Drittprüfung zwei Dateien:
+     * Auftrag (Paket AN den Prüfer) — von Claude benannt.
+     * Ergebnis (Antwort ZURÜCK) — von Marco abgelegt, erkennbar am Wort
+       "ergebnis" im Dateinamen.
+   - Bei mehreren oder unklar zuzuordnenden Ergebnisdateien rät Claude
+     nicht, sondern prüft Inhalt/Datum oder fragt Marco.
+   - Arbeitsfläche, kein Lager — aber KEIN automatisches/blindes Löschen
+     unverarbeiteter Reviews. Erst leeren, wenn die Drittprüfung
+     verarbeitet UND das Ergebnis permanent dokumentiert ist. Liegt bei
+     Sessionstart noch etwas Unverarbeitetes, meldet Claude das (statt es
+     still anzuhäufen oder zu löschen) — Marco entscheidet.
+
+   FORMAT (vollwertiges Paket, kein Textausschnitt zum Markieren):
+   - Projekt-Kontext als Kurzfassung.
+   - Was geändert werden soll: Fix-Intention + Delta + Anker
+     (Datei/Abschnitt/Zeile) — KEINE Copy-Paste-Blöcke.
+   - Betroffene Nachbardateien / Propagation — vorab geprüft.
+   - Gezielte Prüffragen zu bekannten Spannungsfeldern.
+   - FREIRAUM-BLOCK (PFLICHT): "Was siehst DU, was wir nicht sehen?" —
+     der Prüfer soll ausdrücklich über die Checkliste hinaus prüfen.
+   - Rahmenbedingungen: SQL-first, Legacy/XP, Fail-closed, Alt->Neu,
+     Kanon-Status, Scope-Grenzen.
+
+   NACH DEM ERGEBNIS:
+   - Claude klassifiziert jeden Befund fachlich nach den Kategorien
+     aus DRITTPRÜFUNG / REVIEW-MODUS (TEIL 2).
+   - Claude liest die betroffenen Primärdateien erneut, prüft
+     Nachbardateien auf Drift, liefert eigene Zusatzbefunde oder sagt
+     ausdrücklich, dass keine gefunden wurden.
+   - Erst danach dürfen Patch-Vorschläge formuliert, Patch-Reife benannt
+     oder — bei rein neutralen/redaktionellen Korrekturen im freigegebenen
+     Scope — ein Patch durchgeführt werden. Konzeptionelle, semantische,
+     Major-/Blocker- oder Scope-relevante Änderungen brauchen Marcos
+     Entscheidung/Freigabe. Drittprüfung ist VOR Patch, nicht danach.
+
+   FUND WÄHREND DES PATCHENS: Stößt Claude mitten im Patch auf etwas
+   Entscheidungsbedürftiges, wird der Patch an der Stelle gestoppt und
+   der Punkt vorgelegt (ggf. Drittprüfung), dann weiter. Kleinkram läuft
+   durch.
+
+   PERMANENTE SPUR: Im Konzept wird nur das Ergebnis festgehalten
+   ("geprüft, konvergiert, Befunde gefixt, Entscheidung X bestätigt/
+   revidiert"). Niemals ein dauerhafter Verweis auf Dateien in
+   temp_drittreviews/, weil dieser Ordner temporär ist.
+
+   MANUELLER SPEZIALFALL: Bittet Marco ausdrücklich um eine Drittprüfung,
+   gilt das immer — unabhängig davon, ob Claude den Auslöser selbst
+   erkannt hätte. Claude schreibt dann ein Paket, das Marco direkt
+   kopieren kann, ohne eigenen Kontext ergänzen zu müssen.
+
+9) Websuche / Primärquelle vor Behauptung externer Fakten
+   (nicht aus dem Gedächtnis, das Rad nicht neu erfinden):
+   Bevor Claude einen externen technischen Fakt als gesichert ausgibt —
+   egal ob als Antwort an Marco ODER aus eigenem Antrieb — verifiziert
+   Claude ihn über eine geeignete Primärquelle: offizielle Doku, Manpage,
+   RFC, Projekt-/Debian-Doku ODER reale Messung am Zielsystem. Der
+   Auslöser ist NICHT "bevor ich Marco frage", sondern "bevor ich einen
+   externen Fakt behaupte". Aus dem Gedächtnis flüssig zu antworten ist
+   bequem, bei veränderlichen Fakten aber unzuverlässig.
+
+   WELCHE FAKTEN: Paketnamen, Default-Pfade/-User, Ports, Kernel-Module,
+   Konfig-Optionen, Daemon-Verhalten, systemd-Units, Debian-Spezifika,
+   Versions-/Krypto-Details, Software-Doku — öffentlich oder lokal
+   verifizierbar; Trainingswissen ist potenziell veraltet.
+
+   WELCHE QUELLE IST DIE WAHRHEIT (drei Faelle):
+   - Allgemeines Softwareverhalten -> offizielle Doku/Manpage/RFC/Web.
+   - Zustand einer KONKRETEN Maschine -> reale Messung an genau dieser
+     Maschine (systemctl cat/show, Konfig, Kommandoausgabe) — nicht die
+     Doku, die nur sagt was üblich ist.
+   - Interne Fragen (was bauen wir, Anforderungen, Architektur, Alt->Neu)
+     -> Konzept/Altkanon/Marcos Entscheidung (Regel 3-6, R-13), keine
+     Websuche nötig.
+   Marcos Bild: das interne Wissen ist das Bücherregal; die Bibliothek
+   (Doku/Web) muss man trotzdem aufsuchen, weil aktueller — und für eine
+   konkrete Maschine zählt zusätzlich die Messung an genau dieser Maschine.
+
+   WENN VERIFIKATION NICHT MÖGLICH (Tool/Zugriff fehlt): Regel 12 greift
+   (melden + pausieren). Den Fakt NICHT still aus dem Gedächtnis als
+   gesichert liefern, sondern als "ungeprüft, aus Training, evtl. veraltet"
+   kennzeichnen (Trennung Fakt/Annahme, Regel 5).
+
+   Marco fragen bleibt erlaubt für: konzeptionelle Entscheidungen, Marcos
+   Erfahrungswissen, Prioritäten/Anforderungen, Dinge die nur Marco weiß.
+   Ein externer Fakt, den Claude selbst verifizieren kann, ist KEINE
+   Marco-Frage.
+
+   Hintergrund: (1) BASE-005 — googelbare Fragen statt Suche. (2) Test-
+   server .184 / WG-Verhalten — Gedächtnis + falsche Quellengewichtung
+   statt Doku/Messung. Gleiche Ursache: nicht verifiziert.
 
 10) Qualitaets-Gate nach Base/Modul-Erstellung:
    Nach dem Schreiben einer Base oder eines Moduls MUESSEN drei
@@ -100,14 +191,14 @@ Diese Regeln gelten ab dem ersten Wort. Sie sind nicht optional.
 
    ZYKLUS-REGEL (MUST):
    Die Reihenfolge ist IMMER 1 → 2 → 3 → 4. Wenn Schritt 1, 2 oder 3
-   zu Datei-Aenderungen fuehrt, startet der GESAMTE Zyklus bei
+   zu Datei-Änderungen fuehrt, startet der GESAMTE Zyklus bei
    Schritt 1 neu. Nicht "ab wo man aufgehoert hat", sondern
    komplett von vorne: 1 → 2 → 3 → 4.
 
    VOLLSTAENDIGKEITS-REGEL (MUST):
    Jeder Schritt prueft IMMER ALLE Dateien des Moduls. Nicht nur
    die geaenderten. Ein partielles Review (nur geaenderte Dateien)
-   ist KEIN gueltiger Schritt 2. Begruendung: Eine Aenderung in
+   ist KEIN gueltiger Schritt 2. Begruendung: Eine Änderung in
    Datei A kann eine Inkonsistenz in Datei B erzeugen die nur bei
    vollstaendiger Pruefung sichtbar wird.
 
@@ -135,7 +226,7 @@ Diese Regeln gelten ab dem ersten Wort. Sie sind nicht optional.
    Cross-File-Konsistenz) auf ALLE Dateien des neuen Moduls anwenden.
    NICHT nur auf geaenderte Dateien — IMMER auf ALLE.
    Befunde klassifizieren (BLOCKER/MAJOR/MINOR/NICE) und ALLE beheben.
-   WENN Befunde zu Datei-Aenderungen fuehren → zurueck zu Schritt 1
+   WENN Befunde zu Datei-Änderungen fuehren → zurueck zu Schritt 1
    (gesamter Zyklus neu).
 
    SCHRITT 3 — Quell-Aufloesung pruefen:
@@ -190,7 +281,7 @@ Diese Regeln gelten ab dem ersten Wort. Sie sind nicht optional.
    vorliegen. Er bekommt nur den Drittreview-Text zum Kopieren
    und die neue Base als ZIP-Anhang.
 
-   WENN ChatGPTs Review zu Aenderungen fuehrt → zurueck zu
+   WENN ChatGPTs Review zu Änderungen fuehrt → zurueck zu
    Schritt 1 (gesamter Zyklus neu).
 
    Hintergrund (drei dokumentierte Fehler bei BASE-010):
@@ -220,7 +311,7 @@ PFLICHT ZU BEGINN JEDES NEUEN CHATS:
 PFLICHT VOR JEDER ARCHITEKTUR-ENTSCHEIDUNG:
 
   1. Lies zuerst das ALTE Konzept (xp-vpn-stack) zu dem betreffenden Thema.
-     Pfad: C:\Users\Admin\Downloads\retrowork hauptseite\vpn server\konzept\xp-vpn-stack\
+     Pfad: C:\Backup\Backup_fujitsu\retrowork hauptseite\vpn server\konzept\xp-vpn-stack\
      Das alte Konzept hat 8 Monate Entwicklungszeit. Die meisten
      Entscheidungen dort sind durchdacht und können übernommen werden.
 
@@ -395,55 +486,60 @@ FUNDAMENT-DATEIEN DES ALTEN KONZEPTS — STUFE 1 (MUST):
 DRITTPRÜFUNG / REVIEW-MODUS (MUST):
 
   Reviews von ChatGPT, Gemini oder anderen externen Prüfern sind
-  ernsthafte Prüfimpulse, aber KEINE automatischen Patch-Befehle.
+  ernsthafte Prüfimpulse, KEINE automatischen Patch-Befehle. Die
+  Grundhaltung dazu steht in MARCOS_ARBEITSWEISE / MUSTER 8.
+  Hier steht die operative Bewertung für RetroTunnel — dies ist die
+  maßgebliche Stelle dafür.
 
-  Regeln:
-  a) Jedes Drittreview muss von dir fachlich klassifiziert werden als:
-       - korrekt
-       - teilweise korrekt
-       - falsch
-       - kontextabhängig
-       - offen / nicht entscheidbar
-  b) Du darfst kein Drittreview einfach nur "abarbeiten".
-     Du musst jede Aussage kritisch prüfen.
-  c) Nach jedem Drittreview liest du die betroffene Zieldatei erneut
-     vollständig und prüfst zusätzlich die relevanten Nachbardateien.
-  d) Du benennst offen, wenn ein Reviewpunkt zwar lokal plausibel klingt,
-     aber global Drift oder neue Widersprüche erzeugen würde.
-  e) Du darfst dem letzten Review NICHT stillschweigend die höchste
-     Autorität geben. Maßstab bleibt:
-       1. Marcos Ziel
-       2. altes Konzept
-       3. neuer Kanonstand
-       4. Drittreview als Prüfimpuls
-  f) Wenn du einem Reviewpunkt widersprichst, musst du das offen tun
-     und technisch begründen.
-
-EIGENE INITIATIVE / ZUSATZBEFUNDE (MUST):
-
-  Du arbeitest nicht passiv.
-
-  Das bedeutet:
-  a) Jede Review-Runde enthält neben den Drittbefunden immer auch
-     eigene Befunde von dir.
-  b) Wenn du nur bestehende Reviewpunkte bestätigst, reicht das nicht.
-     Du musst zusätzlich prüfen:
-       - Was wurde übersehen?
-       - Wo sind Cross-File-Risiken?
-       - Wo ist etwas nur lokal gefixt, aber global unstabil?
-       - Wo fehlt Tiefe, Randfallprüfung oder Validierung?
-  c) Jede Review-Runde trennt sichtbar:
-       - Fremdbefunde aus Drittprüfung
-       - eigene Befunde
-       - offene Punkte / nicht entscheidbar
-       - Punkte, die nur Marco entscheiden darf
-  d) Wenn du keine eigenen Zusatzbefunde findest, sagst du das
-     ausdrücklich. Schweigen gilt nicht als Prüfung.
+  Operative Bewertung (O1-O9):
+  O1) Jeden Befund einzeln fachlich klassifizieren als:
+        korrekt | teilweise korrekt | falsch | kontextabhängig |
+        offen / nicht entscheidbar
+  O2) Maßstab für die Bewertung, absteigend:
+        1. Marcos Ziel
+        2. altes Konzept — soweit nicht durch Marcos Ziel oder den
+           RetroTunnel-Kanon bewusst abgelöst
+        3. neuer Kanonstand
+        4. Drittreview als Prüfimpuls
+      Dem letzten Review NICHT stillschweigend die höchste Autorität geben.
+  O3) Betroffene Zieldatei vollständig neu lesen, relevante Nachbardateien
+      auf Drift prüfen.
+  O4) Prämisse/Rahmen prüfen, nicht nur Einzelpunkte:
+        - Auf welcher Grundannahme beruht der Review?
+        - Ist sie im Zielkanon belegt?
+        - Ist die zitierte Quelle wirklich zuständig?
+        - Ist der Befund lokal stimmig, aber global falsch?
+      Ein in sich schlüssiger Review auf falscher Prämisse infiziert alle
+      darauf aufbauenden Folgesätze (Fall-Beleg: ERKENNTNIS 11,
+      Drittreview-Prämisse).
+  O5) Widersprichst du einem Reviewpunkt, tu es offen und technisch begründet.
+  O6) Eigene Zusatzbefunde sind PFLICHT — passiver Modus reicht nicht.
+      Jede Review-Runde trennt sichtbar:
+        - Fremdbefunde aus der Drittprüfung
+        - eigene Befunde
+        - offene Punkte / nicht entscheidbar
+        - Punkte, die nur Marco entscheiden darf
+      Zusätzlich prüfen: Was wurde übersehen? Cross-File-Risiken? Wo nur
+      lokal gefixt, aber global instabil? Wo fehlt Tiefe, Randfallprüfung
+      oder Validierung? Findest du nichts, sag es ausdrücklich — Schweigen
+      gilt nicht als Prüfung.
+  O7) Technische/externe Behauptungen werden nach Regel 9 (Websuche /
+      Primärquelle) gegen Primärquelle, Doku oder reale Messung geprüft,
+      nicht aus dem Review übernommen.
+  O8) Vor der Bewertung die Quelle/Prämisse nach Kanon-Status/Provenienz
+      einordnen (ACTIVE, Entwurf, Altkanon, Teststand, deprecated):
+      siehe ERKENNTNIS 12 (Quellen-Gewichtung / Provenienz).
+  O9) Reviewer-spezifische Verzerrung als Prüffaktor mitdenken, nicht als
+      pauschale Abwertung: bei bisherigen RetroTunnel-Audits waren manche
+      PH-Reife-/Blocker-Bewertungen durch Scope-/Referenzrahmen-Drift
+      verzerrt, während ChatGPT bei Propagationsdrift/Terminologie stark
+      ist. Bias ist Prüffaktor, keine automatische Abwertung.
+      Siehe ERKENNTNIS 1 (ChatGPT-Audits richtig einordnen).
 
 REVIEW-KONVERGENZ-STANDARD (MUST, Marco-Regel):
 
   Eine Datei gilt erst als FERTIG, wenn ein Review NULL FEHLER findet.
-  Reviews laufen bis BLOCKER=0, MAJOR=0, MINOR=0.
+  Reviews laufen bis BLOCKER=0, MAJOR=0, MINOR=0, NICE=0.
   Details: siehe REVIEW_STANDARD.txt §5.3.
 
 EIGENREVIEW-QUALITÄT UND METHODIK (MUST):
@@ -542,7 +638,7 @@ TEIL 3 — PROJEKTSTATUS RETROTUNNEL (AKTUELL)
 ================================================================================
 
 PROJEKTNAME: RetroTunnel
-PFAD: C:\Users\Admin\Downloads\retrowork hauptseite\vpn server\konzept\RetroTunnel\
+PFAD: C:\Backup\Backup_fujitsu\retrowork hauptseite\vpn server\konzept\RetroTunnel\
 PFAD-FALLBACK: Wenn der angegebene Pfad in der aktuellen Claude-Umgebung
   nicht direkt zugänglich ist, gelten die im Chat hochgeladenen bzw.
   bereitgestellten Projektdateien als aktuelle Arbeitsgrundlage.
@@ -690,9 +786,13 @@ PFAD-FALLBACK: Wenn der angegebene Pfad in der aktuellen Claude-Umgebung
     Username/Password — wie Brücke zu SQL-first AAA?
   - WireGuard Session-Erkennung: WG hat kein natives Session-Start/Stop —
     wie SimUse=1, Stale-Janitor, Accounting?
-    → TEILWEISE BEANTWORTET: SM_SESSION definiert AWG Session
-      Controller (Polling), vpn_sessions=Truth, VALID-Check, Stale-
-      Erkennung, 3 Endpfade. Implementation: BASE-040/BASE-070 Scope.
+    → TEILWEISE BEANTWORTET: D004 (2026-05-26) loest dies fuer
+      WG-Liveness auf via AWG Session Controller (wg show transfer +
+      latest-handshake). Counter-Aggregat auf vpn_connections,
+      SimUse-Mutex auf vpn_session_locks. Stale/Janitor + 3 Endpfade
+      bleiben Konzept-Aufgabe in BASE-070 (D004-E03). KEINE
+      vpn_sessions-DB-Tabelle (D004-E02).
+      Implementation: BASE-040/BASE-070 Scope.
   - AmneziaWG WAN-Port: Welcher UDP-Port? Dauerhaft WAN-offen?
   - AmneziaWG Obfuskation: DPI-Umgehung als Ziel? Oder reicht normales WG?
 
@@ -707,7 +807,7 @@ PFAD-FALLBACK: Wenn der angegebene Pfad in der aktuellen Claude-Umgebung
   RetroTunnel/
     00_MANIFEST.txt              ← Grundentscheidungen, komplett
     01_GLOSSARY.txt              ← Kernbegriffe
-    02_ASSUMPTIONS_AND_RULES.txt ← 17 Regeln, 9 Annahmen, 5 Nicht-Annahmen
+    02_ASSUMPTIONS_AND_RULES.txt ← 18 Regeln, 9 Annahmen, 5 Nicht-Annahmen
     03_CHANGELOG.txt             ← Versionshistorie
     CLAUDE_BRIEFING.txt          ← Dieses Dokument
     REVIEW_STANDARD.txt          ← Claudes Review- und Arbeitsstandard
@@ -725,24 +825,26 @@ PFAD-FALLBACK: Wenn der angegebene Pfad in der aktuellen Claude-Umgebung
                                     (OS-Baseline, Endpoints, Users,
                                     Secrets, Service-Inventar, Lifecycle,
                                     Readiness, Invarianten, Tests).
-                                    Alle Dateien ACTIVE. 17 Invarianten,
-                                    19 Tests.
+                                    Alle Dateien ACTIVE. 19 Invarianten,
+                                    21 Tests.
       BASE-010_IDENTITY_CORE/  ← 11 Dateien. Customers, Connections,
                                     Auth-Split, Identifier-Klassen,
                                     Reason-Registry, Lifecycle-Log,
                                     Connection-Lifecycle, Write-Path,
-                                    Invarianten (76 INV + 3 LR), Tests.
+                                    Invarianten (90 INV + 3 LR), 116 Tests.
                                     SM_CONNECTION + DOMAIN_MODEL aufgeloest.
-                                    OPEN-010-01 geschlossen (DELETE-Semantik,
-                                    Marco-Entscheidung 2026-04-18).
+                                    OPEN-010-01 REVISED 2026-05-11
+                                    (Rueckkehr zum Altkanon Soft-Delete,
+                                    Tombstone-Vertrag, M-02-Korrektur).
+                                    Ursprung 2026-04-18 Hard-Delete verworfen.
       BASE-020_AAA_CORE/          ← Gemeinsamer AAA-/Admission-Core.
-                                    9 Dateien, 30 INV, 35 Tests.
+                                    10 Dateien, 31 INV, 36 Tests.
                                     RADIUS direct-read, WG-Admission,
                                     Hybrid-Fail-Closed, Key-Rotation.
                                     ChatGPT-Drittreview v1+v2 bestanden.
       BASE-030_TUNNEL_L2TP_IPSEC/  ← 10 Dateien. L2TP/IPsec Tunnel-Pfad
                                     fuer Windows XP/Vista. accel-ppp +
-                                    strongSwan. 40 INV, 45 Tests.
+                                    strongSwan. 41 INV, 46 Tests.
                                     Default-Deny auf ppp* (nicht Hook-basiert).
                                     radacct-Korrelation fuer Session-Truth.
                                     ChatGPT-Drittreview v1+v2 bestanden.
@@ -778,6 +880,13 @@ PFAD-FALLBACK: Wenn der angegebene Pfad in der aktuellen Claude-Umgebung
     docs/
       MAIL_ABSENDERLOGIK.txt     ← Mail-Absenderlogik Webpanel
                                     (Marco+ChatGPT Entscheidung)
+    entwuerfe/
+      blockpage-override/
+        BLOCKPAGE_OVERRIDE_ENTWURF.txt ← Temporaere DNS-Freigabe auf
+                                    der Blockseite (Owner/Admin).
+                                    STATUS: ENTWURF (KR-01, nicht normativ).
+                                    Gehoert zu M3-050 (MOD-004_BLOCKPAGE_CA).
+                                    Referenziert B200, B210, B230, D004.
 
 3.4) NÄCHSTE SCHRITTE
 
@@ -787,15 +896,16 @@ PFAD-FALLBACK: Wenn der angegebene Pfad in der aktuellen Claude-Umgebung
   M1-SWEEP [DONE]:      Review-Tracker Sweep 1-5 (alle Dateien driftfrei)
   M2-000 [DONE]:        BASE-000_SQL_FIRST
   M2-005 [DONE]:        BASE-005_PLATFORM_CORE (11 Dateien, ACTIVE)
-  M2-010 [DONE]:        BASE-010_IDENTITY_CORE (11 Dateien, 80 INV + 3 LR,
-                        ~94 Tests. SM_CONNECTION aufgeloest. ChatGPT-Review
-                        v1+v2 bestanden. OPEN-010-01 geschlossen.)
-  M2-020 [DONE]:        BASE-020_AAA_CORE (9 Dateien, 30 INV,
-                        35 Tests. Admission-Vertrag, RADIUS direct-read,
+  M2-010 [DONE]:        BASE-010_IDENTITY_CORE (11 Dateien, 90 INV + 3 LR,
+                        116 Tests. SM_CONNECTION aufgeloest. ChatGPT-Review
+                        v1+v2 bestanden. OPEN-010-01 REVISED 2026-05-11
+                        (Tombstone-Vertrag, M-02-Korrektur).)
+  M2-020 [DONE]:        BASE-020_AAA_CORE (10 Dateien, 31 INV,
+                        36 Tests. Admission-Vertrag, RADIUS direct-read,
                         WG-Admission, Hybrid-Fail-Closed, Key-Rotation.
                         ChatGPT-Drittreview v1+v2 bestanden.)
-  M2-030 [DONE]:        BASE-030_TUNNEL_L2TP_IPSEC (10 Dateien, 40 INV,
-                        45 Tests. accel-ppp + strongSwan. Default-Deny,
+  M2-030 [DONE]:        BASE-030_TUNNEL_L2TP_IPSEC (10 Dateien, 41 INV,
+                        46 Tests. accel-ppp + strongSwan. Default-Deny,
                         radacct-Korrelation, IKE-Lifetime, acct-timeout.
                         ChatGPT-Drittreview v1+v2 + Gemini bestanden.)
   M2-040..110 [WAITING]: Rest Base-Module
@@ -823,8 +933,12 @@ Live-Stand VOR RetroTunnel (ALT-/IST-ZUSTAND, nicht Zielkanon):
 - L2TP_IPSEC (accel-ppp): funktioniert, PH1 abgeschlossen (alter Server)
 - IKEv2 (strongSwan): funktioniert technisch, WIRD ERSETZT durch AmneziaWG
 - SimUse=1: AKTIV für beide Tunnel-Typen (alter Server)
-- Traffic-Accounting (radacct): AKTIV für L2TP_IPSEC (alter Server).
-  Für WIREGUARD: vpn_sessions ist die neue Session-Truth (SM_SESSION).
+- Traffic-Accounting (radacct): AKTIV fuer L2TP_IPSEC (alter Server)
+  und gleichzeitig Liveness-Quelle (D004-E01).
+  Fuer WIREGUARD: Liveness via wg show transfer + latest-handshake
+  (AWG Session Controller). Counter-Aggregat tunnelneutral auf
+  vpn_connections (D004-E05). Die zwischenzeitlich angenommene
+  DB-Tabelle vpn_sessions ist DEPRECATED (D004-E02).
 - Service-IPs auf Loopback: AKTIV (lo-service-ips.service)
 - nftables restricted-Sets: existieren (leer, vorbereitet)
 - QoS für IKEv2: war offen, entfällt mit AmneziaWG (andere Mechanik)
@@ -844,6 +958,14 @@ TEIL 5 — ANWEISUNGEN FÜR DIE NEUE CLAUDE-INSTANZ
 ================================================================================
 
 SCHRITT 1: Lies dieses Dokument vollständig.
+
+SCHRITT 1a: Lies MARCOS_ARBEITSWEISE.txt:
+  C:\Backup\Backup_fujitsu\retrowork hauptseite\vpn server\konzept\RetroTunnel\MARCOS_ARBEITSWEISE.txt
+  Universelles Kalibrierungsdokument. Muster aus echten Fehlern,
+  Selbstcheck vor jeder Antwort, Grundverstaendnis wer Marco ist.
+  OHNE dieses Dokument wirst du Marco falsch einschaetzen und
+  generisch arbeiten. Das Dokument ist projektunabhaengig und gilt
+  fuer JEDE Arbeit mit Marco — nicht nur RetroTunnel.
 
 SCHRITT 1b: Lies den REVIEW_STANDARD:
   C:\...\RetroTunnel\REVIEW_STANDARD.txt
@@ -937,7 +1059,7 @@ SCHRITT 7: Lies und PRÜFE die existierenden Dateien des NEUEN Konzepts.
     - Tabellen-Registry: Sind alle Tabellen die in decisions/ oder
       BASE-005 referenziert werden auch in BASE-000 Registry enthalten?
     - Invarianten-Konsistenz: Widersprechen sich Invarianten zwischen
-      BASE-000 (SQL-01..SQL-10) und BASE-005 (PF-01..PF-17)?
+      BASE-000 (SQL-01..SQL-10) und BASE-005 (PF-01..PF-19)?
     - Offene Punkte: Sind OPEN-Punkte über Dateien hinweg konsistent
       referenziert? Gibt es OPENs die in einer Datei als gelöst gelten
       aber in einer anderen noch offen sind?
@@ -976,13 +1098,12 @@ SCHRITT 10: Extrahiere aus dem ALTEN Konzept zuerst:
 SCHRITT 11: Erst NACH dieser Alt-Konzept-Extraktion arbeitest du am
   neuen Konzept weiter. Ohne Alt→Neu-Abgleich keine Fortführung.
 
-SCHRITT 12: Wenn Marco ein Drittreview (z.B. ChatGPT oder Gemini)
-  einbringt, behandelst du es als kritischen Prüfimpuls:
-  - fachlich klassifizieren
-  - Zieldatei erneut vollständig lesen
-  - Nachbardateien auf Drift prüfen
-  - eigene Zusatzbefunde liefern
-  - erst danach Änderungsvorschläge machen
+SCHRITT 12: Bringt Marco ein Drittreview (z.B. ChatGPT oder Gemini)
+  ein, behandelst du es als kritischen Prüfimpuls, nicht als
+  Patch-Befehl: klassifizieren, Zieldatei + Nachbardateien neu lesen,
+  eigene Zusatzbefunde liefern; erst danach Patch-Vorschläge oder, bei
+  rein neutralen Korrekturen im freigegebenen Scope, Patchen. Vollständige
+  Bewertungsmethodik: DRITTPRÜFUNG / REVIEW-MODUS (TEIL 2).
 
 SCHRITT 13: Arbeite gemäß Marcos Regeln (Teil 1) und der
   Arbeitsmethodik (Teil 2). Konzeptionelle Entscheidungen trifft Marco.
@@ -1012,7 +1133,7 @@ WICHTIG — HÄUFIGE FEHLER VERMEIDEN:
   - Mache KEINE lokalen Fixes ohne Blick auf Nachbardateien.
     Prüfe Begriffe, Felder, Invarianten und Flows auf Cross-File-Drift.
   - Erkläre NICHT stillschweigend das letzte Review zur Wahrheit.
-    Maßstab bleiben Marcos Ziel, das alte Konzept und der aktuelle Kanonstand.
+    Maßstab bleibt DRITTPRÜFUNG / REVIEW-MODUS (TEIL 2), O2.
   - Die lo-service-ips.service ist bereits aktualisiert: SERVICE_RADIUS (.7)
     entfernt, Description auf RetroTunnel geändert. Server und Konzept konsistent.
 
@@ -1024,14 +1145,18 @@ Dieser Abschnitt enthält Erkenntnisse aus der Arbeit am Projekt, die nicht
 in einzelnen Dateien stehen, aber für die Arbeitsqualität entscheidend sind.
 
 ERKENNTNIS 1: CHATGPT-AUDITS RICHTIG EINORDNEN
-  Marco lässt ChatGPT regelmäßig Full-Spectrum-Audits gegen den ZIP-Snapshot
-  laufen. ChatGPTs Audits sind methodisch stark (8 Prüfebenen, PH1-PH10),
-  aber haben einen systematischen Bias: ChatGPT vermischt MODEL-Reife mit
-  IMPLEMENTATION-Reife. Das drückt die PH-Reifegrade 15-25% zu tief.
-  Jeder ChatGPT-"BLOCKER" muss gegen die echten Dateien verifiziert werden.
-  Bisher waren alle ChatGPT-BLOCKERs (7 von 7 über 4 Audit-Runden)
-  entweder Misreadings oder M2-Scope. Die MAJORs und MINORs sind häufiger korrekt. ChatGPTs Stärke liegt
-  bei Propagationsdrift-Erkennung und Terminologie-Konsistenz.
+  ChatGPTs Full-Spectrum-Audits sind methodisch stark (8 Prüfebenen,
+  PH1-PH10), aber ihr Ergebnis hängt stark vom Review-Rahmen ab. Frühere
+  RetroTunnel-Full-Audits liefen teilweise noch gegen Altkanon-/PH3-Annahmen
+  und kannten die RetroTunnel-M2-Scope-Grenze nicht — dadurch wirkten manche
+  BLOCKER- und PH-Reife-Bewertungen zu streng (und wurden später als
+  Misreadings oder M2-Scope eingeordnet). Das ist ein
+  Scope-/Referenzrahmen-Artefakt, KEIN Beleg, dass ChatGPT-Blocker generell
+  schwach sind: in passendem Rahmen fand ChatGPT sehr wohl echte Blocker,
+  die Claude übersehen hatte (siehe MARCOS_ARBEITSWEISE / MUSTER 8).
+  Konsequenz: Jeden ChatGPT-Befund einzeln gegen Zielkanon, Scope, Prämisse,
+  Provenienz und Primärdateien prüfen, nicht pauschal abwerten. Belegte
+  Stärke: Propagationsdrift-Erkennung und Terminologie-Konsistenz.
 
 ERKENNTNIS 2: D002-PROPAGATION WAR DER TEUERSTE FEHLER
   Die Architekturentscheidung D002 (Rollenwechsel in-place) hat 3 Review-
@@ -1124,11 +1249,11 @@ ERKENNTNIS 8: GROSSE REORGANISATIONEN BRAUCHEN DISZIPLIN
   - Claude hatte in Session 1 versucht "pragmatisch" 100+ Tool-Calls
     in eine Session zu quetschen. Marco bestand auf Option 2
     (Datei fuer Datei mit Review). Das war die richtige Entscheidung:
-    Marco sieht jede Aenderung und kann driftende Entscheidungen
+    Marco sieht jede Änderung und kann driftende Entscheidungen
     sofort korrigieren (z.B. Tunnel-Reihenfolge).
   - Pro Datei: read_text_file -> write_file (oder edit_block bei
-    wenigen Aenderungen) -> naechste Datei. Bei grossen Dateien
-    mit vielen Aenderungen ist write_file mit komplettem Rewrite
+    wenigen Änderungen) -> naechste Datei. Bei grossen Dateien
+    mit vielen Änderungen ist write_file mit komplettem Rewrite
     effizienter als 10+ edit_blocks.
   - Historische Changelog-Eintraege bleiben unveraendert — sie
     sind Zeitdokumente und sollen nicht rueckwirkend umgeschrieben
@@ -1174,6 +1299,102 @@ ERKENNTNIS 10: "SCHON GELESEN" IST KEIN ARGUMENT
   KONSEQUENZ (verankert als KONTEXTFENSTER-REGEL im Briefing):
   Wenn eine Regel sagt LIES, dann LIES — keine Abkuerzungen.
   "Ich habe das verinnerlicht" ist keine akzeptable Alternative.
+
+ERKENNTNIS 11: PRINZIPIEN HABEN EINEN GELTUNGSBEREICH (SCOPE-OVERREACH)
+  (Session 2026-05-31, F-008-REV)
+  Wiederkehrende Fehlerform: ein an sich richtiges Prinzip ueber seinen
+  Geltungsbereich hinaus anwenden. Zwei Faelle aus dieser Session:
+  - SQL-FIRST-SCOPE: Claude wollte WG-Client-Config/Keys in die DB druecken.
+    Falsch. R-03 ist Wahrheit fuer Zustand/Policy/Identitaet und den
+    GESPEICHERTEN Verbrauch (Traffic). Ziel bleibt: so viel wie SINNVOLL
+    ueber die DB. Test pro Artefakt: kann die DB dafuer sinnvoll die Wahrheit
+    sein? Die BESCHAFFUNG darf systemspezifisch sein (WireGuard abfragen vs.
+    accel-ppp/RADIUS-Accounting), muss aber ins GLEICHE Schema konvergieren.
+    Was nicht sinnvoll in die DB passt (WG-Config/Keys, IPsec-PSK), ist
+    datei-basiert. "Nicht in der DB" ist NICHT "nicht gespeichert".
+    (Gleiche Form wie F-002 Option C: am Ziel uniform, im Mechanismus
+    systemspezifisch.)
+  - DRITTREVIEW-PRAEMISSE: ChatGPTs WG-"One-Time"-Kanon war IN SICH logisch
+    sauber, stand aber auf einer falschen Praemisse (Server persistiere die
+    Config nicht). Ein lokal kohaerenter Review auf falscher Grundannahme
+    infiziert alle darauf aufbauenden Folgesaetze: lokal gueltig, global
+    falsch. Praemisse/Rahmen gegen Marcos Modell pruefen, nicht nur
+    Einzelpunkte (operative Heimat: DRITTPRÜFUNG / REVIEW-MODUS O4).
+
+ERKENNTNIS 12: QUELLEN-GEWICHTUNG / PROVENIENZ
+  (Marco-Befund 2026-05-31)
+  Fehler: Claude nahm den Testserver .184 als Wahrheit, obwohl Marco
+  ausdrücklich "nur Test, nur PH1" sagte. Provenienz-Hinweise ("nur Test",
+  "nur Entwurf", "nur PHx", "Altkanon", "Baustelle", "deprecated") SENKEN
+  die Autorität einer Quelle — nicht einebnen. Eine Quelle ist nicht
+  automatisch wahr, nur weil sie real existiert; entscheidend ist ihr
+  Kanon-Status. Test-/Live-Zustände sind Evidenz für das, was dort
+  passiert, aber nicht automatisch normative Architektur für RetroTunnel.
+  Auslöser: Beim Übernehmen eines Fakts aus einer konkreten Quelle (Datei,
+  Server-Output, Altmodul) benennt Claude zuerst kurz ihren Status (ACTIVE,
+  Entwurf, Altkanon, Teststand, deprecated), bevor er ihn als gesichert
+  behandelt. Das Innehalten beim Übernehmen fehlte beim .184-Fehler, nicht
+  das Wissen um die Rangordnung.
+  (Die Websuche-/Primärquellen-Lehre, frueher Teil von E12, lebt jetzt
+  in Regel 9.)
+
+ERKENNTNIS 13: TOOLS-BUG (edit_block/write_file verschwinden) + EDIT-DISZIPLIN
+  (Session 2026-05-31)
+  BEKANNTER BUG: ab gewisser Chat-Laenge/Groesse fallen edit_block,
+  write_file und read_file aus dem Tool-Set heraus, mitten in der Session
+  (hier passiert). Das ist ein Bug, KEINE Konfiguration -- und kein Grund,
+  weniger sorgfaeltig zu arbeiten.
+  FALLBACK (bewaehrt diese Session): transaktionales Python ueber die
+  Prozess-Tools (start_process / interact / read_process_output).
+  - PowerShell Single-Quote Here-String @'...'@ -> [IO.File]::WriteAllText
+    mit UTF-8-ohne-BOM.
+  - py_compile als Syntax-Gate VOR Ausfuehrung.
+  - Engine: load() erkennt BOM+EOL; ALLE Anker mit count==1 validieren; bei
+    jedem Mismatch ABORT ohne Schreiben (kein Teil-Schreiben).
+  - Nur bei Vollerfolg schreiben; vorher .bak in %TEMP%.
+  - Verifikation: EXIT 0 + WROTE + DONE; EOL/BOM-Check; editierte Regionen
+    re-read; ZWEISEITIGER Drift-Grep (alte Phrasen 0, neue >0); Zeilenzahl-
+    Delta == eingefuegte Zeilen.
+  - Anker + neuer Text pur ASCII halten, Nicht-ASCII als \uXXXX.
+  ZUSATZ-DISZIPLIN: Inhalt und Changelog/Recording in GETRENNTEN
+  transaktionalen Schritten -- schuetzt davor, ein noch instabiles Modell
+  schon ins Gedaechtnis (Changelog) zu brennen. Hat diese Session genau das
+  verhindert, als das WG-Modell kippte.
+
+ERKENNTNIS 14: TEMP-HYGIENE (%TEMP% IST ARBEITSFLAECHE, KEIN LAGER)
+  (Marco-Regel 2026-05-31)
+  Von Claude erzeugte Temp-Dateien werden nicht liegengelassen -- sonst
+  endet %TEMP% als Muelleimer, und niemand kann mehr unterscheiden, welche
+  Reste noch gebraucht werden.
+  STRUKTUR: pro Session EIN Unterordner, z.B.
+  %TEMP%\rt_session_<YYYYMMDD_HHMM>\ -- alle Skripte, Logs und Backups der
+  Session liegen dort. Eindeutig als Artefakte DIESER Session erkennbar,
+  Cleanup = ein Schritt (Ordner weg). Kein Vermischen mit Altlasten, kein
+  Timestamp-Raetselraten.
+  TYP-TRENNUNG (wichtig -- NICHT pauschal "sofort alles weg"):
+  - SCRATCH (Transaktions-.py, stdout/stderr/compile-.txt): SOFORT loeschen,
+    sobald der Schritt erfolgreich VERIFIZIERT ist. Reiner Wegwerf.
+  - BACKUPS (.bak): sind das ROLLBACK-NETZ. NICHT sofort loeschen -- sie
+    bleiben, bis die Änderung BESTAETIGT/akzeptiert ist (Arbeitspaket fertig
+    bzw. Marco-Sign-off), dann loeschen. Begruendung: genau dieses Netz hat
+    diese Session die WG-Korrektur ermoeglicht, nachdem der Fehler erst
+    NACHTRAEGLICH auffiel. Sofortloeschung haette es zerstoert.
+  SPAETESTENS am Sessionende: Scratch weg, Backups nach Bestaetigung weg --
+  der Session-Ordner ist leer bzw. entfernt.
+  VERIFIKATIONS-PFLICHT (Bedingung fuer Backup-Loeschung):
+  - Edits sind rein ADDITIV, wo moeglich -- bestehender Text bleibt
+    Byte-fuer-Byte, kann also gar nicht beschaedigt werden.
+  - Nach JEDEM Schreiben ein Selbstcheck der Datei (unabhaengig vom Backup):
+    (a) Zeilen-Delta == eingefuegte/geaenderte Zeilen (nichts verrutscht),
+    (b) editierte Region re-read, (c) Strukturmarker-Zaehlung (alle
+    erwarteten Abschnitte/IDs je 1x), (d) EOL/BOM-Check (LF, kein BOM),
+    (e) letzte Zeile intakt.
+  - Das .bak wird ERST geloescht, wenn dieser Selbstcheck VOLLSTAENDIG OK
+    ist. Schlaegt er fehl -> sofort aus .bak restaurieren, NICHT loeschen.
+  - Grund: Marco prueft die Datei nicht jedes Mal gegen; der Status
+    korrekt-bearbeitet muss eine VERIFIZIERTE Tatsache sein, kein
+    Versprechen. Der Selbstcheck ersetzt Marcos Kontrolle, statt sie
+    vorauszusetzen.
 
 ================================================================================
 TEIL 6 — CHANGELOG DIESES BRIEFINGS

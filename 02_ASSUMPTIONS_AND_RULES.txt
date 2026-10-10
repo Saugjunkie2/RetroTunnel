@@ -44,11 +44,22 @@ R-03  SQL-FIRST.
 R-04  KEIN UNPOLICED WINDOW.
       Connect-Gate (connect_pending Sets) blockiert Forward-Traffic bis
       Policy-Apply SUCCESS. Bei Apply-Failure: FAIL-CLOSED (Session-Kill).
+      Der Gate-MECHANISMUS ist tunnelspezifisch (F-002, Option C): WG/AWG
+      ueber connect_pending (transient, Gate vor Peer-Add); L2TP_IPSEC ueber
+      strukturelles ppp*-Default-Deny + positives Freigabe-Set (LT-18/19),
+      da accel-ppp/ip-up async ist. Das ZIEL (kein unpoliced window) ist
+      identisch, der Weg nicht.
 
 R-05  ENFORCEMENT = IP-RANGE + DYNAMISCHE SETS.
       Rollen-Enforcement basiert auf IP-Ranges (access_role → Pool → CIDR).
       Zustands-Enforcement basiert auf dynamischen nftables-Sets
       (restricted, pending, banned).
+      L2TP-AUSNAHME (F-002, Option C): Standard ist IP-Range + Deny-Sets.
+      Fuer L2TP_IPSEC kommt wegen async accel-ppp/ip-up-Bringup ZUSAETZLICH
+      ein strukturelles ppp*-Default-Deny + positives Freigabe-Set hinzu
+      (LT-18/19); ein reiner Deny-Overlay ueber statischem Rollen-Accept
+      waere dort nur prozedural fail-closed. WG/AWG bleibt beim Deny-Overlay
+      (Gate vor Peer-Add ist strukturell ausreichend).
 
 R-06  PEER-ISOLATION.
       Kein Client-zu-Client Traffic. Weder innerhalb einer Rolle noch
@@ -153,6 +164,103 @@ R-17  PANEL-CONSUMABILITY PFLICHT.
       BASE-110 liefert die technische Plattform (Webserver, PHP, DB).
       MOD-006 beschreibt WAS das Panel anzeigt und steuert.
       (Marco-Erkenntnis 2026-04-18, verankert in DP-07)
+
+R-18  AUTH-DOMAIN-TRENNUNG (PHYSISCH, NICHT NUR LOGISCH).
+      Credential-Domaenen die unterschiedliche Vertrauensstufen oder
+      unterschiedliche Konsumenten haben, MUESSEN physisch getrennt
+      werden: eigene Tabellen-Zone (Prefix nach BASE-000_010) PLUS
+      dedizierte DB-User GRANTs. Logische Trennung (eine Tabelle mit
+      Trennspalte + Query-Filter) ist NICHT ausreichend.
+
+      KONKRETE UMSETZUNG IN RETROTUNNEL (Phase A+B verifiziert,
+      2026-05-22):
+        L2TP_IPSEC-Auth lebt in vpn_-Zone:
+          Tabelle: vpn_connection_l2tp_ipsec_auth
+          RADIUS-DB-User: SELECT-Zugriff (BASE-000_010 §2)
+        WIREGUARD-Auth lebt in wg_-Zone:
+          Tabelle: wg_connection_auth
+          RADIUS-DB-User: KEIN Zugriff (GRANT-Verweigerung)
+
+      EFFEKT (Sicherheitsmodell): Ein kompromittierter RADIUS-DB-User
+      kann keine WireGuard-Keys lesen und keinen WG-Flooding-Angriff
+      ueber Auth-Lookups fahren. Die Schadensbegrenzung wirkt auf
+      Schema-Ebene, nicht durch Anwendungslogik die umgangen werden
+      koennte.
+
+      INVARIANTEN-VERANKERUNG:
+        INV-48 (BASE-010_090): "RADIUS sieht wg_connection_auth
+          physisch NICHT (GRANT-Trennung)."
+        SQL-09/SQL-10 (BASE-000_050): Zonen-Prefix erzwingt die
+          Trennung auf Schema-Ebene.
+
+      GENERISCHE REGEL: Wenn zwei Auth-Domaenen unterschiedliche
+      Bedrohungsmodelle haben (z.B. Group-PSK vs Individual-Key,
+      Server-Side-Hash vs Client-Side-Key), MUESSEN sie auf
+      Schema-Ebene getrennt sein. NICHT "wir filtern in der Query".
+      NICHT "der Anwendungscode prueft das". Schema-Ebene.
+
+      PFLICHT BEI:
+        - Jedem kuenftigen Tunnel-/Auth-Typ mit eigener Credential-Mechanik
+        - Plan-Erweiterungen (D003-E03 plan_policy_values) wenn Plans
+          eigene Auth- oder Quota-Spalten brauchen
+        - Externe Auth-Provider (falls jemals OIDC/SAML hinzukommt)
+
+      PATTERN-VERWEIS: REVIEW_STANDARD.txt §9 PATTERN-05
+      (Auth-Domain-Trennung), Vorbild BASE-010_030 + BASE-000_010.
+
+      (Marco-Architektur-Entscheidung 2026-04-16, explizit als
+      Sicherheits-Pattern verankert 2026-05-22 nach Phase A+B
+      NICE-Befund N-05.)
+
+R-19  REFERENZ-AUFLOESUNG: ALTKANON-DECISIONS vs RETROTUNNEL-DECISIONS.
+      Es gibt ZWEI getrennte Decision-Saetze mit teils kollidierender
+      Nummerierung. Verwechslung ist sicherheitsrelevant (Gate-/Truth-Refs).
+
+        - RETROTUNNEL-DECISIONS: ausschliesslich die Dateien in decisions/
+          (aktuell D002, D003, D004), mit RetroTunnel-eigener Bedeutung.
+          Ein UNMARKIERTES "Dxxx" in einer aktiven Datei meint IMMER diese
+          RetroTunnel-Decision.
+        - ALTKANON-DECISIONS: das alte Konzept (xp-vpn-stack) hat einen
+          eigenen Satz D001-D012. Verweise darauf in INLINE-KURZZITATEN
+          tragen das Suffix "-Alt" (z.B. D009-Alt, D012-Alt) und sind nicht
+          in decisions/ aufloesbar, sondern in xp-vpn-stack/decisions/.
+
+      ACHTUNG KOLLISION: D002/D003/D004 existieren in BEIDEN Saetzen mit
+      UNTERSCHIEDLICHER Bedeutung (z.B. D002-Alt = SQL_FIRST_NO_MIGRATION,
+      RetroTunnel-D002 = ROLLENWECHSEL_INPLACE). Daher ist das "-Alt"-Suffix
+      bei Altkanon-D-Verweisen in Inline-Zitaten PFLICHT.
+
+      Bxxx-Bloecke sind IMMER Altkanon (B-Praefix ist eindeutig, es gibt
+      keine RetroTunnel-B-Decisions) und brauchen kein Suffix. Voll
+      ausgeschriebene Dateinamen unter einem expliziten "VORGAENGER
+      (Altkonzept)"-Header gelten als bereits ausgewiesen (kein Suffix).
+
+      (Eingefuehrt 2026-05-30 nach ChatGPT-Audit F-018 + eigenem Referenz-
+      Scan: verwaiste Inline-Refs D005/D009/D012 in aktiven Modulen markiert.)
+
+      ZIELPRINZIP (Self-Containment, Marco-Entscheidung 2026-05-30):
+      Das aktive Konzept ist das eigenstaendige, kanonische Dokument. Es
+      muss fuer sich allein verstaendlich und vertrauenswuerdig sein, OHNE
+      dass man den Altkanon danebenlegen muss. Der Altkanon ist
+      Konstruktions-Quelle (Regeln 3-5) und Archiv, KEINE Live-Abhaengigkeit
+      des Outputs.
+
+      Daraus folgt fuer Inline-Referenzen im Fliesstext aktiver Module:
+        - SUBSTANZ (Begruendung, Entscheidung, Mechanik) gehoert direkt in
+          den neuen Text, nicht nur als Verweis.
+        - HERKUNFT/Nachverfolgbarkeit gehoert auf MODULEBENE: die INDEX-
+          Sektion "VORGAENGER (Altkonzept)" je Modul + Changelog-Deviation-
+          Records. NICHT verstreut als Inline-Bxxx/Dxxx-Zitate im Body.
+        - Inline-Altkanon-Refs (Bxxx, Dxxx-Alt) im Body werden MODULWEISE
+          bei der Finalisierung entfernt, VERIFY-FIRST: erst belegen dass
+          die Substanz im neuen Konzept steht, dann Ref entfernen, dann
+          INDEX-Herkunft sicherstellen. KEIN Blind-Sweep.
+
+      Das "-Alt"-Suffix (oben) ist die UEBERGANGS-Kennzeichnung, solange ein
+      Modul noch nicht self-contained ist. Querschnitts-Aufgabe + Umfang:
+      PRIORITAETENLISTE; Fortschritt je Modul: REVIEW_TRACKER (Exit-Kriterium).
+      Gemessener Ausgangsstand 2026-05-30: ~105 Inline-B-Refs + 4 D-Alt-Refs
+      in aktiven Body-Dateien; INDEX-"VORGAENGER" erst in BASE-010/020.
 
 ================================================================================
 3) NICHT-ANNAHMEN (explizit NICHT vorausgesetzt)

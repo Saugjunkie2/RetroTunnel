@@ -400,6 +400,141 @@ LEHRE 5: Zustandsbezogen denken, nicht ursachenbezogen
   → Invarianten immer zustandsbezogen formulieren.
 
 ================================================================================
+9) PATTERN-BIBLIOTHEK (BEWAEHRTE VORBILDER)
+================================================================================
+
+Diese Sammlung kanonisiert Pattern die sich in RetroTunnel-Bases
+v1.0..v1.5 als wirksam erwiesen haben. Sie sind keine optionalen
+Empfehlungen sondern PFLICHT-VORBILDER fuer kuenftige Bases und
+Reviews. Jedes Pattern referenziert die konkrete Quelle in der
+das Pattern erstmals sauber realisiert wurde.
+
+PATTERN-01 — OWNER-GRENZEN-SEKTION (Vorbild: BASE-020_060)
+  ZWECK: Scope-Drift verhindern und Ownership-Konflikte sichtbar machen.
+  STRUKTUR (4 Pflicht-Sektionen):
+    §1 "BASE-xxx OWNT (fachlich verantwortlich)"
+       Liste was die Base als Owner fuehrt (Schema-/Vertrag-/Dienst-Ebene)
+    §2 "BASE-xxx OWNT NICHT (anderer fachlicher Owner)"
+       Liste was angrenzende Bases ownen, mit konkretem Verweis
+    §3 "GRENZREGELN (MUST, gegen Scope-Drift)"
+       G1..Gn Regeln gegen typische Drift-Faelle
+    §4 "LESE-/SCHREIBGRENZEN (Zusammenfassung)"
+       Konkrete DB-Tabellen die die Base LIEST / SCHREIBT (Owner) /
+       SCHREIBT (Runner) / TRIGGERT / NICHT SCHREIBT
+  PFLICHT BEI: Jeder Fach-Base, die Schreibzugriff auf gemeinsame
+  Tabellen hat oder mit Nachbar-Bases Mechanik teilt. Insbesondere:
+  BASE-040 (WG ↔ BASE-070 Session), BASE-050 (Firewall ↔ BASE-080
+  Policy-Apply), BASE-070 (Session ↔ BASE-020 AAA), BASE-080
+  (Policy-Apply ↔ alle Tunnel-/Identity-Bases).
+  ANTI-PATTERN: Implizite Owner-Annahmen ohne Sektion, "ich
+  schreibe halt auch in Tabelle X" ohne Eintrag, fehlende
+  Runner-vs-Owner-Markierung (R-15).
+
+PATTERN-02 — DRITTREVIEW-INTEGRATION (Vorbild: BASE-030)
+  ZWECK: Externe Reviews (ChatGPT, Gemini) systematisch und
+  transparent integrieren ohne den Kanon zu kontaminieren.
+  PROZESS (5 Schritte, MUST):
+    a) FREIRAUM-BLOCK fuer Drittreviewer (ERKENNTNIS 9, Briefing v0.46):
+       Keine Pre-Constrained Checkliste — Reviewer darf eigene Schwerpunkte
+       setzen. Bessere Funde als bei vorgefiltertem Auftrag.
+    b) Jeden Punkt FACHLICH KLASSIFIZIEREN (REVIEW_STANDARD §7):
+       korrekt / teilweise korrekt / falsch / kontextabhaengig / offen.
+    c) Drittreview-Befunde mit EIGENBEFUNDEN ergaenzen — kein
+       passiver "Abarbeitungsmodus".
+    d) Befunde IN DEN BASE-INVARIANTEN/TESTS verankern (nicht nur
+       in Changelog-Notizen). Beispiel BASE-030: F-030-001 (Default-
+       Deny statt Hook-Race) wurde LT-18/LT-19 + T-LT-14/15/16/17.
+       F-030-002 (radacct-Korrelation statt $SID-Env-Var) wurde
+       LT-22 + T-LT-18/19/20. Beide mit Quellenangabe "F-030-001
+       Korrektur" / "F-030-002 Korrektur" im Invarianten-Text.
+    e) BEI WIDERSPRUECHEN ZUM ALTKONZEPT oder Marcos Zielen:
+       offen benennen statt stillschweigend uebernehmen. Drittreviews
+       haben NIEDRIGSTE Autoritaet (REVIEW_STANDARD §7).
+  PFLICHT BEI: Jeder Base ab v1.0. Quellcode-Pruefungen durch
+  Gemini (siehe BASE-030 accel-ppp pppd_compat.c Verifikation)
+  sind besonders wertvoll fuer Behauptungen ueber externes Verhalten.
+
+PATTERN-03 — ADR-BRUECKENSEKTIONEN (Vorbild: D002/D003)
+  ZWECK: Historische Entscheidungen (ADRs) bleiben unveraendert
+  als Quelldokument, aber Datei-/Tabellen-/Modul-Drift wird sichtbar
+  gemacht ohne die ADR-Substanz zu rewriten.
+  STRUKTUR (zwei Brueckensektionen, beide nach dem Status-Header
+  und vor "1) KONTEXT UND PROBLEM"):
+    SEKTION 1 — TERMINOLOGIE-HINWEIS (Datum)
+      Brueckentabelle: Alt-Begriff -> Neu-Begriff (Kanon ab Datum).
+      Beispiel D002: tunnel_type='LEGACY' -> 'L2TP_IPSEC'.
+    SEKTION 2 — REFERENZ-HINWEIS (Datum)
+      Brueckentabelle: Alt-Datei-Referenz -> Neu-Verortung.
+      Beispiel D002: SM_POLICY_RESTRICT (model/) -> BASE-080.
+  BEIDE SEKTIONEN MUESSEN ABSCHLIESSEN MIT:
+    "ENTSCHEIDUNG BLEIBT GUELTIG: ..."
+    + Verifikations-Verweis auf BASE-xxx-Invarianten/Tests, gegen
+    die die ADR-Substanz geprueft wurde.
+  REGELN (MUST):
+    - ADR-Substanz (Kontext, Problem, Alternativen, Entscheidung,
+      Konsequenzen) bleibt 1:1 unveraendert.
+    - Keine ADR-Versions-Bumps fuer Bruecken-Updates (die ADR
+      traegt das Datum der Original-Entscheidung).
+    - Brueckensektionen tragen das Datum DER BRUECKE, nicht der ADR.
+    - Mehrere Brueckensektionen sind erlaubt (z.B. TERMINOLOGIE
+      2026-04-16 + REFERENZ 2026-05-22).
+  PFLICHT BEI: Jeder ADR die Tabellen-Renames, Datei-Auflösungen
+  oder Verzeichnis-Reorganisationen ueberlebt. Wird durch Phase A+B
+  Reviews regelmaessig identifiziert.
+
+PATTERN-04 — IST-vs-SOLL-TRANSPARENZ (Vorbild: implementation/configs/CONFIG_STATUS.txt)
+  ZWECK: implementation/-Inhalte sind SOLL-Zustand (copy-paste-ready
+  fuer frisches Deployment), aber bekannte Abweichungen zur
+  IST-Server-Konfiguration werden explizit und nachvollziehbar
+  dokumentiert — keine stille Drift, keine "wir wissen das schon"-Annahme.
+  STRUKTUR (vier Pflicht-Sektionen):
+    §1 "SCOPE UND BEDEUTUNG DIESER DATEIEN"
+       Klarstellung dass es SOLL ist, nicht IST.
+    §2 "BEKANNTE ABWEICHUNGEN (IST vs SOLL)"
+       ABW-NN Eintraege mit Status: OFFEN / ERLEDIGT (Datum) / DEFERRED.
+       Jeder Eintrag nennt die konkrete Diskrepanz und den Plan.
+    §3 Konvention dass kanonische Zieldefinitionen in model/ oder
+       base/ leben, Config-Dateien diesen folgen muessen.
+    §4 Verweise wo der Konzept-Anker liegt (z.B. BASE-005_030).
+  PFLICHT BEI: Jedem neuen Unterordner unter implementation/
+  (z.B. implementation/guides/, spaetere Phasen-Plaene).
+  ANTI-PATTERN: "Configs werden manuell synchron gehalten" ohne
+  STATUS-Datei, oder veraltete ABW-Eintraege die nie geschlossen
+  wurden.
+
+PATTERN-05 — AUTH-DOMAIN-TRENNUNG (Vorbild: BASE-010_030 + BASE-000_010)
+  ZWECK: Credential-Domaenen die unterschiedliche Vertrauensstufen
+  oder unterschiedliche Konsumenten haben werden PHYSISCH getrennt
+  (eigene Tabellen-Zone + dedizierte DB-User GRANTs), nicht nur
+  logisch (eine Tabelle mit Trennspalte).
+  KONKRETE UMSETZUNG IN RETROTUNNEL:
+    L2TP_IPSEC-Auth: vpn_-Zone (vpn_connection_l2tp_ipsec_auth)
+      → RADIUS-DB-User hat SELECT-Zugriff.
+    WIREGUARD-Auth:  wg_-Zone (wg_connection_auth)
+      → RADIUS-DB-User hat KEINEN Zugriff (GRANT-Verweigerung).
+    Effekt: Ein kompromittierter RADIUS-User kann keine WG-Keys
+    lesen und keinen WG-Flooding-Angriff ueber Auth-Lookups fahren.
+    INV-48 (BASE-010_090): "RADIUS sieht wg_connection_auth
+    physisch NICHT (GRANT-Trennung)."
+    SQL-09/SQL-10 (BASE-000_050): Zonen-Prefix erzwingt
+    Trennung auf Schema-Ebene.
+  PFLICHT BEI: Jedem kuenftigen Tunnel-/Auth-Typ der eigene
+  Credential-Mechanik hat. Auch bei Plan-Plans-Erweiterung
+  (D003-E03 plan_policy_values) wenn Plans eigene Auth- oder
+  Quota-Spalten brauchen.
+  GENERISCHE REGEL: Wenn zwei Auth-Domaenen unterschiedliche
+  Bedrohungsmodelle haben, MUESSEN sie auf Schema-Ebene getrennt
+  sein — nicht "wir filtern in der Query". Dokumentiert in
+  02_ASSUMPTIONS_AND_RULES R-18.
+
+PATTERN-VERIFIKATION BEI REVIEWS:
+  Bei jedem Vollreview einer neuen Base muss explizit geprueft
+  werden ob die zutreffenden Patterns (01..05) angewendet sind.
+  Fehlende Pattern-Anwendung ist ein MAJOR-Befund (Architektur-
+  Drift, nicht Bookkeeping). Reviews ohne Pattern-Check sind
+  unvollstaendig.
+
+================================================================================
 CHANGELOG
 ================================================================================
 Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).

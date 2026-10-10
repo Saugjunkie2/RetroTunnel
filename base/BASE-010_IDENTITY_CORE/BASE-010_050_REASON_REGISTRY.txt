@@ -10,6 +10,21 @@ ZWECK:
   ob Restore moeglich ist, wie Revocation ablaeuft, und ob/wann
   RESTRICTED automatisch zu DISABLED finalisiert.
 
+ABGRENZUNG ZU BASE-020_070 (AAA-REJECT-CODES):
+  vpn_reason_registry haelt NUR PERSISTENTE, OPERATIVE Codes
+  (RESTRICT_*, DISABLE_*). Diese sind FK-Ziele von
+  vpn_connections.op_reason_code und beschreiben den DAUERHAFTEN
+  Zustand einer Connection.
+
+  TRANSIENTE AAA-REJECT-CODES (R_AUTH_*, R_ACCOUNT_*, R_SIMUSE_*)
+  fuer FreeRADIUS Reply-Messages leben in BASE-020_070 als
+  separate Allowlist. KEIN FK zwischen den beiden Tabellen — sie
+  codieren unterschiedliche Konzepte (persistenter Connection-State
+  vs transiente Auth-Entscheidung). Eine Connection kann z.B.
+  op_reason_code=DISABLE_ADMIN_ABUSE haben (persistent) und ihre
+  RADIUS-Logins werden mit R_ACCOUNT_DISABLED abgewiesen
+  (transient) — beide Codes existieren parallel und unabhaengig.
+
 VORGAENGER: DOMAIN_MODEL §7A, SM_CONNECTION §5
   Tabellenname: vpn_reason_registry (BASE-000 K-03)
 
@@ -62,6 +77,7 @@ VORGAENGER: DOMAIN_MODEL §7A, SM_CONNECTION §5
   DISABLE_EXPIRY_TIMEOUT        Nein        IMMEDIATE
   DISABLE_PLAN_LIMIT_TIMEOUT    Nein        IMMEDIATE
   DISABLE_CUSTOMER_SUSPENDED    Ja          AFTER_RESTORE_WINDOW
+  DISABLE_CUSTOMER_DELETED      Nein        IMMEDIATE
   DISABLE_ADMIN_MANUAL          Ja          AFTER_RESTORE_WINDOW
   DISABLE_ADMIN_ABUSE           Nein        IMMEDIATE
   DISABLE_SECURITY_COMPROMISE   Nein        IMMEDIATE
@@ -72,9 +88,19 @@ VORGAENGER: DOMAIN_MODEL §7A, SM_CONNECTION §5
   (z.B. Credential-Leak vermutet, Geraet gestohlen, verdaechtige
   Login-Muster, praeventive Massnahme auf Kundenwunsch).
 
+  KLARSTELLUNG DISABLE_CUSTOMER_DELETED (OPEN-010-01 [REVISED] 2026-05-11):
+  Customer-Account wurde geloescht (web_customers.status=DELETED).
+  Connection wird in Tombstone-Zustand versetzt: op_status=DISABLED,
+  op_reason_code=DISABLE_CUSTOMER_DELETED, revoked_at und quarantine_until
+  atomar gesetzt via LR-01 (revocation_mode=IMMEDIATE). Auth-Kindtabellen-
+  Rows werden im selben atomaren Write physisch geloescht (Credentials
+  sofort weg). Connection-Row bleibt fuer quarantine_days als Tombstone
+  — customer_id bleibt fuer Forensik-Zuordbarkeit (Anti-Reuse-Confusion,
+  B064 §5.4). Nach Ablauf entfernt der Janitor die Tombstone-Row physisch
+  und schreibt CONNECTION_DELETED-Event in log_connection_lifecycle
+  (INV-78). Nicht restorebar (DELETED ist terminal, INV-69).
+
   ENTFALLENE CODES:
-  DISABLE_CUSTOMER_DELETE existiert NICHT. Loeschen ist keine
-  Deaktivierung sondern eine eigene Operation.
   DISABLE_ROLE_CHANGE entfaellt — Rollenwechsel ist in-place
   Mutation (D002), kein DISABLE-Event.
 

@@ -132,8 +132,23 @@ GRUNDSAETZE (MUST):
       auf derselben Connection). Aktive Sessions beenden (Hard-Cut).
       Alte Connection wird NICHT geloescht — sie bekommt neuen Slot.
   R3b) Tunnel-Typ-Wechsel: tunnel_type ist immutable (VC-08).
-      "Wechsel" = alte Connection loeschen + neue erstellen.
-      Alte revoked/disabled gemaess Policy.
+      "Wechsel" = alte Connection wird via Tombstone-Pfad entzogen
+      (Auth-Row weg, Connection-Row als Tombstone bis quarantine_until),
+      neue Connection wird erstellt. Detail: R5.
   R4) DB_DOWN: Fail-closed. Kein "halbes" Provisioning.
       Keine "best effort" Writes in Core.
+  R5) Tombstone-Flow bei Customer-DELETED (OPEN-010-01 [REVISED],
+      Marco 2026-05-11): Atomar pro Connection (EINE Transaktion):
+      (a) UPDATE vpn_connections: op_status=DISABLED,
+          op_reason_code=DISABLE_CUSTOMER_DELETED,
+          disabled_at + revoked_at + quarantine_until atomar
+          (LR-01 IMMEDIATE).
+      (b) DELETE der Auth-Kindtabellen-Row (Credentials physisch weg).
+      (c) INSERT log_connection_lifecycle STATUS_CHANGE-Event mit
+          actor_detail='customer_deleted_cascade'.
+      Bei Fehler in (a/b/c): kompletter Rollback. Kein Halbzustand
+      (INV-50). Detail: BASE-010_070 §5 TOMBSTONE-FLOW.
+      Janitor-Phase (nach Ablauf quarantine_until): INSERT
+      CONNECTION_DELETED-Event (INV-78), dann DELETE der Tombstone-
+      Connection-Row. Detail-Verortung: BASE-070 oder MOD-001.
 ================================================================================

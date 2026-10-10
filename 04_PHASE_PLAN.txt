@@ -1,0 +1,1171 @@
+================================================================================
+RetroTunnel — 04_PHASE_PLAN
+================================================================================
+VERSION: v1.1
+DATUM: 2026-05-26
+STATUS: ACTIVE
+SOURCE-OF-TRUTH FUER: PH-Reifegrad, PH-Acceptance, Rollout-Sequenz
+
+HINWEIS: Dateieigener Changelog ist leer — Aenderungen werden zentral in
+03_CHANGELOG.txt gefuehrt (konsistent mit 01_GLOSSARY, PRIORITAETENLISTE etc.).
+
+================================================================================
+ZWECK
+================================================================================
+
+Diese Datei ist die kanonische SOLL-Liste fuer RetroTunnel:
+WAS muss vorhanden sein damit das System als fertig gilt — konzeptionell und
+implementierungstechnisch.
+
+Sie ersetzt B290_PHASE_PLAN_ROLLOUT.txt (xp-vpn-stack/blocks/) als kanonische
+Quelle fuer Phasen-Reife und Acceptance-Kriterien im Kontext von RetroTunnel.
+B290 bleibt als historische Referenz lesbar, ist aber NICHT mehr verbindlich
+fuer RetroTunnel (siehe Abschnitt DELTA ZU B290).
+
+PRIMAERE NUTZER DIESER DATEI:
+  - Marco (Steuerung: wo muss als naechstes angesetzt werden?)
+  - Claude (Konzept-Arbeit, Drift-Pruefung, Audit-Antworten)
+  - ChatGPT/Gemini (Drittreviews — phase_003_analyse.txt H.1 verweist hierher)
+
+================================================================================
+ROLLEN-DEFINITION — IST vs SOLL
+================================================================================
+
+  Datei                       Rolle                        Was steht drin
+  --------------------------- ---------------------------- ---------------------
+  PRIORITAETENLISTE.txt       IST-Liste / Workflow-Sequenz Was als naechstes
+                                                           gemacht wird, in
+                                                           welcher Reihenfolge,
+                                                           mit aktuellem Status
+                                                           (DONE/IN-PROGRESS/
+                                                           WAITING).
+  04_PHASE_PLAN.txt           SOLL-Liste / Anforderungs-   Was alles vorhanden
+                              Katalog                      sein muss damit das
+                                                           System fertig ist —
+                                                           pro Phase mit
+                                                           Konzept-Reife- und
+                                                           Implementation-
+                                                           Acceptance-Kriterien.
+
+DIE LISTEN SIND KOMPLEMENTAER, NICHT REDUNDANT:
+  - PRIORITAETENLISTE steuert die Arbeit (Workflow-Sequenz, M2-010, M2-020 ...)
+  - 04_PHASE_PLAN steuert die Vollstaendigkeit (PH1-PH10 Funktionsbereiche)
+
+Bei Konflikt zwischen beiden gilt 04_PHASE_PLAN fuer Fragen nach
+"was MUSS vorhanden sein" und PRIORITAETENLISTE fuer Fragen nach
+"was kommt als naechstes".
+
+================================================================================
+AENDERUNGS-DISZIPLIN — KERN-STABILITAET vs DETAIL-WACHSTUM
+================================================================================
+
+Diese Datei hat zwei Schichten mit unterschiedlicher Aenderungs-Disziplin:
+
+KERN (STABIL — Aenderung = Architektur-Entscheidung):
+  - Die 10 Phasen-Definitionen (PH1 = VPN-Baseline, PH2 = QoS, ...)
+  - Phasen-Reihenfolge und ihr fachlicher Bereich
+  - Stack-Bezug pro Phase (LEGACY vs MODERN)
+  - Welche BASE/MOD-Module fundamental zu welcher Phase gehoeren
+
+  Aenderungen am KERN erfordern:
+    - explizite Architektur-Begruendung
+    - Eintrag in 03_CHANGELOG.txt
+    - Konsistenz-Pruefung gegen PRIORITAETENLISTE.txt und betroffene Module
+    - Drittreview empfohlen
+
+DETAIL (KONTROLLIERTES WACHSTUM — normaler konzeptioneller Feinschliff):
+  - Acceptance-Kriterien pro Phase (initial grob, werden praeziser)
+  - Konzept-Reife-Prozente (aktualisieren sich mit Modul-Fortschritt)
+  - Implementation-Acceptance-Sub-Kriterien (Detaillierung in M3/M4)
+
+  Aenderungen am DETAIL erfordern:
+    - inhaltliche Begruendung im jeweiligen Phasen-Block
+    - Eintrag in 03_CHANGELOG.txt nur bei materieller Aenderung
+    - Konsistenz-Pruefung gegen das jeweils verfeinerte Modul
+
+GRUNDSATZ:
+  Die Datei waechst NICHT durch Anhaengsel oder neue Phasen, sondern wird
+  PRAEZISER innerhalb des bestehenden Rahmens. Neue PH-Phasen einzufuegen ist
+  eine fundamentale Architektur-Entscheidung und gehoert nicht in den
+  normalen Konzept-Arbeitsfluss.
+
+================================================================================
+DELTA ZU B290 (Altkanon)
+================================================================================
+
+B290_PHASE_PLAN_ROLLOUT.txt (xp-vpn-stack) war die kanonische Phasen-Quelle
+fuer das alte Konzept. Sie enthaelt jedoch IKEv2-Annahmen die fuer RetroTunnel
+NICHT mehr gelten.
+
+WICHTIGSTE DELTAS:
+
+  Bereich              B290 (Alt)                  RetroTunnel (Neu)
+  -------------------- --------------------------- ----------------------------
+  MODERN-Stack         IKEv2 (strongSwan)          AmneziaWireGuard (Anti-DPI)
+  PH1-PROOF-04         IKEv2 Connect/Handshake     AWG Connect/Handshake
+                       Dual-Stack                  Dual-Stack
+  Tunnel-Implementi.   xl2tpd + strongSwan         accel-ppp (L2TP) +
+                                                   strongSwan (IPsec)
+  Naming-Schema        B-Bloecke (B040, B050, ...) BASE/MOD-Module
+                                                   (BASE-005, MOD-001, ...)
+  Acceptance-Schema    PH-PROOF-NN (in B310)       Achse-1/Achse-2 in dieser
+                                                   Datei + BASE-XXX_095_TESTS
+  Datenbank-Tabellen   customers, etc.             web_customers, etc.
+                                                   (BASE-000)
+
+DAS GILT WEITERHIN AUS B290 (uebernommen):
+  - 10-Phasen-Struktur als Funktionsbereich-Achse
+  - Phasen-Reihenfolge (VPN-Baseline -> QoS -> DNS -> CA -> Webpanel -> Ops -> ...)
+  - Doktrin: keine Feature-Flut bevor VPN stabil
+  - Fail-Closed-Prinzipien
+
+NICHT 1:1 UEBERNEHMBAR (muss in dieser Datei eigen formuliert werden):
+  - Konkrete Acceptance-Kriterien (B290 PH-PROOF-NN sind IKEv2-basiert)
+  - Stack-spezifische Test-Listen
+  - Tunnel-Implementierungs-Details
+
+================================================================================
+STACK-DEFINITION (gilt fuer alle Phasen)
+================================================================================
+
+LEGACY-STACK (Windows XP / Vista — primaerer Differenzierungs-Treiber):
+  - L2TP via accel-ppp
+  - IPsec via strongSwan (PSK-basiert, mschapv2)
+  - IPv4-only (kein IPv6 fuer XP-Clients)
+  - Externer Port: UDP 500 + UDP 4500 + ESP (Protokoll 50)
+  - DPD (Dead-Peer-Detection) + LCP-Echo fuer Session-Stabilitaet
+
+MODERN-STACK (moderne Clients — Anti-DPI-Kontext):
+  - AmneziaWireGuard (Fork von WireGuard mit Anti-DPI-Headern)
+  - Dual-Stack (IPv4 + IPv6 nativ)
+  - Externer Port: OPEN-NET-01 (AWG-WAN-Port wird in BASE-040 festgelegt)
+  - PersistentKeepalive fuer Session-Stabilitaet
+
+AAA-LAYER (stack-uebergreifend):
+  - FreeRADIUS gegen MariaDB (SQL-first, fail-closed)
+  - Alle Auth-Entscheidungen in DB, keine Datei-basierten User-Listen
+  - RADIUS-Sessions: radacct als Liveness- und Forensik-Quelle
+    (FreeRADIUS Standard SQL-Accounting, B165). Counter-Aggregat-
+    Persistenz auf vpn_connections. Runtime-Truth-Pipeline in
+    BASE-070 (D004-konform; KEINE vpn_sessions-DB-Tabelle).
+
+FIREWALL-LAYER (stack-uebergreifend):
+  - nftables (kein iptables)
+  - Default-Deny, Peer-Isolation, Exposure-by-Binding
+  - Single-Source-of-Truth: awg0.conf PostUp/PostDown (Service-Regeln) +
+    persistent rules nur fuer Deny-All + WG-Port (Safety-Net)
+
+DNS-LAYER (stack-uebergreifend):
+  - Unbound (lokal-rekursiv) + AdGuardHome (Filter/Block)
+  - SERVICE_DNS = AdGuardHome (.1, Client-Einstieg)
+  - SERVICE_RESOLVER = Unbound (.2, Backend; ausschliesslich AdGuard-Upstream, nie fuer Clients)
+  - DNS-Zwang per DNAT 53 (UDP+TCP) auf SERVICE_DNS
+  - DNS-Zwang gilt IPv4 fuer LEGACY, IPv4+IPv6 fuer MODERN
+
+WEBSTACK-LAYER (Panel + Blockpage + Service):
+  - OpenResty + PHP-FPM (intern, hinter Service-IP)
+  - HTTPS via interne CA (BASE-110 / MOD-004)
+  - Public-DNS-Namen: portal.retrotunnel (intern via DNS-Rewrite)
+
+================================================================================
+BEWERTUNGS-RUBRIK (4 Dimensionen je 25%, stack-neutral)
+================================================================================
+
+Die Konzept-Reife (Achse 1) und Implementation-Reife (Achse 2) werden pro
+Phase nach 4 gleich gewichteten Dimensionen bewertet (uebernommen aus
+phase_003_analyse.txt H.1, dort kanonisch fuer Drittreviews definiert):
+
+  D1 Ziele/Scope geschlossen        (PH-Umfang klar, keine offenen
+                                     Grundsatzfragen)
+  D2 Flows/States/Gates             (Transitionen, TTL, Grace, Reset
+     widerspruchsfrei                vollstaendig)
+  D3 Enforcement-Punkte benannt     (wo wird erzwungen: nftables / AAA /
+                                     strongSwan / accel-ppp / AWG / DNS / etc.)
+  D4 DoD/Tests/Validierung          (Nachweise klar, inkl. Randfall- und
+                                     Failure-Checks)
+
+  REIFEGRAD-PROZENTE (konsistent fuer beide Achsen):
+    0%   nur Idee/Stichworte, keine geschlossene Beschreibung
+    25%  grobe Architektur benannt, Kernfragen/Gates/DoD fehlen
+    50%  Flows/States beschrieben, aber Widersprueche/Drift oder DoD/Tests
+         unvollstaendig
+    75%  weitgehend konsistent, DoD/Tests definiert, nur kleinere Luecken
+    100% geschlossen, widerspruchsfrei, DoD + Validierung vollstaendig
+
+  Abweichungen von der 4x25%-Logik (z.B. wenn eine Dimension nicht
+  anwendbar ist) sind im jeweiligen Phasen-Block in max. 2 Saetzen zu
+  begruenden.
+
+ACHSE-DEFINITION:
+  Achse 1 — KONZEPT-REIFE:
+    Ist die Phase konzeptionell abnahmebereit fuer Implementation?
+    Sind alle relevanten BASE/MOD-Module DONE?
+    -> Steuerungs-Cockpit fuer Marco im M2/M3-Stand.
+
+  Achse 2 — IMPLEMENTATION-ACCEPTANCE:
+    Funktioniert die Phase nachweislich auf dem Live-Server?
+    Sind Tests dokumentiert und reproduzierbar gruen?
+    -> Checkliste fuer Live-Schaltung ab M4.
+
+================================================================================
+ABNAHME-PRINZIP (STOP-REGEL)
+================================================================================
+
+Diese Regel ist BINDEND fuer Konzept und Implementation:
+
+1) Jede Phase hat MUST-Acceptance-Checks (Achse 2: I-PHX-NN).
+   Wenn ein MUST-Check fehlschlaegt: STOP, Fix, erneut testen.
+   Kein "wir gehen einfach weiter, das beheben wir spaeter".
+
+2) Reihenfolge ist BINDEND:
+   - Keine "oben drauf"-Features bevor die Phase darunter stabil ist.
+   - PH-N darf nicht implementiert werden wenn PH-(N-1) nicht Acceptance-
+     gruen ist (Ausnahme: explizite Marco-Entscheidung mit Begruendung
+     in 03_CHANGELOG.txt).
+
+3) Konzept-Reife gilt analog:
+   - K-PHX-NN-Kriterien einer Phase muessen erfuellt sein bevor die
+     naechste Phase konzeptionell ausgearbeitet wird (Achse 1).
+   - Ausnahme: bewusste parallele Vorarbeit (z.B. Webpanel-Extraktion
+     fuer PH5 waehrend PH4 noch reift) — muss als parallel markiert
+     sein, nicht als Ueberholung.
+
+4) Regression-Test als Gate:
+   - Eine neue Phase darf eine frueher abgenommene Phase NICHT
+     destabilisieren.
+   - Bei Konflikt: vorherige Phase hat Vorrang, neue Phase wird
+     angepasst oder verschoben.
+
+5) Reifegrad ist KEINE Acceptance:
+   - 100% Konzept-Reife (Achse 1) heisst NICHT dass die Phase live
+     gehen darf. Acceptance (Achse 2) ist separat zu validieren.
+   - 100% Implementation-Reife (Achse 2) heisst NICHT dass das
+     Konzept geschlossen ist (Achse 1 kann noch Luecken haben).
+
+6) Bei Konflikt zwischen STOP-REGEL und Marco-Entscheidung:
+   Marco kann die Regel mit expliziter Begruendung uebersteuern.
+   Begruendung muss in 03_CHANGELOG.txt dokumentiert sein.
+
+================================================================================
+PH1 — VPN-BASELINE
+================================================================================
+
+ZIEL:
+  Stabiler Tunnel-Aufbau fuer beide Stacks (LEGACY + MODERN) plus
+  SQL-AAA-Backend plus nftables-Baseline. Voraussetzung fuer alles weitere.
+  Ohne PH1 koennen keine spaeteren Phasen sinnvoll bewertet werden.
+
+STACK-BEZUG:
+  LEGACY:  L2TP via accel-ppp + IPsec via strongSwan (XP/Vista)
+  MODERN:  AmneziaWireGuard (moderne Clients)
+  AAA:     FreeRADIUS + MariaDB
+  Firewall: nftables Default-Deny + Peer-Isolation
+
+RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
+  BASE-000_SQL_FIRST           — SQL-First-Doktrin, Schema-Fundament    [DONE]
+  BASE-005_PLATFORM_CORE       — Service-Endpoints, Settings            [DONE]
+  BASE-010_IDENTITY_CORE       — web_customers, vpn_connections,
+                                 Connection-Lifecycle (v2.0)            [DONE]
+  BASE-020_AAA_CORE            — FreeRADIUS-Integration, WG-Vertrag     [DONE]
+  BASE-030_TUNNEL_L2TP_IPSEC   — accel-ppp + strongSwan                 [DONE]
+  BASE-040_TUNNEL_WIREGUARD    — AmneziaWireGuard                       [WAITING]
+                                 (Entwurf vorhanden:
+                                  entwuerfe/ENTWURF_IPV6_DUALSTACK_CONFIG.txt)
+  BASE-050_FIREWALL_CORE       — nftables Baseline                      [WAITING]
+  BASE-070_SESSION_CORE        — Runtime Activity Detection +
+                                 Accounting Correlation + Collector
+                                 Idempotency + DB-Down-Buffer (D004-E03);
+                                 vpn_session_locks-Janitor (anteilig)  [WAITING]
+
+ACHSE 1 — KONZEPT-REIFE-KRITERIEN:
+  K-PH1-01  L2TP/IPsec-Flow vollstaendig kodiert (BASE-030, alle Sektionen
+            §1-§9, Invarianten LT-01..LT-41, Tests T-LT-01..T-LT-46)
+  K-PH1-02  AmneziaWireGuard-Flow vollstaendig kodiert (BASE-040)
+            inkl. Anti-DPI-Header-Konfiguration und Key-Lifecycle
+  K-PH1-03  Identity-Lifecycle vollstaendig (BASE-010_010 web_customers,
+            BASE-010_020 vpn_connections, BASE-010_070 Connection-Lifecycle,
+            BASE-010_090 INV-01..INV-84)
+  K-PH1-04  AAA-Flow vollstaendig (BASE-020, FreeRADIUS-Hook-Chain,
+            WG-Vertrag WG-01..WG-05)
+  K-PH1-05  Firewall-Baseline kodiert (BASE-050)
+            inkl. WAN-Port-Exposure, Peer-Isolation, NAT/Masquerade,
+            Single-Source-of-Truth awg0.conf vs persistent rules
+  K-PH1-06  Session-Stabilitaet definiert (DPD/LCP fuer LEGACY,
+            PersistentKeepalive fuer MODERN, Reconnect ohne Ghost Sessions)
+  K-PH1-07  fixed_ip + fixed_ipv6 deterministisch (BASE-010_020 §1 Schema,
+            INV-30 immutable, INV-83 CSPRNG-Wahl)
+
+ACHSE 2 — IMPLEMENTATION-ACCEPTANCE (initial grob, Detail in M3/M4):
+  I-PH1-01  XP/Vista-Client kann via L2TP/IPsec verbinden, bekommt
+            PPP-IP aus dem vorgesehenen Pool
+            Proof: RT-PH1-PROOF-01 [BASE-030_095 T-LT-01..05 +
+                   BASE-020_095 (RADIUS-Auth-Flow)]
+  I-PH1-02  Modern-Client kann via AWG verbinden, bekommt Tunnel-IP +
+            fixed_ipv6
+            Proof: RT-PH1-PROOF-02 [BASE-040_095 T-WG-XX zu schreiben]
+  I-PH1-03  Full-Tunnel funktioniert (Default-Route ueber VPN), kein
+            Split-Tunnel-Leck
+            Proof: RT-PH1-PROOF-03 [BASE-030_095 T-LT-XX + BASE-040_095
+                   T-WG-XX + BASE-050_095 T-FW-XX, alle zu schreiben]
+  I-PH1-04  Peer-Isolation: User koennen sich untereinander nicht erreichen
+            (LEGACY ppp-Isolation + MODERN AllowedIPs-Beschraenkung +
+            nftables-Enforcement)
+            Proof: RT-PH1-PROOF-04 [BASE-050_095 T-FW-XX zu schreiben]
+  I-PH1-05  Reconnect stabil (DPD/LCP/PersistentKeepalive) ohne Ghost
+            Sessions in vpn_session_locks
+            Proof: RT-PH1-PROOF-05 [BASE-030_095 T-LT-XX + BASE-040_095
+                   T-WG-XX + BASE-070_095 T-SE-XX, alle zu schreiben]
+  I-PH1-06  fixed_ipv6 pro Verbindung deterministisch (kein Wechsel beim
+            Reconnect)
+            Proof: RT-PH1-PROOF-06 [BASE-010_095 T-IS-01..04 (CSPRNG-
+                   Allokator), bereits geschrieben]
+  I-PH1-07  IPv6 Egress funktioniert (MODERN: interne ULA fd77:0:0:<rolle>::/64,
+            NAT66/MASQUERADE am WAN, Source = Server-WAN-GUA; LEGACY ist IPv4-only)
+            Proof: RT-PH1-PROOF-07 [BASE-050_095 T-FW-XX (NAT66-Egress MODERN) +
+                   BASE-040_095 T-WG-XX (ULA-Zuweisung MODERN), beide zu schreiben]
+
+KONZEPT-REIFE-STATUS (Stand 2026-05-24):
+  Geschaetzt: ~60%
+  Fakten:
+    - BASE-000, BASE-005, BASE-010 (v2.0), BASE-020, BASE-030 — DONE/CLEAN
+    - BASE-010 hat aktuellen CSPRNG-Invariante (INV-83) + Tombstone-
+      Edge-Cases (INV-84)
+    - F-004 (dns2-Port-Fehler) und WG-DNS-Vertrag (WG-01..05) sauber
+      eingebaut
+  Offen:
+    - BASE-040 (AmneziaWireGuard): nur Entwurf in entwuerfe/, kein Modul
+    - BASE-050 (Firewall Core): Ordner leer, kein Modul
+    - BASE-070 (Session Core): Ordner leer, Session-Stabilitaets-Anteil
+      fuer PH1 fehlt
+  Blocker: BASE-040, BASE-050, BASE-070 muessen geschrieben werden
+  DoD-Quelle: BASE-XXX_090_INVARIANTEN.txt + BASE-XXX_095_TESTS.txt pro Modul
+
+IMPLEMENTATION-REIFE-STATUS (Stand 2026-05-24):
+  Geschaetzt: ~10%
+  Fakten:
+    - L2TP/IPsec-Stack auf 185.150.28.184 teilweise live, aber gegen
+      Konzept noch nicht durchvalidiert
+    - Standard-WireGuard auf Port 49392 live (Safety-Net-Firewall-Regel persistent)
+  Offen: gegen Konzept durchvalidieren ab M4-Phase
+  Blocker: BASE-040 + BASE-050 + BASE-070 nicht konzept-fertig
+
+================================================================================
+PH2 — QOS / BANDBREITENKONTROLLE
+================================================================================
+
+ZIEL:
+  Pro-Connection Bandbreiten-Limits + differenzierte Behandlung User/Admin.
+  Server darf nicht als Angriffsplattform missbraucht werden.
+
+STACK-BEZUG:
+  LEGACY:  tc pro pppX via ip-up Hook
+  MODERN:  tc auf awg0 mit Per-Peer-Klassifizierung (wenn noetig)
+
+RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
+  MOD-003_QOS                  — tc-Konfiguration, Limit-Klassen        [WAITING]
+  MOD-009_PEAK_MODE            — Peak-Behandlung (Detail zu pruefen,
+                                 Modul-Inhalt aktuell unbekannt)        [WAITING]
+  MOD-010_PLANS                — Plan-basierte Limit-Differenzierung
+                                 (Hauptphase PH10, hier als Nebenphase
+                                 fuer Plan-spezifische Bandbreiten-Limits) [WAITING]
+
+ACHSE 1 — KONZEPT-REIFE-KRITERIEN:
+  K-PH2-01  tc-Hierarchie pro Connection kodiert (LEGACY: pppX, MODERN: awg0
+            per peer)
+  K-PH2-02  Admin vs User Limit-Klassen differenziert + Override-Pfad
+            (MOD-010_PLANS-Bezug fuer Plan-basierte Differenzierung)
+  K-PH2-03  Hook-Mechanik definiert (ip-up fuer L2TP, eigener Hook fuer AWG)
+  K-PH2-04  Reset/Cleanup beim Reconnect dokumentiert (keine
+            Konfig-Drift in Nebenpfaden)
+  K-PH2-05  PEAK_MODE-Logik kodiert (MOD-009, Verhalten bei Bandbreite-Spitzen)
+
+ACHSE 2 — IMPLEMENTATION-ACCEPTANCE:
+  I-PH2-01  Limits greifen reproduzierbar (Up/Down)
+            Proof: RT-PH2-PROOF-01 [MOD-003_095 T-QO-XX zu schreiben]
+  I-PH2-02  Override/Disable sauber moeglich ohne Drift
+            Proof: RT-PH2-PROOF-02 [MOD-003_095 T-QO-XX zu schreiben]
+  I-PH2-03  Limits ueberleben Reconnect
+            Proof: RT-PH2-PROOF-03 [MOD-003_095 T-QO-XX + BASE-030_095/
+                   BASE-040_095 (Reconnect-Pfad), alle zu schreiben]
+
+KONZEPT-REIFE-STATUS (Stand 2026-05-24):
+  Geschaetzt: ~5%
+  Fakten: Phase als Idee benannt (PRIORITAETENLISTE Z.301 "QoS, PH2"),
+          MOD-003 und MOD-009 Ordner existieren leer
+  Offen: nahezu alles
+  Blocker: MOD-003 + MOD-009 muessen geschrieben werden
+
+IMPLEMENTATION-REIFE-STATUS:
+  Geschaetzt: 0%
+  Fakten: Kein QoS aktiv auf Live-Server, da MOD-003 nicht konzept-fertig
+
+================================================================================
+PH3 — DNS-STACK + DNS-ZWANG + ZEITBASIS
+================================================================================
+
+ZIEL:
+  Namensaufloesung und Zeit stabil/erzwingbar — Voraussetzung dafuer dass
+  XP-Clients, Webstack und CA spaeter nicht durch DNS/Time-Probleme
+  kollabieren.
+
+STACK-BEZUG:
+  DNS:     AdGuardHome (SERVICE_DNS) + Unbound (SERVICE_RESOLVER)
+  Zwang:   DNAT UDP+TCP 53 -> SERVICE_DNS (nftables)
+  Zeit:    NTP-Strategie (XP-kompatibel, falsche-Uhr-Schutz)
+
+RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
+  BASE-060_DNS_CORE            — Unbound + AdGuardHome + DNS-Zwang      [WAITING]
+  BASE-005_PLATFORM_CORE       — Service-IP / SERVICE_DNS               [DONE]
+  BASE-030_TUNNEL_L2TP_IPSEC   — LT-41 DNS-Vertrag                      [DONE]
+  BASE-020_AAA_CORE            — WG-01..05 WG-DNS-Vertrag               [DONE]
+  BASE-050_FIREWALL_CORE       — DNAT-Regeln fuer DNS-Zwang             [WAITING]
+
+ACHSE 1 — KONZEPT-REIFE-KRITERIEN:
+  K-PH3-01  Unbound + AdGuardHome Konfiguration kodiert (BASE-060)
+  K-PH3-02  DNS-Zwang via DNAT 53 kodiert fuer IPv4 (LEGACY+MODERN) und
+            IPv6 (MODERN-only) (BASE-050 + BASE-060)
+  K-PH3-03  SERVICE_DNS / SERVICE_RESOLVER sauber getrennt und konsistent (F-004 geloest in
+            v1.6/v1.7/v1.8 — PF-19 + WG-01..05 + LT-41)
+  K-PH3-04  NTP-Strategie XP-kompatibel kodiert
+  K-PH3-05  Resolver-Fallback bei Service-Down definiert (fail-closed:
+            kein externer DNS-Leak)
+
+ACHSE 2 — IMPLEMENTATION-ACCEPTANCE:
+  I-PH3-01  DNS-Bypass-Versuch (8.8.8.8:53) landet trotzdem intern auf
+            SERVICE_DNS (UDP + TCP)
+            Proof: RT-PH3-PROOF-01 [BASE-060_095 T-DN-XX +
+                   BASE-050_095 T-FW-XX (DNAT-Regel), beide zu schreiben]
+  I-PH3-02  DNS-Bypass via IPv6-DNS landet ebenfalls intern (MODERN-Stack)
+            Proof: RT-PH3-PROOF-02 [BASE-060_095 T-DN-XX (v6) +
+                   BASE-050_095 T-FW-XX (DNAT v6), beide zu schreiben]
+  I-PH3-03  XP-Client erreicht plausible Zeit nach Connect (keine
+            Zert-/TLS-Deadlocks durch falsche Uhr)
+            Proof: RT-PH3-PROOF-03 [BASE-060_095 T-NTP-XX zu schreiben]
+  I-PH3-04  AdGuardHome-Blocklisten greifen (Test-Domain wird gefiltert)
+            Proof: RT-PH3-PROOF-04 [BASE-060_095 T-DN-XX (Blocklist) zu
+                   schreiben]
+
+KONZEPT-REIFE-STATUS (Stand 2026-05-24):
+  Geschaetzt: ~20%
+  Fakten:
+    - DNS-Vertraege auf Tunnel-Modul-Ebene definiert (LT-41 in BASE-030,
+      WG-01..05 in BASE-020)
+    - SERVICE_DNS als Endpoint kodiert (BASE-005)
+    - PF-19 Port-Sicht aus BASE-005 (F-004 geloest)
+  Offen:
+    - BASE-060_DNS_CORE Ordner ist leer, kein Vollmodul
+    - NTP-Strategie nicht ausgearbeitet
+    - BASE-050_FIREWALL_CORE Ordner leer (DNAT-Regeln fehlen)
+  Blocker: BASE-060 und BASE-050 muessen geschrieben werden
+
+IMPLEMENTATION-REIFE-STATUS:
+  Geschaetzt: ~15%
+  Fakten: AdGuardHome auf Live-Server konfiguriert, Unbound vermutlich auch.
+          Aber Konzept-Validierung steht aus.
+
+================================================================================
+PH4 — CA / TRUST / BLOCKPAGE-INTEGRATION (WEBSTACK-FOUNDATION)
+================================================================================
+
+ZIEL:
+  Interne HTTPS-Services ohne Browser-Warnung + Blockpage-Pfad vorbereitet.
+  Foundation fuer Webpanel (PH5).
+
+STACK-BEZUG:
+  Webstack: OpenResty + PHP-FPM intern
+  CA:       Interne CA fuer Service-Zertifikate
+  DNS:      Rewrite vpn.status -> Service-IP
+
+RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
+  BASE-110_WEBSTACK_CORE       — OpenResty/PHP-FPM/Service-Routing      [WAITING]
+  BASE-060_DNS_CORE            — DNS-Rewrite                            [WAITING]
+  MOD-004_BLOCKPAGE_CA         — Blockpage + interne CA                 [WAITING]
+                                 (Feature-Entwurf in entwuerfe/blockpage-
+                                  override fuer Blockpage-Override-Feature)
+
+ACHSE 1 — KONZEPT-REIFE-KRITERIEN:
+  K-PH4-01  Interne CA kodiert (Schluessel-Erzeugung, Rotation, Ausgabe an
+            Clients via Onboarding)
+  K-PH4-02  Webstack-Konfiguration kodiert (OpenResty + PHP-FPM + DB-Pool)
+  K-PH4-03  DNS-Rewrite fuer Service-Hostnames (vpn.status, portal,
+            blockpage) kodiert
+  K-PH4-04  Blockpage-Pfad kodiert (DNS-Block -> Service-IP -> Blockpage
+            HTML)
+  K-PH4-05  Dual-Stack-Erreichbarkeit (IPv4 + IPv6 fuer MODERN, IPv4 fuer
+            LEGACY)
+  K-PH4-06  Blockpage-Override-Feature (M3-050, Entwurf vorhanden):
+            role-aware temporaere DNS-Allow auf Blockpage
+
+ACHSE 2 — IMPLEMENTATION-ACCEPTANCE:
+  I-PH4-01  Modern-Client kann portal.retrotunnel via HTTPS ohne
+            Browser-Warnung erreichen (interne CA trusted via Onboarding)
+            Proof: RT-PH4-PROOF-01 [BASE-110_095 T-WS-XX +
+                   MOD-004_095 T-CA-XX, beide zu schreiben]
+  I-PH4-02  Geblockte Domain landet auf Blockpage statt NXDOMAIN
+            Proof: RT-PH4-PROOF-02 [MOD-004_095 T-BP-XX +
+                   BASE-060_095 T-DN-XX (Rewrite), beide zu schreiben]
+  I-PH4-03  Blockpage erreichbar via IPv4 + IPv6 (MODERN), IPv4 (LEGACY)
+            Proof: RT-PH4-PROOF-03 [BASE-110_095 T-WS-XX (Dual-Stack) +
+                   MOD-004_095 T-BP-XX, beide zu schreiben]
+  I-PH4-04  XP-Client (kein SNI) kann mindestens HTTP-Blockpage sehen
+            Proof: RT-PH4-PROOF-04 [BASE-110_095 T-WS-XX (HTTP-Fallback)
+                   + MOD-004_095 T-BP-XX, beide zu schreiben]
+
+KONZEPT-REIFE-STATUS (Stand 2026-05-24):
+  Geschaetzt: ~5%
+  Fakten:
+    - Blockpage-Override-Feature hat einen Entwurf (M3-050 in PRIORITAETEN-
+      LISTE)
+    - portal.retrotunnel ist auf Live-Server, aber kein Konzept-Modul
+  Offen: BASE-110 + MOD-004 + BASE-060 Ordner leer
+  Blocker: viele
+
+IMPLEMENTATION-REIFE-STATUS:
+  Geschaetzt: ~5%
+  Fakten: portal.retrotunnel auf Live-Server vorhanden, aber gegen Konzept
+          nicht durchvalidiert
+
+================================================================================
+PH5 — WEBPANEL CORE (Onboarding / Claim / Status)
+================================================================================
+
+ZIEL:
+  Self-Service fuer Endkunden (Onboarding, Connection-Claim, Status-Sicht
+  fuer eigene Connections) + Admin-Sicht fuer Marco.
+
+STACK-BEZUG:
+  Webstack: OpenResty + PHP-FPM (von PH4)
+  DB:       MariaDB (web_customers, vpn_connections, log_*)
+  Auth:     Panel-Login (Customer-Credentials oder Admin-Credentials)
+
+RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
+  MOD-001_ONBOARDING           — Register, Verify-Wall, Email,
+                                 Claim-Flow                             [WAITING]
+  MOD-006_PANEL_FEATURES       — Customer-Panel + Admin-Panel-Aktionen  [WAITING]
+  BASE-110_WEBSTACK_CORE       — Webstack-Foundation                    [WAITING]
+  BASE-010_IDENTITY_CORE       — Domain-Model fuer Customer + Connection
+                                 (Quelle fuer Panel-Datenfluss)         [DONE]
+
+  VORARBEITEN (nicht im Modul):
+  webpanel sammelstelle/       — Extraktion aus altem Konzept laeuft
+                                 (Phase 1, INSTRUKTION_WEBPANEL_EXTRAKTION.txt)
+                                 Quelle fuer spaetere Adaptation in MOD-001 +
+                                 MOD-006
+
+ACHSE 1 — KONZEPT-REIFE-KRITERIEN:
+  K-PH5-01  Onboarding-Flow vollstaendig kodiert (Register -> Email-Verify
+            -> Verify-Wall -> Ready-to-Claim, in MOD-001)
+  K-PH5-02  Claim-Flow vollstaendig (Claim-Token -> Ownership-Transfer
+            PREPROVISIONED -> CLAIMED -> T-01 in BASE-010_070)
+  K-PH5-03  Customer-Status-Sicht (eigene Connections, eigene Credentials,
+            eigene Status-Wechsel)
+  K-PH5-04  Admin-Panel-Aktionen (Provisioning Weg A + Weg B, Disable mit
+            Reason-Code, Restore, manuelle Tombstone-Trigger)
+  K-PH5-05  Panel-Login-Mechanik (Password + Session, ggf. IP-Restriction
+            OPEN-SM-01)
+  K-PH5-06  CSRF/Auth-Schutz, Session-Lifecycle
+
+ACHSE 2 — IMPLEMENTATION-ACCEPTANCE:
+  I-PH5-01  Neuer Customer kann sich registrieren, Email verifizieren
+            Proof: RT-PH5-PROOF-01 [MOD-001_095 T-OB-XX zu schreiben]
+  I-PH5-02  Customer kann mit Claim-Token eine PREPROVISIONED Connection
+            claimen
+            Proof: RT-PH5-PROOF-02 [MOD-001_095 T-CL-XX +
+                   BASE-010_095 T-OW-XX (T-01 Ownership-Transfer),
+                   MOD-001 zu schreiben, BASE-010 bereits da]
+  I-PH5-03  Customer sieht eigene Connections (nicht die anderer Customers)
+            Proof: RT-PH5-PROOF-03 [MOD-006_095 T-PA-XX zu schreiben]
+  I-PH5-04  Admin kann alle Connections sehen + Status-Wechsel triggern
+            Proof: RT-PH5-PROOF-04 [MOD-006_095 T-PA-XX (Admin-Sicht) +
+                   BASE-010_095 T-TR-XX (Transitionen), MOD-006 zu
+                   schreiben, BASE-010 bereits da]
+  I-PH5-05  Sessions laufen ab nach Timeout, kein Session-Fixation
+            Proof: RT-PH5-PROOF-05 [MOD-006_095 T-PA-XX (Panel-Session)
+                   + BASE-110_095 T-WS-XX (CSRF/Auth), beide zu schreiben]
+
+KONZEPT-REIFE-STATUS (Stand 2026-05-24):
+  Geschaetzt: ~15%
+  Fakten:
+    - BASE-010 (Identity Core) DONE, liefert Datenmodell fuer Panel
+    - Webpanel-Extraktion aus altem Konzept laeuft (Phase 1)
+    - Sammelstelle webpanel sammelstelle/ wird gefuellt
+  Offen: MOD-001 + MOD-006 + BASE-110 leer, Phase 2 (Konsolidierung) und
+         Phase 3 (Adaptation) der Webpanel-Extraktion ausstehend
+  Blocker: viele
+
+IMPLEMENTATION-REIFE-STATUS:
+  Geschaetzt: ~10%
+  Fakten: Altes Panel existiert in zentrale/, wurde aber noch nicht in
+          das neue Konzept adaptiert
+
+================================================================================
+PH6 — OPERABILITY / ENFORCEMENT PAKET (Diag + Fail2ban + Logs + Backup)
+================================================================================
+
+ZIEL:
+  System ist im Betrieb bedienbar — Diagnose, Schutz vor Brute-Force,
+  Log-Retention, Backup. Ohne PH6 ist ein Live-Betrieb riskant.
+
+STACK-BEZUG:
+  Fail2ban:  SSH-Schutz + ggf. Panel-Login + ggf. AAA-Brute-Force-Schutz
+  Logs:      log_radius_sessions, log_connection_lifecycle,
+             log_panel_actions, nftables-Drop-Logs
+  Backup:    MariaDB-Dumps + Konfig-Snapshots
+  Diag:      Status-Endpoints, Health-Checks
+
+RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
+  MOD-005_FAIL2BAN             — Fail2ban-Jails (SSH, Panel, AAA)       [WAITING]
+  MOD-007_LOGGING_MONITORING   — Logs + Diag + Health-Checks            [WAITING]
+                                 (auch Quelle fuer PH9)
+  MOD-008_BACKUP_DR            — Backup-Strategie, Restore, DR          [WAITING]
+  BASE-090_SETTINGS_CORE       — Retention-Settings, Limits             [WAITING]
+  BASE-080_POLICY_APPLY_CORE   — Admin-Override / Not-Aus-Pfade
+                                 (Hauptphase PH8, hier als Nebenphase
+                                 fuer Operability-Override-Mechanik)    [WAITING]
+
+ACHSE 1 — KONZEPT-REIFE-KRITERIEN:
+  K-PH6-01  Fail2ban-Jail-Definitionen kodiert (MOD-005: SSH, Panel-Login,
+            optional AAA)
+  K-PH6-02  Log-Rotation + Retention pro Log-Tabelle definiert
+            (MOD-007 + BASE-090, vermeidet Disk-Full)
+  K-PH6-03  Backup-Frequenz + Restore-Pfad definiert (MOD-008, RPO/RTO)
+  K-PH6-04  Diag/Health-Endpoints kodiert (intern, nicht oeffentlich)
+  K-PH6-05  Manueller Override / Not-Aus / Reset-Pfade dokumentiert
+            (jeder Automatismus hat Admin-Eingriff-Pfad)
+
+ACHSE 2 — IMPLEMENTATION-ACCEPTANCE:
+  I-PH6-01  Fail2ban blockt SSH-Brute-Force reproduzierbar
+            Proof: RT-PH6-PROOF-01 [MOD-005_095 T-F2B-XX zu schreiben]
+  I-PH6-02  Logs rotieren ohne Disk-Full
+            Proof: RT-PH6-PROOF-02 [MOD-007_095 T-LO-XX +
+                   BASE-090_095 T-SE-XX (Retention-Settings),
+                   beide zu schreiben]
+  I-PH6-03  Backup laeuft automatisiert, Restore-Test erfolgreich
+            Proof: RT-PH6-PROOF-03 [MOD-008_095 T-BK-XX zu schreiben]
+  I-PH6-04  Health-Check zeigt Service-Status korrekt
+            Proof: RT-PH6-PROOF-04 [MOD-007_095 T-HC-XX zu schreiben]
+  I-PH6-05  Admin kann jeden Automatismus per Override anhalten
+            Proof: RT-PH6-PROOF-05 [BASE-080_095 T-PA-XX (PolicyApply-
+                   Override) + MOD-006_095 T-PA-XX (Admin-Action),
+                   beide zu schreiben]
+
+KONZEPT-REIFE-STATUS (Stand 2026-05-24):
+  Geschaetzt: ~5%
+  Fakten:
+    - Live-Server hat fail2ban aktiv konfiguriert (Marco hat verbessert)
+    - Logs werden in DB geschrieben (Schema in BASE-010_060 etc.)
+    - Backup-Strategie nicht konzept-formalisiert
+  Offen: MOD-005, MOD-007, MOD-008, BASE-090 alle leer
+  Blocker: viele
+
+IMPLEMENTATION-REIFE-STATUS:
+  Geschaetzt: ~30%
+  Fakten: Server-seitig viel bereits live (fail2ban, SSH-Hardening,
+          DB-Logs). Aber gegen Konzept nicht durchvalidiert.
+  HINWEIS: Implementation-Reife liegt deutlich UEBER Konzept-Reife —
+           das ist M2-typisch (Marco hat Server schon laufen, Konzept
+           wird nachgezogen).
+
+================================================================================
+PH7 — ACCOUNTING / SESSION-MAPPING
+================================================================================
+
+ZIEL:
+  Grundlage fuer Abrechnung und Reconcile — RADIUS-Sessions, Online-Truth,
+  Mapping zwischen Tunnel-Layer und Account-Layer.
+
+STACK-BEZUG:
+  RADIUS-Sessions: radacct (Acct-Records via FreeRADIUS SQL-Accounting)
+  Runtime-Truth:   Daemon (radacct fuer L2TP, wg show fuer WG; D004-E01)
+  Counter-State:   vpn_connections (quota_used = Aggregat;
+                   last_known_* = WG-Polling-Cursor, bei L2TP
+                   unbenutzt; counter_epoch nur bei Reset;
+                   last_runtime_seen_at + last_counter_seen_at;
+                   D004-E05, EB-VOLLSCAN-07)
+  SimUse-Mutex:    vpn_session_locks (tunnelneutral, BASE-070-owned)
+  Reconcile:       Drift-Erkennung zwischen Daemon und Aggregat
+
+RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
+  BASE-070_SESSION_CORE        — Runtime Activity Detection + Accounting
+                                 Correlation + Collector Idempotency +
+                                 DB-Down-Buffer (D004-E03). Heimat der
+                                 frueheren SM_SESSION-Inhalte, angepasst
+                                 an Runtime-Truth-Trennung (D004).      [WAITING]
+  BASE-020_AAA_CORE            — RADIUS-Accounting                      [DONE]
+  MOD-007_LOGGING_MONITORING   — Reporting-Schicht (geteilt mit PH6/9)  [WAITING]
+
+ACHSE 1 — KONZEPT-REIFE-KRITERIEN:
+  K-PH7-01  Runtime-Activity-Lifecycle vollstaendig (L2TP: radacct
+            Acct-Start/Interim/Stop + VALID-Check; WG: AWG Session
+            Controller Polling + counter_epoch + Stale-Detection;
+            in BASE-070).
+  K-PH7-02  Truth-Modell definiert (D004-E01): Daemon (radacct/wg show)
+            liefert Liveness, vpn_connections traegt den Counter-State
+            (quota_used = Aggregat; last_known_rx_bytes/
+            last_known_tx_bytes = WG-Polling-Cursor; counter_epoch
+            nur bei Reset; last_runtime_seen_at; last_counter_seen_at;
+            EB-VOLLSCAN-07). Keine
+            vpn_sessions-DB-Tabelle (D004-E02).
+  K-PH7-03  Drift-Erkennung kodiert (Ghost-Session: radacct-Episode
+            offen aber pppX/PID weg; WG-Peer in Config aber
+            Handshake stale). Wer raeumt auf? → BASE-070 Janitor.
+  K-PH7-04  Accounting-Daten-Pfad fuer Reporting (Aggregation,
+            Retention, in MOD-007). operational_session-Projektion
+            (D004-E07) gehoert in MOD-006.
+
+ACHSE 2 — IMPLEMENTATION-ACCEPTANCE:
+  I-PH7-01  RADIUS-Accounting-Records werden korrekt in DB geschrieben
+            (Start, Interim, Stop)
+            Proof: RT-PH7-PROOF-01 [BASE-020_095 T-AC-XX (RADIUS-
+                   Accounting-Flow) zu schreiben/erweitern]
+  I-PH7-02  Ghost-Session wird innerhalb definierter Zeit erkannt und
+            geraeumt
+            Proof: RT-PH7-PROOF-02 [BASE-070_095 T-SE-XX (Reconcile-
+                   Mechanik) + BASE-020_095 T-AC-XX (Accounting),
+                   beide zu schreiben]
+  I-PH7-03  Online-Sicht im Panel zeigt korrekte Live-Connections
+            (operational_session aus vpn_connections-Aggregat
+            abgeleitet, D004-E07)
+            Proof: RT-PH7-PROOF-03 [MOD-006_095 T-PA-XX (Stats-Sicht)
+                   + BASE-070_095 T-SE-XX (Runtime-Truth-Pipeline),
+                   beide zu schreiben]
+
+KONZEPT-REIFE-STATUS (Stand 2026-05-24):
+  Geschaetzt: ~20%
+  Fakten:
+    - SM_SESSION (deprecated in model/) hatte die State-Machine
+    - D004 hat den Inhalt von BASE-070 inhaltlich neu definiert
+      (Runtime Activity Detection + Accounting Correlation +
+      Collector Idempotency + DB-Down-Buffer; D004-E03). Die
+      vpn_sessions-DB-Tabelle ist deprecated und entfaellt
+      aus dem aktiven Modell.
+    - Aufloesung in BASE-070_SESSION_CORE noch nicht erfolgt (Ordner leer)
+    - RADIUS-Schema in BASE-020 vorhanden
+  Offen:
+    - BASE-070 muss als Vollmodul geschrieben werden (D004-E03 als
+      inhaltliche Vorgabe; SM_SESSION-Inhalt nur soweit konsistent
+      mit D004 uebernehmen, an aktuellen Kanon anpassen)
+    - MOD-007 leer
+  Blocker: BASE-070 zentral
+
+IMPLEMENTATION-REIFE-STATUS:
+  Geschaetzt: ~15%
+
+================================================================================
+PH8 — RESTRICTED MODE (Quota / Expiry / Manual Restrict) — WALLED GARDEN
+================================================================================
+
+ZIEL:
+  Connection-Restriktion in Walled Garden (DNS auf Sinkhole, Routing
+  eingeschraenkt, Service-IP weiterhin erreichbar). Drei Trigger:
+  Quota erschoepft, Expiry erreicht, manueller Admin-Restrict.
+
+STACK-BEZUG:
+  PolicyApply:    PolicyApply-Daemon liest op_status aus DB und konfiguriert
+                  Firewall + Routing in Realzeit
+  DNS:            Sinkhole-Antwort fuer RESTRICTED Connections
+  Firewall:       eigene RESTRICTED-Chain fuer Walled-Garden-Routing
+
+RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
+  BASE-080_POLICY_APPLY_CORE   — PolicyApply-Daemon                     [WAITING]
+  BASE-100_POLICY_CORE         — Policy-Definitionen / Walled-Garden-
+                                 Regeln (Detail-Abgrenzung zu BASE-080
+                                 zu pruefen)                            [WAITING]
+  BASE-060_DNS_CORE            — Sinkhole-Mode                          [WAITING]
+  BASE-050_FIREWALL_CORE       — RESTRICTED-Chain                       [WAITING]
+  BASE-010_IDENTITY_CORE       — op_status=RESTRICTED, Reason-Codes
+                                 (INV-12, INV-23, INV-56)               [DONE]
+  MOD-002_RESTRICTED_MODE      — Customer-/Admin-Aktionen im Restricted-
+                                 Mode                                    [WAITING]
+  MOD-010_PLANS                — Plan-Engine fuer Quota/Expiry           [WAITING]
+
+ACHSE 1 — KONZEPT-REIFE-KRITERIEN:
+  K-PH8-01  RESTRICTED-Trigger vollstaendig kodiert (3 Wege: Grace-Ablauf,
+            Quota-Reached, Admin-Manual; T-02/T-05/T-07 in BASE-010_070)
+  K-PH8-02  Walled-Garden-Routing kodiert (DNS Sinkhole in BASE-060,
+            nftables-Chain in BASE-050, allowed Services in BASE-100)
+  K-PH8-03  Reason-Code-Praezedenz definiert (mehrere Gruende gleichzeitig
+            -> welcher gilt? INV-22, INV-60)
+  K-PH8-04  Re-Eval-Pfad (Quota refilled, Expiry verlaengert,
+            Admin-Restore) -> T-05/T-08
+  K-PH8-05  PolicyApply-Daemon-Architektur (BASE-080: Trigger via
+            DB-Notify oder Poll-Intervall, Idempotenz)
+  K-PH8-06  Abgrenzung BASE-080 (PolicyApply: aktives Schreiben in
+            Firewall/DNS) vs BASE-100 (POLICY_CORE: Definition der
+            Regeln) klaeren
+  K-PH8-07  ADMIN-EXCEPTION-MATRIX explizit kodiert:
+            (a) ADMIN-access_role ist NICHT auto-restricted-faehig:
+                Quota-Erschoepfung, Expiry-Pass, UNCLAIMED_OVERDUE
+                fuehren bei ADMIN NICHT zu RESTRICTED.
+                (BASE-010_090 INV-56 R-08, BASE-010_070 T-03 ADMIN-Exemption)
+            (b) Admin-Not-Aus = DISABLE_ADMIN_MANUAL -> DISABLED (Hard-Cut).
+                RESTRICT_ADMIN_MANUAL trifft eine ADMIN-Connection nie als
+                Ziel (Admin = handelnder Akteur, R-08): No-op/Reject fuer
+                RESTRICT. Not-Aus fuer ADMIN ist DISABLE, nicht RESTRICT.
+            (c) Baseline-Security bleibt im RESTRICTED Mode aktiv (gilt fuer
+                restricted Non-Admin-Connections; ADMIN ist nie RESTRICTED):
+                - DNS-Zwang (DNAT auf SERVICE_DNS) wirkt weiterhin
+                - Rate-Limits gelten
+                - Peer-Isolation gilt
+                - Outbound-Abuse-Blocks gelten
+            (d) Walled-Garden-Routing (RESTRICTED) greift bei ADMIN nie — weder
+                via Quota/Expiry noch via Manual. Admin-Not-Aus ist DISABLE
+                (Connection terminiert), kein Walled Garden.
+            (Kanon: R-08 + INV-56, v0.6. Weicht bewusst ab von B150
+                "Variante A"/altem Kanon, wo ADMIN-Manual-Restrict zu RESTRICTED
+                fuehrte — ersetzt durch Admin-Not-Aus = DISABLE.)
+
+ACHSE 2 — IMPLEMENTATION-ACCEPTANCE:
+  I-PH8-01  RESTRICTED Connection hat DNS nur fuer Service-Hostnames
+            (rest -> Sinkhole)
+            Proof: RT-PH8-PROOF-01 [BASE-060_095 T-DN-XX (Sinkhole) +
+                   BASE-080_095 T-PA-XX (PolicyApply), beide zu schreiben]
+  I-PH8-02  RESTRICTED Connection erreicht Panel via Service-IP, aber
+            nichts anderes
+            Proof: RT-PH8-PROOF-02 [BASE-050_095 T-FW-XX (RESTRICTED-
+                   Chain) + BASE-080_095 T-PA-XX, beide zu schreiben]
+  I-PH8-03  PolicyApply reagiert auf op_status-Wechsel innerhalb
+            definierter Zeit
+            Proof: RT-PH8-PROOF-03 [BASE-080_095 T-PA-XX (Latenz-Test)
+                   zu schreiben]
+  I-PH8-04  Quota-Trigger funktioniert: USER/MODERN/LEGACY mit
+            Quota erschoepft -> automatic RESTRICTED via PolicyApply
+            Proof: RT-PH8-PROOF-04 [MOD-010_095 T-PL-XX (Plan-Engine
+                   Quota) + BASE-010_095 T-TR-XX (T-02 Trigger) +
+                   BASE-080_095 T-PA-XX, MOD-010/BASE-080 zu schreiben,
+                   BASE-010 bereits da]
+  I-PH8-05  Admin-Restore fuehrt zur Wiederherstellung von ACTIVE
+            Proof: RT-PH8-PROOF-05 [BASE-010_095 T-TR-XX (T-05/T-08
+                   Re-Eval) + MOD-006_095 T-PA-XX (Admin-Action),
+                   BASE-010 bereits da, MOD-006 zu schreiben]
+  I-PH8-06  ADMIN-EXCEPTION nachweisbar:
+            (a) ADMIN-Connection mit Quota=0 erschoepft -> bleibt ACTIVE
+                (nicht RESTRICTED)
+            (b) ADMIN-Connection mit expiry_date in Vergangenheit ->
+                bleibt ACTIVE
+            (c) ADMIN-Connection mit unclaimed-Status nach Deadline ->
+                T-03 ADMIN-Exemption greift (kein Auto-RESTRICTED)
+            Proof: RT-PH8-PROOF-06 [BASE-010_095 T-AR-XX (Admin-Role
+                   Exemption) + MOD-010_095 T-PL-XX (Plan-Engine
+                   respektiert Rolle), BASE-010 bereits da, MOD-010
+                   zu schreiben]
+  I-PH8-07  Admin-Not-Aus und RESTRICT-Exemption nachweisbar:
+            ADMIN-Connection mit DISABLE_ADMIN_MANUAL -> DISABLED
+            (Hard-Cut). RESTRICT_ADMIN_MANUAL auf access_role=ADMIN ->
+            No-op/Reject (kein RESTRICTED). Restrict-Exemption gilt auch
+            bei manueller Aktion (R-08: auch nicht manuell).
+            Proof: RT-PH8-PROOF-07 [BASE-010_095 T-AS-XX (Admin-State-
+                   Change) + BASE-080_095 T-PA-XX (PolicyApply auf
+                   ADMIN), BASE-010 bereits da, BASE-080 zu schreiben]
+  I-PH8-08  Baseline-Security bleibt im RESTRICTED Mode aktiv:
+            - DNS-Zwang funktioniert (8.8.8.8:53 -> intern auf SERVICE_DNS)
+            - Peer-Isolation wirkt (User->User blockiert)
+            Proof: RT-PH8-PROOF-08 [BASE-050_095 T-FW-XX (Baseline-Chain
+                   bleibt aktiv auch im RESTRICTED Mode) +
+                   BASE-060_095 T-DN-XX, beide zu schreiben]
+
+KONZEPT-REIFE-STATUS (Stand 2026-05-24):
+  Geschaetzt: ~15%
+  Fakten:
+    - Identity-Lifecycle RESTRICTED-Pfad in BASE-010 sauber kodiert
+      (T-02, T-05, T-06, T-07, INV-12, INV-22, INV-23, INV-56)
+    - SM_POLICY_RESTRICT (deprecated in model/) existierte
+  Offen:
+    - BASE-080, BASE-100, BASE-060, BASE-050 alle leer
+    - MOD-002, MOD-010 alle leer
+    - Abgrenzung BASE-080 vs BASE-100 nicht klar (OPEN-PHP-08 unten)
+  Blocker: BASE-080 zentral, BASE-100 zentral
+
+IMPLEMENTATION-REIFE-STATUS:
+  Geschaetzt: ~5%
+
+================================================================================
+PH9 — MONITORING / REPORTING / PANEL-STATS / EXPORT
+================================================================================
+
+ZIEL:
+  Read-only Sicht auf System-Zustand fuer Marco. Statistik-Sichten im
+  Panel. Export-Funktionen.
+
+STACK-BEZUG:
+  Stats-Aggregation: Aggregat-Tabellen oder On-Demand-Queries
+  Export:            CSV/JSON-Export aus Panel
+  Monitoring:        externe Probe (optional, M3+)
+
+RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
+  MOD-007_LOGGING_MONITORING   — Reporting-Schicht (geteilt mit PH6/PH7) [WAITING]
+  MOD-006_PANEL_FEATURES       — Stats-Sicht im Admin-Panel (Teilbereich) [WAITING]
+
+ACHSE 1 — KONZEPT-REIFE-KRITERIEN:
+  K-PH9-01  Stats-Pfad kodiert (welche Aggregate, wie aktualisiert,
+            in MOD-007)
+  K-PH9-02  Export-Format definiert (CSV/JSON, Felder)
+  K-PH9-03  Monitoring-Probe-Schnittstelle definiert (optional)
+  K-PH9-04  Read-only-Garantie (kein Write-Pfad ueber Reporting)
+
+ACHSE 2 — IMPLEMENTATION-ACCEPTANCE:
+  I-PH9-01  Marco sieht aktuelle Connection-Count, Session-Count im Panel
+            Proof: RT-PH9-PROOF-01 [MOD-006_095 T-PA-XX (Stats-Sicht)
+                   + MOD-007_095 T-RP-XX (Reporting-Aggregat),
+                   beide zu schreiben]
+  I-PH9-02  Export von Customer-Listen funktioniert
+            Proof: RT-PH9-PROOF-02 [MOD-006_095 T-EX-XX (Export-Funktion)
+                   + MOD-007_095 T-RP-XX, beide zu schreiben]
+  I-PH9-03  Stats-Sicht hat keine Schreib-Nebenwirkungen
+            Proof: RT-PH9-PROOF-03 [MOD-007_095 T-RP-XX (Read-Only-
+                   Garantie, Test prueft dass Stats-Queries kein
+                   UPDATE/INSERT/DELETE ausfuehren) zu schreiben]
+
+KONZEPT-REIFE-STATUS (Stand 2026-05-24):
+  Geschaetzt: ~5%
+  Fakten: kaum konzeptionell vorgearbeitet
+  Offen: nahezu alles, MOD-007 + MOD-006 leer
+
+IMPLEMENTATION-REIFE-STATUS:
+  Geschaetzt: 0%
+
+================================================================================
+PH10 — EXTRAS
+================================================================================
+
+ZIEL:
+  Alles was nach PH1-PH9 noch Sinn macht. Externe Retrowork-Seite,
+  Bestellprozess, News, Plans-Differenzierung jenseits von
+  Sicherheits-Defaults, etc.
+
+STACK-BEZUG:
+  Variabel je Extra
+
+RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
+  MOD-010_PLANS                — Plan-Differenzierung (nicht-sicherheits-
+                                 relevant)                              [WAITING]
+  Externe Retrowork-Seite      — Landing, Bestellprozess, News [ausserhalb
+                                 des VPN-Konzepts, separates Projekt]
+
+ACHSE 1 — KONZEPT-REIFE-KRITERIEN:
+  K-PH10-01  Pro Extra einzeln zu definieren
+
+ACHSE 2 — IMPLEMENTATION-ACCEPTANCE:
+  I-PH10-01  Pro Extra einzeln zu definieren
+             Proof: RT-PH10-PROOF-NN [pro Extra einzeln festzulegen,
+                    sobald PH10-Inhalte konkret werden]
+
+REGEL: PH10 darf nicht angegangen werden bevor PH1-PH9 stabil sind.
+
+KONZEPT-REIFE-STATUS:
+  N/A (sperrt bis PH1-PH9 stabil)
+
+IMPLEMENTATION-REIFE-STATUS:
+  N/A
+
+================================================================================
+MAPPING-MATRIX (Modul <-> Phase)
+================================================================================
+
+  Modul                            Status       Hauptphase  Nebenphasen
+  -------------------------------- ------------ ----------- -------------------
+  BASE-000_SQL_FIRST               DONE         alle        Doktrin/Schema-
+                                                            Fundament
+  BASE-005_PLATFORM_CORE           DONE         PH1         PH3, PH4, PH5
+  BASE-010_IDENTITY_CORE           DONE (v2.0)  PH1         PH5, PH7, PH8
+  BASE-020_AAA_CORE                DONE         PH1         PH3 (WG-DNS),
+                                                            PH7 (Accounting)
+  BASE-030_TUNNEL_L2TP_IPSEC       DONE         PH1         PH3 (LT-41)
+  BASE-040_TUNNEL_WIREGUARD        WAITING      PH1         PH3 (WG-DNS)
+                                   (Entwurf)
+  BASE-050_FIREWALL_CORE           WAITING      PH1         PH3 (DNAT),
+                                                            PH8 (RESTRICTED)
+  BASE-060_DNS_CORE                WAITING      PH3         PH4 (Rewrite),
+                                                            PH8 (Sinkhole)
+  BASE-070_SESSION_CORE            WAITING      PH7         PH1 (Session-
+                                                            Stabilitaet)
+  BASE-080_POLICY_APPLY_CORE       WAITING      PH8         PH6 (Override)
+  BASE-090_SETTINGS_CORE           WAITING      PH6         alle (Settings
+                                                            sind cross-cutting)
+  BASE-100_POLICY_CORE             WAITING      PH8         — (PH1-Bezug
+                                                            offen, siehe
+                                                            OPEN-PHP-10)
+  BASE-110_WEBSTACK_CORE           WAITING      PH4         PH5
+  MOD-001_ONBOARDING               WAITING      PH5         —
+  MOD-002_RESTRICTED_MODE          WAITING      PH8         —
+  MOD-003_QOS                      WAITING      PH2         —
+  MOD-004_BLOCKPAGE_CA             WAITING      PH4         —
+  MOD-005_FAIL2BAN                 WAITING      PH6         —
+  MOD-006_PANEL_FEATURES           WAITING      PH5         PH9 (Stats-Sicht)
+  MOD-007_LOGGING_MONITORING       WAITING      PH6         PH7, PH9
+  MOD-008_BACKUP_DR                WAITING      PH6         —
+  MOD-009_PEAK_MODE                WAITING      PH2         (Inhalt zu pruefen)
+  MOD-010_PLANS                    WAITING      PH10        PH8 (Quota-Plans),
+                                                            PH2 (Plan-Limits)
+
+KONSOLIDIERTE STATUS-AUFSTELLUNG:
+  DONE                    : 5 Module (BASE-000, BASE-005, BASE-010,
+                            BASE-020, BASE-030)
+  WAITING (mit Entwurf)   : 1 Modul  (BASE-040)
+  WAITING (Ordner leer)   : 17 Module (BASE-050..110 ohne BASE-040,
+                            MOD-001..010)
+  TOTAL                   : 23 Module
+
+================================================================================
+KONSISTENZ-PFLICHT MIT PRIORITAETENLISTE.txt
+================================================================================
+
+Bidirektionale Kreuz-Verifizierung (Pflicht-Check bei Audits):
+
+REGEL-K1:
+  Jedes BASE/MOD-Modul aus PRIORITAETENLISTE.txt muss in dieser Datei
+  in der MAPPING-MATRIX einer Phase zugeordnet sein. Module ohne
+  Phasen-Zuordnung sind ein KONSISTENZ-FEHLER.
+
+REGEL-K2:
+  Jede Phase in dieser Datei muss mindestens ein Modul in
+  PRIORITAETENLISTE.txt haben das zu ihr beitraegt. Phasen ohne Module
+  sind entweder vorzeitig benannt oder ihre Module fehlen.
+
+REGEL-K3:
+  Stack-Bezug pro Phase muss konsistent sein mit Stack-Definitionen
+  in den Modulen. Wenn diese Datei "MODERN = AmneziaWireGuard" sagt,
+  muessen die BASE-040-Module dies kodieren — nicht IKEv2.
+
+REGEL-K4:
+  Bei Aenderung des KERN (siehe AENDERUNGS-DISZIPLIN) muss PRIORITAETENLISTE
+  parallel aktualisiert werden falls die Modul-Workflow-Sequenz davon
+  betroffen ist.
+
+REGEL-K5:
+  Reifegrad-Prozente in dieser Datei sind ANNAHMEN basierend auf dem
+  Modul-Stand. Wenn ein Modul von WAITING auf DONE wechselt, ist der
+  zugehoerige Reifegrad in dieser Datei zu aktualisieren — Pflicht-
+  Eintrag in 03_CHANGELOG bei materieller Aenderung.
+
+================================================================================
+PROOF-CATALOG (RT-PHX-PROOF-NN)
+================================================================================
+
+Jedes I-PHX-NN-Acceptance-Kriterium hat einen eindeutigen Proof-Anker
+(RT-PHX-PROOF-NN) der auf konkrete Tests in BASE-XXX_095_TESTS.txt oder
+MOD-XXX_095_TESTS.txt verweist.
+
+NAMENSRAUM:
+  RT-                  = RetroTunnel-Prefix (Abgrenzung zu B290 PH1-PROOF-NN)
+  RT-PHX-PROOF-NN      = Pro Phase eindeutig nummeriert
+                         (RT-PH1-PROOF-01 bis RT-PH1-PROOF-07,
+                          RT-PH2-PROOF-01 bis RT-PH2-PROOF-03, etc.)
+
+UEBERSICHT (Stand 2026-05-24):
+
+  Phase  Anzahl  Vorhandene Tests (bereits geschrieben)
+  ------ ------- ----------------------------------------
+  PH1     7      RT-PH1-PROOF-06 (BASE-010 T-IS-01..04)
+                 Andere: verweisen auf BASE-040/050/070_095 (zu schreiben)
+                 sowie BASE-030_095 (vorhanden, Test-IDs T-LT-XX
+                 detailliert zu mappen)
+  PH2     3      0 vorhanden — alle in MOD-003 + MOD-009 zu schreiben
+  PH3     4      0 vorhanden — alle in BASE-060 + BASE-050 zu schreiben
+  PH4     4      0 vorhanden — alle in BASE-110 + MOD-004 zu schreiben
+  PH5     5      Teilweise (BASE-010 T-OW-XX, T-TR-XX vorhanden) —
+                 MOD-001 + MOD-006 + BASE-110 zu schreiben
+  PH6     5      0 vorhanden — alle in MOD-005/007/008 + BASE-080/090
+                 zu schreiben
+  PH7     3      Teilweise (BASE-020 Accounting-Schema vorhanden) —
+                 BASE-070 + MOD-007 zu schreiben
+  PH8     8      Teilweise (BASE-010 T-AR-XX, T-AS-XX, T-TR-XX
+                 vorhanden) — BASE-080 + BASE-050 + BASE-060 + MOD-010 +
+                 MOD-006 zu schreiben
+  PH9     3      0 vorhanden — alle in MOD-007 + MOD-006 zu schreiben
+  PH10    N      pro Extra einzeln festzulegen
+
+  TOTAL: 43 Proof-Anker (PH1-PH9) + N (PH10)
+
+KONKRETHEITS-GRAD:
+  Jeder Proof-Anker verweist auf:
+    - vorhandene Tests in DONE-Modulen mit konkreten Test-Namespaces
+      (T-LT, T-WG, T-IS, T-OW, T-AR, T-AS, T-TR, etc.)
+    - zu-schreibende Tests in WAITING-Modulen mit Platzhalter T-XX-XX
+      und Hinweis "zu schreiben"
+
+ARBEITSAUFTRAG FUER M3/M4 (OPEN-PHP-03):
+  Sobald ein WAITING-Modul von WAITING auf DONE wechselt, sind die
+  Platzhalter "T-XX-XX zu schreiben" durch konkrete Test-IDs zu ersetzen
+  (Pflicht-Eintrag in 03_CHANGELOG.txt bei materieller Aenderung).
+
+  Pflege-Disziplin: Jeder neue Test in BASE-XXX_095 oder MOD-XXX_095, der
+  einem RT-PHX-PROOF-NN zugeordnet ist, soll im jeweiligen Test-Eintrag
+  einen Rueck-Verweis enthalten:
+      "T-XX-NN: ... (Proof fuer RT-PHX-PROOF-NN)"
+
+  Dadurch entsteht eine bidirektionale Anker-Spur zwischen 04_PHASE_PLAN.txt
+  (Acceptance-Sicht) und BASE/MOD-XXX_095 (Test-Sicht).
+
+================================================================================
+OFFENE PUNKTE
+================================================================================
+
+OPEN-PHP-01: [CLOSED 2026-05-24] Verifikation Modul-Existenz
+  Inventur am 2026-05-24 durchgefuehrt. Echte Modul-Struktur in MAPPING-
+  MATRIX uebernommen. 5 DONE, 1 WAITING-mit-Entwurf, 17 leer.
+  Korrekturen gegenueber initialer Annahme:
+    - BASE-000 SQL_FIRST hatte ich nicht erfasst (existiert seit Anfang)
+    - BASE-060 ist DNS_CORE (nicht QoS — QoS ist MOD-003)
+    - BASE-070 ist SESSION_CORE (Heimat ehemals SM_SESSION)
+    - BASE-100 ist POLICY_CORE (nicht Operability)
+    - BASE-110 ist WEBSTACK_CORE (nicht Backup)
+    - Operability ist aufgeteilt auf MOD-005 + MOD-007 + MOD-008
+
+OPEN-PHP-02: Praezisierung Reifegrad-Schaetzungen
+  Aktuelle Prozente sind INITIAL-SCHAETZUNGEN basierend auf Modul-Existenz.
+  Detail-Kalibrierung pro Phase durch Marco bzw. Drittreview ausstehend.
+
+OPEN-PHP-03: Implementation-Acceptance pro Phase verfeinern
+  Die I-PHX-NN-Listen sind initial-grob. Detaillierung pro Phase ist
+  M3/M4-Arbeit (parallel zu BASE/MOD-Modul-Fertigstellung).
+
+OPEN-PHP-04: Hardcut-Pfade pro Phase explizit benennen
+  Fuer jede Phase fehlt aktuell der Hardcut-Pfad (was passiert wenn
+  Phase live ist und Notfall-Abschaltung noetig wird). Soll in M3
+  ergaenzt werden.
+
+OPEN-PHP-05: Externer Monitoring-Probe-Plan
+  PH9 erwaehnt Monitoring-Probe als optional. Architektur-Entscheidung
+  ob extern (Uptimerobot etc.) oder intern (eigene Probe) steht aus.
+
+OPEN-PHP-06: PH10-Liste konkretisieren
+  Externe Retrowork-Seite + MOD-010 PLANS sind aktuell genannt, aber
+  PH10 kann weitere Extras enthalten die spaeter definiert werden.
+
+OPEN-PHP-07: MOD-009 PEAK_MODE inhaltliche Klaerung
+  Modul-Ordner existiert leer. Marcos Intention ist (vermutlich)
+  Bandbreite-Peak-Behandlung im Rahmen QoS — Klaerung erforderlich
+  vor Modul-Schreiben. Vorlaeufig MAPPING-MATRIX bei PH2 (QoS).
+
+OPEN-PHP-08: BASE-080 POLICY_APPLY_CORE vs BASE-100 POLICY_CORE Abgrenzung
+  Beide Module sind WAITING, ihre fachliche Aufteilung ist noch nicht
+  expliziert. Annahme: BASE-100 definiert Policy-REGELN (was ist
+  erlaubt/verboten pro Status), BASE-080 ist DAEMON der die Regeln
+  in der Realzeit auf Firewall/DNS anwendet. Pflicht-Klaerung vor
+  Modul-Schreiben.
+
+OPEN-PHP-09: BASE-110 WEBSTACK_CORE vs MOD-004 BLOCKPAGE_CA Abgrenzung
+  BASE-110 ist Foundation-Schicht (OpenResty/PHP/CA-Mechanik). MOD-004
+  enthaelt Blockpage-Inhalt + CA-Anwendung. Abgrenzung explizit machen
+  vor Modul-Schreiben.
+
+OPEN-PHP-10: BASE-100 POLICY_CORE PH1-Bezug klaeren
+  Frage: Gehoeren Baseline-Policies (z.B. Default-Deny-Regeln, Peer-
+  Isolation als Policy-Definition) zu BASE-100 (POLICY_CORE) oder zu
+  BASE-050 (FIREWALL_CORE)? Ueberlappt teilweise mit OPEN-PHP-08
+  (BASE-080 vs BASE-100 Abgrenzung). Pflicht-Klaerung vor Modul-
+  Schreiben. Vorlaeufig BASE-100 NUR als Hauptphase PH8 gefuehrt,
+  PH1-Nebenphase nicht in MAPPING-MATRIX gesetzt.
+
+================================================================================
+CHANGELOG
+================================================================================
+
+Dateieigener Changelog ist leer.
+Alle Aenderungen werden zentral in 03_CHANGELOG.txt gefuehrt
+(konsistent mit 01_GLOSSARY.txt, PRIORITAETENLISTE.txt etc.).
+
+Erstmalig dokumentiert in 03_CHANGELOG.txt v2.1 (2026-05-24).
+
+================================================================================

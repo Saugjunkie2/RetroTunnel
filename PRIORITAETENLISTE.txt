@@ -23,10 +23,16 @@ NAMENSKONVENTION (MUST, Drift-Guard):
   M0..M4 = Modellphasen (RetroTunnel-Konzeptarbeit)
     M0 = Fundament, M1 = Denkmodell, M2 = Kern-Module,
     M3 = Erweiterungsmodule, M4 = Decisions/Proofs/Implementation
-  PH1..PH10 = Rollout-Phasen (Server-Implementierung, aus B290)
-    PH1 = VPN-Baseline, PH2 = QoS, PH3 = DNS, ... PH10 = Extras
-  KEINE Verwechslung: "M1 ist fertig" ≠ "PH1 ist fertig".
-  M-Phasen beschreiben Konzeptarbeit, PH-Phasen beschreiben Betrieb.
+  PH1..PH10 = Rollout-Phasen / Funktionsbereiche
+    Definition + Acceptance: siehe 04_PHASE_PLAN.txt (SOLL-Liste)
+    Uebersicht: PH1 = VPN-Baseline, PH2 = QoS, PH3 = DNS,
+                PH4 = CA/Webstack, PH5 = Webpanel Core,
+                PH6 = Operability, PH7 = Accounting,
+                PH8 = Restricted Mode, PH9 = Monitoring,
+                PH10 = Extras
+  KEINE Verwechslung: "M1 ist fertig" != "PH1 ist fertig".
+  M-Phasen beschreiben Konzeptarbeit (diese Datei: IST-Liste),
+  PH-Phasen beschreiben Funktionsbereiche/Betrieb (04_PHASE_PLAN.txt: SOLL-Liste).
 
 NUMMERIERUNG: Seit 2026-04-16 konsequent 3-stellig.
   Base-Ordner: BASE-000 bis BASE-110.
@@ -107,10 +113,18 @@ M1-04 [DONE] state_machines/SM_CONNECTION.txt
 
 M1-05 [DONE] state_machines/SM_SESSION.txt
   → Session Lifecycle: offen/closed (kein Model C)
-  → vpn_sessions als gemeinsame Session-Truth (L2TP_IPSEC + WIREGUARD)
-  → SimUse Guard (dreistufig: Guard/Recheck/Janitor)
+  → vpn_connections-Counter-Persistenz (quota_used = einziges
+    Aggregat; last_known_* = WG-Polling-Cursor; counter_epoch
+    nur bei Reset; last_runtime_seen_at + last_counter_seen_at)
+    als gemeinsame Persistenz (L2TP_IPSEC + WIREGUARD);
+    D004-E05, EB-VOLLSCAN-07.
+    vpn_sessions als DB-Tabelle ist DEPRECATED (D004-E02).
+  → SimUse Guard (dreistufig: Guard/Recheck/Janitor); Liveness-
+    Quelle tunnel-spezifisch (radacct / wg show); D004-E01.
   → WIREGUARD: 3 Endpfade (Roaming/Ghost-Cleanup/Neustart)
-  -> PATCH-REIF (27 Invarianten, 38 Tests, konvergiert)
+  -> PATCH-REIF (27 Invarianten, 38 Tests, konvergiert) — HINWEIS:
+     SM_SESSION ist deprecated als aktive Quelle; Inhalte werden
+     bei BASE-070-Ausarbeitung gemaess D004-E03 uebernommen.
   → Abhängigkeit: M1-02, M1-03
   → Altes Konzept: B171, D012, B165, B168, B169
 
@@ -150,6 +164,39 @@ NUMMERIERUNG: Arbeitspaket-Nummern spiegeln Base-Nummer (3-stellig).
 Zwischen bestehenden Modulen kann eingefuegt werden
 (z.B. M2-015 zwischen M2-010 und M2-020).
 
+PATTERN-CHECK (MUST, fuer alle M2-Bases ab BASE-040):
+  Jede neue M2-Base MUSS die zutreffenden Patterns aus REVIEW_STANDARD §9
+  anwenden. Fehlende Pattern-Anwendung gilt als MAJOR-Befund:
+
+    PATTERN-01 Owner-Grenzen-Sektion (Vorbild BASE-020_060) —
+      PFLICHT bei BASE-040, BASE-050, BASE-070, BASE-080
+      (jede Base mit Schreibzugriff auf gemeinsame Tabellen oder
+      Mechanik-Teilung mit Nachbar-Bases).
+
+    PATTERN-02 Drittreview-Integration (Vorbild BASE-030) —
+      PFLICHT bei jeder Base ab v1.0. FREIRAUM-BLOCK, fachliche
+      Klassifikation, Befund-Verankerung in Invarianten/Tests.
+
+    PATTERN-03 ADR-Brueckensektionen (Vorbild D002/D003) —
+      PFLICHT bei jeder neuen ADR die spaeter Datei-Renames oder
+      Verzeichnis-Reorganisationen ueberlebt.
+
+    PATTERN-04 IST-vs-SOLL-Transparenz (Vorbild CONFIG_STATUS.txt) —
+      PFLICHT bei implementation/-Unterordnern (z.B. wenn BASE-040
+      eigene Config-Dateien unter implementation/configs/etc/amnezia/amneziawg/
+      bekommt, braucht es einen CONFIG_STATUS-analog).
+
+    PATTERN-05 Auth-Domain-Trennung (Vorbild BASE-010_030 +
+      BASE-000_010) — PFLICHT bei jedem neuen Auth-/Credential-
+      System. Im aktuellen Konzept verankert in R-18
+      (02_ASSUMPTIONS_AND_RULES).
+
+  Pattern-Check ist Teil des Vollreviews (REVIEW_STANDARD §3 Ebene H
+  "Propagationspruefung" + §9 Pattern-Verifikation). Kein Reviewer
+  darf eine Base als CLEAN markieren ohne Pattern-Check.
+
+  (Eingefuegt 2026-05-22 nach Phase A+B NICE-Befund N-01.)
+
 M2-000 [DONE] BASE-000_SQL_FIRST
   -> Datenbank: retrotunnel_main_db (Single DB)
   -> 9 Prefix-Zonen (Sicherheitszonen mit DB-User GRANTs)
@@ -170,7 +217,7 @@ M2-005 [DONE] BASE-005_PLATFORM_CORE
   -> 4-Punkte-Aufnahme-Regel gegen Wildwuchs (nur Themen mit echtem
      Drift-Risiko und mehreren Diensten).
   -> Pflicht-Abschnitt "Plattform-Contract" in allen Fach-Bases.
-  -> 17 Invarianten (PF-01..PF-17), 19 Tests (T-PF-01..T-PF-19).
+  -> 19 Invarianten (PF-01..PF-19), 21 Tests (T-PF-01..T-PF-21).
   -> Status: 11 Dateien, alle ACTIVE. Alle Skelette gefuellt.
      3 Design-Entscheidungen geschlossen: Hybrid-Logging, GPG-Backup,
      systemd-Default-Shutdown.
@@ -189,8 +236,8 @@ M2-010 [DONE] BASE-010_IDENTITY_CORE
   -> DOMAIN_MODEL + SM_CONNECTION werden hier aufgeloest.
   -> Abhaengigkeit: M2-000, M1-02, M1-03
   -> Altes Konzept: B055, B058, B345
-  -> FERTIG 2026-04-17: 11 Dateien, 80 Invarianten + 3 LR,
-     ~94 Tests, ChatGPT-Drittreview v1+v2 bestanden.
+  -> FERTIG 2026-04-17: 11 Dateien, 90 Invarianten + 3 LR,
+     116 Tests, ChatGPT-Drittreview v1+v2 bestanden.
      Auth-Split (3 Parteien), connection_ref con_[a-z2-7]{12},
      wg_connection_name deterministisch, Provisioning atomar,
      SoT/Mechanik-Split BASE-010/020. SM_CONNECTION aufgeloest.
@@ -206,13 +253,13 @@ M2-020 [DONE] BASE-020_AAA_CORE
   -> vpn_session_locks tunnelneutral (BASE-070 owned, RADIUS als Runner)
   -> Abhaengigkeit: M2-010
   -> Altes Konzept: B050, B056, B165, D002-alt, D012
-  -> FERTIG 2026-04-18: 9 Dateien, 30 Invarianten, 35 Tests.
+  -> FERTIG 2026-04-18: 10 Dateien, 31 Invarianten, 36 Tests.
      ChatGPT-Drittreview v1+v2 bestanden.
      ERARBEITET MIT: Marco + Claude + ChatGPT (Owner-Grenzmatrix,
      Direct-Read-Entscheidung, Hybrid-Fail-Closed, Key-Rotation).
 
 M2-030 [DONE] BASE-030_TUNNEL_L2TP_IPSEC
-  -> 10 Dateien, 40 Invarianten, 45 Tests.
+  -> 10 Dateien, 41 Invarianten, 46 Tests.
   -> accel-ppp + strongSwan (swanctl/vici). Konsistenzfehler aufgeloest.
   -> Default-Deny auf ppp* (F-001), radacct-Korrelation (F-002).
   -> IKE-Lifetime, acct-timeout, ip-pre-up, fork-limit.
@@ -258,6 +305,9 @@ M2-050 [WAITING] BASE-050_FIREWALL_CORE
      sofort in DROP-ALL aufnehmen BEVOR Policy-Apply laeuft.
      Zusammenspiel: Admission ACCEPT → connect_pending → Policy-Apply
      → Connect-Gate Release. Fail-Closed bei jedem Schritt.
+     Gate-Mechanismus tunnelspezifisch (F-002, Option C): WG/AWG ueber
+     connect_pending (Gate vor Peer-Add); L2TP ueber ppp*-Default-Deny +
+     Freigabe-Set (LT-18/19, allowed_l2tp_v4). Konkret BASE-050/BASE-080.
   -> OUTBOUND-ABUSE-PROTECTION (Marco-Anforderung 2026-04-18):
      Server-Infrastruktur muss gegen Missbrauch durch VPN-User
      (oder infizierte Geraete) geschuetzt werden:
@@ -294,10 +344,12 @@ M2-070 [WAITING] BASE-070_SESSION_CORE
   -> Locks, Janitor, Ghost-Handling
   -> SM_SESSION wird hier aufgeloest.
   -> SESSION-SIGNAL VERTRAG (PFLICHT aus BASE-020_020 §5):
-     vpn_sessions INSERT muss 8 Pflichtfelder annehmen:
-     vpn_connection_id, tunnel_type, client_ipv4, client_ipv6,
-     truth_source, session_token, runtime_ref, source_event_at.
-     Schema/Invarianten/Lifecycle fuer vpn_sessions.
+     Session-Signal an BASE-070-Pipeline muss 8 Pflichtfelder
+     uebergeben: vpn_connection_id, tunnel_type, client_ipv4,
+     client_ipv6, truth_source, session_token, runtime_ref,
+     source_event_at. Aggregat-Update auf vpn_connections.
+     (D004-E02: KEIN vpn_sessions-INSERT — die Tabelle ist
+     deprecated. Runtime-Liveness via radacct/wg show.)
   -> ON-DEMAND JANITOR (PFLICHT aus BASE-020_020 §6):
      Vor jedem SimUse-Check muss ein On-Demand Cleanup fuer die
      betroffene vpn_connection_id laufen (Ghost-Sessions schliessen).
@@ -324,10 +376,14 @@ M2-080 [WAITING] BASE-080_POLICY_APPLY_CORE
   -> Single-Writer, Exit-Codes
   -> SM_POLICY_RESTRICT wird hier aufgeloest.
   -> CONNECT-GATE RELEASE (PFLICHT aus BASE-020_020 §3 Schritt 6):
-     Nach Admission ACCEPT + vpn_sessions INSERT muss Policy-Apply
-     die connect_pending Sperre loesen und nft/tc Soll-Zustand
-     herstellen. Fail-Closed: Wenn Policy-Apply scheitert →
-     Session killen (kein offener Forward-Pfad).
+     Nach Admission ACCEPT + bestaetigter Runtime-Liveness (radacct-
+     Acct-Start fuer L2TP bzw. WG-Handshake-Detektion) muss
+     Policy-Apply die connect_pending Sperre loesen und nft/tc
+     Soll-Zustand herstellen. Fail-Closed: Wenn Policy-Apply
+     scheitert → Session killen (kein offener Forward-Pfad).
+     Tunnelspezifisch (F-002, Option C): WG = connect_pending entfernen;
+     L2TP = IP ins Freigabe-Set (allowed_l2tp_v4) eintragen. Detail BASE-080.
+     (D004-E02: kein vpn_sessions-INSERT in der Kette.)
   -> Abhaengigkeit: M2-050, M2-070
   -> Altes Konzept: B166
 
@@ -389,8 +445,9 @@ M2-QC [WAITING] QUALITAETS-CHECK NACH M2-ABSCHLUSS
 ================================================================================
 MODELLPHASE M3 — ERWEITERUNGSMODULE (modules/)
 ================================================================================
-Module bauen auf Base auf. Reihenfolge orientiert sich am alten
-Phasenplan (B290), angepasst an RetroTunnel.
+Module bauen auf Base auf. Reihenfolge orientiert sich am Funktionsbereich-
+Plan in 04_PHASE_PLAN.txt (SOLL-Liste, RetroTunnel-spezifisch). B290
+(Altkanon mit IKEv2-Annahmen) ist NICHT mehr verbindlich.
 
 M3-010 [DEFERRED] MOD-002_RESTRICTED_MODE (Walled Garden)
   -> Abhaengigkeit: M2-050, M2-080
@@ -467,6 +524,26 @@ M4-03 [DEFERRED] Phase-Plan (implementation/PHASE_PLAN.txt)
 M4-04 [DEFERRED] Build-Guides (implementation/guides/)
   → Step-by-Step Anleitungen pro Phase
   → Abhaengigkeit: M4-03
+
+================================================================================
+QUERSCHNITTS-AUFGABEN (moduluebergreifend)
+================================================================================
+
+QS-01 [LAUFEND] Self-Containment: Inline-Altkanon-Refs aus aktiven Body-
+  Dateien entfernen.
+  → Zielprinzip: 02_ASSUMPTIONS_AND_RULES R-19 (ZIELPRINZIP Self-Containment,
+    Marco-Entscheidung 2026-05-30). Aktives Konzept steht allein; Altkanon =
+    Konstruktions-Quelle + Archiv, keine Live-Abhaengigkeit.
+  → Methode MODULWEISE bei Finalisierung, VERIFY-FIRST: (1) belegen dass die
+    Substanz im neuen Konzept steht, (2) Inline-Ref (Bxxx / Dxxx-Alt) im Body
+    entfernen, (3) Herkunft auf Modulebene sichern (INDEX "VORGAENGER
+    (Altkonzept)"). KEIN Blind-Sweep.
+  → Umfang (Stand 2026-05-30): ~105 Inline-B-Refs + 4 D-Alt-Refs in aktiven
+    Body-Dateien; INDEX-"VORGAENGER" bisher nur BASE-010/BASE-020 — in
+    BASE-000/005/030 (und kuenftigen) ergaenzen.
+  → Fortschritt je Modul: REVIEW_TRACKER (Self-Containment als Exit-Kriterium).
+  → Abhaengigkeit: pro Modul dessen inhaltliche Finalisierung; nicht waehrend
+    laufender Audit-Runden mitten im Modul.
 
 ================================================================================
 ZUSAMMENFASSUNG: KRITISCHER PFAD

@@ -117,4 +117,41 @@ T-PF-14: Inventar-Drift-Check (PF-16)
 
 T-PF-15: Owner-Base Eindeutigkeit (PF-17)
   Parse BASE-005_070: Jede Unit hat genau EINE Owner-Base.
+
+================================================================================
+7) CRASH-RECOVERY-TESTS
+================================================================================
+
+T-PF-20: nftables-Drift Recovery (PF-18)
+  Drei Teiltests, alle MUST:
+
+  (a) Drift-Detection und Rebuild:
+      Setup: aktive WAN-Session mit Dauer-Traffic (z.B. iperf3)
+      ueber pppX oder wg0. Aktive vpn_sessions Row vorhanden.
+      Trigger: `nft flush ruleset` als root (simuliert
+      Komplettverlust der Ruleset). Erwartung: Innerhalb
+      vpn_reconcile_interval_seconds + 60s Wiring-Tick ist
+      `nft list ruleset` wieder im Sollzustand (Tables, Chains,
+      Sets, Default-Policy DROP). Pruefung gegen ein Snapshot-
+      Ruleset des Boot-Zustands.
+
+  (b) Hard-Cut wirksam fuer restricted Sessions:
+      Setup: aktive Session mit restricted_effective = true
+      (z.B. RESTRICTED-Connection mit laufendem ESTABLISHED-
+      Flow zu einem WAN-Ziel ausserhalb SERVICE_NET, der
+      vor Drift-Fix faelschlich erlaubt war wegen
+      `ct state established`). Trigger: `nft flush ruleset`
+      und Warten auf Reconcile. Erwartung: Nach Reconcile +
+      Conntrack-Flush ist der WAN-Flow tot. Beweis: tcpdump
+      auf WAN-Interface zeigt keine weiteren Pakete dieses
+      Flows; iperf3-Session bricht ab.
+
+  (c) Health-Indikator aktualisiert:
+      Vor Trigger: lese aktuellen Wert von policy_reconcile_last_ok_at
+      (Speicherort gemaess BASE-080 / B166 v1.5; bis BASE-080
+      ACTIVE: dort wo der Reconcile-Job ihn schreibt). Trigger
+      wie (a). Erwartung: Nach End-to-End-Success ist
+      policy_reconcile_last_ok_at auf den Zeitpunkt des
+      erfolgreichen Reconcile-Laufs gesetzt. Bei Partial-
+      Fehlern bleibt der Wert unveraendert.
 ================================================================================

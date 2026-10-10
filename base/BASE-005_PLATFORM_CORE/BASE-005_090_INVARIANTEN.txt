@@ -78,3 +78,37 @@ ZWECK:
   PF-17  Jede Unit hat genau EINE Owner-Base.
 
 ================================================================================
+7) CRASH-RECOVERY-INVARIANTEN
+================================================================================
+
+  PF-18  nftables-Drift (Ruleset weicht vom Sollzustand ab, z.B.
+         durch nftables.service Crash, Restart, Komplettverlust,
+         oder manuelle Aenderungen ausserhalb von vpn-policy-apply)
+         wird innerhalb maximal vpn_reconcile_interval_seconds
+         (Settings-Key, B057 Altkanon / BASE-090 spaeter) plus
+         60s Wiring-Tick-Jitter durch einen vollstaendigen
+         Policy-Reconcile korrigiert.
+
+         Drift-Detection: Reconcile vergleicht Soll (SQL-Zustand
+         der aktiven Sessions) mit Ist (nftables-Sets) und stellt
+         deterministisch den Sollzustand her (B166 v1.6 §8).
+
+         HARD-CUT bei Drift-Fix (MUST): Fuer jede IP die durch
+         den Reconcile (wieder) in restricted_v4 / restricted_v6
+         eingefuegt wird, MUSS Conntrack-Flush (bidirektional)
+         ausgefuehrt werden. Bestehende ESTABLISHED-Flows enden
+         damit sofort — kein unpoliced Window ueber den Reconcile-
+         Tick hinaus (B166 v1.6 §8 Schritt 4 Hard-Cut bei Drift-Fix).
+
+         Detail-Mechanik (Drift-Detection-Algorithmus, Tool-
+         Verwendung, Conntrack-Flush-Implementation) wird in
+         BASE-080_POLICY_APPLY_CORE definiert. Bis BASE-080
+         ACTIVE ist, gilt B166 v1.6 als Implementierungs-Referenz.
+
+         Health-Indikator: policy_reconcile_last_ok_at (B166 v1.5
+         /diag Health-Key) wird ausschliesslich bei End-to-End
+         Success eines Reconcile-Laufs aktualisiert. Partial-
+         Erfolge zaehlen NICHT. Ein veralteter Wert ist ein
+         Signal fuer durchlaufenden Drift.
+
+================================================================================

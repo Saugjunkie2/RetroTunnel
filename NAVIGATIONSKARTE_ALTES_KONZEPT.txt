@@ -29,6 +29,32 @@ BEGRIFFS-BRÜCKE ALT ↔ NEU (WICHTIG):
   legacy_auth Tabelle           vpn_connection_l2tp_ipsec_auth
   Base-Nummerierung BASE-xx     Base-Nummerierung BASE-xxx (3-stellig)
 
+  SESSION-TRUTH-MODELL (geändert in RetroTunnel, siehe D004, 2026-05-26):
+    Im Altkonzept war die Session-Wahrheit verteilt:
+      - radacct (von FreeRADIUS gepflegt) für L2TP-Episoden
+      - /run/vpn-sessions/*.env (Filesystem-Mapping) für Runtime-Aktivität
+      - active_session_locks für SimUse-Mutex
+    Eine DB-Tabelle vpn_sessions existierte NICHT (B055: "Keine
+    History/Forensics in Core-Tabellen").
+
+    Im neuen RetroTunnel-Konzept (Entscheidung D004):
+      - Runtime-Wahrheit bleibt beim Daemon (radacct/wg show), nicht in DB
+      - Counter werden direkt auf vpn_connections persistiert:
+        quota_used (einziges Aggregat, += Delta, Bytes RX+TX),
+        last_known_rx_bytes/last_known_tx_bytes (WG-Polling-Cursor,
+        NICHT Aggregat, bei L2TP unbenutzt), counter_epoch
+        (Inkrement NUR bei Counter-Reset-Detection, D004-E05),
+        last_runtime_seen_at (Liveness-Hint) + last_counter_seen_at
+        (Buchhaltungs-Marker) — Feldnamen/Semantik per EB-VOLLSCAN-07
+      - Es gibt KEINE vpn_sessions-Tabelle im RetroTunnel-Konzept
+      - "Session" hat drei Bedeutungen (D004-E07): WG Secure Session
+        (Kernel-Crypto), Runtime-Aktivität (Daemon), operationale Session
+        (Panel/DB-Projektion). Beim Lesen alter Dateien mental einordnen.
+
+    Wenn Alt-Konzept-Dateien (B055/B165/B166/B168/D012) von "Sessions"
+    sprechen, bezieht sich das auf das ALT-Modell. Übertrag ins neue
+    Konzept folgt D004 (Runtime-Truth vs SQL-Persistenz).
+
   Wenn in dieser Karte "LEGACY" oder "MODERN" oder "IKEv2" steht,
   bezieht sich das auf den ORIGINAL-ALTKONZEPT-TEXT. Beim Lesen
   mental auf die Neu-Begriffe übersetzen.
@@ -425,6 +451,13 @@ PFLICHT-LEKTÜRE:
   B290_PHASE_PLAN_ROLLOUT.txt
     → PH1–PH10: VPN-Baseline → QoS → DNS → CA → Panel → Ops →
       Accounting → Restricted → Monitoring → Extras
+    → DELTA (RetroTunnel): Modern-Stack war IKEv2 → ist jetzt
+      AmneziaWireGuard. B290-Acceptance-Kriterien (PH1-PROOF-NN)
+      sind IKEv2-basiert und gelten NICHT 1:1 fuer RetroTunnel.
+    → KANONISCH fuer RetroTunnel: 04_PHASE_PLAN.txt (im RetroTunnel-
+      Stamm). B290 bleibt als historische Referenz lesbar
+      (Phasen-Reihenfolge, Doktrin, Fail-Closed-Prinzipien — alles
+      stack-neutral), aber nicht mehr als Acceptance-Quelle.
 
 ================================================================================
 THEMA 20 — PLANS / TARIFE
