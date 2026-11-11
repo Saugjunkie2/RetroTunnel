@@ -1,0 +1,291 @@
+#!/usr/bin/env python3
+"""Negativtests der QA-Werkzeuge (Betreiberregeln §10.8).
+
+Jeder Test erzeugt eine harmlose, absichtlich UNGUELTIGE Kopie der Register in
+einem temporaeren Verzeichnis und weist nach, dass der Validator den Fehler
+ERKENNT. Es werden weder das Repository noch fremde Systeme veraendert.
+
+Aufruf (aus dem Repository-Wurzelverzeichnis):
+  python3 -m unittest discover -s qa/tests -v
+"""
+import os, shutil, subprocess, sys, tempfile, unittest
+import yaml
+
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+PRUEFE = os.path.join(ROOT, "qa", "pruefe_register.py")
+INVENTAR = os.path.join(ROOT, "qa", "quelleninventar.py")
+STATUS = "governance/STATUS.yaml"
+PAKETE = "governance/register/ARBEITSPAKETE.yaml"
+BEFUNDE = "governance/register/BEFUNDE.yaml"
+VERB = "governance/register/VERBESSERUNGEN.yaml"
+REGELN = "governance/betreiberregeln/RETROTUNNEL_BETREIBERREGELN_v1.0_2026-11-11.md"
+TRACE = "governance/register/trace/_TEST_README.yaml"
+
+
+class Basis(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="rt-qa-")
+        shutil.copytree(os.path.join(ROOT, "governance"), os.path.join(self.tmp, "governance"))
+        shutil.copy(os.path.join(ROOT, "PRIORITAETENLISTE.txt"), self.tmp)
+        shutil.copy(os.path.join(ROOT, "README.md"), self.tmp)
+        # Fixture: Status auf einen einfachen, gueltigen Grundzustand normalisieren,
+        # damit die Tests unabhaengig vom jeweiligen Projektfortschritt sind.
+        st = self.lade(STATUS)
+        st["fachstatus"] = "IN_BEARBEITUNG"
+        st.pop("kandidat", None)
+        for g in ("G1", "G2", "G3", "G4"):
+            st["gates"][g] = {"zustand": "OFFEN"}
+        self.schreibe(STATUS, st)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def lade(self, rel):
+        with open(os.path.join(self.tmp, rel), encoding="utf-8") as f:
+            return yaml.safe_load(f)
+
+    def schreibe(self, rel, daten):
+        p = os.path.join(self.tmp, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            yaml.safe_dump(daten, f, allow_unicode=True, sort_keys=False)
+
+    def lauf(self):
+        r = subprocess.run([sys.executable, PRUEFE, "--root", self.tmp, "--git", ROOT],
+                           capture_output=True, text=True)
+        return r.returncode, r.stdout + r.stderr
+
+    def erwarte_fehler(self, teiltext):
+        rc, out = self.lauf()
+        self.assertNotEqual(rc, 0, f"Validator hat den Fehler NICHT erkannt:\n{out}")
+        self.assertIn(teiltext, out, f"Erwartete Fehlermeldung fehlt:\n{out}")
+
+    def trace_fixture(self, **aenderung):
+        rec = {"id": "T-TEST-01", "zeilen": [1, 3], "zitat": "RetroTunnel", "art": "DEFINITION",
+               "aussage": "Testaussage", "einordnung": "UEBERNOMMEN", "erfuellt_in": ["README.md#RetroTunnel"],
+               "begruendung": "Test"}
+        # Zitat mit ausreichender Laenge aus Zeile 1-12 der Baseline-README bestimmen
+        z = subprocess.run(["git", "-C", ROOT, "show",
+                            f"{self.lade(STATUS)['identitaeten']['quellen_commit_rt']}:README.md"],
+                           capture_output=True, text=True).stdout.splitlines()
+        zeile = next(i for i, l in enumerate(z, 1) if len(l.strip()) > 40)
+        rec["zeilen"], rec["zitat"] = [zeile, zeile], z[zeile - 1].strip()[:40]
+        rec.update(aenderung)
+        self.schreibe(TRACE, {"schema": "trace/1", "quelle": "RT", "datei": "README.md", "records": [rec]})
+
+
+class Positivkontrolle(Basis):
+    def test_unveraenderte_kopie_besteht(self):
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_gueltiger_trace_besteht(self):
+        self.trace_fixture()
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+
+class StatusUndGates(Basis):
+    def test_veraenderte_regelreferenz(self):
+        with open(os.path.join(self.tmp, REGELN), "a", encoding="utf-8") as f:
+            f.write("\nmanipulierte Zeile\n")
+        self.erwarte_fehler("SHA-256 der Betreiberregel-Arbeitskopie weicht ab")
+
+    def test_freigegeben_ohne_alle_gates(self):
+        st = self.lade(STATUS)
+        st["fachstatus"] = "FREIGEGEBEN"
+        st["kandidat"] = {"commit": "a" * 40, "tree": "b" * 40}
+        for g in ("G1", "G2", "G3"):
+            st["gates"][g] = {"zustand": "ERFUELLT", "nachweis": "x"}
+        self.schreibe(STATUS, st)
+        self.erwarte_fehler("obwohl nicht alle Gates G1-G4 ERFUELLT")
+
+    def test_gate_erfuellt_ohne_nachweis(self):
+        st = self.lade(STATUS)
+        st["gates"]["G1"] = {"zustand": "ERFUELLT"}
+        self.schreibe(STATUS, st)
+        self.erwarte_fehler("Gate G1 ERFUELLT ohne nachweis")
+
+    def test_pruefbereit_ohne_kandidatenbindung(self):
+        st = self.lade(STATUS)
+        st["fachstatus"] = "PRUEFBEREIT"
+        st["kandidat"] = {"commit": "abc123", "tree": ""}
+        self.schreibe(STATUS, st)
+        self.erwarte_fehler("ohne kandidat.commit/kandidat.tree")
+
+    def test_fachlich_fertig_trotz_offenem_schweren_befund(self):
+        st = self.lade(STATUS)
+        st["fachstatus"] = "FACHLICH_FERTIG_FREIGABE_BLOCKIERT"
+        st["kandidat"] = {"commit": "a" * 40, "tree": "b" * 40}
+        for g in ("G1", "G2", "G3"):
+            st["gates"][g] = {"zustand": "ERFUELLT", "nachweis": "x"}
+        self.schreibe(STATUS, st)
+        bf = self.lade(BEFUNDE)
+        bf["befunde"].append({"id": "BF-TEST", "klasse": "SCHWERWIEGEND", "status": "OFFEN", "titel": "t",
+                              "beschreibung": "b", "beleg": "b", "massnahme": "m",
+                              "fundstellen": ["RT:README.md:1"]})
+        self.schreibe(BEFUNDE, bf)
+        self.erwarte_fehler("trotz offenem SCHWERWIEGEND-Befund BF-TEST")
+
+
+class Befunde(Basis):
+    def neu(self, **felder):
+        b = {"id": "BF-TEST", "klasse": "GERINGFUEGIG", "status": "OFFEN", "titel": "t", "beschreibung": "b",
+             "beleg": "b", "massnahme": "m", "fundstellen": ["RT:README.md:1"]}
+        b.update(felder)
+        bf = self.lade(BEFUNDE)
+        bf["befunde"].append({k: v for k, v in b.items() if v is not None})
+        self.schreibe(BEFUNDE, bf)
+
+    def test_fehlender_beleg(self):
+        self.neu(beleg=None)
+        self.erwarte_fehler("BEFUNDE BF-TEST: Feld beleg fehlt")
+
+    def test_fundstelle_ausserhalb_der_datei(self):
+        self.neu(fundstellen=["RT:README.md:999999"])
+        self.erwarte_fehler("Zeile ausserhalb der Datei")
+
+    def test_fundstelle_auf_nicht_existente_datei(self):
+        self.neu(fundstellen=["RT:gibt/es/nicht.txt:1"])
+        self.erwarte_fehler("Fundstelle nicht aufloesbar")
+
+    def test_herabstufung_ohne_gesonderte_bestaetigung(self):
+        self.neu(herabstufung={"von": "SCHWERWIEGEND", "begruendung": "weil"})
+        self.erwarte_fehler("herabstufung ohne von/begruendung/bestaetigt_durch")
+
+    def test_behoben_ohne_korrekturnachweis(self):
+        self.neu(status="BEHOBEN")
+        self.erwarte_fehler("BEHOBEN ohne behoben_in")
+
+
+class Arbeitspakete(Basis):
+    def test_zyklus(self):
+        ap = self.lade(PAKETE)
+        ap["pakete"][0]["haengt_ab_von"] = [ap["pakete"][1]["id"]]
+        ap["pakete"][0]["status"] = "OFFEN"
+        ap["pakete"][1]["haengt_ab_von"] = [ap["pakete"][0]["id"]]
+        ap["pakete"][1]["status"] = "OFFEN"
+        self.schreibe(PAKETE, ap)
+        self.erwarte_fehler("Abhaengigkeitszyklus")
+
+    def test_erledigt_trotz_offener_abhaengigkeit(self):
+        ap = self.lade(PAKETE)
+        ap["pakete"].append({"id": "AP-TEST-A", "titel": "a", "haengt_ab_von": [], "status": "OFFEN"})
+        ap["pakete"].append({"id": "AP-TEST-B", "titel": "b", "haengt_ab_von": ["AP-TEST-A"], "status": "ERLEDIGT"})
+        self.schreibe(PAKETE, ap)
+        self.erwarte_fehler("AP-TEST-B: ERLEDIGT, aber Abhaengigkeit AP-TEST-A ist OFFEN")
+
+    def test_status_widerspricht_prioritaetenliste(self):
+        with open(os.path.join(self.tmp, "PRIORITAETENLISTE.txt"), "a", encoding="utf-8") as f:
+            f.write("\nM9-999 [WAITING] Testpaket\n")
+        ap = self.lade(PAKETE)
+        ap["pakete"].append({"id": "AP-TEST-C", "titel": "c", "bezug": "M9-999", "haengt_ab_von": [],
+                             "status": "ERLEDIGT"})
+        self.schreibe(PAKETE, ap)
+        self.erwarte_fehler("passt nicht zu PRIORITAETENLISTE M9-999 [WAITING]")
+
+    def test_erledigt_ohne_ergebnisdatei(self):
+        ap = self.lade(PAKETE)
+        ap["pakete"].append({"id": "AP-TEST-D", "titel": "d", "haengt_ab_von": [], "status": "ERLEDIGT",
+                             "ergebnis": ["gibt/es/nicht.txt"]})
+        self.schreibe(PAKETE, ap)
+        self.erwarte_fehler("ERLEDIGT, aber Ergebnis fehlt")
+
+
+class Verbesserungen(Basis):
+    def test_freeze_ohne_analyse(self):
+        vb = self.lade(VERB)
+        vb["freeze_erklaert"], vb["eintraege"] = True, []
+        self.schreibe(VERB, vb)
+        self.erwarte_fehler("Freeze erklaert ohne dokumentierte Analyse")
+
+    def test_pflichtanforderung_in_roadmap_verschoben(self):
+        vb = self.lade(VERB)
+        vb["eintraege"] = [{"id": "VB-TEST", "titel": "t", "zweck": "z", "begruendung": "b",
+                            "einstufung": "ZWINGEND_NOTWENDIG", "entscheidung": "ROADMAP"}]
+        self.schreibe(VERB, vb)
+        self.erwarte_fehler("unzulaessige Verschiebung einer Pflichtanforderung")
+
+
+class Rueckverfolgung(Basis):
+    def test_gefaelschtes_zitat(self):
+        self.trace_fixture(zitat="Dieser Satz steht nicht in der Quelle")
+        self.erwarte_fehler("zitat nicht in RT:README.md")
+
+    def test_zeilenbereich_ausserhalb(self):
+        self.trace_fixture(zeilen=[900000, 900001])
+        self.erwarte_fehler("zeilen ungueltig")
+
+    def test_erfuellungsort_fehlt(self):
+        self.trace_fixture(erfuellt_in=["base/GIBT_ES_NICHT.txt"])
+        self.erwarte_fehler("erfuellt_in-Datei fehlt")
+
+    def test_anker_nicht_im_ziel(self):
+        self.trace_fixture(erfuellt_in=["README.md#KENNUNG-DIE-NICHT-EXISTIERT-4711"])
+        self.erwarte_fehler("Anker KENNUNG-DIE-NICHT-EXISTIERT-4711 nicht in README.md gefunden")
+
+    def test_uebernommen_ohne_erfuellungsort(self):
+        self.trace_fixture(erfuellt_in=[])
+        self.erwarte_fehler("ohne erfuellt_in")
+
+
+class Quelleninventar(unittest.TestCase):
+    """Falsche Commit-/Inhaltsbindung im Quelleninventar muss auffallen."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="rt-qa-inv-")
+        subprocess.run(["git", "clone", "-q", "--no-checkout", ROOT, self.tmp], check=True)
+        os.makedirs(os.path.join(self.tmp, "governance/register"))
+        shutil.copy(os.path.join(ROOT, "governance/register/QUELLENINVENTAR.yaml"),
+                    os.path.join(self.tmp, "governance/register/QUELLENINVENTAR.yaml"))
+        self.reg = os.path.join(self.tmp, "governance/register/QUELLENINVENTAR.yaml")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def lauf(self):
+        r = subprocess.run([sys.executable, INVENTAR, "--rt", self.tmp, "--check"], capture_output=True, text=True)
+        return r.returncode, r.stdout + r.stderr
+
+    def aendere(self, fn):
+        with open(self.reg, encoding="utf-8") as f:
+            d = yaml.safe_load(f)
+        fn(d)
+        with open(self.reg, "w", encoding="utf-8") as f:
+            yaml.safe_dump(d, f, allow_unicode=True, sort_keys=False)
+
+    def test_positivkontrolle(self):
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_falsche_blob_id(self):
+        self.aendere(lambda d: d["quellen"]["RT"]["dateien"][3].__setitem__("blob", "0" * 40))
+        rc, out = self.lauf()
+        self.assertNotEqual(rc, 0, out)
+        self.assertIn("blob Inventar=", out)
+
+    def test_datei_aus_inventar_entfernt(self):
+        self.aendere(lambda d: d["quellen"]["RT"]["dateien"].pop(5))
+        rc, out = self.lauf()
+        self.assertNotEqual(rc, 0, out)
+        self.assertIn("nicht im Inventar", out)
+
+    def test_falscher_baseline_commit(self):
+        self.aendere(lambda d: d["quellen"]["RT"].__setitem__("baseline_commit", "f" * 40))
+        rc, out = self.lauf()
+        self.assertNotEqual(rc, 0, out)
+        self.assertIn("nicht lesbar", out)
+
+    def test_gelesen_ohne_arbeitseinheit(self):
+        def f(d):
+            e = d["quellen"]["RT"]["dateien"][2]
+            e["lesestatus"] = "VOLLSTAENDIG"
+            e.pop("einheit", None)
+        self.aendere(f)
+        rc, out = self.lauf()
+        self.assertNotEqual(rc, 0, out)
+        self.assertIn("ohne einheit", out)
+
+
+if __name__ == "__main__":
+    unittest.main()

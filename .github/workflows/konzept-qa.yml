@@ -1,0 +1,39 @@
+name: Konzept-QA
+
+# Konsistenzprüfung der Konzept-Register und -Nachweise (kein Produktcode, kein Deployment).
+# KEIN FREIGABEGATE: Ein grüner Lauf ist keine fachliche Freigabe (Betreiberregeln §6.6).
+# Der Workflow schreibt nichts ins Repository (keine Selbstauslösung, kein Merge).
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: konzept-qa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: PyYAML bereitstellen
+        run: python3 -m pip install --quiet pyyaml
+      - name: XPN-Quelle am Baseline-Commit holen (nur lesen)
+        run: |
+          XPN_COMMIT=$(python3 -c "import yaml;print(yaml.safe_load(open('governance/STATUS.yaml',encoding='utf-8'))['identitaeten']['quellen_commit_xpn'])")
+          git clone --quiet https://github.com/Saugjunkie2/xp-vpn-stack.git "$RUNNER_TEMP/xpn"
+          git -C "$RUNNER_TEMP/xpn" cat-file -e "${XPN_COMMIT}^{commit}"
+      - name: Q1 Quelleninventar gegen Baseline-Commits
+        run: python3 qa/quelleninventar.py --rt . --xpn "$RUNNER_TEMP/xpn" --check --require-xpn
+      - name: Register, Rückverfolgung, Status
+        run: python3 qa/pruefe_register.py --root . --xpn "$RUNNER_TEMP/xpn"
+      - name: Negativtests der QA-Werkzeuge
+        run: python3 -m unittest discover -s qa/tests -v

@@ -1,0 +1,39 @@
+================================================================================
+RetroTunnel — qa/  (Prüfwerkzeuge der Konzeptarbeit)
+================================================================================
+STATUS: ACTIVE
+
+Diese Werkzeuge prüfen ausschließlich Konzeptdokumente und Register. Sie sind
+KEIN Produktcode der VPN-Plattform und greifen auf keine Server zu.
+
+WERKZEUGE
+  quelleninventar.py     Q1: Abgleich governance/register/QUELLENINVENTAR.yaml mit
+                         den Baseline-Commits beider Repositories (Blob-ID, Größe,
+                         Zeilen); Pflege des Lesestatus (--update --lese …).
+  pruefe_register.py     Schema-, Querverweis- und Konsistenzprüfung von STATUS,
+                         UMGEBUNGSPRUEFUNG, ARBEITSPAKETE (inkl. Abgleich mit
+                         PRIORITAETENLISTE.txt), BEFUNDE (Fundstellen auflösbar),
+                         VERBESSERUNGEN (Freeze-Regeln) und der Rückverfolgung
+                         register/trace/*.yaml (Zitate wortgenau gegen die Quelle
+                         am Baseline-Commit, Erfüllungsorte existieren).
+  tests/test_negativ.py  Negativtests: absichtlich ungültige, harmlose Kopien der
+                         Register müssen als Fehler erkannt werden (z. B. veränderte
+                         Regelreferenz, falsche Commit-Bindung, gefälschtes Zitat,
+                         fehlender Beleg, Freigabe ohne Gates).
+
+AUFRUF (aus dem Repository-Wurzelverzeichnis)
+  python3 qa/quelleninventar.py --rt . --xpn <xp-vpn-stack-Checkout> --check
+  python3 qa/pruefe_register.py --root . --xpn <xp-vpn-stack-Checkout>
+  python3 -m unittest discover -s qa/tests -v
+  Voraussetzung: Python 3, PyYAML, git; vollständige Historie (Baseline-Commit).
+
+GRENZEN (ausdrücklich)
+  - Die Skripte liegen im frei beschreibbaren Repository und können vom
+    Hauptarchitekten geändert werden. Sie sind deshalb Konsistenzhilfen und
+    fachliche Belege der Stufe "maschinell geprüft" — NICHT das geschützte
+    Freigabegate G4 (Betreiberregeln §6.4, §10.5).
+  - "lesestatus" im Quelleninventar ist Selbstauskunft; belastbar sind die
+    Rückverfolgungs-Records mit maschinell geprüftem Zitat und Zeilenbereich.
+  - Der CI-Workflow .github/workflows/konzept-qa.yml führt dieselben Prüfungen
+    aus; ein grüner Lauf ist keine Freigabe.
+================================================================================
