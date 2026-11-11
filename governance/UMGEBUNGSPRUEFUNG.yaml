@@ -1,0 +1,123 @@
+# Eingangs- und Berechtigungsprüfung (Betreiberregeln §3.1, §9; Startauftrag B.1/B.2).
+# status: NACHGEWIESEN | NICHT_VERFUEGBAR | NICHT_GEPRUEFT
+# "NACHGEWIESEN" heißt: in dieser Cloud-Sitzung tatsächlich mit der genannten Methode beobachtet.
+schema: umgebungspruefung/1
+durchgefuehrt_am: "2026-11-11"
+durchgefuehrt_in: AP-S01
+pruefungen:
+- id: UP-01
+  gegenstand: RetroTunnel — Remote, Hauptbranch, Ausgangs-Commit
+  methode: git remote -v; git ls-remote origin; GitHub-API list_branches
+  ergebnis: >-
+    Remote https://github.com/Saugjunkie2/RetroTunnel; einziger Remote-Branch zum Prüfzeitpunkt: main @
+    10f3fde68a667fd7168b19da478571f97819b74b (5 Commits, letzter 2026-10-10). Keine Pull Requests vorhanden.
+  status: NACHGEWIESEN
+- id: UP-02
+  gegenstand: XPN / xp-vpn-stack — Remote, Hauptbranch, Ausgangs-Commit, Nebenzweige
+  methode: git ls-remote origin; git fetch refs/pull/1,2/head; GitHub-API list_branches, list_pull_requests
+  ergebnis: >-
+    Remote https://github.com/Saugjunkie2/xp-vpn-stack; main @ 6bb5f1c447a0e4b79315ee276b377c8bea637cea
+    (37 Commits, 2026-01-05 bis 2026-01-23). Weitere Branches: codex/establish-collaboration-guidelines @ e630ab4
+    (PR 1, gemergt 2026-01-06) und codex/establish-collaboration-guidelines-357hle @ 455582d (PR 2, gemergt
+    2026-01-06); beide alte v2.0-Stände, in main aufgegangen. Lesezugriff vollständig.
+  status: NACHGEWIESEN
+- id: UP-03
+  gegenstand: Sichtbarkeit und Schreibrecht
+  methode: Cloud-Werkzeug list_repos (visibility, can_push); erster Push auf den Arbeitsbranch
+  ergebnis: >-
+    RetroTunnel und xp-vpn-stack sind public; can_push=true für beide. Der tatsächliche Push auf den
+    Arbeitsbranch wird mit dem ersten Checkpoint-Commit nachgewiesen (siehe STATUS.yaml).
+    XPN wird trotz technisch vorhandenem Schreibrecht nicht verändert (Betreiberregeln §3.4).
+  status: NACHGEWIESEN
+- id: UP-04
+  gegenstand: Erlaubter Arbeitsbranch
+  methode: Sitzungsvorgabe der Cloud-Umgebung; git status
+  ergebnis: >-
+    Arbeitsbranch claude/friendly-allen-4qg7kn (ausgehend von main @ 10f3fde). Die Sitzung darf nur auf
+    diesen Branch pushen; Push auf andere Branches nur mit ausdrücklicher Erlaubnis.
+  status: NACHGEWIESEN
+- id: UP-05
+  gegenstand: Branch-Schutz auf main (beide Repositories)
+  methode: GitHub-API list_branches (Feld protected)
+  ergebnis: "main ist in RetroTunnel und in xp-vpn-stack protected=false: kein Branch-Schutz, keine Regelsätze erkennbar."
+  status: NACHGEWIESEN
+- id: UP-06
+  gegenstand: Identitäten und Rollen (Grundlage der Prüfertrennung)
+  methode: GitHub-API get_me, list_repository_collaborators
+  ergebnis: >-
+    Die Sitzung handelt gegenüber GitHub als Benutzer Saugjunkie2 (Repository-Admin, einziger Collaborator).
+    Hauptarchitekt, mögliche Prüfer-Agenten und Betreiber sind auf GitHub-Ebene DIESELBE Identität.
+    Git-Commits tragen lokal den Autor "Claude".
+  status: NACHGEWIESEN
+- id: UP-07
+  gegenstand: Technisch getrennte Prüf-/Freigabefunktion (G4)
+  methode: Ableitung aus UP-05 und UP-06
+  ergebnis: >-
+    Derzeit nicht vorhanden: keine zweite Identität, kein Branch-Schutz, keine geschützte Pflichtprüfung,
+    keine vom Hauptarchitekten unabhängige Prüfstatusquelle. Folge: Fail-Closed-Freigabestopp (OP-B14),
+    bis die einmalige Betreiber-Einrichtung erfolgt und ihre Wirksamkeit demonstriert ist.
+  status: NICHT_VERFUEGBAR
+- id: UP-08
+  gegenstand: Extern geschützte Betreiberregel-Referenz (G4)
+  methode: Sichtung der übergebenen Unterlagen und der Repositories
+  ergebnis: >-
+    Nicht eingerichtet. Die Regeln liegen nur als Sitzungs-Upload und als Arbeitskopie im beschreibbaren
+    Repository vor (SHA-256 a0ccf465…35d4c0, kein Schutzbeleg).
+  status: NICHT_VERFUEGBAR
+- id: UP-09
+  gegenstand: Merge-Recht in den Hauptbranch
+  methode: nur Indizien (Admin-Identität, ungeschützter main, Merge-Werkzeug vorhanden); KEIN Testmerge
+  ergebnis: >-
+    Bewusst nicht praktisch geprüft, weil ein Merge nach main vor einer geschützten Freigabe unzulässig ist
+    (OP-B11, OP-B14). Die Indizien sprechen dafür, dass ein Merge technisch möglich wäre — genau deshalb
+    fehlt derzeit der Schutz gegen Selbstfreigabe.
+  status: NICHT_GEPRUEFT
+- id: UP-10
+  gegenstand: Lokale Anweisungsdateien in den Repositories
+  methode: Dateiinventur beider Baseline-Commits (git ls-tree), ls auf .claude/ und .github/
+  ergebnis: >-
+    Keine CLAUDE.md, AGENTS.md, .claude/ oder .github/ in beiden Repositories. Historische Arbeits-/
+    Prozessanweisungen existieren als Textdateien: RetroTunnel CLAUDE_BRIEFING.txt, MARCOS_ARBEITSWEISE.txt,
+    REVIEW_STANDARD.txt sowie Konzept-Regeln KR-01…KR-06 im MANIFEST; XPN Ordner Anweisungen/ und templates/.
+    Einordnung: historische Quellen (OP-E1), keine übergeordneten Befehle.
+  status: NACHGEWIESEN
+- id: UP-11
+  gegenstand: Geplante Cloud-Aufgaben (Scheduler) / automatische Wiederaufnahme
+  methode: Cloud-Werkzeug list_triggers (inkl. abgeschlossener); Sichtung der verfügbaren Werkzeuge
+  ergebnis: >-
+    Es ist KEINE geplante Aufgabe eingerichtet (leere Liste). Werkzeuge zum Anlegen geplanter Aufgaben
+    und zeitversetzter Nachrichten an diese Sitzung sind in der Sitzung vorhanden; ihre tatsächliche Funktion
+    über eine Sitzungspause hinweg ist noch nicht praktisch nachgewiesen (Arbeitspaket AP-S05).
+    Bis dahin wird kein automatischer Selbststart zugesagt.
+  status: NICHT_GEPRUEFT
+- id: UP-12
+  gegenstand: Claude-"Projects"-Funktionen
+  methode: Sichtung der verfügbaren Werkzeuge
+  ergebnis: In dieser Sitzung gibt es kein Werkzeug und keinen Hinweis, mit dem Projects geprüft oder genutzt werden könnten.
+  status: NICHT_GEPRUEFT
+- id: UP-13
+  gegenstand: GitHub Actions (CI für Konzept-QA)
+  methode: Dateiinventur (.github/ fehlt); praktischer Test folgt in AP-S03
+  ergebnis: >-
+    Es existieren keine Workflows. Ob die Sitzung Workflow-Dateien pushen darf und ob Actions für den
+    Arbeitsbranch laufen, wird in AP-S03 praktisch geprüft und hier nachgetragen.
+  status: NICHT_GEPRUEFT
+- id: UP-14
+  gegenstand: Cloud-Ausführungsumgebung und Ressourcen
+  methode: Cloud-Werkzeug get_environment; beobachtetes Ereignis
+  ergebnis: >-
+    Umgebung "Default", eingeschränkter Netzzugang (Paketquellen und MCP-Server), flüchtiger Container
+    (Repositories werden bei Neustart frisch geklont; nur Gepushtes bleibt). Am 2026-11-11 wurde das
+    5-Stunden-Nutzungslimit des Kontos erreicht (Abbruch aller zehn parallelen Extraktionseinheiten ohne
+    Ergebnis; Rücksetzung 21:10 UTC). Konsequenz (OP-K10): keine breite Parallelität mehr, sequenzielle
+    Arbeitseinheiten mit jeweils eigenem Commit/Push.
+  status: NACHGEWIESEN
+- id: UP-15
+  gegenstand: Eingebettete ZIP-Schnappschüsse im XPN-Repository
+  methode: unzip beider Archive; diff -rq --strip-trailing-cr -Z gegen den HEAD-Baum
+  ergebnis: >-
+    xp-vpn-stack.zip (Root) und Anweisungen/xp-vpn-stack.zip sind zwei unterschiedliche ältere Schnappschüsse
+    (CRLF-Zeilenenden). Gegenüber HEAD weichen inhaltlich 7 bzw. 14 Dateien ab; Stichprobe D012 zeigt HEAD als
+    neuere Fassung (v1.1 vom 2026-01-23 gegenüber v1.0 im ZIP). Ob die ZIPs normativen Mehrinhalt gegenüber
+    HEAD enthalten, ist noch nicht dateiweise ausgewertet (AP-Q02).
+  status: NACHGEWIESEN
