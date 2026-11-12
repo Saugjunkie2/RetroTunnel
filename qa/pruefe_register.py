@@ -37,6 +37,7 @@ class Pruefung:
         self.root, self.git, self.xpn = root, git or root, xpn
         self.fehler, self.hinweise = [], []
         self._cache = {}
+        self.trace_ziele = set()
 
     def err(self, m):
         self.fehler.append(m)
@@ -262,7 +263,7 @@ class Pruefung:
         for f in sorted(glob.glob(os.path.join(self.root, "governance/register/trace/*.yaml"))):
             rel = os.path.relpath(f, self.root)
             t = self.lade(rel)
-            if not t:
+            if not t or str(t.get("schema", "")).startswith("neu_begruendet"):
                 continue
             quelle, datei = t.get("quelle"), t.get("datei")
             if quelle not in ("RT", "XPN") or not datei:
@@ -291,6 +292,7 @@ class Pruefung:
                     self.err(f"{rel} {i}: {r.get('einordnung')} ohne erfuellt_in (heutiger Erfuellungsort)")
                 for ziel in ziele:
                     pfad, _, anker = str(ziel).partition("#")
+                    self.trace_ziele.add((pfad, anker))
                     zp = os.path.join(self.root, pfad)
                     if not os.path.exists(zp):
                         self.err(f"{rel} {i}: erfuellt_in-Datei fehlt: {pfad}")
@@ -310,6 +312,91 @@ class Pruefung:
                             self.err(f"{rel} {i}: zitat nicht in {quelle}:{datei}:{zl[0]}-{zl[1]} gefunden")
         return len(ids)
 
+    def pruefe_module(self):
+        """Modulpruefung (Q3/Q6): Invarianten <-> Tests <-> Index <-> Rueckverfolgung.
+        Geprueft werden nur Module, die in governance/register/MODULPRUEFUNG.yaml stehen."""
+        cfg = self.lade("governance/register/MODULPRUEFUNG.yaml", pflicht=False)
+        if not cfg:
+            return 0
+        neu = self.lade("governance/register/trace/NEU_BEGRUENDET.yaml", pflicht=False) or {}
+        neu_ids = {}
+        for e in neu.get("eintraege") or []:
+            if not e.get("begruendung"):
+                self.err(f"NEU_BEGRUENDET {e.get('id')}: begruendung fehlt")
+            neu_ids[(e.get("modul"), e.get("id"))] = e
+        n = 0
+        for m in cfg.get("module") or []:
+            name, pfad = m.get("modul"), m.get("pfad")
+            d = os.path.join(self.root, pfad or "")
+            if not os.path.isdir(d):
+                self.err(f"MODUL {name}: Verzeichnis fehlt: {pfad}")
+                continue
+            n += 1
+            ip, tp = re.escape(m["inv_praefix"]), re.escape(m["test_praefix"])
+            texte = {}
+            for f in sorted(os.listdir(d)):
+                fp = os.path.join(d, f)
+                if os.path.isfile(fp):
+                    with open(fp, encoding="utf-8", errors="replace") as fh:
+                        texte[f] = fh.read()
+            inv_txt, test_txt = texte.get(m["inv_datei"]), texte.get(m["test_datei"])
+            if inv_txt is None or test_txt is None:
+                self.err(f"MODUL {name}: Invarianten- oder Testdatei fehlt")
+                continue
+            inv = re.findall(rf"^  ({ip}-\d{{2,3}})  \S", inv_txt, re.M)
+            tests = re.findall(rf"^  ({tp}-\d{{2,3}})  \S", test_txt, re.M)
+            for liste, art in ((inv, "Invariante"), (tests, "Test")):
+                for x in sorted(set(liste)):
+                    if liste.count(x) > 1:
+                        self.err(f"MODUL {name}: {art} {x} mehrfach definiert")
+                nums = sorted(int(x.rsplit("-", 1)[1]) for x in set(liste))
+                if nums != list(range(1, len(nums) + 1)):
+                    self.err(f"MODUL {name}: {art}n nicht lueckenlos nummeriert (1..{len(nums)})")
+            inv_set, test_set = set(inv), set(tests)
+            # Tests -> Invarianten
+            bloecke = re.split(rf"^  (?={tp}-\d{{2,3}}  )", test_txt, flags=re.M)[1:]
+            referenziert = set()
+            for b in bloecke:
+                tid = re.match(rf"({tp}-\d{{2,3}})", b).group(1)
+                koerper = re.split(r"^={10,}", b, flags=re.M)[0]
+                refs = set()
+                for grp in re.findall(r"\[([^\]]*)\]", koerper):
+                    refs |= set(re.findall(rf"{ip}-\d{{2,3}}", grp))
+                if not refs:
+                    self.err(f"MODUL {name}: {tid} verweist auf keine Invariante")
+                for r in refs - inv_set:
+                    self.err(f"MODUL {name}: {tid} verweist auf undefinierte Invariante {r}")
+                referenziert |= refs
+            for i in sorted(inv_set - referenziert):
+                self.err(f"MODUL {name}: Invariante {i} wird von keinem Test geprueft")
+            # Erwaehnungen im ganzen Modul muessen definiert sein
+            for f, t in texte.items():
+                for x in set(re.findall(rf"(?<![A-Z-]){ip}-\d{{2,3}}(?!\d)", t)) - inv_set:
+                    self.err(f"MODUL {name}: {f} erwaehnt undefinierte Invariante {x}")
+                for x in set(re.findall(rf"{tp}-\d{{2,3}}(?!\d)", t)) - test_set:
+                    self.err(f"MODUL {name}: {f} erwaehnt undefinierten Test {x}")
+            # Index: Dateiliste und Zaehlbereiche
+            idx = texte.get(m.get("index_datei", ""), "")
+            if idx:
+                for f in texte:
+                    if f not in idx:
+                        self.err(f"MODUL {name}: Datei {f} fehlt im Index")
+                for f in set(re.findall(rf"{re.escape(name)}_\w+\.txt", idx)) - set(texte):
+                    self.err(f"MODUL {name}: Index nennt nicht existierende Datei {f}")
+                for praef, menge in ((m["inv_praefix"], inv_set), (m["test_praefix"], test_set)):
+                    mm = re.search(rf"{re.escape(praef)}-01\.\.{re.escape(praef)}-(\d{{2,3}})", idx)
+                    if not mm or int(mm.group(1)) != len(menge):
+                        self.err(f"MODUL {name}: Index-Zaehlbereich fuer {praef} passt nicht zu {len(menge)} Definitionen")
+            # Rueckrichtung: jede Invariante hat Herkunft (Trace-Record) oder ist neu begruendet
+            ziel_pfad = f"{pfad}/{m['inv_datei']}"
+            for i in sorted(inv_set):
+                if (ziel_pfad, i) not in self.trace_ziele and (name, i) not in neu_ids:
+                    self.err(f"MODUL {name}: Invariante {i} ohne Herkunft (kein Trace-Record, nicht in NEU_BEGRUENDET)")
+            for (mod, i) in neu_ids:
+                if mod == name and i not in inv_set:
+                    self.err(f"NEU_BEGRUENDET: {mod} {i} ist keine definierte Invariante")
+        return n
+
     def lauf(self):
         st = self.lade("governance/STATUS.yaml")
         up = self.lade("governance/UMGEBUNGSPRUEFUNG.yaml")
@@ -324,10 +411,11 @@ class Pruefung:
         self.pruefe_befunde(bf, pakete, commits)
         self.pruefe_verbesserungen(vb)
         n = self.pruefe_trace(commits)
+        nm = self.pruefe_module()
         offen = [b["id"] for b in (bf or {}).get("befunde") or []
                  if b.get("klasse") in ("KRITISCH", "SCHWERWIEGEND") and b.get("status") not in BF_ERLEDIGT]
         print(f"Fachstatus: {(st or {}).get('fachstatus')} | Arbeitspakete: {len(pakete)} | "
-              f"Trace-Records: {n} | offene kritische/schwerwiegende Befunde: {len(offen)} {offen}")
+              f"Trace-Records: {n} | gepruefte Module: {nm} | offene kritische/schwerwiegende Befunde: {len(offen)} {offen}")
         for h in self.hinweise:
             print("HINWEIS:", h)
         if self.fehler:

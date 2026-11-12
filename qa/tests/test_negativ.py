@@ -24,10 +24,9 @@ TRACE = "governance/register/trace/_TEST_README.yaml"
 
 class Basis(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="rt-qa-")
-        shutil.copytree(os.path.join(ROOT, "governance"), os.path.join(self.tmp, "governance"))
-        shutil.copy(os.path.join(ROOT, "PRIORITAETENLISTE.txt"), self.tmp)
-        shutil.copy(os.path.join(ROOT, "README.md"), self.tmp)
+        self.tmp = os.path.join(tempfile.mkdtemp(prefix="rt-qa-"), "kopie")
+        # Vollstaendige Kopie des Arbeitsbaums (ohne .git): Register verweisen auf Konzept- und QA-Dateien.
+        shutil.copytree(ROOT, self.tmp, ignore=shutil.ignore_patterns(".git", "__pycache__"))
         # Fixture: Status auf einen einfachen, gueltigen Grundzustand normalisieren,
         # damit die Tests unabhaengig vom jeweiligen Projektfortschritt sind.
         st = self.lade(STATUS)
@@ -38,7 +37,7 @@ class Basis(unittest.TestCase):
         self.schreibe(STATUS, st)
 
     def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
+        shutil.rmtree(os.path.dirname(self.tmp), ignore_errors=True)
 
     def lade(self, rel):
         with open(os.path.join(self.tmp, rel), encoding="utf-8") as f:
@@ -227,6 +226,40 @@ class Rueckverfolgung(Basis):
     def test_uebernommen_ohne_erfuellungsort(self):
         self.trace_fixture(erfuellt_in=[])
         self.erwarte_fehler("ohne erfuellt_in")
+
+
+class Modulpruefung(Basis):
+    """Invarianten <-> Tests <-> Index <-> Herkunft muessen maschinell erzwungen sein."""
+    MOD = "base/BASE-040_TUNNEL_WIREGUARD"
+
+    def text(self, datei, fn):
+        p = os.path.join(self.tmp, self.MOD, datei)
+        with open(p, encoding="utf-8") as f:
+            s = f.read()
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(fn(s))
+
+    def test_invariante_ohne_test(self):
+        self.text("BASE-040_090_INVARIANTEN.txt", lambda s: s + "\n  WT-53  Ungepruefte Zusatzinvariante.\n")
+        self.erwarte_fehler("Invariante WT-53 wird von keinem Test geprueft")
+
+    def test_test_verweist_auf_undefinierte_invariante(self):
+        self.text("BASE-040_095_TESTS.txt", lambda s: s.replace("[WT-11]", "[WT-99]", 1))
+        self.erwarte_fehler("verweist auf undefinierte Invariante WT-99")
+
+    def test_invariante_ohne_herkunft(self):
+        neu = self.lade("governance/register/trace/NEU_BEGRUENDET.yaml")
+        neu["eintraege"] = [e for e in neu["eintraege"] if e["id"] != "WT-03"]
+        self.schreibe("governance/register/trace/NEU_BEGRUENDET.yaml", neu)
+        self.erwarte_fehler("Invariante WT-03 ohne Herkunft")
+
+    def test_index_nennt_fehlende_datei(self):
+        os.remove(os.path.join(self.tmp, self.MOD, "BASE-040_080_CLIENT_ANFORDERUNGEN.txt"))
+        self.erwarte_fehler("Index nennt nicht existierende Datei BASE-040_080_CLIENT_ANFORDERUNGEN.txt")
+
+    def test_luecke_in_nummerierung(self):
+        self.text("BASE-040_090_INVARIANTEN.txt", lambda s: s.replace("  WT-07  ", "  WT-77  ", 1))
+        self.erwarte_fehler("nicht lueckenlos nummeriert")
 
 
 class Quelleninventar(unittest.TestCase):

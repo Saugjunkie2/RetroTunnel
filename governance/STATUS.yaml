@@ -1,10 +1,10 @@
 # Aktueller Checkpoint des Betreiberauftrags. Der Git-Commit, der diese Datei zuletzt ändert, IST der Checkpoint.
 # Fachstatus und Ausführungsstatus sind getrennte Dimensionen (Betreiberregeln §8).
 schema: status/1
-checkpoint: 1
-stand: "2026-11-11"
+checkpoint: 2
+stand: "2026-11-12"
 fachstatus: IN_BEARBEITUNG            # IN_BEARBEITUNG | PRUEFBEREIT | NACHBESSERUNG | FACHLICH_FERTIG_FREIGABE_BLOCKIERT | FREIGEGEBEN | ABGESCHLOSSEN_UND_UEBERNOMMEN
-ausfuehrungsstatus: aktiv             # aktiv | pausiert | extern blockiert | wiederaufnehmbar
+ausfuehrungsstatus: wiederaufnehmbar  # aktiv | pausiert | extern blockiert | wiederaufnehmbar
 identitaeten:
   zielrepo: https://github.com/Saugjunkie2/RetroTunnel
   arbeitsbranch: claude/friendly-allen-4qg7kn
@@ -17,16 +17,24 @@ identitaeten:
     sha256_arbeitskopie: a0ccf4654d87a63a8777a62084cd2a58669744b5549ee3fb44ac334dfe35d4c0
     extern_geprueft: false            # keine externe, gegen den Hauptarchitekten geschützte Referenz eingerichtet
 gates:
-  G1: {zustand: OFFEN, hinweis: "Konzept unvollständig: BASE-040…110, MOD-001…010, Proofs, Implementierungsplan fehlen; kein Freeze."}
+  G1: {zustand: OFFEN, hinweis: "Konzept unvollständig: BASE-050…110, MOD-001…010, Nachzug BASE-000…030, Proofs, Implementierungsplan fehlen; kein Freeze."}
   G2: {zustand: OFFEN, hinweis: "Kein eingefrorener Kandidat; keine Audits durchgeführt."}
-  G3: {zustand: OFFEN, hinweis: "Technische Endkontrolle setzt Kandidaten voraus; QA-Werkzeuge im Aufbau (AP-S03)."}
-  G4: {zustand: NICHT_ERFUELLBAR_OHNE_BETREIBERAKTION, hinweis: "Keine Selbstfreigabe-Sperre, keine externe Regelreferenz (UP-05…UP-08). Einrichtungsanfrage: AP-S04."}
+  G3: {zustand: OFFEN, hinweis: "Technische Endkontrolle setzt Kandidaten voraus; QA-Werkzeuge vorhanden und im CI aktiv."}
+  G4: {zustand: NICHT_ERFUELLBAR_OHNE_BETREIBERAKTION, hinweis: "Keine Selbstfreigabe-Sperre, keine externe Regelreferenz (UP-05…UP-08). Einrichtungsanfrage gestellt: governance/BETREIBER_EINRICHTUNGSANFRAGE.md."}
+automatische_wiederaufnahme:
+  eingerichtet: true
+  mechanismus: "Geplante Aufgabe trig_016TCErUz8LqpGu3rkrbt6bb, Cron 12 */3 * * * (UTC), gebunden an die laufende Sitzung"
+  nachweis: "Auslösungen 2026-11-12 03:12:34Z und 06:12:45Z wurden zugestellt; verarbeitet 07:11Z nach Limit-Reset (UP-11)"
+  grenze: "Kein Nachweis einer Fortsetzung ohne Nutzeraktion; ein erschöpftes Nutzungslimit wird nicht überwunden."
 nachweise_bisher:
 - "Eingangsprüfung mit Methode/Ergebnis je Punkt: governance/UMGEBUNGSPRUEFUNG.yaml (dokumentiert, in der Sitzung tatsächlich ausgeführt)"
-- "Quelleninventar beider Repositories gegen die Baseline-Commits maschinell geprüft (qa/quelleninventar.py --check: OK am 2026-11-11)"
+- "Quelleninventar beider Repositories gegen die Baseline-Commits maschinell geprüft (qa/quelleninventar.py --check)"
+- "Register-, Trace- und Modulprüfung maschinell (qa/pruefe_register.py); Negativtests der QA-Werkzeuge (qa/tests); CI-Workflow Konzept-QA auf GitHub (erster Lauf 43102611759 success)"
+- "BASE-040: 52 Invarianten, 58 Tests (Belegstand: geplant, keine Ausführung), 100 Rückverfolgungs-Records mit maschinell gegen die Baseline geprüften Zitaten, 6 neu begründete Invarianten"
+- "Diese Ausführung wurde am 2026-11-12 07:11Z nach Zustellung der geplanten Auslösungen von 03:12:34Z und 06:12:45Z fortgesetzt"
 lesestand:
-  rt: "5 von 100 Dateien vollständig, 1 teilweise gelesen (Details: register/QUELLENINVENTAR.yaml)"
-  xpn: "1 von 105 Textdateien vollständig gelesen; noch KEINE inhaltliche XPN-Auswertung"
+  hinweis: "Details je Datei: register/QUELLENINVENTAR.yaml (Selbstauskunft; belastbar sind die Trace-Records)"
+  xpn: "4 von 105 Textdateien vollständig gelesen (B040, B059, B100, readme_2.6.md); die systematische XPN-Auswertung steht überwiegend noch aus"
 blockaden:
 - id: BL-01
   betrifft: [G4]
@@ -35,10 +43,14 @@ blockaden:
 - id: BL-02
   betrifft: [Ausfuehrung]
   art: Ressourcenlimit
-  beschreibung: 5-Stunden-Nutzungslimit des Kontos; Arbeit erfolgt in sequenziellen, einzeln gesicherten Einheiten.
+  beschreibung: Das 5-Stunden-Nutzungslimit wurde bisher dreimal erreicht (2026-11-11 ca. 16:2x, vor 2026-11-12 02:10 und vor 07:10 UTC). Pro Fenster ist nur ein begrenzter Arbeitsumfang möglich; Arbeit erfolgt in kleinen, einzeln gesicherten Einheiten.
+- id: BL-03
+  betrifft: [Quellenbasis]
+  art: Quellenlücke (kein Blocker)
+  beschreibung: Moduldateien im Repository liegen hinter dem Changelog-Stand (BF-0010); mehrere referenzierte Quellen fehlen (BF-0001, BF-0003). Nachlieferung durch den Betreiber erbeten; bis dahin Rekonstruktion aus belegten Fundstellen.
 naechste_schritte:
-- AP-S03 QA-Werkzeuge + Negativtests + CI
-- AP-S04 Einrichtungsanfrage an den Betreiber
-- AP-Q01 RetroTunnel-Bestand fertig lesen
-- AP-Q03 D004 und weitere fehlende Pflichtquellen behandeln
-- AP-K040 BASE-040_TUNNEL_WIREGUARD
+- AP-K050 BASE-050_FIREWALL_CORE (beantwortet ANF-WT-01…06; löst BF-0006 vollständig)
+- AP-K070 BASE-070_SESSION_CORE (beantwortet ANF-WT-09/10; D004-Verträge tunnelneutral)
+- AP-K080 BASE-080_POLICY_APPLY_CORE (beantwortet ANF-WT-07/08)
+- AP-Q04 Nachzug BASE-000…030 gemäß Changelog und BASE-040-Anforderungen (ANF-WT-11/18)
+- AP-Q01/AP-Q02 Quellen weiter vollständig lesen und zuordnen

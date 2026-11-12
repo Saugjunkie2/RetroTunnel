@@ -1,7 +1,67 @@
 # Funktions-/Verbesserungsanalyse (Betreiberregeln §4.2/§4.3, §10.3). Grundlage des Funktions-Freeze.
 # einstufung: ZWINGEND_NOTWENDIG | BETRIEBLICH_NOTWENDIG | WESENTLICH_VORTEILHAFT | OPTIONAL | NICHT_SINNVOLL
 # entscheidung: INTEGRIEREN | ROADMAP | VERWORFEN | OFFEN
-# Die systematische Analyse ist Arbeitspaket AP-V01; bis dahin ist die Liste leer und der Freeze NICHT erklärt.
+# Die systematische Gesamtanalyse ist Arbeitspaket AP-V01; die Einträge unten sind die bei der Modularbeit
+# bereits identifizierten Punkte. Der Freeze ist NICHT erklärt.
 schema: verbesserungen/1
 freeze_erklaert: false
-eintraege: []
+eintraege:
+- id: VB-0001
+  titel: WireGuard-Schlüsselmaterial at-Rest verschlüsseln (Profile und PresharedKeys unter dem CEK)
+  zweck: DB-Dump oder Dateizugriff außerhalb der Backup-Verschlüsselung gibt keine WG-Zugangsdaten preis; Gleichbehandlung mit dem L2TP-Passwort.
+  einstufung: WESENTLICH_VORTEILHAFT
+  entscheidung: INTEGRIEREN
+  begruendung: Geringe Folgekosten (CEK-Infrastruktur ist beschlossen), schließt die im Changelog v2.1.13 akzeptierte Lücke "Klartext-.conf mit Dateirechten".
+  folgekosten: Schemaänderung wg_preshared_key_enc; Reveal-Helfer in BASE-110; CEK-Verfügbarkeit wird Voraussetzung für Peer-Add.
+  integriert_in: [base/BASE-040_TUNNEL_WIREGUARD/BASE-040_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-WT-11]
+  entdeckt_in: AP-K040
+- id: VB-0002
+  titel: Kernel-Zähler als Puffer und Snapshot-Spool beim Interface-Stop statt RAM-Puffer
+  zweck: Kein Verbrauchsverlust bei DB-Störung, beschränkter Speicher, absturzfest.
+  einstufung: BETRIEBLICH_NOTWENDIG
+  entscheidung: INTEGRIEREN
+  begruendung: Der RAM-Puffer (WG-GRACE-01) verliert bei Controller-Absturz alles und braucht eine künstliche Obergrenze mit vorzeitigem Dienst-Stop.
+  folgekosten: PreDown-Hook, Spool-Verzeichnis im Backup-Scope, Laufzeitmarke für die Interface-Generation.
+  integriert_in: [decisions/D004_RUNTIME_TRUTH_VS_SQL_PERSISTENZ.txt#P-02, base/BASE-040_TUNNEL_WIREGUARD/BASE-040_060_DB_DOWN_GRACE_UND_FAIL_CLOSED.txt#SNAPSHOT]
+  entdeckt_in: AP-K040
+- id: VB-0003
+  titel: Fail-Closed-Kopplung bei Controller-Ausfall (Watchdog, begrenzte Neustarts, Stop von awg0)
+  zweck: WireGuard läuft nicht dauerhaft ohne Grace-Überwachung, Admission-Wächter und Buchung.
+  einstufung: ZWINGEND_NOTWENDIG
+  entscheidung: INTEGRIEREN
+  begruendung: Ohne Kopplung hebt ein abgestürzter Controller das Fail-Closed-Modell für WireGuard auf.
+  folgekosten: Zusätzliche Helfer-Unit; Wiederanlauf nach Daueraussfall erfordert Admin-Eingriff.
+  integriert_in: [base/BASE-040_TUNNEL_WIREGUARD/BASE-040_090_INVARIANTEN.txt#WT-45]
+  entdeckt_in: AP-K040
+- id: VB-0004
+  titel: Rückfallrouten "unreachable" für die Tunnel-Adressräume
+  zweck: Kein Abfluss von Paketen an Tunneladressen über die Default-Route, wenn ein Tunnel-Interface fehlt.
+  einstufung: WESENTLICH_VORTEILHAFT
+  entscheidung: INTEGRIEREN
+  begruendung: Verhindert Adress-/Datenlecks in einem realistischen Betriebszustand (Grace-Stop, Wartung); eine Zeile Konfiguration.
+  folgekosten: Zwei statische Routen; Umsetzung in BASE-005/BASE-050.
+  integriert_in: [base/BASE-040_TUNNEL_WIREGUARD/BASE-040_090_INVARIANTEN.txt#WT-11]
+  entdeckt_in: AP-K040
+- id: VB-0005
+  titel: Betriebsart "Nutzer liefert eigenen PublicKey" (Server kennt den Client-PrivateKey nie)
+  zweck: Schutz der Client-Schlüssel auch gegen Server-Kompromittierung.
+  einstufung: OPTIONAL
+  entscheidung: ROADMAP
+  begruendung: Widerspricht in dieser Betriebsart der Owner-Vorgabe "Profil jederzeit im Panel abrufbar"; nur für versierte Nutzer sinnvoll; kein Mangel des Grundkonzepts.
+  folgekosten: Zweiter Provisioning-Pfad, kein QR/Profil-Abruf für solche Connections.
+  entdeckt_in: AP-K040
+- id: VB-0006
+  titel: Obfuskationsparameter neuerer AmneziaWG-Generationen
+  zweck: Höhere Resistenz gegen Protokollerkennung.
+  einstufung: OPTIONAL
+  entscheidung: ROADMAP
+  begruendung: Nur zulässig, wenn alle Zielplattformen sie unterstützen (DEC-WT-06); erfordert Massen-Neuausstellung; Client-Matrix noch nicht geprüft.
+  folgekosten: REISSUE aller Profile, erweiterter Settings-Katalog.
+  entdeckt_in: AP-K040
+- id: VB-0007
+  titel: Zweiter Listener mit Standard-WireGuard für Clients ohne AmneziaWG-App
+  zweck: Größere Client-Kompatibilität.
+  einstufung: NICHT_SINNVOLL
+  entscheidung: VERWORFEN
+  begruendung: Zweiter WAN-Port und zweites Interface mit eigener Firewall-, Accounting- und SimUse-Behandlung; DPI-erkennbare Signatur (DEC-WT-07).
+  entdeckt_in: AP-K040

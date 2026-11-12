@@ -1,0 +1,163 @@
+schema: trace/1
+quelle: XPN
+datei: blocks/B059_IKEV2_CREDENTIALS_GATE0_CERTTRUST_OPS_CONTRACT.txt
+einheit: AP-K040
+vollstaendigkeit: TEILWEISE (nur die fuer BASE-040 massgeblichen Aussagen; weitere Records folgen in den zustaendigen Arbeitspaketen)
+records:
+- id: TR-XB059-01
+  zitat: Gate-0 ist Infrastruktur-Zugang (Server-Authentizität), niemals Identität/Policy-Key.
+  art: SCHUTZZIEL
+  aussage: Der Client muss die Echtheit des Servers pruefen koennen; dieses Merkmal ist keine Kundenidentitaet.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_090_INVARIANTEN.txt#WT-21
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_040_SCHLUESSEL_UND_CLIENT_PROFILE.txt#Server-PublicKey
+  begruendung: IKEv2-Zertifikat entfaellt. Server-Authentizitaet entsteht bei WireGuard durch den im Profil hinterlegten Server-PublicKey;
+    Schutz des zugehoerigen PrivateKey ist Invariante.
+  zeilen:
+  - 26
+  - 26
+- id: TR-XB059-02
+  zitat: Identität/Policy bindet an vpn_connection via connection_login (Username/Password),
+  art: SCHUTZZIEL
+  aussage: Identitaet und Policy haengen an genau einer vpn_connection.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_090_INVARIANTEN.txt#WT-09
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_090_INVARIANTEN.txt#WT-10
+  begruendung: Bindung erfolgt ueber wg_public_key (1:1 zur Connection) und die festen Tunneladressen statt ueber Login/Passwort.
+  zeilen:
+  - 27
+  - 27
+- id: TR-XB059-03
+  zitat: Es gibt KEIN Client-Zertifikat in diesem Modell.
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Keine Client-Zertifikate im IKEv2-Modell.
+  einordnung: NICHT_ANWENDBAR
+  erfuellt_in: []
+  begruendung: WireGuard kennt keine X.509-Zertifikate; die Aussage ist gegenstandslos.
+  zeilen:
+  - 25
+  - 25
+- id: TR-XB059-04
+  zitat: Untrusted/Invalid/Expired Server-Zertifikat → kein erfolgreicher IKEv2 Aufbau (fail-closed auf Gate-0).
+  art: SCHUTZZIEL
+  aussage: Ohne gueltige Server-Authentisierung kein Tunnel.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_090_INVARIANTEN.txt#WT-51
+  begruendung: 'Bei WireGuard kryptographisch erzwungen: ohne passenden Server-Schluessel kein Handshake. Zugang beruht ausschliesslich
+    auf WireGuard-Kryptographie und SQL-abgeleitetem Peer-Set.'
+  zeilen:
+  - 35
+  - 35
+- id: TR-XB059-05
+  zitat: Private Key + Zertifikat sind root-only auf dem Server.
+  art: SCHUTZZIEL
+  aussage: Privates Server-Schluesselmaterial ist nur fuer root lesbar.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_090_INVARIANTEN.txt#WT-21
+  begruendung: Uebernommen fuer awg0.key (root:root 0600).
+  zeilen:
+  - 40
+  - 40
+- id: TR-XB059-06
+  zitat: Keine Zertifikats-/Key-Materialien in SQL/Panel/Logs.
+  art: SCHUTZZIEL
+  aussage: Schluesselmaterial gehoert nicht in SQL, Panel oder Logs.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_090_INVARIANTEN.txt#WT-20
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_090_INVARIANTEN.txt#WT-21
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_090_INVARIANTEN.txt#WT-22
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_090_INVARIANTEN.txt#WT-28
+  begruendung: 'Fuer den Server-Schluessel unveraendert. Fuer Client-Zugangsdaten gilt die spaetere Owner-Entscheidung (Changelog
+    v2.1.13): Nutzer sehen ihr eigenes Profil im Panel. Ausgleich: at-Rest-Verschluesselung, Zugriff nur ueber auditierten
+    Helfer, nie in Logs.'
+  zeilen:
+  - 41
+  - 41
+- id: TR-XB059-07
+  zitat: Logs dürfen nur generische Reasons enthalten
+  art: SCHUTZZIEL
+  aussage: Logs enthalten nur generische Gruende, keine Geheimnisse.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_090_INVARIANTEN.txt#WT-20
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_090_INVARIANTEN.txt#WT-52
+  begruendung: Unveraendert uebernommen.
+  zeilen:
+  - 42
+  - 42
+- id: TR-XB059-08
+  zitat: Renewal ist Pflicht (kurzlebige Public-CA Zertifikate).
+  art: BETRIEB
+  aussage: Zertifikate muessen regelmaessig erneuert werden.
+  einordnung: NICHT_ANWENDBAR
+  erfuellt_in:
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_040_SCHLUESSEL_UND_CLIENT_PROFILE.txt#5.4 ROTATION DES SERVER-SCHLUESSELS
+  begruendung: Ohne Zertifikate gibt es keine Ablaufsfrist. An die Stelle tritt ein Ausnahmeverfahren zur Rotation des Server-Schluessels.
+  zeilen:
+  - 46
+  - 46
+- id: TR-XB059-09
+  zitat: Dauerhaft von WAN erreichbar bleiben nur die VPN-Endpunkte (UDP 500/4500 + ESP).
+  art: SCHUTZZIEL
+  aussage: Am WAN lauschen dauerhaft nur die VPN-Endpunkte.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_090_INVARIANTEN.txt#WT-01
+  begruendung: Erweitert um genau einen WireGuard-UDP-Port; kein weiterer Listener, kein Erneuerungs-Port.
+  zeilen:
+  - 48
+  - 48
+- id: TR-XB059-10
+  zitat: RADIUS down → Gate-1 fail-closed (kein Policy-Apply).
+  art: SCHUTZZIEL
+  aussage: Faellt die Entscheidungsinstanz aus, wird kein Zugang gewaehrt.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_090_INVARIANTEN.txt#WT-42
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_090_INVARIANTEN.txt#WT-43
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_090_INVARIANTEN.txt#WT-47
+  begruendung: 'WireGuard hat keine Rueckfrage je Verbindung. Fail-Closed auf Dienstebene: keine neuen Peers ohne DB, nach
+    begrenzter Grace-Zeit Dienst-Stop (Owner-Entscheidung 2026-04-18).'
+  zeilen:
+  - 56
+  - 56
+- id: TR-XB059-11
+  zitat: Wiederholte Auth-Fails → Rate-Limit/Abuse-Schutz greift gemäß globalem Abuse-Konzept
+  art: SCHUTZZIEL
+  aussage: Wiederholte Fehlversuche werden begrenzt.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_070_OWNER_GRENZEN.txt#ANF-WT-03
+  begruendung: WireGuard beantwortet ungueltige Pakete nicht und erzeugt keine Auth-Fehlerereignisse; der Schutz erfolgt als
+    Ratenbegrenzung je Quelle auf dem UDP-Port (Anforderung an BASE-050).
+  zeilen:
+  - 57
+  - 57
+- id: TR-XB059-12
+  zitat: 'Logs/Diag zeigen klare Reason-Codes (ohne Secrets/PEM); Admin kann unterscheiden:'
+  art: BETRIEB
+  aussage: Der Admin kann Fehlerursachen des Verbindungsaufbaus unterscheiden.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_080_CLIENT_ANFORDERUNGEN.txt#DIAGNOSE-MATRIX
+  begruendung: Die Trennung Gate-0/Gate-1 wird durch die Unterscheidung Peer fehlt / Peer vorhanden ohne Handshake ersetzt
+    und im Panel je Connection sichtbar gemacht.
+  zeilen:
+  - 68
+  - 68
+- id: TR-XB059-13
+  zitat: Legacy (IKEv1/L2TP PSK) bleibt unverändert funktionsfähig; keine Cross-Impact durch IKEv2 Änderungen.
+  art: SCHUTZZIEL
+  aussage: Der moderne Pfad darf den L2TP-Pfad nicht beeintraechtigen.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_060_DB_DOWN_GRACE_UND_FAIL_CLOSED.txt#TUNNEL-UNABHAENGIGKEIT
+  begruendung: Stop/Start von awg0 wirkt nur auf WireGuard.
+  zeilen:
+  - 70
+  - 70
