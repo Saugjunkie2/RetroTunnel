@@ -1,0 +1,323 @@
+================================================================================
+BASE-040 — PEER LIFECYCLE
+================================================================================
+DATEI: BASE-040_030_PEER_LIFECYCLE.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Zustandsmodell der WireGuard-Peers, die Treiber-Operationen (Add ueber
+  Gate, Remove als Hard-Cut, Massenabgleich), die Zuordnung der Connection-
+  Ereignisse zu Peer-Aktionen sowie Nebenlaeufigkeit, Idempotenz und
+  Verhalten bei Abbruch. Setzt DEC-WT-01 um.
+
+================================================================================
+1) ZUSTANDSMODELL
+================================================================================
+
+  SOLL-FUNKTION (rein aus SQL, deterministisch, tunnelspezifisch):
+
+    soll(c) = PRESENT, wenn ALLE Bedingungen gelten:
+        c.tunnel_type = 'WIREGUARD'
+        c.op_status IN ('ACTIVE','RESTRICTED')
+        c.revoked_at IS NULL
+        c.fixed_ip IS NOT NULL AND c.fixed_ipv6 IS NOT NULL
+        es existiert genau eine Row in wg_connection_auth fuer c
+      sonst ABSENT.
+
+    Zugehoerige Peer-Daten bei PRESENT:
+        PublicKey    = wg_connection_auth.wg_public_key
+        PresharedKey = entschluesselter wg_preshared_key_enc
+        AllowedIPs   = c.fixed_ip/32, c.fixed_ipv6/128   (genau diese zwei,
+                       unveraendert aus der DB, ENTWURF P-01/P-03)
+
+  PREPROVISIONED-Connections (customer_id IS NULL) mit op_status ACTIVE
+  sind PRESENT: Das Geraet darf sich waehrend der Unclaimed-Grace verbinden.
+
+  IST-ZUSTAENDE (Laufzeit-Projektion je Connection):
+    ABSENT    kein Peer mit diesem PublicKey und kein Peer, der die
+              fixed-IPs der Connection in AllowedIPs fuehrt
+    PENDING   fixed-IPs stehen in connect_pending_v4/_v6 (Verkehr wird
+              verworfen); Peer kann fehlen oder bereits eingetragen sein
+    PRESENT   Peer eingetragen, AllowedIPs exakt wie SOLL, fixed-IPs NICHT in
+              connect_pending, Policy-Zustand der Connection hergestellt
+
+  ERLAUBTE UEBERGAENGE:
+    ABSENT  -> PENDING   Add-Sequenz Schritt A2
+    PENDING -> PRESENT   Add-Sequenz Schritt A6 (nur nach Verifikation)
+    PENDING -> ABSENT    Abbruch der Add-Sequenz (Peer entfernt, Gate bleibt
+                         bis zum naechsten Abgleich gesetzt)
+    PRESENT -> ABSENT    Remove-Sequenz
+    PRESENT -> PRESENT   reine Policy-Aenderung (ACTIVE <-> RESTRICTED):
+                         kein Peer-Eingriff
+  Kein direkter Uebergang ABSENT -> PRESENT (WT-06).
+
+================================================================================
+2) TREIBER-OPERATIONEN (innerhalb vpn-policy-apply, Single-Writer-Lock)
+================================================================================
+
+  OPERATION            EINGABE                AUSGABE / ERGEBNISCODES
+  -------------------- ---------------------- --------------------------------
+  wg_ensure            vpn_connection_id      OK_ADDED | OK_UNCHANGED |
+                                              OK_REMOVED | OK_REPLACED |
+                                              TEMPFAIL_DB | FAIL_KERNEL |
+                                              FAIL_VERIFY
+  wg_cut               vpn_connection_id,     OK_REMOVED | OK_ABSENT |
+                       reason                 FAIL_KERNEL
+  wg_sync_all          -                      Zaehler added/removed/replaced/
+                                              unchanged/failed; Gesamtcode OK
+                                              nur wenn failed = 0
+  wg_verify            vpn_connection_id      IST-Zustand + Abweichungsliste
+                       oder "all"             (nur lesend)
+
+  RECHTE: Ausfuehrung als root. Aufrufer: Provisioning-/Lifecycle-Jobs
+  (SYSTEM), Reconcile-Timer, Panel ueber sudo-Helfer mit validierten
+  Argumenten (nur numerische vpn_connection_id bzw. fester Modus),
+  vpn-wg-controller (nur wg_ensure fuer eine Connection oder
+  --reconcile-all nach Interface-Start).
+
+  wg_ensure ist die einzige Schreiboperation fuer den Normalfall: Sie liest
+  soll(c), vergleicht mit dem IST und fuehrt genau die noetige Sequenz aus.
+  Damit ist jeder Aufruf idempotent und beliebig wiederholbar.
+
+  KERNEL-ZUGRIFFE (Spezifikationsbeispiele, keine Implementierung):
+    Lesen ohne Secrets:  awg show awg0 allowed-ips | latest-handshakes |
+                         transfer | endpoints
+    "awg show awg0 dump" und "awg showconf" geben PresharedKeys aus und
+    werden vom Treiber und vom Controller NICHT verwendet (WT-20).
+    Eintragen:  awg set awg0 peer <PUBKEY> preshared-key /dev/stdin
+                allowed-ips <V4>/32,<V6>/128     (PSK ueber stdin, nie argv)
+    Entfernen:  awg set awg0 peer <PUBKEY> remove
+    Massen-Add: awg addconf awg0 <Datei>  (Datei 0600 unter /run/retrotunnel/
+                wg/, nur [Peer]-Bloecke, nach dem Aufruf sofort geloescht)
+
+================================================================================
+3) ADD-SEQUENZ (Gate vor Peer-Add)
+================================================================================
+
+  Vorbedingung: Single-Writer-Lock gehalten; DB erreichbar.
+
+  A1  SQL lesen (konsistenter Lesestand): Connection + Auth-Row. soll(c)
+      muss PRESENT sein, sonst Wechsel in die Remove-Sequenz.
+  A2  GATE SETZEN: fixed_ip in connect_pending_v4, fixed_ipv6 in
+      connect_pending_v6 eintragen (eine nft-Transaktion). Die Elemente
+      tragen KEIN Timeout: ein automatisch ablaufendes Gate waere Fail-Open.
+  A3  POLICY HERSTELLEN: Set-Mitgliedschaften gemaess op_status
+      (RESTRICTED -> restricted_v4/_v6) und Shaping-Zuordnung (MOD-003)
+      fuer die fixed-IPs. Owner der Regeln: BASE-050/BASE-080.
+  A4  CURSOR NULLEN, DANN PEER EINTRAGEN:
+      a) UPDATE vpn_connections SET last_known_rx_bytes = 0,
+         last_known_tx_bytes = 0, counter_epoch = counter_epoch + 1
+         WHERE id = :id AND (last_known_rx_bytes <> 0 OR
+         last_known_tx_bytes <> 0)
+         Begruendung: Ein neu eingetragener Peer beginnt im Kernel bei
+         Zaehlerstand 0 (D004 P-01, kontrollierter Reset).
+      b) Peer eintragen (Kommando siehe Abschnitt 2).
+  A5  VERIFIZIEREN:
+        a) Peer mit PUBKEY vorhanden
+        b) seine AllowedIPs sind exakt {V4/32, V6/128}
+        c) kein ANDERER Peer fuehrt V4 oder V6 (WireGuard verschiebt eine
+           bereits vergebene AllowedIP stillschweigend zum neuen Peer;
+           wegen UNIQUE(fixed_ip) kann das nur bei Drift auftreten)
+        d) Policy-Zustand aus A3 ist im Kernel sichtbar
+  A6  GATE LOESEN: fixed-IPs aus connect_pending_v4/_v6 entfernen.
+      Ergebnis OK_ADDED.
+
+  FEHLER:
+    A2/A3 scheitert  -> kein Peer-Add; Ergebnis FAIL_KERNEL; Gate-Reste
+                        bleiben (unschaedlich: es existiert kein Peer).
+    A4 scheitert     -> wie oben.
+    A5 scheitert     -> Peer wieder entfernen, Gate BLEIBT gesetzt,
+                        Ergebnis FAIL_VERIFY, Ereignis WG_PEER_VERIFY_FAILED.
+    A6 scheitert     -> Peer bleibt, Verkehr bleibt gesperrt (Fail-Closed);
+                        Ergebnis FAIL_KERNEL; naechster Abgleich wiederholt.
+  In keinem Fehlerfall entsteht ein Zustand "Peer vorhanden ohne Policy".
+
+================================================================================
+4) REMOVE-SEQUENZ (Hard-Cut)
+================================================================================
+
+  IDENTIFIKATION des zu entfernenden Peers (beides, Vereinigungsmenge):
+    (i)  PublicKey aus wg_connection_auth, falls die Row noch existiert
+    (ii) jeder Peer, dessen AllowedIPs fixed_ip oder fixed_ipv6 der
+         Connection enthalten
+  (ii) deckt den Tombstone-Fall (Auth-Row bereits geloescht) und Drift ab.
+
+  R1  LETZTE BUCHUNG: DB-Cursor lesen, DANN Kernel-Zaehler des Peers
+      lesen und per D004 P-01 buchen (normale Buchung, Cursor = letzter
+      Zaehlerstand). Ist die DB nicht erreichbar, wird der Zaehlerstand in
+      den Snapshot-Spool geschrieben (BASE-040_060 5). Der Cursor wird hier
+      NICHT genullt; das geschieht erst unmittelbar vor einem erneuten
+      Eintrag (A4a).
+  R2  PEER ENTFERNEN.
+  R3  FLOWS BEENDEN: conntrack-Eintraege mit fixed_ip bzw. fixed_ipv6 als
+      Quelle ODER Ziel loeschen (IPv4 und IPv6).
+  R4  SETS BEREINIGEN: fixed-IPs aus connect_pending und restricted
+      entfernen, soweit der SQL-Zustand sie dort nicht mehr verlangt.
+  R5  VERIFIZIEREN: kein Peer mit PUBKEY; kein Peer mit den fixed-IPs.
+  R6  EREIGNIS: Aktivitaetsende mit Grund (Abschnitt 5) an BASE-070.
+
+  Reihenfolge-Begruendung: R1 vor R2, weil mit dem Peer die Kernel-Zaehler
+  verschwinden. Verkehr zwischen R1 und R2 (Millisekunden) bleibt ungezaehlt;
+  das ist die akzeptierte Messgrenze. Scheitert R1 vollstaendig (DB und Spool nicht schreibbar),
+  wird der Hard-Cut TROTZDEM ausgefuehrt: Zugangsentzug hat Vorrang vor
+  Verbrauchsgenauigkeit; der Verlust wird als WG_ACCOUNTING_LOSS gemeldet.
+
+================================================================================
+5) EREIGNIS-MATRIX (Connection-Lifecycle -> Peer-Aktion)
+================================================================================
+
+  Ausloeser (Owner BASE-010)            SQL-Folge              Peer-Aktion
+  ------------------------------------- ---------------------- ------------------
+  Provisioning Weg A / Weg B            ACTIVE + Auth-Row      Add (Abschnitt 3)
+  T-01 Claim                            customer_id gesetzt    keine; ggf. nur
+                                                               Policy (RESTRICTED
+                                                               -> ACTIVE)
+  T-02/T-03 -> RESTRICTED               op_status              keine; Policy-Sets
+                                                               + conntrack-Flush
+                                                               (BASE-080)
+  T-05 Re-Evaluation                    ACTIVE oder RESTRICTED keine; Policy
+  T-04/T-06/T-07 -> DISABLED            op_status              Remove, Grund
+                                                               CONNECTION_DISABLED
+  T-08 Restore                          ACTIVE oder RESTRICTED Add, sofern Auth-
+                                                               Row vorhanden
+  T-09 Rollenwechsel (D002)             access_role, ip_slot,  Remove (alte IPs),
+                                        fixed_ip, fixed_ipv6   dann Add (neue
+                                                               IPs); neues Profil;
+                                                               Grund CONNECTION_
+                                                               ROLE_CHANGE
+  Schluesselrotation (BASE-040_040 5)   wg_public_key, PSK     Remove (alter
+                                                               Key), Add (neuer
+                                                               Key); Grund
+                                                               AUTH_KEY_ROTATED
+  Tombstone (Customer DELETED)          DISABLED, Auth-Row     Remove ueber
+                                        geloescht              AllowedIPs
+  Admin-Hard-Cut ohne Statuswechsel     keine                  Remove, danach Add
+  (vpn-session-kill)                                           (SOLL bleibt
+                                                               PRESENT); Grund
+                                                               ADMIN_HARDCUT
+  Quarantaene-Purge (Row geloescht)     Row entfernt           keine (Peer ist
+                                                               seit Tombstone
+                                                               ABSENT)
+  DB-Stoerung                           -                      KEINE Mutation
+                                                               (BASE-040_060)
+
+  ANMERKUNGEN:
+  - RESTRICTED entfernt den Peer nie: Tunnel steht, Walled Garden (SES-17).
+  - Admin-Hard-Cut bei unveraendertem SOLL trennt alle Flows und erzwingt
+    einen neuen Handshake; da der Peer sofort wieder eingetragen wird, ist
+    das Geraet nach Sekunden wieder verbunden. Soll der Zugang ENTZOGEN
+    werden, ist die Transition nach DISABLED das Mittel, nicht der Hard-Cut.
+  - Nach T-09 passt das alte Profil nicht mehr (andere Tunneladresse): Der
+    Client sendet mit alter Quelladresse, die der Peer-Eintrag nicht mehr
+    zulaesst. Das neue Profil geht per E-Mail zu (MANIFEST 4.4).
+
+================================================================================
+6) MASSENABGLEICH (wg_sync_all)
+================================================================================
+
+  Einsatz: nach Interface-Start, periodischer Reconcile (BASE-080), manuell.
+
+  S1  SOLL-Menge D in EINEM konsistenten Lesestand aus SQL bilden
+      (PublicKey -> AllowedIPs, PSK).
+  S2  IST-Menge R aus dem Kernel lesen (allowed-ips je PublicKey).
+  S3  Klassifizieren:
+        unveraendert  PublicKey in D und R, AllowedIPs identisch
+        zu_ersetzen   PublicKey in beiden, AllowedIPs verschieden
+        zu_entfernen  PublicKey nur in R (auch: unbekannte Peers)
+        zu_ergaenzen  PublicKey nur in D
+  S4  ENTFERNEN (zu_entfernen + zu_ersetzen) je Peer per Remove-Sequenz.
+  S5  GATE fuer alle fixed-IPs aus zu_ergaenzen + zu_ersetzen in EINER
+      nft-Transaktion setzen.
+  S6  POLICY-ZUSTAND: vollstaendiger Neuaufbau der dynamischen Sets durch
+      BASE-080 (FLUSH+REBUILD), wobei connect_pending aus S5 erhalten bleibt.
+  S7  EINTRAGEN in Buendeln (awg addconf), je Buendel Verifikation.
+  S8  GATE LOESEN nur fuer verifizierte Peers; fuer fehlgeschlagene bleibt
+      das Gate gesetzt und der Peer wird entfernt.
+  S9  Ergebniszaehler protokollieren; Health-Indikator
+      wg_peer_sync_last_ok_at nur bei failed = 0 aktualisieren.
+
+  EIGENSCHAFTEN:
+  - Unveraenderte Peers werden nicht angefasst: laufende Verbindungen
+    bleiben bestehen (nicht-disruptiver Abgleich, Drittreview ZB-004).
+  - Unbekannte Peers (von Hand eingetragen, Altlast) werden entfernt
+    (WT-08). Es gibt keine Allowlist ausserhalb von SQL.
+  - Erkennungs- und Korrekturfrist fuer Peer-Drift: hoechstens
+    vpn_reconcile_interval_seconds + 60 s (gleiche Schranke wie PF-18).
+
+  LEISTUNG: Zielgroesse 5.000 Peers. Erwartung: Erstabgleich nach
+  Interface-Start in unter 60 s. Das ist eine zu messende Annahme, keine
+  Zusage (T-WT-22).
+
+================================================================================
+7) NEBENLAEUFIGKEIT, IDEMPOTENZ, ABBRUCH
+================================================================================
+
+  SPERREN:
+  - /run/vpn-policy-apply.lock (flock): serialisiert ALLE Schreibzugriffe
+    auf nftables, tc und das Peer-Set (R-11). Wartezeit begrenzt; bei
+    Ueberschreitung TEMPFAIL_LOCKED, keine Teilwirkung.
+  - vpn_session_locks (Mutex je Connection, Owner BASE-070): wird von
+    mehrschrittigen Vorgaengen gehalten, die SQL UND Kernel aendern
+    (Schluesselrotation, Rollenwechsel), damit der Controller waehrend
+    des Umbaus keinen Aktivitaetsbeginn verbucht.
+  - SQL: Statusaenderungen sperren die Connection-Row (Owner BASE-010);
+    der Treiber liest nur.
+
+  IDEMPOTENZ: wg_ensure und wg_sync_all vergleichen stets SOLL und IST.
+  Zweimaliges Ausfuehren ohne zwischenzeitliche Aenderung liefert
+  OK_UNCHANGED und veraendert weder Kernel noch DB.
+
+  ABBRUCH-ANALYSE (Prozess stirbt nach dem genannten Schritt):
+    nach A2  Gate gesetzt, kein Peer      -> ungefaehrlich; naechster Lauf
+                                             setzt fort
+    nach A4  Peer + Gate                  -> Verkehr gesperrt (Fail-Closed);
+                                             naechster Lauf verifiziert und
+                                             loest
+    nach R1  gebucht, Peer noch da        -> konsistent (normale Buchung);
+                                             naechster Lauf setzt fort
+    nach A4a Cursor 0, Peer fehlt         -> konsistent (fuer fehlende Peers
+                                             wird nicht gebucht)
+    nach R2  Peer weg, Flows im conntrack -> ohne Peer kein Tunnelverkehr;
+                                             Eintraege laufen aus bzw. werden
+                                             beim naechsten Lauf geloescht
+    Statusaenderung committet, Apply nicht gelaufen
+                                          -> Peer zunaechst weiter vorhanden;
+                                             Korrektur durch Reconcile
+                                             (Frist Abschnitt 6) und frueher
+                                             durch den Admission-Waechter des
+                                             Controllers (BASE-040_050 3)
+
+  WETTLAUF BUCHUNG GEGEN UMBAU: Der Controller bucht ausserhalb des Single-
+  Writer-Locks. Doppelzaehlung wird durch zwei Regeln ausgeschlossen
+  (BASE-040_050 Abschnitt 5): (1) je Buchungslauf werden ZUERST Cursor und
+  counter_epoch aus der DB gelesen, DANACH die Kernel-Zaehler; (2) die
+  Buchung ist ein Compare-and-Set auf counter_epoch. Nullt der Treiber
+  zwischenzeitlich den Cursor (A4a), scheitert das CAS und der Lauf wird
+  fuer diese Connection verworfen.
+
+================================================================================
+8) DRIFT-KLASSEN
+================================================================================
+
+  Kennung                  Beschreibung                      Reaktion
+  ------------------------ --------------------------------- ------------------
+  WG_PEER_UNKNOWN          Peer ohne SOLL                    entfernen, WARN
+  WG_PEER_MISSING          SOLL PRESENT, Peer fehlt          Add, INFO
+  WG_PEER_IPS_MISMATCH     AllowedIPs weichen ab             ersetzen, WARN
+  WG_PEER_GATE_STALE       fixed-IP in connect_pending       wg_ensure; bleibt
+                           laenger als vpn_connect_gate_     es dabei: ALERT
+                           ttl_seconds
+  WG_PEER_DISABLED_ACTIVE  Peer vorhanden, op_status         sofort entfernen,
+                           DISABLED                          ALERT (Sicherheits-
+                                                             ereignis)
+  WG_IFACE_DRIFT           Interface-Parameter weichen ab    ALERT, kein
+                                                             Auto-Neustart
+
+  Jedes Drift-Ereignis wird protokolliert (ohne Schluesselmaterial; der
+  PublicKey darf genannt werden) und ist im Panel sichtbar.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
