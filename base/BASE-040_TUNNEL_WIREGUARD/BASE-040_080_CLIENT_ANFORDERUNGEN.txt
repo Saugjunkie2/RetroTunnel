@@ -1,0 +1,154 @@
+================================================================================
+BASE-040 — CLIENT-ANFORDERUNGEN
+================================================================================
+DATEI: BASE-040_080_CLIENT_ANFORDERUNGEN.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Was ein Endgeraet koennen muss, um tunnel_type=WIREGUARD zu nutzen, welche
+  Betriebsgrenzen gelten, wie Stoerungen eingegrenzt werden und welche
+  Punkte erst empirisch (mit realen Clients und Netzen) belegbar sind.
+
+================================================================================
+1) ANFORDERUNGEN AN DEN CLIENT
+================================================================================
+
+  CL-01  AmneziaWG-faehiger Client, der den Parametersatz Jc, Jmin, Jmax,
+         S1, S2, H1-H4 unterstuetzt (DEC-WT-06). Ein Standard-WireGuard-
+         Client kann sich NICHT verbinden (DEC-WT-07).
+  CL-02  Import des Profils als .conf-Datei; auf Mobilgeraeten zusaetzlich
+         per QR-Code.
+  CL-03  Dual-Stack im Tunnel: IPv4- und IPv6-Adresse aus dem Profil setzen.
+  CL-04  DNS-Einstellungen aus dem Profil uebernehmen (beide Adressen).
+  CL-05  Full-Tunnel: Default-Routen fuer IPv4 und IPv6 ueber den Tunnel.
+  CL-06  PersistentKeepalive aus dem Profil anwenden (Voraussetzung fuer
+         die Liveness-Erkennung im Leerlauf und fuer NAT-Durchgang).
+  CL-07  Empfohlen: clientseitiger Sperrschalter ("Kill Switch"), damit bei
+         Tunnelabriss kein Verkehr am Tunnel vorbei laeuft. Der Server kann
+         das nicht erzwingen; der DNS-Zwang wirkt nur innerhalb des Tunnels.
+
+  ZIELPLATTFORMEN laut Annahme A-06: Windows 7+, macOS, Linux, Android, iOS.
+  Ob fuer jede dieser Plattformen (insbesondere aeltere Windows-Versionen)
+  ein Client verfuegbar ist, der CL-01..CL-06 erfuellt, ist NICHT belegt und
+  wird je Plattform geprueft (Abschnitt 5, E-WT-03). Plattformen ohne
+  bestandene Pruefung gelten als nicht unterstuetzt; es gibt keinen
+  Rueckfall auf einen zweiten Listener.
+
+================================================================================
+2) BETRIEBSGRENZEN (fuer Nutzer und Support)
+================================================================================
+
+  - EIN Geraet je Connection. Dasselbe Profil auf zwei Geraeten fuehrt zu
+    gegenseitigem Verdraengen (Endpoint-Flattern), nicht zu zwei Tunneln.
+    Fuer ein weiteres Geraet wird eine weitere Connection benoetigt.
+  - Netzwechsel (WLAN <-> Mobilfunk) ist ohne Neuverbindung moeglich
+    (Roaming); die Tunneladresse bleibt gleich.
+  - Kein Split-Tunnel. Client-Optionen wie "lokales Netz ausnehmen"
+    veraendern AllowedIPs und sind nicht unterstuetzt.
+  - IPv6 im Tunnel sind interne Adressen (ULA); nach aussen wird ueber die
+    Serveradresse uebersetzt (NAT66, BASE-050). Eingehende Verbindungen aus
+    dem Internet zum Geraet gibt es nicht.
+  - Nach Rollenwechsel, Schluesselrotation oder einer Umstellung der
+    Serverparameter wird ein NEUES Profil benoetigt; das alte funktioniert
+    dann nicht mehr. Das neue Profil kommt per E-Mail.
+  - Das Panel ist nur bei bestehendem Tunnel erreichbar (A-09).
+
+================================================================================
+3) DIAGNOSE-MATRIX
+================================================================================
+
+  Symptom (Clientsicht)            Serverbefund                 Ursache / Abhilfe
+  -------------------------------- ---------------------------- ---------------------------
+  Kein Handshake                   Peer ABSENT, SOLL ABSENT     Connection DISABLED oder
+                                                                widerrufen -> Status/Reason
+  Kein Handshake                   Peer PRESENT, nie Handshake  Profil veraltet (Parameter,
+                                                                Port, Schluessel), UDP im
+                                                                Zugangsnetz blockiert, Uhr
+                                                                des Geraets grob falsch
+  Kein Handshake, alle Kunden      awg0 fehlt                   Grace-Stop, Admin-Stop,
+                                                                Modul/Firewall-Gating
+  Handshake ok, nichts geht        fixed-IP in connect_pending  Gate nicht geloest -> Drift
+  Handshake ok, nur Panel/DNS      op_status RESTRICTED         Walled Garden (gewollt)
+  Verbindung bricht staendig ab    Endpoint flattert            Profil auf zwei Geraeten;
+                                                                Rotation
+  Grosse Seiten haengen            -                            MTU-Problem im Zugangsnetz;
+                                                                kleinere MTU im Profil
+  IPv6-Ziele unerreichbar          NAT66/Forward                BASE-050 pruefen
+  Die Unterscheidung "Peer fehlt" gegen "Peer vorhanden, aber kein
+  Handshake" ersetzt fuer WireGuard die im Vorgaenger geforderte Trennung
+  von Gate-0- und Gate-1-Fehlern (B059): Sie ist im Panel je Connection
+  sichtbar (BASE-040_INDEX Abschnitt 6).
+
+================================================================================
+4) SICHERHEITSHINWEISE FUER NUTZER (Inhalt fuer Panel/E-Mail, BASE-110)
+================================================================================
+
+  - Das Profil enthaelt den privaten Schluessel. Wer es besitzt, kann die
+    Verbindung nutzen. Nicht weitergeben; bei Verlust oder Verdacht im Panel
+    "Schluessel erneuern" waehlen.
+  - Der Dienst sieht die oeffentliche Adresse, von der das Geraet verbindet;
+    sie wird nur ereignisbezogen und befristet gespeichert.
+
+================================================================================
+5) EMPIRISCH ZU VERIFIZIERENDE PUNKTE (kein Architektur-Offenpunkt)
+================================================================================
+
+  Fuer jeden Punkt sind Sollverhalten, Methode, Umgebung und Abnahme-
+  kriterium festgelegt. Bis zur Durchfuehrung gilt der Belegstand "geplant".
+
+  E-WT-01  PAKET UND KERNEL-MODUL
+    Soll:     amneziawg-Modul und amneziawg-tools sind auf Debian 13 mit dem
+              Zielkernel installierbar; DKMS baut nach Kernel-Update neu.
+    Methode:  Installation auf frischem Debian 13; Kernel-Update; modinfo,
+              awg --version, Interface-Start.
+    Umgebung: Zielvirtualisierung (KVM), Zielkernel.
+    Abnahme:  Interface startet vor und nach Kernel-Update; Versionen und
+              Bezugsquelle dokumentiert. Test: T-WT-01.
+    Sonst:    Bezugsquelle wechseln oder Modul aus Quelltext bauen; die
+              Architektur aendert sich nicht.
+
+  E-WT-02  PARAMETERBEREICHE
+    Soll:     Erzeugte Obfuskationsparameter werden vom Modul akzeptiert.
+    Methode:  Grenzwerte des Katalogs durchprobieren. Test: T-WT-04.
+    Abnahme:  Kataloggrenzen = nachgewiesen akzeptierte Bereiche.
+
+  E-WT-03  CLIENT-MATRIX
+    Soll:     Je Zielplattform erfuellt mindestens ein Client CL-01..CL-06.
+    Methode:  Import (Datei, QR), Handshake, IPv4-/IPv6-Erreichbarkeit,
+              DNS-Aufloesung ueber SERVICE_DNS, Leck-Pruefung, 24-h-Leerlauf.
+    Umgebung: reale Geraete je Plattform; mindestens Festnetz und Mobilfunk.
+    Abnahme:  alle Teilpruefungen bestanden; Client und Version dokumentiert.
+              Test: T-WT-33. Nicht bestandene Plattform = nicht unterstuetzt.
+
+  E-WT-04  MTU
+    Soll:     Mit wg_tunnel_mtu entstehen in ueblichen Zugangsnetzen keine
+              Blackholes. Test: T-WT-10.
+    Abnahme:  TCP- und UDP-Verkehr (inkl. grosser Antworten) fehlerfrei;
+              sonst Wert senken und erneut pruefen.
+
+  E-WT-05  LIVENESS-SCHWELLE
+    Soll:     Verbundene Clients im Leerlauf werden nicht faelschlich als
+              inaktiv gefuehrt. Test: T-WT-33.
+    Abnahme:  maximales beobachtetes Handshake-Alter < Schwelle.
+
+  E-WT-06  SKALIERUNG
+    Soll:     Erstabgleich und Buchungslauf bei 5.000 Peers innerhalb der
+              Zielzeiten. Tests: T-WT-22, T-WT-41.
+    Abnahme:  Messwerte dokumentiert; bei Ueberschreitung Buendelgroesse/
+              Intervall anpassen.
+
+  E-WT-07  ERKENNBARKEIT (DPI)
+    Soll:     Der Verkehr wird von gaengigen Erkennungsverfahren nicht als
+              WireGuard klassifiziert.
+    Methode:  Mitschnitt und Klassifikation mit frei verfuegbaren
+              Analysewerkzeugen; Feldtest in mindestens einem
+              einschraenkenden Netz, soweit zugaenglich.
+    Abnahme:  keine WireGuard-Klassifikation im Labor. Der Feldnachweis
+              bleibt naturgemaess unvollstaendig; das wird offen ausgewiesen
+              und ist KEIN Sicherheitsversprechen (WT-51).
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

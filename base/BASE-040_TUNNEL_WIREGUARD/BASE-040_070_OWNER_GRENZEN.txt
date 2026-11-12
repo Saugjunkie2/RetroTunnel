@@ -1,0 +1,155 @@
+================================================================================
+BASE-040 — OWNER-GRENZEN
+================================================================================
+DATEI: BASE-040_070_OWNER_GRENZEN.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Abgrenzung nach PATTERN-01 (Vorbild BASE-020_060): was BASE-040 fachlich
+  besitzt, was nicht, wo es nur ausfuehrt (R-15 Owner != Runner), und
+  welche konkreten Anforderungen es an Nachbarmodule stellt.
+
+================================================================================
+1) BASE-040 OWNT
+================================================================================
+
+  a) Interface awg0: Render-Vertrag, Parameter, Routen, Units, Gating-Drop-In
+  b) Semantik der Peer-Operationen (SOLL-Funktion, Add-/Remove-Sequenz,
+     Massenabgleich, Verifikation, Drift-Klassen des WG-Pfads)
+  c) AWG Session Controller: Erfassung, runtime_activity fuer WireGuard,
+     Admission-Waechter, Grace-Automat
+  d) Erzeugung und Ablage von WG-Schluesseln und Client-Profilen
+     (Dateiformat, Digest, Aufraeumregel)
+  e) Zaehler-Snapshot-Spool des WG-Pfads
+  f) Bedeutung und zulaessige Wirkung der wg_*-Settings
+  g) Anforderungen an Client-Plattformen
+
+================================================================================
+2) BASE-040 OWNT NICHT
+================================================================================
+
+  a) Admission-Vertrag, Grace-VERTRAG, DNS-Ausgabe-VERTRAG   -> BASE-020
+  b) Schema vpn_connections (inkl. Gruppe D), wg_connection_auth,
+     Lifecycle-Transitionen, Reason-Codes                    -> BASE-010
+  c) nftables-Regelwerk, Definition der Sets, NAT, Limits    -> BASE-050
+  d) vpn-policy-apply als Werkzeug, Single-Writer-Lock,
+     Reihenfolge von Set-Neuaufbau und Treiberaufrufen       -> BASE-080
+  e) vpn_session_locks, Laufzeitmarken, Buchungs- und
+     Ereignisvertrag, Quota-Periode, Janitor                 -> BASE-070
+  f) Settings-Katalog (Typen, Fail-Class, Resolution, Cache) -> BASE-090
+  g) CEK (Ablage, Rotation), Secret-Klassen                  -> BASE-005
+  h) Reveal-Helfer, E-Mail-Versand, Stoerungsseite, Darstellung
+                                                             -> BASE-110, MOD-006
+  i) Shaping                                                 -> MOD-003
+  j) Alarm-Schema, Spool und Versandhelfer, Retention        -> MOD-007
+  k) Backup/Restore, Update-Verfahren                        -> MOD-008
+
+================================================================================
+3) GRENZREGELN (MUST)
+================================================================================
+
+  GW-1  BASE-040 definiert keine Sitzungswahrheit und keinen Sitzungs-
+        datensatz. Es liefert Laufzeitfakten und Buchungen (G2, D004).
+  GW-2  Der Controller veraendert weder Peer-Set noch nftables noch tc noch
+        op_status. Abweichungen uebergibt er an vpn-policy-apply.
+  GW-3  Ausser dem WG-Treiber ruft keine Komponente "awg set"/"awg addconf"
+        auf - auch nicht Panel, Hooks, Jobs oder Admin-Skripte im
+        Normalbetrieb.
+  GW-4  BASE-050 beschreibt Regeln und Sets, aber keine Peer-Logik;
+        BASE-080 orchestriert, definiert aber die Peer-Sequenzen nicht neu.
+  GW-5  Kein Modul darf Policy an Aktivitaetsereignisse (Beginn/Ende)
+        koppeln. Policy haengt an der Connection und ihrer Peer-Praesenz
+        (DEC-WT-01). Ereignisse sind Beobachtung, kein Steuersignal.
+  GW-6  Kein Modul leitet aus fixed_ipv6 Slot oder Pool ab und kein Modul
+        formatiert Tunneladressen um (Reverse-Derivation-Verbot, MANIFEST 4.3).
+
+================================================================================
+4) LESE- UND SCHREIBGRENZEN
+================================================================================
+
+  DATENBANK (DB-User system):
+    LIEST      vpn_connections, wg_connection_auth, settings_*,
+               vpn_pool_config, Laufzeitmarken
+    SCHREIBT ALS RUNNER (Owner in Klammern):
+               vpn_connections Gruppe D: quota_used, last_known_*_bytes,
+                 counter_epoch, last_counter_seen_at, last_runtime_seen_at,
+                 runtime_active_since                       (BASE-010/BASE-070)
+               wg_connection_auth: wg_public_key, wg_preshared_key_enc,
+                 rotated_at - nur vpn-wg-profile im Provisioning/Rotations-
+                 ablauf                                     (BASE-010)
+               Laufzeitmarke wg_interface_generation        (BASE-070)
+               Aktivitaets-/Drift-Ereignisse                (BASE-070/MOD-007)
+               vpn_session_locks (Erwerb/Freigabe)          (BASE-070)
+    SCHREIBT NIE
+               op_status, op_reason_code, Fristen, ip_slot, fixed_ip(v6),
+               web_*, policy_*, settings_* (ausser ueber Panel-Wege), rad*
+
+  DATEISYSTEM:
+    SCHREIBT   /etc/amnezia/amneziawg/awg0.conf (+ .prev), /run/retrotunnel/wg/,
+               /var/lib/retrotunnel/wg-profiles/,
+               /var/lib/vpn-accounting/wg-snapshot/
+    LIEST      awg0.key (nur Kernel-Setzen), CEK (nur Treiber/Profil-
+               Werkzeug/Reveal-Helfer)
+
+  KERNEL:
+    Peer-Set   nur WG-Treiber unter Single-Writer-Lock
+    Interface  awg-quick (Start/Stop); Controller nur Unit-Start/-Stop im
+               Grace-Automaten
+
+================================================================================
+5) ANFORDERUNGEN AN NACHBARMODULE
+================================================================================
+
+  Jede Anforderung muss im Zielmodul unter ihrer Kennung beantwortet werden
+  (uebernommen oder begruendet anders geloest).
+
+  ANF-WT-01 (BASE-050)  Sets connect_pending_v4/_v6 existieren im frueh
+            geladenen Regelwerk; Elemente ohne Timeout; Verkehr von/zu
+            enthaltenen Adressen wird in forward verworfen.
+  ANF-WT-02 (BASE-050)  Regeln referenzieren awg0 per Interface-Name
+            (ladbar ohne existierendes Interface); keine Regel in awg0.conf.
+  ANF-WT-03 (BASE-050)  Eingang UDP wg_listen_port auf ens18 (IPv4+IPv6)
+            mit Raten-Begrenzung je Quelle; keine ICMP-Port-Unreachable-
+            Antworten am WAN fuer diesen Port.
+  ANF-WT-04 (BASE-050)  Anti-Spoofing auf awg0: Quelladressen ausserhalb der
+            Rollen-Pools werden verworfen (IPv4 und IPv6).
+  ANF-WT-05 (BASE-050/BASE-005)  Rueckfallrouten "unreachable" fuer
+            10.77.0.0/16 und fd77:0:0::/48 (WT-11).
+  ANF-WT-06 (BASE-050)  NAT66/Masquerade fuer die IPv6-Pools am WAN;
+            TCP-MSS-Clamping auf awg0.
+  ANF-WT-07 (BASE-080)  vpn-policy-apply ruft bei jeder Transition
+            T-01..T-09, bei Provisioning, Rotation und im Reconcile den
+            WG-Treiber; --reconcile-all umfasst wg_sync_all in der
+            Reihenfolge aus BASE-040_030 Abschnitt 6.
+  ANF-WT-08 (BASE-080)  Ergebniscode TEMPFAIL_DB ohne Kernel-Aenderung,
+            wenn SQL nicht lesbar ist; kein Apply aus Cache.
+  ANF-WT-09 (BASE-070)  Mutex-Vertrag vpn_session_locks fuer mehrschrittige
+            Umbauten und Aktivitaetsbeginn; TTL und Bereinigung.
+  ANF-WT-10 (BASE-070)  Tabelle der Laufzeitmarken mit
+            wg_interface_generation; Ereignisvertrag ACTIVITY_START/_END,
+            ENDPOINT_CHANGE; Buchungsvertrag fuer Gruppe D inkl. Atomaritaet
+            gegen Quota-Reset.
+  ANF-WT-11 (BASE-010)  Schema-Nachzug: Gruppe D inkl. runtime_active_since;
+            wg_preshared_key_enc statt wg_preshared_key.
+  ANF-WT-12 (BASE-090)  Katalogisierung der wg_*-Keys aus BASE-040_020
+            Abschnitt 1 inkl. Konsistenzregeln, Wirkungsklassen, Alias.
+  ANF-WT-13 (BASE-110)  Reveal-Helfer (Profil entschluesseln, Audit),
+            Zustellung als passwortgeschuetztes Archiv, Stoerungsseite ohne
+            DB mit Anzeige aus status.json, Meldung bei abgelehnten Aktionen.
+  ANF-WT-14 (MOD-006)   Anzeigen gemaess BASE-040_INDEX Abschnitt 6;
+            Liveness nur aus Laufzeit oder als "zuletzt gesehen".
+  ANF-WT-15 (MOD-003)   Shaping auf awg0 je fixed-IP, hergestellt in Schritt
+            A3 der Add-Sequenz, unabhaengig von Aktivitaetsereignissen.
+  ANF-WT-16 (MOD-007)   DB-unabhaengiger Alarmweg (Spool + Versandhelfer),
+            Ereignisklassen dieses Moduls, Retention fuer Endpoints.
+  ANF-WT-17 (MOD-008)   Backup-Scope: awg0.key, Profilverzeichnis, Snapshot-
+            Spool, CEK getrennt gesichert; Pruefung des Moduls nach Kernel-
+            Update vor Wiederfreigabe.
+  ANF-WT-18 (BASE-005)  Registry-Nachzug: Port, SERVICE_GW_WG, Pfade, Units,
+            Secret-Inventar (AP-Q04).
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
