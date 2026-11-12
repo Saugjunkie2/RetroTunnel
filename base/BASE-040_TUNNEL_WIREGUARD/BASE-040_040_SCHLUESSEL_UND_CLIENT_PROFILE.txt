@@ -1,0 +1,244 @@
+================================================================================
+BASE-040 — SCHLUESSEL UND CLIENT-PROFILE
+================================================================================
+DATEI: BASE-040_040_SCHLUESSEL_UND_CLIENT_PROFILE.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Schluesselarten des WireGuard-Pfads, ihre Erzeugung und Ablage, Inhalt und
+  Lebenszyklus der Client-Profile, Rotation von Client- und Server-
+  schluesseln sowie die Vertraege fuer Anzeige und Zustellung.
+
+================================================================================
+1) SCHLUESSELMATERIAL UND ABLAGE
+================================================================================
+
+  MATERIAL                 ABLAGE                               KLARTEXT SICHTBAR FUER
+  ------------------------ ------------------------------------ -----------------------
+  Server-PrivateKey        /etc/amnezia/amneziawg/awg0.key      niemand (nur Kernel/root)
+                           root:root 0600 (Klasse A)
+  Server-PublicKey         /etc/amnezia/amneziawg/awg0.pub;     jeder Client (im Profil)
+                           steht in jedem Client-Profil
+  Client-PublicKey         wg_connection_auth.wg_public_key     unkritisch
+  Client-PrivateKey        NUR innerhalb des verschluesselten   Eigentuemer (Profil);
+                           Client-Profils (Abschnitt 4)         ADMIN per Reveal+Audit
+  PresharedKey (je Peer)   wg_connection_auth.wg_preshared_     wie Client-PrivateKey;
+                           key_enc (AEAD unter CEK) und im      Kernel/root zum Eintragen
+                           Client-Profil
+  CEK                      gemaess BASE-005_060 Abschnitt 6     niemand ausser root-
+                           (Datei, root-only; nie in der DB)    Prozessen/Helfern
+
+  GRUNDSAETZE:
+  - Kein WG-Geheimnis liegt im Klartext in der Datenbank (DEC-WT-11).
+  - RADIUS (DB-User radius) hat auf wg_*-Tabellen keinen Zugriff (R-18,
+    INV-48); www-data hat keinen Lesezugriff auf awg0.key, auf den CEK und
+    auf das Profilverzeichnis.
+  - Kein Schluesselmaterial in Kommandozeilen-Argumenten, Umgebungs-
+    variablen, Logs, Diag-Ausgaben oder Fehlermeldungen (R-12, WT-20).
+  - Schema-Aenderung gegenueber BASE-010_030 (Baseline): Spalte
+    wg_preshared_key VARCHAR(64) wird ersetzt durch wg_preshared_key_enc
+    VARBINARY(160) NOT NULL. Nachzug: AP-Q04.
+
+================================================================================
+2) ERZEUGUNG
+================================================================================
+
+  SERVER-SCHLUESSELPAAR: einmalig bei Installation (root), CSPRNG des
+  Kernels; awg0.key 0600, awg0.pub daraus abgeleitet. Sicherung im
+  verschluesselten Backup (BASE-005_060 Abschnitt 3).
+
+  CLIENT-SCHLUESSELPAAR UND PSK: serverseitig durch vpn-wg-profile im
+  Provisioning (SYSTEM, BASE-010_070 Abschnitt 4) bzw. bei Rotation.
+  - PresharedKey ist PFLICHT fuer jeden Peer (kein Setting): zusaetzliche
+    symmetrische Schicht ohne Betriebsnachteil.
+  - Der Client-PrivateKey existiert im Klartext nur im Prozessspeicher von
+    vpn-wg-profile und nie als eigene Datei.
+  - Begruendung serverseitiger Erzeugung: Vorgabe des Owners, dass Nutzer
+    ihr Profil jederzeit im Panel abrufen koennen (Changelog v2.1.13).
+    Bewusst akzeptierte Grenze: Wer Server-root oder den CEK besitzt, kann
+    Client-Schluessel lesen. Eine Betriebsart "Nutzer liefert nur seinen
+    PublicKey" ist als optionale Erweiterung gefuehrt (VERBESSERUNGEN).
+
+  ATOMARITAET (AS-02): Die Rows in vpn_connections und wg_connection_auth
+  entstehen in EINER Transaktion; das verschluesselte Profil wird VOR dem
+  Commit geschrieben (Abschnitt 4). Kein Zustand "Connection ohne Auth-Row".
+
+================================================================================
+3) CLIENT-PROFIL (INHALT)
+================================================================================
+
+  [Interface]
+  PrivateKey = <Client-PrivateKey>
+  Address = <fixed_ip>/32, <fixed_ipv6>/128
+  DNS = 10.77.0.1, fd77:0:0:0::1
+  MTU = <wg_tunnel_mtu>
+  Jc = <wg_obf_jc>
+  Jmin = <wg_obf_jmin>
+  Jmax = <wg_obf_jmax>
+  S1 = <wg_obf_s1>
+  S2 = <wg_obf_s2>
+  H1 = <wg_obf_h1>
+  H2 = <wg_obf_h2>
+  H3 = <wg_obf_h3>
+  H4 = <wg_obf_h4>
+
+  [Peer]
+  PublicKey = <Server-PublicKey>
+  PresharedKey = <PresharedKey>
+  Endpoint = <wg_endpoint_host>:<wg_listen_port>
+  AllowedIPs = 0.0.0.0/0, ::/0
+  PersistentKeepalive = <wg_client_persistent_keepalive_seconds>
+
+  REGELN:
+  PR-01  Address stammt 1:1 aus fixed_ip und fixed_ipv6 der DB. Keine
+         Neuberechnung aus ip_slot, keine Ableitung v6 aus v4, keine
+         Umformatierung der IPv6-Textform. Praefixlaengen /32 und /128.
+  PR-02  DNS enthaelt GENAU die zwei Adressen von SERVICE_DNS (IPv4 und
+         IPv6), gleichrangig. Kein dritter Eintrag, kein Fallback, nie
+         SERVICE_RESOLVER, nie ein externer Resolver. Die Werte stammen aus
+         der Registry BASE-005_030, nicht aus Connection-Daten
+         (Vertrag WG-01..05 in BASE-020_040 Abschnitt 6; PF-19).
+  PR-03  AllowedIPs = 0.0.0.0/0, ::/0 (Full-Tunnel, kein Split-Tunnel).
+  PR-04  IPv6-Endpoint-Literale werden in eckigen Klammern gerendert.
+  PR-05  Keine Kommentare, keine Kundendaten, Zeilenende LF, UTF-8 ohne BOM,
+         Abschluss-Newline. Der Inhalt ist bei gleichem Eingangsstand
+         byteidentisch.
+  PR-06  Dateiname beim Download: <wg_connection_name>.conf (15 Zeichen,
+         als Tunnelname auf allen Zielplattformen zulaessig).
+  PR-07  Das Profil gilt nur fuer tunnel_type = WIREGUARD (NA-05).
+
+  OEFFENTLICHER PROFIL-DIGEST: profile_digest = erste 16 Hex-Zeichen von
+  SHA-256 ueber die kanonisch serialisierten NICHT geheimen Eingaben
+  (Client-PublicKey, Server-PublicKey, fixed_ip, fixed_ipv6, Endpoint,
+  Port, MTU, Keepalive, DNS, Jc, Jmin, Jmax, S1, S2, H1-H4). Aendert sich
+  eine Eingabe, aendert sich der Digest; das alte Profil ist dann veraltet.
+
+================================================================================
+4) ABLAGE DER PROFILE
+================================================================================
+
+  ORT:   /var/lib/retrotunnel/wg-profiles/  (root:root 0700, Backup-Scope)
+  NAME:  <connection_ref>.<profile_digest>.conf.enc  (root:root 0600)
+  FORMAT (binaer):
+    Magic "RTWP1" | key_id (4 Byte) | Nonce (24 Byte) | Chiffrat + Tag
+    AEAD: XChaCha20-Poly1305; Schluessel = CEK mit der genannten key_id
+    AAD:  "RTWP1" | "wg-profile" | vpn_connection_id (8 Byte) | key_id
+  Der PresharedKey in der DB nutzt dasselbe Format mit Zweckkennung
+  "wg-psk" in der AAD. Die Zweckkennung verhindert, dass Chiffrate zwischen
+  Feldern oder Connections vertauscht werden koennen.
+
+  GUELTIGES PROFIL: genau die Datei, deren profile_digest dem aus dem
+  aktuellen SQL-Stand berechneten Digest entspricht. Alle anderen Dateien
+  derselben connection_ref sind VERALTET und werden geloescht (Abschnitt 5,
+  Aufraeumregel).
+
+  SCHREIBEN (vpn-wg-profile): temporaere Datei im selben Verzeichnis,
+  fsync, rename auf den Zielnamen, fsync des Verzeichnisses.
+
+  LESEN: ausschliesslich durch root-Prozesse: den WG-Treiber (nur PSK aus
+  der DB), vpn-wg-profile (Neu-Rendern) und den Reveal-Helfer (BASE-110),
+  der das entschluesselte Profil ueber stdout an den aufrufenden Panel-
+  Prozess gibt und jeden Aufruf protokolliert (Akteur, Rolle, Ziel-
+  Connection, Zeit; bei Fremdeinsicht durch ADMIN Pflicht-Audit).
+
+  AUFRAEUMREGEL (idempotent, Teil des Reconcile): Dateien ohne zugehoerige
+  wg_connection_auth-Row oder mit abweichendem Digest werden geloescht;
+  fehlt fuer eine PRESENT-Connection das gueltige Profil, entsteht das
+  Ereignis WG_PROFILE_MISSING (Neu-Rendern nur moeglich, solange ein
+  veraltetes Profil derselben Connection den Client-PrivateKey noch
+  enthaelt; sonst ist eine Rotation noetig).
+
+================================================================================
+5) LEBENSZYKLUS UND ROTATION
+================================================================================
+
+  5.1 NEU-RENDERN OHNE SCHLUESSELWECHSEL
+    Ausloeser: Rollenwechsel T-09 (neue fixed-IPs), Aenderung von Settings
+    der Klassen PROFILE/REISSUE, Wechsel des Server-Schluessels.
+    Ablauf: altes Profil entschluesseln -> Client-PrivateKey uebernehmen ->
+    neues Profil rendern -> unter neuem Digest ablegen -> altes loeschen ->
+    Zustellung anstossen. Kein Peer-Eingriff durch diesen Vorgang selbst.
+
+  5.2 ROTATION DES CLIENT-SCHLUESSELS (Vertrag BASE-020_040 Abschnitt 4)
+    Ausloeser: Nutzer im Panel (mit Passwortbestaetigung, AS-04), ADMIN,
+    Sicherheitsvorfall.
+    K1  Mutex vpn_session_locks fuer die Connection erwerben (BASE-070).
+    K2  Neues Schluesselpaar + neuer PSK; neues Profil im Speicher rendern.
+    K3  Neues Profil verschluesselt ablegen (neuer Digest, eigener Name).
+    K4  EINE Transaktion: wg_connection_auth (wg_public_key,
+        wg_preshared_key_enc, rotated_at) aktualisieren; Ereignis
+        KEY_ROTATED in log_connection_lifecycle. COMMIT.
+    K5  vpn-policy-apply fuer die Connection: alter Peer wird entfernt
+        (Hard-Cut, Grund AUTH_KEY_ROTATED), neuer Peer ueber die Gate-
+        Sequenz eingetragen.
+    K6  Veraltete Profildateien der Connection loeschen.
+    K7  Zustellung anstossen (BASE-110); Mutex freigeben.
+    GARANTIEN:
+    - Zu keinem Zeitpunkt sind laut SQL zwei Schluessel gueltig (PF-15).
+    - Abbruch vor K4: nichts geaendert; die Datei aus K3 ist veraltet und
+      wird aufgeraeumt.
+    - Abbruch nach K4, vor K5: SQL verlangt den neuen Schluessel, im Kernel
+      steht noch der alte Peer. Das ist Drift WG_PEER_UNKNOWN /
+      WG_PEER_MISSING und wird spaetestens in der Reconcile-Frist behoben;
+      der Ausloeser wiederholt K5 bis zum Erfolg.
+    - Die alte Konfiguration funktioniert nach K5 nicht mehr.
+
+  5.3 TOMBSTONE / DISABLE MIT REVOCATION
+    Mit dem Loeschen der Auth-Row (BASE-010_070 Abschnitt 5) werden die
+    Profildateien der Connection geloescht (Aufruf vpn-wg-profile --purge
+    im selben Ablauf; zusaetzlich durch die Aufraeumregel abgesichert).
+
+  5.4 ROTATION DES SERVER-SCHLUESSELS (Ausnahmevorgang)
+    Wirkungsklasse REISSUE: Alle Client-Profile enthalten den Server-
+    PublicKey. Ablauf wie BASE-040_020 Abschnitt 7.1, zusaetzlich:
+    neues Paar als awg0.key.new erzeugen; alle Profile neu rendern (5.1)
+    und zustellen; Umschaltzeitpunkt ankuendigen; awg0.key ersetzen;
+    Interface-Neustart. Der alte Schluessel wird ungueltig, nicht parallel
+    betrieben. Anlass: Verdacht auf Kompromittierung des Servers oder des
+    Backups.
+
+================================================================================
+6) ANZEIGE UND ZUSTELLUNG (Vertraege an BASE-110 / MOD-006)
+================================================================================
+
+  SICHTBARKEIT (Changelog v2.1.13, hier fuer WireGuard konkretisiert):
+    USER       eigenes Profil: Anzeige, Download, QR-Code; jederzeit
+    ADMIN      fremde Profile nur ueber ausdrueckliche Aktion "Anzeigen";
+               jeder Abruf erzeugt ein Audit-Ereignis
+    MODERATOR  keine fremden Profile; Support ueber Status, Neu-Zustellen,
+               Rotation anstossen
+  ZUSTELLUNG per E-Mail als passwortgeschuetztes Archiv an die verifizierte
+  Adresse des Kunden bei: Provisioning, Rotation, Rollenwechsel, REISSUE.
+  Begruendung Rollenwechsel/REISSUE: Nach dem Schnitt ist das Panel fuer das
+  Geraet nicht erreichbar. Inhalt, Passwortweg und Versand: BASE-110.
+  QR-CODE: wird im Panel aus dem entschluesselten Profil im Speicher
+  erzeugt und nicht abgelegt.
+  PANEL WAEHREND DB-STOERUNG: keine Profilanzeige (Digest nicht berechenbar),
+  keine Rotation (BASE-040_060 Abschnitt 4).
+
+================================================================================
+7) FEHLERFAELLE
+================================================================================
+
+  Fall                                   Verhalten
+  -------------------------------------- -------------------------------------
+  CEK nicht lesbar / key_id unbekannt    Kein Peer-Add fuer betroffene
+                                         Connections (PSK nicht entschluessel-
+                                         bar) -> SOLL PRESENT, IST ABSENT,
+                                         ALERT WG_CEK_UNAVAILABLE. Bestehende
+                                         Peers laufen weiter.
+  AEAD-Pruefung schlaegt fehl            Datei/Spalte gilt als beschaedigt;
+                                         kein Rueckfall auf Klartext; ALERT;
+                                         Abhilfe: Rotation.
+  Profilverzeichnis nicht schreibbar     Provisioning/Rotation bricht VOR dem
+                                         DB-Commit ab (kein Peer ohne Profil).
+  Doppelter PublicKey (UNIQUE-Verletzung) Neuer Schluessel wird erzeugt; die
+                                         Kollision ist praktisch ausgeschlossen
+                                         und wird als Ereignis gemeldet.
+  Kunde meldet Profilverlust/Diebstahl   Rotation 5.2 (kein Sperr-Sonderweg).
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
