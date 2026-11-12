@@ -1,0 +1,273 @@
+================================================================================
+BASE-040 — TESTS UND VALIDIERUNG (WireGuard-Tunnel)
+================================================================================
+DATEI: BASE-040_095_TESTS.txt
+STATUS: ACTIVE
+
+BELEGSTAND ALLER TESTS: GEPLANT. Keiner dieser Tests wurde ausgefuehrt; es
+existiert keine Implementierung. Die Tests sind Abnahmekriterien fuer die
+spaetere Umsetzung (Definition of Done von BASE-040).
+
+TESTARTEN:
+  [K]  Konzept-/Konfigurationspruefung (Review, statische Pruefung)
+  [L]  Labortest an einer Implementierung (isolierte Testumgebung)
+  [E]  Empirischer Test mit realen Clients, Netzen oder Zielhardware
+       (Sollverhalten und Methode: BASE-040_080 Abschnitt 5)
+
+PROOF-ANKER (04_PHASE_PLAN): RT-PH1-PROOF-02 -> T-WT-12, T-WT-16, T-WT-33;
+RT-PH1-PROOF-03 -> T-WT-33 (WG-Anteil); RT-PH1-PROOF-05 -> T-WT-38, T-WT-46;
+RT-PH1-PROOF-07 -> T-WT-16, T-WT-31 (WG-Anteil).
+Die Platzhalter "T-WG-XX" im Phasenplan werden durch diese Kennungen ersetzt
+(Nachzug AP-A06).
+
+================================================================================
+PLATTFORM UND INTERFACE
+================================================================================
+
+  T-WT-01  [E] Kernel-Modul und Werkzeuge sind auf Debian 13 mit dem
+            Zielkernel installierbar; nach Kernel-Update baut DKMS neu und
+            awg0 startet. Erwartung: Interface vor und nach Update aktiv;
+            Versionen dokumentiert. [WT-01]
+
+  T-WT-02  [L] ss -ulnp zeigt genau einen UDP-Listener auf wg_listen_port
+            (IPv4 und IPv6); kein weiterer WireGuard-Port. [WT-01]
+
+  T-WT-03  [L] Zweimaliges Rendern bei unveraenderten Settings ergibt
+            identische Hashes. Die Datei enthaelt weder "PrivateKey" noch
+            "[Peer]" noch nft-/iptables-Aufrufe; SaveConfig = false. [WT-04]
+
+  T-WT-04  [E] awg0 startet mit den erzeugten Obfuskationsparametern; die
+            Grenzwerte des Katalogs werden einzeln geprueft. Ergebnis legt
+            die Kataloggrenzen fest. [WT-04, WT-50]
+
+  T-WT-05  [L] Ein STRICT-Setting entfernen bzw. ungueltig setzen: Render
+            endet mit Fehler, awg0.conf bleibt unveraendert. Ein LKG-Setting
+            entfernen: Controller nutzt den Failsafe-Wert und erzeugt ein
+            Ereignis. [WT-49]
+
+  T-WT-06  [L] Datei von Hand aendern bzw. Listen-Port zur Laufzeit
+            umsetzen: --check meldet WG_IFACE_DRIFT; kein Neustart. [WT-05]
+
+  T-WT-07  [L] nftables.service nicht aktiv: awg-quick@awg0 startet nicht.
+            systemctl stop nftables beendet awg0 mit. [WT-07]
+
+  T-WT-08  [L] Wartungsverfahren REISSUE (Port aendern): alte Profile
+            verbinden nicht mehr, neue verbinden; Rollback stellt den
+            vorherigen Zustand her. [WT-50]
+
+  T-WT-09  [L] Nach dem Start existieren genau die Pool-Routen (4x IPv4,
+            4x IPv6) auf awg0 und keine Hostrouten aus AllowedIPs. [WT-12]
+
+  T-WT-10  [E] MTU: Uebertragungen ueber Festnetz (PPPoE), Mobilfunk und
+            DS-Lite ohne Haenger; grosse TCP-Antworten und UDP-Verkehr
+            fehlerfrei. [WT-04]
+
+  T-WT-11  [L] awg0 stoppen; vom Server ein Paket an eine WG-Tunneladresse
+            senden: lokal "unreachable", kein Paket auf ens18 (Mitschnitt).
+            [WT-11]
+
+================================================================================
+PEER-LIFECYCLE
+================================================================================
+
+  T-WT-12  [L] Add-Sequenz: Protokoll zeigt die Reihenfolge Gate, Policy,
+            Peer, Verifikation, Gate-Loesen. Zwischen Gate und Loesen wird
+            Verkehr der Adresse verworfen. [WT-06, WT-13]
+
+  T-WT-13  [L] Fehlerinjektion in der Verifikation (kuenstliche AllowedIPs-
+            Kollision): Peer wird wieder entfernt, Gate bleibt gesetzt,
+            Ergebnis FAIL_VERIFY. [WT-13, WT-14]
+
+  T-WT-14  [L] Prozessabbruch unmittelbar nach dem Peer-Eintrag: Verkehr
+            bleibt gesperrt; der naechste Lauf verifiziert und loest.
+            [WT-14]
+
+  T-WT-15  [L] SOLL-Matrix: alle Kombinationen aus op_status, revoked_at,
+            Auth-Row vorhanden/fehlend ergeben genau den erwarteten
+            Peer-Zustand. [WT-09, WT-15]
+
+  T-WT-16  [L] AllowedIPs entsprechen den DB-Werten fuer die Testvektoren
+            USER Slot 2, 42, 256, 4094 und VIP Slot 5 (IPv4 /32 und IPv6
+            /128); der Client erhaelt genau diese Adressen. [WT-10]
+
+  T-WT-17  [L] RESTRICTED: Peer bleibt eingetragen, Handshake bleibt
+            moeglich, erreichbar ist nur der Walled Garden. [WT-15]
+
+  T-WT-18  [L] DISABLE waehrend eines laufenden Downloads: Peer ist nach dem
+            Apply entfernt, die Uebertragung bricht ab, ein neuer Handshake
+            scheitert. [WT-15, WT-16]
+
+  T-WT-19  [L] Tombstone: Nach Loeschen der Auth-Row wird der Peer ueber
+            AllowedIPs gefunden und entfernt; die Profildateien der
+            Connection sind geloescht. [WT-17, WT-26]
+
+  T-WT-20  [L] Von Hand eingetragener Fremd-Peer wird durch den Abgleich
+            entfernt; Ereignis WG_PEER_UNKNOWN. [WT-08, WT-19]
+
+  T-WT-21  [L] Massenabgleich waehrend laufender Uebertragung eines
+            unveraenderten Peers: keine Unterbrechung, Handshake-Zeit
+            unveraendert. [WT-18]
+
+  T-WT-22  [E] Skalierung: Erstabgleich mit 5.000 Peers; Zielwert unter
+            60 s; Messwert dokumentieren. [WT-18]
+
+  T-WT-23  [L] Rollenwechsel T-09: Peer mit alten Adressen entfernt, Peer
+            mit neuen Adressen eingetragen; altes Profil ohne Verkehr,
+            neues Profil funktioniert; Zustellung wurde angestossen.
+            [WT-10, WT-16]
+
+  T-WT-24  [L] Gleichzeitiger Einzel-Apply und Reconcile: Ausfuehrung
+            serialisiert, kein Zwischenzustand sichtbar; bei Zeitueber-
+            schreitung TEMPFAIL_LOCKED ohne Teilwirkung. [WT-02]
+
+  T-WT-25  [K] Pruefung von Units, sudoers, Werkzeugen: kein Aufruf von
+            "awg set", "awg addconf", nft oder tc ausserhalb des WG-Treibers
+            bzw. von vpn-policy-apply; der Controller besitzt keinen solchen
+            Codepfad. [WT-02, WT-03]
+
+  T-WT-26  [L] Peer-Drift erzeugen und Zeit bis zur Korrektur messen:
+            hoechstens vpn_reconcile_interval_seconds + 60 s. [WT-19]
+
+================================================================================
+SCHLUESSEL UND PROFILE
+================================================================================
+
+  T-WT-27  [L] Waehrend Provisioning, Rotation und Abgleich Prozesslisten,
+            Journal und Ereignisse nach den Testschluesseln durchsuchen:
+            kein Treffer. Aufrufprotokoll zeigt weder "dump" noch
+            "showconf". [WT-20, WT-52]
+
+  T-WT-28  [L] awg0.key 0600 root:root; Profilverzeichnis 0700; Lesezugriff
+            als www-data und als freerad scheitert. [WT-21, WT-28]
+
+  T-WT-29  [L] Vollstaendiger DB-Dump enthaelt weder PresharedKeys noch
+            Client-PrivateKeys der Testpeers im Klartext. [WT-22]
+
+  T-WT-30  [L] Fuer jeden eingetragenen Peer ist ein PresharedKey gesetzt
+            (Pruefung auf "(none)" ohne Ausgabe der Schluessel). [WT-23]
+
+  T-WT-31  [L] Profilinhalt fuer die Testvektoren: Address-Zeile exakt aus
+            der DB, DNS-Zeile exakt "10.77.0.1, fd77:0:0:0::1",
+            AllowedIPs "0.0.0.0/0, ::/0"; wiederholtes Rendern
+            byteidentisch. [WT-24, WT-25]
+
+  T-WT-32  [L] Ein PROFILE-Setting aendern: das bisherige Profil ist
+            veraltet, Neu-Rendern erzeugt genau eine gueltige Datei, die
+            alte ist geloescht. [WT-26]
+
+  T-WT-33  [E] Client-Matrix je Zielplattform: Import per Datei und QR,
+            Handshake, IPv4- und IPv6-Erreichbarkeit, Namensaufloesung ueber
+            SERVICE_DNS, keine Lecks am Tunnel vorbei, 24 h Leerlauf mit
+            maximalem Handshake-Alter unter der Schwelle. [WT-24, WT-25,
+            WT-30]
+
+  T-WT-34  [L] Rotation: nach dem Apply kein Handshake mit der alten
+            Konfiguration; nie zwei Peers fuer eine Connection; Abbruch vor
+            und nach dem DB-Commit fuehrt jeweils in einen konsistenten
+            Zustand. [WT-27, WT-29]
+
+  T-WT-35  [L] Ein Byte in Profil-Datei bzw. PSK-Spalte veraendern: Reveal
+            und Peer-Add scheitern mit Alarm; kein Klartext-Rueckfall.
+            [WT-22, WT-28]
+
+  T-WT-36  [L] Reveal: Nutzer sieht nur eigene Profile; ADMIN-Fremdeinsicht
+            erzeugt ein Audit-Ereignis; MODERATOR wird abgelehnt. [WT-28]
+
+  T-WT-37  [L] Profilverzeichnis nicht schreibbar: Provisioning bricht vor
+            dem DB-Commit ab; weder Connection noch Peer entstehen. [WT-29]
+
+================================================================================
+CONTROLLER UND VERBRAUCH
+================================================================================
+
+  T-WT-38  [L] Erster Handshake erzeugt ACTIVITY_START mit allen acht
+            Signal-Feldern; nach Controller-Neustart entsteht fuer dieselbe
+            Episode kein zweiter Beginn (gleicher Token). [WT-30, WT-34]
+
+  T-WT-39  [L] op_status in der DB auf DISABLED setzen, ohne Apply
+            auszuloesen; beim naechsten Aktivitaetsbeginn wird kein Beginn
+            verbucht, der Peer entfernt und WG_PEER_DISABLED_ACTIVE
+            gemeldet. [WT-31]
+
+  T-WT-40  [L] Netzwechsel des Clients waehrend aktiver Episode: kein neuer
+            Beginn; ENDPOINT_CHANGE hoechstens einmal je Minute. [WT-32,
+            WT-36]
+
+  T-WT-41  [E] Buchungslauf mit 5.000 aktiven Peers: Dauer deutlich unter
+            dem Buchungsintervall; DB-Last gemessen. [WT-37]
+
+  T-WT-42  [L] Definierte Datenmenge uebertragen: Zuwachs von quota_used
+            entspricht der Menge innerhalb der festgelegten Toleranz
+            (Zaehlung auf Tunnelebene). [WT-38]
+
+  T-WT-43  [L] Commit-Fehler im Buchungslauf simulieren: der naechste Lauf
+            bucht den Verbrauch genau einmal. [WT-38]
+
+  T-WT-44  [L] Peer ausserhalb des Treibers entfernen und neu eintragen:
+            Zaehler kleiner als Cursor fuehrt zu counter_epoch + 1 und
+            korrektem Delta, kein Sprung. [WT-38]
+
+  T-WT-45  [L] Dauerwechsel Hard-Cut/Add einer Connection parallel zu
+            Buchungslaeufen (mindestens 1.000 Wiederholungen): Summe in
+            quota_used entspricht der uebertragenen Menge innerhalb der
+            Toleranz; verworfene CAS-Versuche treten auf und schaden nicht.
+            [WT-37, WT-39]
+
+  T-WT-46  [L] Client trennen: nach der Schwelle ACTIVITY_END; Peer bleibt
+            eingetragen; erneutes Verbinden ohne Serveraktion, Policy
+            unveraendert. [WT-33]
+
+  T-WT-47  [L] Controller anhalten: Panel zeigt "Controller antwortet
+            nicht" bzw. "zuletzt gesehen", nicht "online". [WT-35]
+
+  T-WT-48  [L] Ein Profil auf zwei Geraeten: Ereignis WG_ENDPOINT_FLAPPING,
+            keine automatische Sperre, zu keinem Zeitpunkt zwei Peers.
+            [WT-36]
+
+  T-WT-49  [L] Lange DB-Stoerung (Grace-Grenze fuer den Test angehoben):
+            Speicherbedarf des Controllers bleibt konstant. [WT-41]
+
+================================================================================
+DB-STOERUNG UND FAIL-CLOSED
+================================================================================
+
+  T-WT-50  [L] MariaDB stoppen: Alarmstufen bei 30 s und 240 s, Stop von
+            awg0 bei 300 s (Vorschlagswerte); E-Mails werden ohne DB
+            zugestellt. [WT-43, WT-46]
+
+  T-WT-51  [L] DB-Flattern (wiederholt 40 s aus, 60 s an): Stoerzeit
+            summiert sich bis zum Stop; Reset erst nach 600 s
+            ununterbrochener Stabilitaet. [WT-43]
+
+  T-WT-52  [L] Waehrend der Stoerung: Apply endet mit TEMPFAIL_DB, Peer-Set
+            unveraendert; eine Panel-Aktion wird mit Meldung abgelehnt und
+            nach Entstoerung NICHT nachtraeglich ausgefuehrt. [WT-42, WT-48]
+
+  T-WT-53  [L] Verkehr waehrend der Stoerung, Grace-Stop, DB-Rueckkehr:
+            quota_used enthaelt den Verbrauch genau einmal; erneutes
+            Nachbuchen derselben Snapshot-Datei bucht 0. [WT-38, WT-40]
+
+  T-WT-54  [L] Wiederanlauf nach DB-Rueckkehr: Peers wieder eingetragen,
+            Clients verbinden selbststaendig; Cursor auf 0 bei neuer
+            Generation; Stoerzeit bleibt bis zum Stabilitaetsfenster
+            erhalten. [WT-39, WT-43]
+
+  T-WT-55  [L] systemctl stop awg-quick@awg0 durch den Admin: kein
+            selbsttaetiger Neustart, Anzeige INTERFACE_DOWN_EXTERN. [WT-44]
+
+  T-WT-56  [L] Controller einfrieren: Watchdog beendet ihn; bei
+            Dauerabsturz stoppt der Fail-Closed-Helfer awg0 und alarmiert.
+            [WT-45]
+
+  T-WT-57  [L] Kaltstart ohne DB: awg0 ohne Peers, kein Client kann
+            verbinden; nach DB-Start erfolgt der Abgleich. [WT-47]
+
+  T-WT-58  [K] Durchsicht aller Zugangsentscheidungen des Moduls: keine
+            stuetzt sich auf Obfuskationsparameter; jede ist auf SQL-Zustand
+            und WireGuard-Schluessel zurueckfuehrbar. [WT-51]
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

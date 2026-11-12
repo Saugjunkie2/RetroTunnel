@@ -1,0 +1,245 @@
+================================================================================
+BASE-040 — INVARIANTEN (WireGuard-Tunnel)
+================================================================================
+DATEI: BASE-040_090_INVARIANTEN.txt
+STATUS: ACTIVE
+
+Harter Vertrag. Jede Verletzung ist ein Fehler. Kennungen WT-01..WT-52
+(WT = WireGuard-Tunnel; bewusst NICHT "WG-xx", weil WG-01..05 und
+WG-GRACE-01..05 bereits Vertragsklauseln in BASE-020_040 bezeichnen).
+Herkunft je Invariante: governance/register/trace/HERKUNFT_BASE-040.yaml.
+
+================================================================================
+ARCHITEKTUR UND ROLLEN
+================================================================================
+
+  WT-01  Es gibt genau EINEN WireGuard-Endpunkt: AmneziaWG auf awg0 mit
+         einem UDP-Listener auf wg_listen_port. Kein zweiter WireGuard-
+         Listener, kein Rueckfall auf Standard-WireGuard.
+
+  WT-02  Das Peer-Set von awg0 wird ausschliesslich durch den WG-Treiber
+         innerhalb von vpn-policy-apply veraendert, unter demselben Single-
+         Writer-Lock wie nftables und tc (R-11).
+
+  WT-03  Der Controller veraendert weder Peer-Set noch nftables noch tc und
+         schreibt weder op_status noch op_reason_code. Sein einziger
+         Kernel-Eingriff ist Start/Stop der Unit awg-quick@awg0 im
+         Grace-Automaten.
+
+================================================================================
+INTERFACE
+================================================================================
+
+  WT-04  awg0.conf ist vollstaendig aus SQL-Settings gerendert und enthaelt
+         KEINE [Peer]-Abschnitte, KEINEN PrivateKey und KEINE Firewall-
+         Kommandos; SaveConfig ist aus. Gleicher Settings-Stand ergibt eine
+         byteidentische Datei.
+
+  WT-05  Jede Abweichung zwischen Render-Soll, Datei und laufendem Interface
+         wird als WG_IFACE_DRIFT erkannt und gemeldet. Es erfolgt kein
+         selbsttaetiger Interface-Neustart.
+
+  WT-07  awg-quick@awg0 traegt Requires= und After= auf nftables.service.
+         Ohne erfolgreich geladenes Regelwerk existiert kein awg0.
+
+  WT-11  Fuer 10.77.0.0/16 und fd77:0:0::/48 existieren dauerhaft
+         Rueckfallrouten vom Typ "unreachable". Bei fehlendem awg0 verlaesst
+         kein Paket an eine Tunneladresse den Host ueber das WAN.
+
+  WT-12  awg0 arbeitet mit Table = off. Tunnelrouten sind ausschliesslich
+         die Pool-Routen der Rollen; aus AllowedIPs entstehen keine Routen.
+
+================================================================================
+PEER-ZUSTAND
+================================================================================
+
+  WT-06  Es gibt keinen direkten Uebergang ABSENT -> PRESENT. Ein Peer wird
+         nur ueber die Gate-Sequenz eingetragen (Gate setzen, Policy
+         herstellen, Peer eintragen, verifizieren, Gate loesen).
+
+  WT-08  Ein Peer ohne SOLL-Grundlage in SQL wird entfernt. Es gibt keine
+         Peer-Allowlist ausserhalb von SQL.
+
+  WT-09  Der SOLL-Zustand eines Peers ist eine reine Funktion des SQL-
+         Zustands: PRESENT genau dann, wenn tunnel_type = WIREGUARD,
+         op_status IN (ACTIVE, RESTRICTED), revoked_at IS NULL, beide
+         fixed-IPs gesetzt und genau eine Auth-Row vorhanden ist.
+
+  WT-10  AllowedIPs eines Peers sind exakt fixed_ip/32 und fixed_ipv6/128,
+         unveraendert aus der DB uebernommen. Keine Neuberechnung aus
+         ip_slot, keine Ableitung, keine Umformatierung.
+
+  WT-13  Gate-Elemente in connect_pending tragen kein Timeout. Das Gate wird
+         ausschliesslich nach bestandener Verifikation geloest.
+
+  WT-14  In keinem Fehler- oder Abbruchfall der Add-Sequenz entsteht der
+         Zustand "Peer vorhanden, Policy nicht hergestellt, Gate offen".
+
+  WT-15  RESTRICTED entfernt den Peer nie. Bei DISABLED, Widerruf oder
+         fehlender Auth-Row ist der Peer ABSENT; die Durchsetzung erfolgt
+         mit dem ausloesenden Apply, spaetestens in der Frist aus WT-19.
+
+  WT-16  Hard-Cut bedeutet in dieser Reihenfolge: letzte Buchung, Peer
+         entfernen, conntrack-Eintraege beider fixed-IPs loeschen,
+         verifizieren. Scheitert die Buchung, wird trotzdem entfernt
+         (Zugangsentzug vor Verbrauchsgenauigkeit) und der Verlust gemeldet.
+
+  WT-17  Der zu entfernende Peer wird ueber den PublicKey der Auth-Row UND
+         ueber AllowedIPs (fixed-IPs der Connection) bestimmt. Eine bereits
+         geloeschte Auth-Row verhindert den Hard-Cut nicht.
+
+  WT-18  Der Massenabgleich laesst unveraenderte Peers unberuehrt; laufende
+         Verbindungen unveraenderter Peers werden nicht unterbrochen.
+
+  WT-19  Peer-Drift wird spaetestens nach vpn_reconcile_interval_seconds
+         + 60 s erkannt und korrigiert.
+
+================================================================================
+SCHLUESSEL UND PROFILE
+================================================================================
+
+  WT-20  Schluesselmaterial erscheint nie in Kommandozeilen-Argumenten,
+         Umgebungsvariablen, Logs, Diag- oder Fehlerausgaben. Treiber und
+         Controller verwenden keine Ausgabeformen, die PresharedKeys
+         enthalten ("dump", "showconf").
+
+  WT-21  Der Server-PrivateKey liegt ausschliesslich in
+         /etc/amnezia/amneziawg/awg0.key (root:root 0600) und im
+         verschluesselten Backup. Nie in SQL, Panel, awg0.conf oder Logs.
+
+  WT-22  Kein WG-Geheimnis liegt im Klartext in der Datenbank oder in einer
+         unverschluesselten Datei: PresharedKeys als AEAD-Chiffrat unter dem
+         CEK, Client-PrivateKeys nur innerhalb verschluesselter Profile.
+         Schlaegt die AEAD-Pruefung fehl, gibt es keinen Klartext-Rueckfall.
+
+  WT-23  Jeder Peer hat einen PresharedKey.
+
+  WT-24  Im Client-Profil stammen die Adressen 1:1 aus fixed_ip (/32) und
+         fixed_ipv6 (/128). Die DNS-Zeile enthaelt genau die IPv4- und die
+         IPv6-Adresse von SERVICE_DNS und nichts sonst.
+
+  WT-25  Client-Profile sind Full-Tunnel: AllowedIPs = 0.0.0.0/0, ::/0.
+
+  WT-26  Gueltig ist genau das Profil, dessen Digest dem aus dem aktuellen
+         SQL-Stand berechneten entspricht. Veraltete Profile werden
+         geloescht; mit dem Loeschen der Auth-Row werden alle Profile der
+         Connection geloescht.
+
+  WT-27  Schluesselrotation erzwingt eine neue Sitzungsgrenze. Zu keinem
+         Zeitpunkt sind laut SQL zwei Schluessel einer Connection gueltig;
+         nach dem Apply funktioniert die alte Konfiguration nicht mehr.
+
+  WT-28  Profile werden nur von root-Prozessen gelesen. Das Panel erhaelt
+         Klartext ausschliesslich ueber den Reveal-Helfer: Nutzer nur fuer
+         eigene Connections, ADMIN fuer fremde nur mit Audit-Ereignis,
+         MODERATOR nie fuer fremde.
+
+  WT-29  Provisioning und Rotation schreiben das verschluesselte Profil
+         dauerhaft, BEVOR die Transaktion committet. Es gibt keine
+         Connection mit Auth-Row, zu der nie ein Profil existiert hat.
+
+================================================================================
+LAUFZEIT UND AKTIVITAET
+================================================================================
+
+  WT-30  runtime_activity wird ausschliesslich aus dem Handshake-Zeitstempel
+         des Kernels und wg_handshake_stale_threshold_seconds abgeleitet.
+
+  WT-31  Ein Aktivitaetsbeginn wird nur verbucht, wenn die aktuelle SQL-
+         Zeile die Zulassung bestaetigt. Bei Abweichung wird kein Beginn
+         verbucht und sofort ein Apply fuer die Connection ausgeloest.
+
+  WT-32  Ein Endpoint-Wechsel bei aktiver Episode ist Fortsetzung: kein
+         neuer Beginn, kein Ende, keine Abweisung.
+
+  WT-33  Inaktivitaet aendert weder Peer-Praesenz noch Policy. Der Peer
+         bleibt eingetragen; ein erneuter Handshake erfordert keine
+         Serveraktion.
+
+  WT-34  Der session_token einer Episode ist deterministisch aus
+         connection_ref und Episodenbeginn gebildet; wiederholtes Melden
+         derselben Episode ist idempotent.
+
+  WT-35  last_runtime_seen_at und runtime_active_since sind Hinweise, keine
+         Wahrheit. Liveness-Anzeigen stammen aus der Laufzeit oder sind als
+         "zuletzt gesehen" gekennzeichnet.
+
+  WT-36  Endpoints werden nur ereignisbezogen und ratenbegrenzt persistiert.
+         Endpoint-Flattern erzeugt ein Hinweisereignis, nie eine
+         automatische Sperre.
+
+================================================================================
+VERBRAUCHSBUCHUNG
+================================================================================
+
+  WT-37  Je Buchungslauf werden zuerst Cursor und counter_epoch aus der DB
+         gelesen, danach die Kernel-Zaehler. Jede Buchung ist ein
+         Compare-and-Set auf counter_epoch.
+
+  WT-38  Die Buchung ist idempotent und zaehlt nie doppelt. Ist ein
+         Kernel-Zaehler kleiner als der Cursor, gilt der Zaehler als neu
+         begonnen (Delta = Zaehlerstand, counter_epoch + 1).
+
+  WT-39  Unmittelbar vor jedem (Wieder-)Eintrag eines Peers und bei jedem
+         Generationswechsel des Interfaces wird der Cursor auf 0 gesetzt und
+         counter_epoch erhoeht.
+
+  WT-40  Vor jedem Entfernen des Interfaces wird ein Zaehler-Snapshot
+         dauerhaft abgelegt. Snapshots werden vor jeder anderen Buchung
+         nachgebucht; das Nachbuchen ist idempotent.
+
+  WT-41  Der Controller sammelt keine Verbrauchsdaten im Speicher an, die
+         ueber die jeweils letzten Zaehlerstaende je Peer hinausgehen
+         (beschraenkter Speicher unabhaengig von der Stoerungsdauer).
+
+================================================================================
+DB-STOERUNG UND FAIL-CLOSED
+================================================================================
+
+  WT-42  Waehrend einer DB-Stoerung wird das Peer-Set nicht veraendert.
+         vpn-policy-apply endet mit TEMPFAIL_DB ohne Kernel-Aenderung; es
+         gibt kein Apply aus Cache.
+
+  WT-43  Die Stoerzeit wird kumuliert und erst nach ununterbrochen stabiler
+         DB ueber wg_grace_reset_stable_seconds zurueckgesetzt. Erreicht sie
+         wg_failclosed_grace_seconds, wird awg0 gestoppt.
+
+  WT-44  Ein ohne Automaten-Marker gestopptes awg0 (Admin-Stop) wird nicht
+         selbsttaetig wieder gestartet.
+
+  WT-45  Faellt der Controller dauerhaft aus, wird awg0 gestoppt
+         (Watchdog, begrenzte Neustarts, OnFailure). WireGuard laeuft nicht
+         dauerhaft ohne Controller.
+
+  WT-46  Die Alarmierung der Grace-Stufen funktioniert ohne Datenbank.
+
+  WT-47  Ohne erreichbare DB werden keine Peers eingetragen. Ein Kaltstart
+         ohne DB ergibt ein Interface ohne Peers.
+
+  WT-48  Waehrend einer DB-Stoerung abgelehnte Panel-Aktionen werden nicht
+         vorgemerkt und nicht spaeter stillschweigend ausgefuehrt.
+
+================================================================================
+SETTINGS, AENDERUNGEN, GRENZEN
+================================================================================
+
+  WT-49  Alle wg_*-Settings haben Scope GLOBAL. Fehlt ein STRICT-Wert oder
+         ist er ungueltig, wird die Aktion verweigert; die Nutzung eines
+         Failsafe-Werts erzeugt ein Ereignis (kein stiller Default).
+
+  WT-50  S1, S2 und H1-H4 sind auf Server und in allen gueltigen Profilen
+         identisch. Parameter der Wirkungsklassen RESTART/REISSUE werden nur
+         ueber das dokumentierte Wartungsverfahren geaendert.
+
+  WT-51  Die Obfuskation ist keine Sicherheitsfunktion. Zugang beruht
+         ausschliesslich auf WireGuard-Kryptographie und dem aus SQL
+         abgeleiteten Peer-Set.
+
+  WT-52  Ereignisse und Statusausgaben enthalten kein Schluesselmaterial
+         (PublicKeys sind zulaessig). Endpoints sind nur fuer ADMIN sichtbar.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
