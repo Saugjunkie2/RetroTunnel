@@ -126,6 +126,7 @@ ZWECK:
   PostUp = ip -6 route replace <pool_v6_cidr> dev %i proto static     (je Rolle)
   PostUp = install -d -m 0700 /run/retrotunnel/wg
   PostUp = /usr/local/bin/vpn-wg-render --write-generation
+  PreDown = /usr/local/bin/vpn-wg-snapshot
 
   REGELN:
   - KEIN PrivateKey-Eintrag, KEINE [Peer]-Abschnitte, KEIN DNS-Eintrag,
@@ -142,6 +143,9 @@ ZWECK:
     (BASE-040_050 Abschnitt 5).
   - Schlaegt ein PostUp-Schritt fehl, bricht awg-quick ab und entfernt das
     Interface wieder (kein halb konfiguriertes Interface).
+  - PreDown schreibt vor JEDEM Entfernen des Interfaces den Zaehler-Snapshot
+    (BASE-040_060 Abschnitt 5). Ein Fehlschlag des Hooks verhindert das
+    Entfernen nicht.
 
 ================================================================================
 4) OBFUSKATIONSPARAMETER
@@ -221,9 +225,8 @@ ZWECK:
 
   vpn-wg-controller.service:
     [Unit]
-    Requires=awg-quick@awg0.service
-    After=awg-quick@awg0.service mariadb.service
-    PartOf=awg-quick@awg0.service
+    Wants=awg-quick@awg0.service
+    After=awg-quick@awg0.service mariadb.service nftables.service
     OnFailure=vpn-wg-failclosed.service
     StartLimitIntervalSec=300
     StartLimitBurst=5
@@ -235,8 +238,14 @@ ZWECK:
     KillMode=mixed
     TimeoutStopSec=30
   Der Controller meldet READY=1 gemaess Readiness in BASE-040_INDEX 5h und
-  sendet WATCHDOG=1 je Poll-Zyklus. Beim Stop (SIGTERM) schreibt er die
-  letzte Buchung bzw. den Snapshot (BASE-040_060 Abschnitt 5).
+  sendet WATCHDOG=1 je Poll-Zyklus. Beim Stop (SIGTERM) fuehrt er einen
+  letzten Buchungslauf aus.
+  BEWUSST KEIN Requires=/PartOf=/BindsTo= auf awg-quick@awg0: Der Controller
+  muss weiterlaufen, waehrend awg0 gestoppt ist (Grace-Automat, Wiederanlauf,
+  BASE-040_060). Durch After= wird er beim Herunterfahren VOR awg0 beendet,
+  sodass die letzte Buchung noch gegen die Kernel-Zaehler laeuft; ein
+  Interface-Neustart bei laufendem Controller wird ueber die Generations-
+  kennung erkannt.
 
   vpn-wg-failclosed.service (oneshot): stoppt awg-quick@awg0, schreibt ein
   CRITICAL-Ereignis WG_CONTROLLER_FAILED und loest den DB-unabhaengigen
@@ -260,11 +269,12 @@ ZWECK:
        und zustellen, BEVOR umgeschaltet wird (BASE-040_040 Abschnitt 5);
        Ankuendigung an Kunden (BASE-110).
     3  vpn-wg-render ausfuehren; --check zeigt die Abweichung zum Kernel.
-    4  Snapshot-Buchung aller Peers (BASE-040_050 Abschnitt 6).
-    5  systemctl restart awg-quick@awg0 (Controller folgt per PartOf).
-    6  Erstabgleich; Verifikation (T-WT-08).
+    4  systemctl restart awg-quick@awg0. Der PreDown-Hook sichert die
+       Zaehler; der Controller erkennt die neue Generation, bucht nach und
+       stoesst den Erstabgleich an (BASE-040_060 Abschnitt 5).
+    5  Verifikation (T-WT-08).
     Rollback: awg0.conf.prev zurueckbenennen, Settings zuruecksetzen,
-    Schritte 3-6 wiederholen. Alte Profile sind dann wieder gueltig.
+    Schritte 3-5 wiederholen. Alte Profile sind dann wieder gueltig.
 
   7.2 Paket-/Kernel-Update: DKMS baut das Modul neu. Ist das Modul nach
     einem Kernelwechsel nicht ladbar, startet awg0 nicht (Fail-Closed, kein

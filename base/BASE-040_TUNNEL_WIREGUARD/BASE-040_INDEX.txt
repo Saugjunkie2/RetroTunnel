@@ -132,7 +132,9 @@ STATUS: ACTIVE (Konzeptstand; keine Implementierung, kein Praxistest)
      /usr/local/bin/vpn-wg-controller        Daemon
      /usr/local/bin/vpn-wg-render            Renderer awg0.conf
      /usr/local/bin/vpn-wg-profile           Client-Profil erzeugen/ablegen
-     /run/retrotunnel/wg/                    Laufzeit (Generation, Status)
+     /usr/local/bin/vpn-wg-snapshot          Zaehler-Snapshot (PreDown-Hook)
+     /run/retrotunnel/wg/                    Laufzeit (Generation, Status,
+                                             Grace-Zustand, Marker)
      /var/lib/retrotunnel/wg-profiles/       Client-Profile, AEAD-verschluesselt
      /var/lib/vpn-accounting/wg-snapshot/    Snapshot-Spool (D004 P-02)
 
@@ -143,8 +145,10 @@ STATUS: ACTIVE (Konzeptstand; keine Implementierung, kein Praxistest)
   g) DEPENDENCIES
      awg-quick@awg0:     Requires=+After=nftables.service (F-001-Gating),
                          After=lo-service-ips.service network-online.target
-     vpn-wg-controller:  Requires=+After=awg-quick@awg0.service,
-                         After=mariadb.service; KEIN Requires=mariadb
+     vpn-wg-controller:  Wants=+After=awg-quick@awg0.service,
+                         After=mariadb.service nftables.service;
+                         KEIN Requires/PartOf (laeuft bei gestopptem awg0
+                         und bei DB-Stoerung weiter)
 
   h) READINESS
      awg0:        Interface existiert, Schluessel gesetzt, Port gebunden,

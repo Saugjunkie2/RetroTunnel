@@ -1,0 +1,279 @@
+================================================================================
+BASE-040 — SESSION CONTROLLER UND ACCOUNTING
+================================================================================
+DATEI: BASE-040_050_SESSION_CONTROLLER_UND_ACCOUNTING.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Vertrag des AWG Session Controllers (vpn-wg-controller): Erfassung der
+  Laufzeit, Ableitung von runtime_activity (Fall A/B/C unter D004),
+  Admission-Waechter, Verbrauchsbuchung, Signale an BASE-070 und
+  Status-Bereitstellung. Der Grace-Automat steht in BASE-040_060.
+
+================================================================================
+1) AUFGABEN UND NICHT-AUFGABEN
+================================================================================
+
+  AUFGABEN:
+    C1  Laufzeit erfassen (Handshake-Zeit, Zaehler, Endpoint je Peer)
+    C2  runtime_activity je Connection ableiten und Beginn/Ende melden
+    C3  Admission-Waechter: Peer-Praesenz gegen SQL pruefen, Abweichung
+        an vpn-policy-apply uebergeben
+    C4  Verbrauch buchen (D004 P-01)
+    C5  DB-Erreichbarkeit pruefen, Grace-Automat fuehren (BASE-040_060)
+    C6  Status fuer Panel/Diag bereitstellen
+
+  NICHT-AUFGABEN (MUST NOT):
+    - Peers eintragen/entfernen, nftables oder tc aendern (-> vpn-policy-apply)
+    - Statuswechsel einer Connection schreiben (-> BASE-010-Lifecycle-Jobs)
+    - Quota bewerten oder RESTRICT ausloesen (-> BASE-070 / MOD-010)
+    - eine eigene Sitzungswahrheit fuehren (D004-E02, G2 in BASE-020_060)
+
+================================================================================
+2) ERFASSUNGSZYKLUS
+================================================================================
+
+  Takt: wg_counter_poll_interval_seconds (Vorschlag 5 s).
+
+  Z1  Kernel lesen (ohne Secrets): latest-handshakes, transfer, endpoints,
+      allowed-ips. FEHLT DAS INTERFACE, ist das ein gueltiger Zustand:
+      GESTOPPT (Marker des Grace-Automaten bzw. des Fail-Closed-Helfers
+      vorhanden) oder INTERFACE_DOWN_EXTERN (kein Marker: Admin-Stop). Dann
+      keine Erfassung; Z6/Z7 laufen weiter. Andere Lesefehler beenden den
+      Prozess mit Fehler (systemd: Neustart bzw. OnFailure).
+  Z2  Generation pruefen: /run/retrotunnel/wg/generation gegen den zuletzt
+      verarbeiteten Wert. Abweichung = Interface wurde neu erzeugt:
+      laufende Buchung aussetzen, Ereignis WG_GENERATION_CHANGED, Vorwerte
+      verwerfen, Nachbuchen + Generationswechsel (BASE-040_060 Abschnitt 5),
+      danach --reconcile-all anstossen.
+  Z3  Zuordnung PublicKey -> Connection aus dem SOLL-Abbild im Speicher.
+      Das Abbild wird je Buchungslauf (Abschnitt 5) aus SQL erneuert und
+      zusaetzlich sofort, wenn ein unbekannter PublicKey auftaucht.
+      Es ist ein Lesecache, nie eine Wahrheit.
+  Z4  Je Peer runtime_activity fortschreiben (Abschnitt 3), Endpoint-
+      Wechsel behandeln (Abschnitt 4).
+  Z5  Aktuelle Zaehler im Speicher vormerken (gebucht wird im Buchungslauf).
+  Z6  Grace-Automat einen Schritt fortschreiben (BASE-040_060).
+  Z7  Status schreiben (Abschnitt 7), Watchdog bedienen.
+
+  Der Zyklus enthaelt keinen blockierenden Aufruf ohne Zeitlimit; DB-
+  Zugriffe laufen mit wg_db_health_timeout_ms.
+
+================================================================================
+3) RUNTIME_ACTIVITY (Fall A / B / C unter D004)
+================================================================================
+
+  DEFINITION (Laufzeit-Wahrheit, DEC-WT-09):
+    AKTIV(p)  :=  latest_handshake(p) > 0  UND
+                  jetzt - latest_handshake(p) <= wg_handshake_stale_threshold_seconds
+    sonst INAKTIV.
+  Massgeblich ist allein der Handshake-Zeitstempel. Zaehlerbewegung ist
+  kein Liveness-Kriterium (SES-22-Nachfolge, D004 "Zaehler-Update impliziert
+  Liveness, nicht umgekehrt" gilt nur fuer die Hinweisfelder).
+
+  PERSISTIERTE HINWEISE auf vpn_connections (Gruppe D, Owner BASE-010;
+  Schreibvertrag BASE-070):
+    last_runtime_seen_at   letzter beobachteter AKTIV-Zeitpunkt
+    runtime_active_since   Beginn der laufenden Episode; NULL = keine offene
+                           Episode. Projektion fuer Panel ("verbunden seit"),
+                           keine Wahrheit. NEUES Feld dieses Auftrags
+                           (TIMESTAMP NULL), tunnelneutral.
+
+  UEBERGAENGE:
+
+  FALL C — BEGINN (INAKTIV -> AKTIV, keine offene Episode)
+    B1  Mutex vpn_session_locks fuer die Connection erwerben. Ist er belegt
+        (Rotation/Rollenwechsel laeuft), wird die Registrierung auf den
+        naechsten Zyklus verschoben. Der Verkehr ist davon unberuehrt: Der
+        Peer ist durch seine Praesenz bereits zugelassen und gepolict.
+    B2  ADMISSION-WAECHTER: aktuelle SQL-Zeile lesen. Erwartet:
+        op_status IN (ACTIVE, RESTRICTED), revoked_at IS NULL, Auth-Row mit
+        genau diesem PublicKey. Abweichung -> KEIN Beginn; Ereignis
+        WG_PEER_DISABLED_ACTIVE bzw. WG_PEER_UNKNOWN; sofort
+        vpn-policy-apply --connection-id (entfernt den Peer).
+    B3  Beginn melden (Abschnitt 6): runtime_active_since := Handshake-Zeit,
+        last_runtime_seen_at := Handshake-Zeit; Ereignis ACTIVITY_START.
+    B4  Mutex freigeben (erst nach erfolgreichem Commit von B3).
+    Der On-Demand-Janitor des Admission-Vertrags (BASE-020_020 Abschnitt 6)
+    hat fuer WireGuard nichts zu bereinigen: Es gibt keinen persistenten
+    Sitzungsdatensatz, der als Leiche blockieren koennte. Verwaiste Mutex-
+    Eintraege laufen ueber ihre TTL aus (BASE-070).
+
+  FALL A — FORTSETZUNG (AKTIV bleibt AKTIV, Endpoint wechselt)
+    Kein Beginn, kein Ende, kein Mutex. Endpoint im Speicher aktualisieren;
+    Ereignis ENDPOINT_CHANGE nach Abschnitt 4.
+
+  FALL B — VERWAISTE EPISODE (runtime_active_since gesetzt, Laufzeit
+    widerspricht)
+    Tritt nach Controller-Stillstand oder Interface-Neustart auf.
+    Beim Controller-Start und bei jedem Buchungslauf:
+      Laufzeit INAKTIV, Episode offen      -> ENDE melden mit
+                                              ended_at = last_runtime_seen_at,
+                                              Grund TIMEOUT_STALE bzw.
+                                              SYSTEM_RESTART (wenn die
+                                              Interface-Generation gewechselt
+                                              hat)
+      Laufzeit AKTIV, Episode offen,
+      Luecke last_runtime_seen_at -> Handshake
+      groesser als Schwelle + Buchungsintervall
+                                           -> ENDE (wie oben) und danach
+                                              BEGINN (Fall C)
+      Laufzeit AKTIV, Episode offen, keine
+      solche Luecke                        -> Fortsetzung, kein Ereignis
+
+  ENDE (AKTIV -> INAKTIV)
+    runtime_active_since := NULL; Ereignis ACTIVITY_END, Grund TIMEOUT_STALE.
+    Der Peer bleibt eingetragen (DEC-WT-01). Kein Policy-Eingriff.
+    Weitere Ende-Gruende setzt der WG-Treiber bei Hard-Cut
+    (BASE-040_030 Abschnitt 5): CONNECTION_DISABLED, CONNECTION_ROLE_CHANGE,
+    AUTH_KEY_ROTATED, ADMIN_HARDCUT; der Controller bei Dienst-Stop:
+    SERVICE_STOP_DB_GRACE, SERVICE_STOP.
+
+  SIMUSE=1 BEI WIREGUARD (Einordnung):
+    Das Protokoll laesst je Peer genau einen Endpoint zu. Zwei parallele
+    Tunnel derselben Connection koennen technisch nicht entstehen; wird ein
+    Profil auf zwei Geraeten genutzt, springt der Endpoint (Flattern,
+    Abschnitt 4). Der Mutex dient hier der Serialisierung gegen Umbauten,
+    nicht der Abwehr einer zweiten Sitzung. Identitaets-Sharing ist
+    serverseitig nicht von Roaming unterscheidbar (D004 R3); das ist eine
+    offen ausgewiesene Grenze, kein unterstuetzter Betriebsmodus.
+
+================================================================================
+4) ENDPOINTS UND FLATTER-ERKENNUNG
+================================================================================
+
+  - Der Endpoint (oeffentliche Adresse des Kunden) ist ein personen-
+    bezogenes Datum. Er wird im Speicher gefuehrt und nur ereignisbezogen
+    persistiert: bei ACTIVITY_START und bei ENDPOINT_CHANGE, letzteres
+    hoechstens einmal je Minute und Connection.
+    Aufbewahrung und Einsicht (nur ADMIN): MOD-007.
+  - FLATTERN: mehr als wg_endpoint_flap_threshold Wechsel innerhalb von
+    wg_endpoint_flap_window_seconds erzeugt EIN Ereignis
+    WG_ENDPOINT_FLAPPING je Fenster (Hinweis auf geteiltes Profil oder
+    instabiles Netz). Keine automatische Sperre; Bewertung durch ADMIN,
+    Abhilfe Rotation. Die Quell-IP-Warnung fuer Nutzer (BASE-010_030
+    Abschnitt 4) baut auf diesen Ereignissen auf (BASE-110).
+
+================================================================================
+5) VERBRAUCHSBUCHUNG
+================================================================================
+
+  Takt: wg_accounting_flush_interval_seconds (Vorschlag 60 s); zusaetzlich
+  sofort vor jedem kontrollierten Stop. Der Kernel-Zaehler ist zwischen den
+  Laeufen die Wahrheit; eine spaetere Buchung verliert nichts.
+
+  BUCHUNGSLAUF (Reihenfolge ist normativ):
+    F1  DB lesen: fuer alle WIREGUARD-Connections mit SOLL PRESENT
+        id, wg_public_key, last_known_rx_bytes, last_known_tx_bytes,
+        counter_epoch, last_counter_seen_at, runtime_active_since
+        (zugleich Erneuerung des SOLL-Abbilds, Abschnitt 2 Z3)
+    F2  DANACH Kernel lesen: transfer, latest-handshakes
+    F3  Je Connection Delta nach D004 P-01 berechnen
+    F4  EINE Transaktion; je Connection hoechstens ein UPDATE:
+          SET quota_used = quota_used + :delta,
+              last_known_rx_bytes = :rx, last_known_tx_bytes = :tx,
+              counter_epoch = :epoch_neu,
+              last_counter_seen_at = NOW(),
+              last_runtime_seen_at = :seen   (nur wenn im Intervall AKTIV)
+          WHERE id = :id AND counter_epoch = :epoch_gelesen
+        Ein UPDATE entfaellt, wenn delta = 0, keine Aktivitaet vorlag und
+        last_counter_seen_at juenger ist als wg_counter_seen_refresh_seconds.
+    F5  Zeilen mit 0 betroffenen Rows (CAS gescheitert) werden verworfen
+        und im naechsten Lauf neu berechnet; Zaehler WG_ACCT_CAS_RETRY.
+    F6  Erfolg: Health-Indikator wg_accounting_last_ok_at setzen.
+        Fehler (DB nicht erreichbar, Timeout): Transaktion verwerfen,
+        nichts im Speicher als gebucht markieren; der Grace-Automat wird
+        informiert. Kein Wiederholen in engerer Taktung.
+
+  GARANTIEN:
+    - Keine Doppelzaehlung: Lesereihenfolge F1 vor F2 und CAS auf
+      counter_epoch (BASE-040_030 Abschnitt 7).
+    - Kein Verlust bei DB-Stoerung, solange das Interface besteht.
+    - Reset-Erkennung ohne Zusatzwissen: aktueller Zaehler kleiner als der
+      Cursor fuehrt in den Reset-Zweig (Delta = Zaehler, Epoche + 1).
+    - Messgrenzen (offen ausgewiesen): Verkehr zwischen letzter Buchung und
+      einem UNKONTROLLIERTEN Interface-Verlust; Verkehr zwischen der
+      letzten Buchung eines Peers und seinem Entfernen (Millisekunden).
+
+  ABGRENZUNG: L2TP-Verbrauch laeuft ueber radacct und die L2TP-Bridge
+  (BASE-030/BASE-070), nicht ueber diesen Controller. Quota-Auswertung und
+  Monatsreset sind BASE-070/MOD-010; der Controller liefert nur Buchungen.
+
+  LAST: Bei N aktiven Peers hoechstens N Einzel-UPDATEs je Buchungslauf in
+  einer Transaktion plus ein SELECT. Zielgroesse N = 5.000; die Laufzeit des
+  Laufs ist zu messen (T-WT-41) und muss deutlich unter dem Intervall liegen.
+
+================================================================================
+6) SIGNALE AN BASE-070 (Session-Signal-Vertrag, BASE-020_020 Abschnitt 5)
+================================================================================
+
+  Feld               Wert fuer WIREGUARD
+  ------------------ ---------------------------------------------------------
+  vpn_connection_id  aus dem SOLL-Abbild
+  tunnel_type        WIREGUARD
+  client_ipv4        vpn_connections.fixed_ip
+  client_ipv6        vpn_connections.fixed_ipv6 (immer gesetzt)
+  truth_source       AWG_CONTROLLER
+  session_token      "wg:" + connection_ref + ":" + UNIX-Zeit des
+                     Episodenbeginns. Deterministisch aus persistierten
+                     Daten: ein wiederholtes Melden derselben Episode
+                     (Controller-Neustart) erzeugt denselben Token und ist
+                     damit idempotent.
+  runtime_ref        wg_public_key
+  source_event_at    Handshake-Zeit laut Kernel (nicht die Schreibzeit)
+
+  EREIGNISSE: ACTIVITY_START, ACTIVITY_END (mit Grund), ENDPOINT_CHANGE,
+  WG_ENDPOINT_FLAPPING sowie die Drift-Ereignisse aus BASE-040_030
+  Abschnitt 8. Tabelle, Aufbewahrung und Lesewege legt BASE-070 (fachlich)
+  bzw. MOD-007 (Retention) fest; der Controller schreibt als DB-User system.
+  Schlaegt das Schreiben eines Ereignisses fehl, wird es NICHT gepuffert:
+  Beginn/Ende werden beim naechsten Lauf aus Laufzeit und Hinweisfeldern
+  erneut abgeleitet (Fall B), Diagnoseereignisse gehen ins Journal.
+
+================================================================================
+7) STATUS FUER PANEL UND DIAGNOSE
+================================================================================
+
+  /run/retrotunnel/wg/status.json (0644, je Zyklus atomar ersetzt, KEINE
+  personenbezogenen Daten, keine Schluessel):
+    generated_at, interface_generation, peers_total, peers_active,
+    grace_state, grace_seconds_accumulated, db_healthy,
+    accounting_last_ok_at, peer_sync_last_ok_at, drift_counts
+  Detailabfrage je Connection (Handshake-Alter, Endpoint, Kernel-Zaehler,
+  IST-Zustand) ueber einen privilegierten Helfer mit validierter
+  vpn_connection_id; Endpoint nur fuer ADMIN (BASE-110).
+  Ein Status aelter als 3 Poll-Intervalle gilt im Panel als "Controller
+  antwortet nicht".
+
+================================================================================
+8) START, STOP, FEHLER
+================================================================================
+
+  START:
+    1  Settings laden (LKG/Failsafe gemaess BASE-040_020 Abschnitt 1)
+    2  Generation merken
+    3  DB erreichbar: Snapshot-Spool nachbuchen, ggf. Generationswechsel
+       (BASE-040_060 Abschnitt 5), --reconcile-all anstossen, Fall-B-
+       Bereinigung, READY melden
+       DB nicht erreichbar: Grace-Automat im Zustand STOERUNG beginnen,
+       READY melden (Readiness BASE-040_INDEX 5h)
+  STOP (SIGTERM):
+    letzter Buchungslauf (best effort). Wird das Interface danach entfernt,
+    sichert dessen PreDown-Hook die Zaehler im Spool.
+  FEHLERBILDER:
+    Interface fehlt            -> Zustand GESTOPPT / INTERFACE_DOWN_EXTERN
+    Kernel-Lesen scheitert     -> Prozessende mit Fehler (systemd)
+    DB-Fehler                  -> Grace-Automat; keine Buchung; Erfassung
+                                  laeuft weiter
+    vpn-policy-apply meldet TEMPFAIL -> erneuter Anstoss im naechsten
+                                  Buchungslauf, hoechstens einmal je Lauf
+                                  und Connection (kein Sturm)
+    Uhr springt rueckwaerts    -> Handshake-Alter negativ: als 0 behandeln,
+                                  Ereignis WG_CLOCK_ANOMALY; Zeitbasis:
+                                  BASE-060
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

@@ -1,0 +1,232 @@
+================================================================================
+BASE-040 — DB-DOWN-GRACE UND FAIL-CLOSED
+================================================================================
+DATEI: BASE-040_060_DB_DOWN_GRACE_UND_FAIL_CLOSED.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Mechanik zum Grace-Vertrag WG-GRACE-01..05 (BASE-020_040 Abschnitt 3,
+  Changelog v2.1.3): DB-Health-Pruefung, Grace-Automat, Dienst-Stop und
+  -Start, Snapshot-Spool, Alarmierung, Verhalten bei Controller-Ausfall.
+  Schliesst die dort offen gelassenen Mechanik-Punkte.
+
+================================================================================
+1) GRUNDSATZ
+================================================================================
+
+  WireGuard kennt keine Rueckfrage beim Verbindungsaufbau. Fail-Closed wird
+  deshalb auf Dienstebene hergestellt (Hybrid-Entscheidung des Owners):
+    - Bei DB-Stoerung bleiben bestehende Peers zunaechst eingetragen.
+    - Es werden keine Peers hinzugefuegt, entfernt oder umgepolict.
+    - Dauert die Stoerung kumuliert laenger als
+      wg_failclosed_grace_seconds, wird awg0 gestoppt.
+    - Nach stabiler DB-Rueckkehr wird awg0 gestartet und aus SQL neu
+      abgeglichen.
+  RESTRISIKO (bewusst akzeptiert, begrenzt): Waehrend der Grace-Zeit kann
+  ein Peer weiter arbeiten, dessen Zugang in dieser Zeit haette entzogen
+  werden sollen. Obergrenze: wg_failclosed_grace_seconds. Sofortmittel:
+  manueller Dienst-Stop (Abschnitt 4, WG-GRACE-05).
+
+================================================================================
+2) DB-HEALTH-PRUEFUNG
+================================================================================
+
+  Takt wg_db_health_interval_seconds, Zeitlimit wg_db_health_timeout_ms.
+  PROBE = (bestehende Verbindung nutzen oder neu aufbauen) + SELECT 1 +
+          Lesen einer Zeile aus settings_global als DB-User system.
+  Ergebnis OK nur, wenn alle Teile innerhalb des Zeitlimits gelingen.
+  Als FEHLER zaehlen ausserdem: gescheiterter Buchungslauf (BASE-040_050
+  F6) und TEMPFAIL_DB aus vpn-policy-apply.
+  Die Probe schreibt nichts in die DB.
+
+================================================================================
+3) GRACE-AUTOMAT
+================================================================================
+
+  ZUSTANDSGROESSEN (persistiert in /run/retrotunnel/wg/grace.state, atomar
+  bei jeder Aenderung; ueberlebt einen Controller-Neustart, nicht einen
+  Reboot - nach einem Reboot existieren keine Peers):
+    zustand          NORMAL | STOERUNG | GESTOPPT
+    g                kumulierte Stoerzeit in Sekunden
+    stabil_seit      Beginn der laufenden ununterbrochenen OK-Phase
+    stufe            hoechste bereits gemeldete Alarmstufe (0..3)
+    geschrieben_um   Zeitpunkt des letzten Schreibens
+
+  UEBERGAENGE:
+
+    NORMAL --Probe FEHLER--> STOERUNG
+        g waechst um die seit der letzten Probe vergangene Zeit.
+
+    STOERUNG --Probe FEHLER--> STOERUNG
+        g waechst weiter. Schwellen:
+          g >= wg_grace_warn_seconds   -> Alarmstufe 1
+          g >= wg_grace_alert_seconds  -> Alarmstufe 2
+          g >= wg_failclosed_grace_seconds -> STOP-AKTION -> GESTOPPT
+
+    STOERUNG --Probe OK--> NORMAL
+        g bleibt ERHALTEN. stabil_seit := jetzt.
+
+    NORMAL (g > 0) --ununterbrochen OK fuer
+                     wg_grace_reset_stable_seconds--> NORMAL
+        g := 0, stufe := 0, Ereignis WG_GRACE_RESET, Entwarnung.
+        Vorher fuehrt JEDER weitere Fehler zurueck nach STOERUNG mit dem
+        erhaltenen g (WG-GRACE-03: Flattern summiert sich; ist g bereits
+        >= Grace-Grenze, folgt sofort die STOP-AKTION).
+
+    GESTOPPT --ununterbrochen OK fuer
+               wg_recovery_min_stable_seconds--> START-AKTION -> NORMAL
+        g bleibt erhalten, bis das Stabilitaetsfenster erreicht ist.
+
+  CONTROLLER-NEUSTART WAEHREND EINER STOERUNG (pessimistische Regel):
+    War der letzte geschriebene Zustand STOERUNG, wird die Zeit seit
+    geschrieben_um vollstaendig zu g addiert. Ein abgestuerzter Controller
+    verlaengert die Grace-Zeit nicht.
+
+  KALTSTART OHNE DB: zustand STOERUNG mit g = 0; es existieren keine Peers,
+  also nichts zu schuetzen. Erreicht g die Grenze, wird awg0 gestoppt und
+  erst nach DB-Rueckkehr gestartet.
+
+  SCHWELLEN-KONSISTENZ: warn < alert < grace wird vom Settings-Katalog
+  erzwungen; sind die gelesenen Werte inkonsistent, gelten die Failsafe-
+  Werte des Katalogs und es entsteht ein Ereignis.
+
+================================================================================
+4) VERHALTEN WAEHREND STOERUNG (WG-GRACE-02, WG-GRACE-05)
+================================================================================
+
+  - PEER-SET EINGEFROREN: vpn-policy-apply benoetigt SQL; ohne DB endet
+    jeder Aufruf mit TEMPFAIL_DB ohne Kernel-Aenderung. Es gibt keinen
+    Betriebsmodus "Apply aus Cache".
+  - PANEL-AKTIONEN (Sperren, Rotation, Rollenwechsel) scheitern mit einer
+    eindeutigen Meldung "Datenbank nicht erreichbar - Aktion nicht
+    ausgefuehrt, bitte nach Entstoerung wiederholen". Sie werden NICHT
+    vorgemerkt (keine stillen Aktionen in der Zukunft, EB-008-FIX-01).
+  - ZEITGESTEUERTE ENTSCHEIDUNGEN (Ablauf, Quota, Fristen) werden nicht
+    gepuffert, sondern nach Entstoerung aus SQL NEU BEWERTET; der
+    anschliessende Reconcile setzt das Ergebnis durch. Damit geht keine
+    Entscheidung verloren und es entsteht kein zweiter Wahrheitsspeicher.
+  - VERBRAUCH: Die Kernel-Zaehler laufen weiter (D004 P-02).
+  - NOTFALL-PFAD: "systemctl stop awg-quick@awg0" per SSH ist jederzeit
+    zulaessig und DB-unabhaengig. Ein so (ohne Automaten-Marker) gestopptes
+    Interface wird vom Controller NICHT selbsttaetig wieder gestartet
+    (Zustand INTERFACE_DOWN_EXTERN, Alarm, Anzeige); der Wiederanlauf ist
+    eine bewusste Admin-Handlung.
+
+================================================================================
+5) STOP-AKTION, START-AKTION, SNAPSHOT-SPOOL
+================================================================================
+
+  STOP-AKTION (Grace abgelaufen):
+    P1  Marker /run/retrotunnel/wg/stopped-by-grace anlegen
+    P2  systemctl stop awg-quick@awg0
+        -> PreDown-Hook schreibt den Snapshot (siehe unten), dann wird das
+           Interface entfernt; alle WG-Verbindungen enden
+    P3  Alarmstufe 3; Aktivitaetsenden mit Grund SERVICE_STOP_DB_GRACE
+        werden nach DB-Rueckkehr aus Laufzeit/Hinweisen abgeleitet
+        (BASE-040_050 Fall B)
+    Schlaegt P2 fehl, wird es mit kurzer Wartezeit wiederholt und als
+    CRITICAL gemeldet; der Zustand bleibt STOERUNG.
+
+  SNAPSHOT (PreDown-Hook in awg0.conf, Werkzeug vpn-wg-snapshot):
+    PreDown = /usr/local/bin/vpn-wg-snapshot
+    Der Hook laeuft bei JEDEM Entfernen des Interfaces (Grace-Stop,
+    Wartung, Reboot, Fail-Closed-Helfer) und schreibt dauerhaft:
+      /var/lib/vpn-accounting/wg-snapshot/snap-<generation>-<zeit>.json
+      (root:root 0600; Schreiben mit fsync von Datei und Verzeichnis)
+      Inhalt: format, interface_generation, taken_at,
+              je Peer: wg_public_key, rx, tx
+    Kein Schluesselmaterial ausser PublicKeys, keine Endpoints.
+    Schlaegt der Hook fehl, wird das Interface TROTZDEM entfernt
+    (Zugangsentzug vor Verbrauchsgenauigkeit); Ereignis WG_ACCOUNTING_LOSS.
+    Groessenschranke: ein Datensatz je Peer; die Sicherheitsgrenze
+    SPOOL_HARD_MAX_BYTES (BASE-005_040) gilt zusaetzlich.
+
+  NACHBUCHEN (durch den Controller, vor jeder anderen Buchung):
+    Fuer jede Snapshot-Datei, aelteste zuerst:
+      - Stimmt interface_generation mit der in SQL gefuehrten Laufzeitmarke
+        wg_interface_generation ueberein (Tabelle der Laufzeitmarken,
+        Owner BASE-070), ist der Snapshot eine AUFGESCHOBENE NORMALE
+        BUCHUNG: je Peer Delta gegen den aktuellen DB-Cursor nach D004 P-01,
+        Cursor := Snapshot-Zaehler. Wiederholtes Nachbuchen ergibt Delta 0.
+      - Stimmt sie nicht ueberein, gehoert der Snapshot zu einer bereits
+        abgeschlossenen Generation: verwerfen mit Ereignis.
+      - Datei erst NACH dem Commit loeschen.
+  GENERATIONSWECHSEL (nach dem Nachbuchen, vor dem ersten Peer-Add):
+    In EINER Transaktion: alle WG-Cursor auf 0, counter_epoch + 1,
+    Laufzeitmarke wg_interface_generation := neue Generation.
+
+  START-AKTION (DB stabil):
+    T1  systemctl start awg-quick@awg0 (Gating gegen nftables wirkt)
+    T2  Nachbuchen + Generationswechsel
+    T3  vpn-policy-apply --reconcile-all (Gate, Policy, Peers)
+    T4  Marker stopped-by-grace entfernen; Entwarnung mit Hinweis, dass g
+        bis zum Stabilitaetsfenster erhalten bleibt
+    Scheitert T1, bleibt der Zustand GESTOPPT; erneuter Versuch fruehestens
+    nach 60 s; CRITICAL-Alarm.
+
+================================================================================
+6) ALARMIERUNG (WG-GRACE-04)
+================================================================================
+
+  Stufe  Ausloeser                       Wirkung
+  -----  ------------------------------- ------------------------------------
+  1      g >= wg_grace_warn_seconds      Ereignis WARN, Panel-Banner gelb
+  2      g >= wg_grace_alert_seconds     Ereignis URGENT, Banner rot, E-Mail
+  3      STOP-AKTION                     Ereignis CRITICAL, E-Mail
+  -      Start-Aktion / WG_GRACE_RESET   Ereignis INFO, Banner weg, E-Mail
+  Jede Stufe wird je Stoerungsepisode genau einmal gemeldet.
+
+  DB-UNABHAENGIGER WEG (MUST): Ereignisse gehen ins Journal und in den
+  Alarm-Spool; E-Mails werden ueber einen lokalen Versandhelfer mit
+  dateibasierter SMTP-Konfiguration verschickt. Schema, Spool-Pfad und
+  Helfer definiert MOD-007; BASE-040 verlangt nur: Der Weg darf keine
+  Datenbank benoetigen. Das Banner speist sich aus status.json
+  (BASE-040_050 Abschnitt 7); die Stoerungsseite des Panels ohne DB ist
+  Anforderung an BASE-110.
+
+  KEINE SIGNATUR NACH AUSSEN: Ein gestopptes awg0 darf sich am WAN nicht
+  von einem laufenden unterscheiden lassen. Anforderung an BASE-050: Auf
+  dem WAN-Interface werden keine ICMP-Port-Unreachable-Antworten fuer den
+  WG-Port erzeugt (laufendes WireGuard schweigt bei ungueltigen Paketen
+  ebenfalls). Die offene Firewall-Regel fuer den Port bei gestopptem Dienst
+  ist unkritisch (kein Listener, EB-008-04).
+
+================================================================================
+7) CONTROLLER-AUSFALL
+================================================================================
+
+  Ohne Controller gibt es keine Grace-Ueberwachung, keine Buchung und
+  keinen Admission-Waechter. Deshalb:
+    - Restart=always, WatchdogSec=30 (haengender Controller wird beendet)
+    - StartLimitBurst=5 in StartLimitIntervalSec=300: danach Unit "failed"
+    - OnFailure=vpn-wg-failclosed.service: stoppt awg0 (PreDown-Snapshot
+      laeuft), legt Marker stopped-by-failclosed an, CRITICAL-Alarm
+  Obergrenze fuer "WireGuard ohne Controller": etwa 5 Neustartversuche
+  (je hoechstens Watchdog-Zeit + RestartSec), danach Stop. Der Wiederanlauf
+  erfordert Admin-Eingriff (Ursache beheben, Unit starten); der Controller
+  behandelt den Marker beim Start wie GESTOPPT.
+
+================================================================================
+8) ERFUELLUNG DES GRACE-VERTRAGS (Zuordnung)
+================================================================================
+
+  Klausel      Vertrag (BASE-020_040)                Mechanik hier
+  ------------ ------------------------------------- -------------------------
+  WG-GRACE-01  Verbrauch waehrend Grace nicht        Kernel-Zaehler + PreDown-
+               verlieren, Speicher begrenzt          Snapshot + Nachbuchen
+                                                     (ERSETZT den RAM-Puffer,
+                                                     D004 P-02)
+  WG-GRACE-02  Kein Policy-Wechsel waehrend Grace    Abschnitt 4
+  WG-GRACE-03  Reset nur nach Stabilitaetsfenster    Abschnitt 3
+  WG-GRACE-04  Dreistufige Warnung, DB-unabhaengig   Abschnitt 6
+  WG-GRACE-05  Manueller Stop jederzeit              Abschnitt 4 (kein Auto-
+                                                     Restart nach Admin-Stop)
+  Offene Punkte aus Changelog v2.1.3 (RAM-Puffer-Struktur, Counter-
+  Persistierung, DB-unabhaengiger Alarmweg, Banner, systemctl-Logik) sind
+  damit geschlossen bzw. an MOD-007/BASE-110 mit konkretem Vertrag uebergeben.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
