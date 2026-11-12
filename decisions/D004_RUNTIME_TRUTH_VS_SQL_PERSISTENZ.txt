@@ -1,0 +1,277 @@
+================================================================================
+RetroTunnel — DECISION D004: RUNTIME-TRUTH VS SQL-PERSISTENZ
+================================================================================
+VERSION: v2.0-REKONSTRUKTION
+DATUM: 2026-11-11
+STATUS: ENTSCHIEDEN (E01-E09 am 2026-05-26 durch den Owner; Praezisierungen
+        2026-05-28; Rekonstruktion + Praezisierungen P-01..P-06 am 2026-11-11)
+ENTSCHEIDER: Marco (E01-E09, R-03); Hauptarchitekt unter Betreiberauftrag
+             2026-11-11 (P-01..P-06, technische Autonomie)
+
+================================================================================
+0) HERKUNFT DIESER DATEI (WICHTIG)
+================================================================================
+
+Die Originaldatei D004 (laut 03_CHANGELOG v2.1.4: 647 Zeilen, ADR-Format
+analog D002/D003, Kopf-Nachtrag v2.1.5) liegt im Repository NICHT vor
+(Befund BF-0001). Diese Datei ist eine REKONSTRUKTION. Sie gibt nicht den
+Originalwortlaut wieder, sondern die belegten Entscheidungen.
+
+Quellen der Rekonstruktion (alle im Repository, Baseline-Commit 10f3fde):
+  [Q1] 03_CHANGELOG.txt v2.1.4 (Zeilen 725-981): Ausloeser, Drittreview
+       ZB-001..006, Entscheidungen E01-E09, Eigenbefunde EB-009-*.
+  [Q2] 03_CHANGELOG.txt v2.1.5 (Zeilen 659-723): R-03 CLOSED, Sub-
+       Entscheidungen E6-E12 (Feldnamen, Cursor/Aggregat, counter_epoch).
+  [Q3] 01_GLOSSARY.txt: AWG Session Controller, SimUse=1, vpn_sessions
+       (DEPRECATED), wg_secure_session, runtime_activity,
+       operational_session.
+  [Q4] 00_MANIFEST.txt Abschnitt 5 "Geaendert: Session-Truth".
+  [Q5] REVIEW_TRACKER.txt SETTINGS-KEYS-TRACKING Abschnitt A (Keys mit
+       Verweis "D004-E0x" samt Default-Vorschlaegen).
+  [Q6] PRIORITAETENLISTE.txt M1-05, M2-070, M2-080.
+
+Nicht rekonstruierbar (im Original vorhanden, hier nicht belegt): der
+Wortlaut der Abschnitte 1/2/5/7, der Pseudocode zu E05 und die Tests
+T-D004-01..11. Diese Inhalte werden hier NICHT nacherfunden. Wo dieser
+Auftrag eigene Festlegungen trifft, sind sie als P-xx gekennzeichnet und
+begruendet. Liefert der Betreiber die Originaldatei nach, wird sie gegen
+diese Fassung abgeglichen (Arbeitspaket AP-Q04).
+
+================================================================================
+1) AUSLOESER UND PROBLEM
+================================================================================
+
+RetroTunnel hatte zwischenzeitlich eine SQL-Tabelle vpn_sessions als
+"Session-Truth" eingefuehrt. Im Vorgaengerkonzept existiert eine solche
+Tabelle ausdruecklich nicht: Sitzungswahrheit lag dort beim Daemon
+(radacct fuer L2TP, Laufzeit-Mapping unter /run/vpn-sessions/), der
+SimUse-Mutex in active_session_locks [Q1: EB-009-04]. Die neue Tabelle war
+eine nicht begruendete Abweichung ("stille Drift") und fuehrte zu einer
+zweiten, driftanfaelligen Wahrheit neben dem Kernel-/Daemon-Zustand.
+
+Kernaussage des Drittreviews [Q1: ZB-001]: SQL-first gilt fuer Policy,
+Aggregate und Budgets, NICHT fuer die Liveness eines Daemons. Eine
+Datenbankzeile kann nicht belegen, dass ein Tunnel gerade lebt.
+
+================================================================================
+2) ENTSCHEIDUNGEN
+================================================================================
+
+D004-E01: GRUNDSATZ RUNTIME-TRUTH-TRENNUNG                           [Q1]
+  Wahrheit fuer Laufzeit-Liveness und Rohzaehler ist der jeweilige Daemon
+  bzw. Kernel:
+    L2TP_IPSEC: FreeRADIUS-Accounting (radacct) + accel-ppp-Laufzeit
+    WIREGUARD:  Kernel-Peer-Zustand (awg show: latest-handshake, transfer)
+  Wahrheit fuer Policy, Aggregate und Quota-Budget ist SQL.
+  SimUse=1 wird dreistufig durchgesetzt [Q3]:
+    Truth (Liveness)  tunnelspezifisch aus der Laufzeit
+    Guard (Mutex)     vpn_session_locks, tunnelneutral
+    Backstop          On-Demand- und periodischer Janitor (BASE-070)
+
+D004-E02: vpn_sessions AUS DEM AKTIVEN TRUTH-PFAD ENTFERNT          [Q1][Q3]
+  vpn_sessions ist DEPRECATED und wird in keinem aktiven Pfad gelesen oder
+  geschrieben. Ersatz:
+    radacct                       L2TP-Episoden (Forensik + Liveness-Quelle)
+    awg show transfer/handshake   WG-Zaehlerquelle und Liveness
+    vpn_connections (Gruppe D)    Zaehler-Aggregat und Cursor
+    vpn_session_locks             SimUse-Mutex
+  Praezisierung P-06 (dieser Auftrag): Die Tabelle wird im Zielschema NICHT
+  angelegt (siehe Abschnitt 4); "Drop-Termin offen" entfaellt damit.
+
+D004-E03: BASE-070 INHALTLICH NEU DEFINIERT                          [Q1]
+  BASE-070_SESSION_CORE hat vier Aufgaben:
+    a) Runtime Activity Detection (L2TP: Laufzeit-Mapping + VALID-Pruefung
+       gegen Kernel-Realitaet; WG: Peer-Praesenz + latest-handshake);
+       Schwellwerte aus Settings (E09)
+    b) Accounting Correlation (L2TP via radacct; WG via Polling/Delta;
+       Korrelation auf vpn_connections)
+    c) Collector Idempotency (keine Doppelzaehlung bei Wiederholung:
+       counter_epoch + last_known_*)
+    d) DB-Down-Buffer (siehe E06 und P-02)
+  Der Modulname BASE-070_SESSION_CORE bleibt bestehen (P-05).
+
+D004-E04: QUOTA-SCOPE PRO CONNECTION                                 [Q1]
+  quota_used wird pro Connection auf vpn_connections gefuehrt, nicht pro
+  Customer aggregiert. Settings-Key quota_scope (Default per_connection)
+  haelt den spaeteren Weg zu per_customer offen. Verhaeltnis zu Plaenen mit
+  geteilter Quota (Glossar "Plan": SHARED/DEDICATED): wird in MOD-010
+  aufgeloest; die Buchungsebene bleibt die Connection.
+
+D004-E05: WG-ZAEHLER-GRUNDMODELL                                     [Q1][Q2]
+  Felder auf vpn_connections (Gruppe D, Schema-Owner BASE-010):
+    quota_used             BIGINT UNSIGNED  einziges Aggregat, Bytes, RX+TX
+    last_known_rx_bytes    BIGINT UNSIGNED  WG-Polling-CURSOR (kein Aggregat)
+    last_known_tx_bytes    BIGINT UNSIGNED  WG-Polling-CURSOR (kein Aggregat)
+    counter_epoch          INT UNSIGNED     +1 ausschliesslich bei erkanntem
+                                            Zaehler-Reset (aktuell < Cursor)
+                                            bzw. kontrolliertem Cursor-Reset
+    last_runtime_seen_at   TIMESTAMP NULL   Liveness-HINWEIS, kein Status
+    last_counter_seen_at   TIMESTAMP NULL   "Zaehler geprueft", auch bei
+                                            Delta 0
+    quota_period_start/_end TIMESTAMP       laufende Quota-Periode
+  Regeln [Q2: E6-E12]:
+    - last_runtime_seen_at ist tunnelneutral benannt (Altname
+      last_handshake_seen_at entfaellt).
+    - L2TP bucht direkt auf quota_used; die Cursor-Felder sind dort unbenutzt.
+    - counter_epoch wird NICHT bei Session-Start/-Ende, Statuswechsel oder
+      Reconcile erhoeht.
+    - Zaehler-Update impliziert Liveness, nicht umgekehrt.
+    - Quota-Reset ist atomar gegen Delta-Buchung (INV-QUOTA-RESET-ATOMARITY,
+      Heimat BASE-010_090; Periodenzuordnung: BASE-070).
+  Normativer Algorithmus dieses Auftrags: P-01.
+
+D004-E06: DB-DOWN-BUFFER FUER CONNECTION-DELTAS                      [Q1]
+  Waehrend einer DB-Stoerung duerfen Verbrauchsdaten nicht verloren gehen;
+  nachgeschrieben wird auf vpn_connections (nicht vpn_sessions). Original:
+  RAM-Puffer mit Obergrenze, "bounded durable spool spaeter optional".
+  Durch P-02 technisch ersetzt (gleiches Schutzziel, staerkere Garantie).
+
+D004-E07: SESSION-BEGRIFFSHYGIENE                                    [Q1][Q3]
+  Drei getrennte Begriffe (Glossar):
+    wg_secure_session    Kernel-Krypto-Sitzung, Rekey ca. alle 120 s
+    runtime_activity     Daemon-Sicht auf die Verbindung (Truth fuer SimUse,
+                         Stale-Erkennung, Zaehler-Deltas)
+    operational_session  Projektion fuer Panel/Reports (Owner MOD-006)
+  "Session" als Solo-Begriff wird in neuen Modulen vermieden.
+
+D004-E08: QUOTA-RESET KALENDERMONATLICH; PLANWECHSEL                 [Q1]
+  Auto-Reset zum 1. des Monats 00:00 (kalendarisch, nicht rollierend).
+  Planwechsel setzt quota_used NICHT zurueck (Missbrauchsschutz). Bei
+  Downgrade gilt fuer den Restmonat sofort das Limit des neuen Plans.
+  Zeitzone und Ausfuehrungsvertrag des Resets: BASE-070.
+
+D004-E09: SETTINGS-KEYS (12 Keys, Heimat BASE-090)                   [Q5]
+  Belegte Keys mit damaligem Default-Vorschlag:
+    wg_failclosed_grace_seconds              300
+    wg_grace_reset_stable_seconds            600
+    wg_grace_warn_seconds                    30
+    wg_grace_alert_seconds                   240
+    wg_grace_accounting_buffer_max           10000   (entfaellt durch P-02)
+    quota_scope                              per_connection
+    quota_reset_mode                         calendar_month
+    wg_counter_poll_interval_seconds         5
+    wg_handshake_stale_threshold_seconds     180
+    wg_counter_wrap_detection                enabled (entfaellt durch P-01)
+    l2tp_radacct_stale_threshold_seconds     300
+    runtime_activity_check_interval_seconds  30
+  Vier Namen verletzen die Prefix-Norm SQL-02 (quota_*, l2tp_*, runtime_*).
+  Die kanonischen Namen legt BASE-090 fest (P-04); bis dahin werden die
+  belegten Namen zitiert.
+
+D004-R-03 (CLOSED 2026-05-28): HEIMAT DER ZAEHLERFELDER              [Q2]
+  Option A: Die Zaehler-/Quota-Felder leben direkt auf vpn_connections,
+  NICHT in einer separaten runtime_state-Tabelle.
+
+================================================================================
+3) PRAEZISIERUNGEN DIESES AUFTRAGS (2026-11-11)
+================================================================================
+
+P-01  NORMATIVER DELTA-ALGORITHMUS (ersetzt den nicht ueberlieferten
+      E05-Pseudocode; schliesst OPEN-SES-06)
+      Fuer jede WIREGUARD-Connection c mit Kernel-Zaehlern (rx, tx):
+        wenn rx >= c.last_known_rx_bytes und tx >= c.last_known_tx_bytes:
+            delta = (rx - last_known_rx) + (tx - last_known_tx)
+            epoch = c.counter_epoch
+        sonst:                                   # Zaehler-Reset erkannt
+            delta = rx + tx
+            epoch = c.counter_epoch + 1
+        UPDATE vpn_connections
+           SET quota_used = quota_used + delta,
+               last_known_rx_bytes = rx, last_known_tx_bytes = tx,
+               counter_epoch = epoch, last_counter_seen_at = NOW()
+         WHERE id = c.id AND counter_epoch = c.counter_epoch   -- CAS
+      Eigenschaften: idempotent (ein gescheitertes Update wird beim naechsten
+      Lauf aus dem persistierten Cursor neu berechnet), keine Doppelzaehlung
+      (CAS auf counter_epoch), kein Verlust bei verzoegerter Buchung (der
+      Kernel-Zaehler haelt die Wahrheit, solange das Interface besteht).
+      Pflichtregel "kontrollierter Reset": Jede eigene Aktion, die Kernel-
+      Zaehler eines Peers loescht (Peer-Remove, Interface-Stop), bucht ZUVOR
+      das letzte Delta und setzt den Cursor auf 0 mit counter_epoch + 1.
+      Ohne diese Regel wuerde ein Peer, der nach dem Wiedereintrag mehr als
+      den alten Cursorwert uebertraegt, unterzaehlt.
+      Echter Ueberlauf der 64-Bit-Kernel-Zaehler ist praktisch ausgeschlossen
+      und waere vom Reset-Zweig abgedeckt; der Key wg_counter_wrap_detection
+      ist deshalb entbehrlich (ERSETZT, kein Schutzzielverlust).
+      Details: BASE-040_050.
+
+P-02  DB-DOWN: KERNEL-ZAEHLER ALS PUFFER + SNAPSHOT-SPOOL BEIM STOP
+      (ersetzt den RAM-Puffer aus E06 und WG-GRACE-01)
+      Waehrend einer DB-Stoerung wird nichts im RAM angesammelt: Die Kernel-
+      Zaehler laufen weiter und werden nach der Stoerung per P-01 in einem
+      Schritt gebucht. Nur wenn das Interface gestoppt werden muss (Ablauf
+      der Grace-Periode, kontrolliertes Herunterfahren), wird unmittelbar
+      davor ein Zaehler-Snapshot aller Peers dauerhaft in den Spool
+      /var/lib/vpn-accounting/ geschrieben und nach DB-Rueckkehr idempotent
+      nachgebucht.
+      Begruendung: gleiches Schutzziel (kein Verbrauchsverlust, kein Quota-
+      Bypass, kein Speicher-DoS) bei strikt beschraenktem Speicher (ein
+      Datensatz pro Peer) und Absturzfestigkeit. Der Settings-Key
+      wg_grace_accounting_buffer_max entfaellt.
+      Details: BASE-040_060.
+
+P-03  KEIN EIGENER "SESSION"-DATENSATZ FUER WIREGUARD
+      runtime_activity ist ein aus dem Kernel abgeleiteter Zustand
+      (AKTIV, wenn latest-handshake juenger als
+      wg_handshake_stale_threshold_seconds). Beginn und Ende einer
+      Aktivitaetsepisode werden als Ereignisse protokolliert (Forensik,
+      Panel-Projektion), sind aber keine Wahrheit. Roaming (Endpoint-Wechsel
+      bei aktiver Episode) ist Fortsetzung, kein Neustart. Details:
+      BASE-040_050; tunnelneutraler Vertrag: BASE-070.
+
+P-04  KEY-NAMEN
+      BASE-090 vergibt kanonische, prefix-konforme Namen und fuehrt die
+      belegten Altnamen als Lese-Alias (PR-04..PR-06). Dieser Auftrag
+      verwendet bis dahin die belegten Namen aus E09.
+
+P-05  MODULNAME
+      Die in D004-E03 offen gelassene Umbenennung von BASE-070 wird
+      entschieden: KEINE Umbenennung. "SESSION_CORE" bezeichnet den
+      tunnelneutralen Vertrag fuer runtime_activity, SimUse, Janitor und
+      Accounting-Korrelation; ein Rename wuerde nur Verweisdrift erzeugen.
+
+P-06  ZIELSCHEMA OHNE vpn_sessions
+      Da RetroTunnel noch nicht implementiert ist, existiert keine zu
+      entwoehnende Produktivtabelle. Die Registry (BASE-000) fuehrt
+      vpn_sessions kuenftig als ENTFALLEN; GRANTs auf vpn_sessions
+      entfallen. Nachzug in BASE-000/BASE-020/BASE-030: AP-Q04.
+
+================================================================================
+4) PROPAGATION
+================================================================================
+
+  Bereits im Repository nachgezogen (Root-Dokumente): 00_MANIFEST,
+  01_GLOSSARY, PRIORITAETENLISTE, 04_PHASE_PLAN, REVIEW_TRACKER.
+  NICHT nachgezogen (Befund BF-0010, Arbeitspaket AP-Q04): BASE-000
+  (Registry, GRANTs), BASE-010_020 (Gruppe D), BASE-020_010/_020/_040/_050/
+  _060 (vpn_sessions-Bezuege), BASE-030_040/_050, model/SM_SESSION.
+  Neue Module dieses Auftrags (BASE-040, BASE-070, BASE-080) bauen direkt
+  auf D004 in dieser Fassung auf.
+
+================================================================================
+5) RISIKEN UND GRENZEN
+================================================================================
+
+  R1 Messluecke bei unkontrolliertem Interface-Verlust: Stuerzt der Host
+     ab oder wird awg0 ohne Snapshot entfernt, ist der Verbrauch seit der
+     letzten Buchung verloren. Schranke: Buchungsintervall (BASE-040_050).
+     Offen ausgewiesen, technisch nicht vermeidbar.
+  R2 last_runtime_seen_at ist ein Hinweis. Anzeigen wie "online" MUESSEN
+     aus der Laufzeit stammen oder als "zuletzt gesehen" beschriftet sein.
+  R3 Identitaets-Sharing bei WireGuard (dieselbe Konfiguration auf zwei
+     Geraeten) ist serverseitig nicht von Roaming unterscheidbar; es
+     entsteht Endpoint-Flattern, aber nie ein zweiter paralleler Tunnel.
+
+================================================================================
+6) VALIDIERUNG
+================================================================================
+
+  Die Originaltests T-D004-01..11 sind nicht ueberliefert. Die Validierung
+  erfolgt ueber die Tests der umsetzenden Module: BASE-040_095 (Delta-
+  Algorithmus, Reset, kontrollierter Reset, Snapshot-Spool), BASE-070_095
+  (SimUse, Janitor, Quota-Reset-Atomaritaet), BASE-010_095 (Schema Gruppe D).
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

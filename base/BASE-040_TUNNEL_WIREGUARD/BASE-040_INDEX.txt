@@ -1,0 +1,209 @@
+================================================================================
+BASE-040 — TUNNEL WIREGUARD (INDEX)
+================================================================================
+DATEI: BASE-040_INDEX.txt
+VERSION: v1.0
+DATUM: 2026-11-11
+STATUS: ACTIVE (Konzeptstand; keine Implementierung, kein Praxistest)
+
+================================================================================
+1) ZWECK
+================================================================================
+
+  BASE-040 beschreibt den WireGuard-Tunnelpfad (tunnel_type=WIREGUARD) auf
+  Basis von AmneziaWireGuard (AWG): Interface awg0, Server-Konfiguration,
+  Peer-Lebenszyklus, Schluessel und Client-Profile, den AWG Session
+  Controller (Laufzeit-Erkennung und Verbrauchszaehlung) sowie das
+  Fail-Closed-Verhalten bei Datenbank-Stoerung.
+
+  Leitsatz: PEER-PRAESENZ = AUTORISIERT UND GEPOLICT. Ein Peer steht nur
+  dann im Kernel, wenn seine Connection laut SQL zugelassen ist UND der
+  zugehoerige Firewall-/QoS-Zustand bereits hergestellt wurde. Damit gibt es
+  beim Handshake eines Clients nichts mehr zu entscheiden und kein
+  ungepolictes Fenster (R-04).
+
+  Der Oberbegriff bleibt fork-neutral "WireGuard" (tunnel_type=WIREGUARD,
+  Prefix wg_); Werkzeug-, Unit- und Pfadnamen folgen der real eingesetzten
+  Software (awg, awg-quick@awg0, /etc/amnezia/amneziawg/).
+
+================================================================================
+2) SCOPE UND ABGRENZUNG
+================================================================================
+
+  IN SCOPE:
+  - Kernel-Modul, Werkzeuge, systemd-Units des WireGuard-Pfads
+  - awg0: Server-Konfiguration als gerendertes Artefakt, Obfuskations-
+    parameter, Port, MTU, Routen, Gating gegen die Firewall
+  - Peer-Zustandsmodell, Gate-vor-Peer-Add, Hard-Cut, Massenabgleich
+  - Schluesselerzeugung, PresharedKey, Client-Profil (Inhalt, Ablage,
+    Rotation), DNS-Ausgabe
+  - AWG Session Controller: runtime_activity, Fall A/B/C, Zaehler-Delta
+  - DB-Down-Grace (WG-GRACE-01..05), Dienst-Stop/-Start, Snapshot-Spool
+  - Anforderungen an Client-Plattformen
+
+  NICHT IN SCOPE (Owner anderswo):
+  - Admission-Vertrag, Pruefkette, Grace-VERTRAG            -> BASE-020
+  - Schema vpn_connections / wg_connection_auth             -> BASE-010
+  - nftables-Regelwerk, Sets, NAT66, Rate-Limits            -> BASE-050
+  - DNS-Dienste                                             -> BASE-060
+  - SimUse-Mutex, Janitor, Buchungs- und Quota-Vertrag      -> BASE-070
+  - vpn-policy-apply (Orchestrierung, Single-Writer-Lock)   -> BASE-080
+  - Settings-Katalog (Typen, Fail-Class, Resolution)        -> BASE-090
+  - E-Mail-Versand, Reveal-Helfer, Panel-Darstellung        -> BASE-110, MOD-006
+  - Traffic-Shaping pro Peer                                -> MOD-003
+  - Alert-Schema und -Zustellung                            -> MOD-007
+
+================================================================================
+3) DATEIEN IN DIESEM ORDNER
+================================================================================
+
+  BASE-040_INDEX.txt                                 Dieses Dokument
+  BASE-040_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt    Komponenten, Entscheidungen
+                                                     DEC-WT-01..12, geschlossene
+                                                     offene Punkte
+  BASE-040_020_INTERFACE_UND_SERVER_CONFIG.txt       awg0, Render-Vertrag,
+                                                     Parameter, Units, Gating
+  BASE-040_030_PEER_LIFECYCLE.txt                    Zustandsmodell, Add/Remove,
+                                                     Massenabgleich, Hard-Cut
+  BASE-040_040_SCHLUESSEL_UND_CLIENT_PROFILE.txt     Keys, PSK, Profil, Ablage,
+                                                     Rotation, DNS-Vertrag
+  BASE-040_050_SESSION_CONTROLLER_UND_ACCOUNTING.txt Polling, Fall A/B/C,
+                                                     Delta-Buchung, Signale
+  BASE-040_060_DB_DOWN_GRACE_UND_FAIL_CLOSED.txt     Health-Check, Grace-Automat,
+                                                     Stop/Start, Spool, Alerts
+  BASE-040_070_OWNER_GRENZEN.txt                     PATTERN-01 Owner-Grenzen
+  BASE-040_080_CLIENT_ANFORDERUNGEN.txt              Plattformen, Import, Grenzen
+  BASE-040_090_INVARIANTEN.txt                       WT-01..WT-52
+  BASE-040_095_TESTS.txt                             T-WT-01..T-WT-58
+  entwuerfe/                                         Vorstudie (KR-01, nicht
+                                                     normativ; durch dieses Modul
+                                                     abgeloest)
+
+================================================================================
+4) ABHAENGIGKEITEN
+================================================================================
+
+  REQUIRES:
+  - BASE-000  (Naming, Zonen: wg_-Tabellen fuer RADIUS unsichtbar)
+  - BASE-005  (Service-IPs, Pfad-/Port-/Unit-Registry, Secrets, Lifecycle)
+  - BASE-010  (vpn_connections inkl. Gruppe D, wg_connection_auth,
+               connection_ref, wg_connection_name, Lifecycle T-01..T-09)
+  - BASE-020  (Admission-Vertrag, WG-GRACE-01..05, WG-01..05, Key-Rotation)
+  - decisions/D002 (Rollenwechsel), D004 (Runtime-Truth)
+  INFLUENCES:
+  - BASE-050  (awg0-Regeln, connect_pending, WG-Port, NAT66)
+  - BASE-070  (Aktivitaetssignale, Buchungsvertrag, Mutex)
+  - BASE-080  (WG-Treiber innerhalb vpn-policy-apply)
+  - BASE-090  (Settings-Keys wg_*)
+  - BASE-110 / MOD-006 (Profil-Anzeige, Status, Banner)
+  - MOD-003   (Shaping auf awg0), MOD-007 (Alerts), MOD-008 (Backup)
+
+================================================================================
+5) PLATTFORM-CONTRACT (BASE-005)
+================================================================================
+
+  a) PAKETE
+     - amneziawg (Kernel-Modul via DKMS), amneziawg-tools (awg, awg-quick)
+     - linux-headers passend zum laufenden Kernel (DKMS-Voraussetzung)
+     - conntrack (Hard-Cut), iproute2
+     Bezugsquelle und Paketverfuegbarkeit fuer Debian 13 sind EMPIRISCH zu
+     bestaetigen (BASE-040_080 Abschnitt 5, T-WT-01).
+
+  b) SYSTEMD-UNITS (Owner BASE-040; Nachtrag im Inventar BASE-005_070)
+     awg-quick@awg0.service       core    Interface-Lebenszyklus
+     vpn-wg-controller.service    core    AWG Session Controller (Polling,
+                                          Buchung, DB-Health, Grace-Automat)
+     vpn-wg-failclosed.service    helper  oneshot: stoppt awg0, wenn der
+                                          Controller dauerhaft ausfaellt
+     Kein eigener Timer: Der Controller ist ein Daemon.
+
+  c) LINUX-USER: root (Kernel-Netzwerk-Operationen, BASE-005_050)
+
+  d) ENDPUNKTE
+     UDP wg_listen_port (Default 49392) auf WAN ens18, IPv4 und IPv6
+     -> schliesst OPEN-NET-01; Nachtrag in der Port-Registry BASE-005_030
+     SERVICE_GW_WG 10.77.0.11 / fd77:0:0:0::11 als Non-Bind-Anchor direkt
+     auf awg0 (Nachtrag BASE-005_030 Abschnitt 1)
+
+  e) PFADE (Nachtrag in BASE-005_040)
+     /etc/amnezia/amneziawg/awg0.conf        gerendert, OHNE Secret, 0600 root
+     /etc/amnezia/amneziawg/awg0.key         Server-PrivateKey, 0600 root
+     /etc/amnezia/amneziawg/awg0.pub         Server-PublicKey, 0644 root
+     /usr/local/bin/vpn-wg-controller        Daemon
+     /usr/local/bin/vpn-wg-render            Renderer awg0.conf
+     /usr/local/bin/vpn-wg-profile           Client-Profil erzeugen/ablegen
+     /run/retrotunnel/wg/                    Laufzeit (Generation, Status)
+     /var/lib/retrotunnel/wg-profiles/       Client-Profile, AEAD-verschluesselt
+     /var/lib/vpn-accounting/wg-snapshot/    Snapshot-Spool (D004 P-02)
+
+  f) SECRETS (Nachtrag BASE-005_060)
+     Server-PrivateKey (Klasse A, Datei), PresharedKeys und Client-
+     PrivateKeys (Connection-Credentials, at-Rest AEAD unter dem CEK)
+
+  g) DEPENDENCIES
+     awg-quick@awg0:     Requires=+After=nftables.service (F-001-Gating),
+                         After=lo-service-ips.service network-online.target
+     vpn-wg-controller:  Requires=+After=awg-quick@awg0.service,
+                         After=mariadb.service; KEIN Requires=mariadb
+
+  h) READINESS
+     awg0:        Interface existiert, Schluessel gesetzt, Port gebunden,
+                  Pool-Routen vorhanden
+     Controller:  erster Abgleich mit SQL abgeschlossen ODER DB-Stoerung
+                  festgestellt und Grace-Automat aktiv
+
+  i) RESTART
+     awg-quick@awg0: kein Auto-Restart (oneshot/RemainAfterExit)
+     vpn-wg-controller: Restart=always, WatchdogSec, OnFailure=
+     vpn-wg-failclosed.service
+
+================================================================================
+6) PANEL-CONSUMABILITY (R-17, DP-07)
+================================================================================
+
+  SEHEN
+  - Interface-Status awg0 (up/down, Port, Generation, Parameter-Hash
+    SOLL/IST gegen SQL-Settings)
+  - Je Connection: Peer-Zustand (ABSENT/PENDING/PRESENT), SOLL laut SQL,
+    letzter Handshake, Endpoint (nur ADMIN), runtime_activity, Zaehler der
+    laufenden Kernel-Epoche, quota_used
+  - Grace-Automat: Zustand, kumulierte Stoerzeit, naechste Schwelle
+  - Drift-Liste: Peers ohne SQL-Grundlage, fehlende Peers
+  STEUERN (immer ueber vpn-policy-apply / vpn-session-kill, nie direkt)
+  - Peer-Abgleich fuer eine Connection oder gesamt
+  - Hard-Cut, Schluesselrotation, Profil neu ausstellen
+  EINSTELLEN
+  - alle wg_*-Settings (mit Hinweis auf Wirkung: sofort / Neustart /
+    Massen-Neuausstellung)
+  ALARMIEREN
+  - Grace-Stufen, Controller-Ausfall, Drift, Parameter-Abweichung
+  NUTZER-SICHT
+  - eigenes Profil anzeigen/herunterladen/QR, "zuletzt aktiv",
+    Verbrauch, Rotation anstossen
+  Liveness-Anzeigen stammen aus der Laufzeit (D004 R2); DB-Werte werden als
+  "zuletzt gesehen" beschriftet.
+
+================================================================================
+7) VORGAENGER (Altkonzept)
+================================================================================
+
+  Es gibt kein direktes Aequivalent. Bewertete Vorgaengerquellen
+  (Rueckverfolgung: governance/register/trace/):
+    B040_STACK_PROTOCOLS.txt                Stack-Rahmen, accept+restricted
+                                            statt reject
+    B059_IKEV2_CREDENTIALS_GATE0_CERTTRUST_OPS_CONTRACT.txt
+                                            IKEv2-Pfad (ersetzt); Schutzziele
+                                            Server-Authentizitaet, Identitaets-
+                                            bindung, Fail-Closed uebernommen
+    B100_WAN_Exposure_Model_(Binding-First, optional Stealth).txt
+                                            WAN-Minimal-Exposure
+  Neuere RetroTunnel-Quellen: 03_CHANGELOG v1.7 (WG-01..05), v2.1.3
+  (WG-GRACE), v2.1.4/v2.1.5 (D004), v2.1.9 (AWG-Naming, Pfade), v2.1.13
+  (Credential-Sichtbarkeit), v2.1.14 (Boot-Gating), v2.1.15 (Option C);
+  model/state_machines/SM_SESSION.txt Abschnitte 5, 7, 8.2.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
