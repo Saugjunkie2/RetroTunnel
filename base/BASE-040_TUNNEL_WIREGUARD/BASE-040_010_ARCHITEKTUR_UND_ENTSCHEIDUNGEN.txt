@@ -1,0 +1,273 @@
+================================================================================
+BASE-040 — ARCHITEKTUR UND ENTSCHEIDUNGEN
+================================================================================
+DATEI: BASE-040_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Komponenten des WireGuard-Pfads, ihre Zustaendigkeiten und die tragenden
+  Architekturentscheidungen dieses Moduls (DEC-WT-01..12) mit Alternativen,
+  Begruendung und Folgen. Schliesst die bisher offenen Punkte OPEN-NET-01,
+  OPEN-SES-01/02/03/05/06, OPEN-POL-01 sowie EB-VOLLSCAN-02/03/04.
+
+================================================================================
+1) KOMPONENTEN
+================================================================================
+
+  KOMPONENTE              ART            AUFGABE
+  ----------------------- -------------- ---------------------------------------
+  amneziawg               Kernel-Modul   Tunnel, Kryptokey-Routing, Zaehler,
+                                         Handshake-Zeitstempel (Runtime-Truth)
+  awg-quick@awg0          systemd-Unit   Interface anlegen/entfernen aus der
+                                         gerenderten awg0.conf (ohne Peers)
+  vpn-wg-render           Werkzeug       awg0.conf aus SQL-Settings rendern
+                                         (BASE-040_020)
+  WG-Treiber in           Bibliothek/    Peer-Set veraendern: Add, Remove,
+  vpn-policy-apply        Unterkommando  Massenabgleich, Verifikation
+                                         (BASE-040_030; Orchestrierung BASE-080)
+  vpn-wg-controller       Daemon         BEOBACHTEN: Polling, runtime_activity,
+                                         Zaehler-Buchung, DB-Health, Grace-
+                                         Automat (BASE-040_050/_060)
+  vpn-wg-profile          Werkzeug       Schluessel erzeugen, Client-Profil
+                                         rendern, verschluesselt ablegen
+                                         (BASE-040_040)
+  vpn-session-kill        Werkzeug       Hard-Cut-Frontend (ruft den WG-Treiber)
+
+  ROLLENTRENNUNG (MUST):
+  - Der Controller BEOBACHTET und BUCHT. Er veraendert das Peer-Set nie
+    direkt; erkennt er Abweichungen, ruft er vpn-policy-apply.
+  - Das Peer-Set wird ausschliesslich vom WG-Treiber innerhalb von
+    vpn-policy-apply veraendert, unter demselben Single-Writer-Lock wie
+    nftables und tc (R-11). Begruendung: Gate-Setzen, Policy-Zustand und
+    Peer-Add sind EINE Sequenz; getrennte Schreiber koennten sie verschraenken.
+  - Der einzige Eingriff des Controllers in den Kernel ist das Stoppen bzw.
+    Starten der Unit awg-quick@awg0 im Grace-Automaten (kein Peer-Eingriff).
+
+  DATENFLUSS (vereinfacht):
+
+    SQL (Truth: Status, Keys, IPs, Settings)
+       |  lesen                               ^ buchen (Delta, Hinweise)
+       v                                      |
+    vpn-policy-apply --(WG-Treiber)--> Kernel awg0 --(awg show)--> vpn-wg-controller
+       |  nft/tc (BASE-050/-080)                                      |
+       +--------------------------------------------------------------+
+                 Abweichung erkannt -> Apply fuer Connection anstossen
+
+================================================================================
+2) ENTSCHEIDUNGEN
+================================================================================
+
+DEC-WT-01  PEERS SIND PERSISTENT; PRAESENZ FOLGT DEM SQL-ZUSTAND
+  Anforderung/Quelle: R-04 (kein ungepolictes Fenster), Option C (Changelog
+    v2.1.15: "Gate vor Peer-Add"), BASE-020_040 Abschnitt 1+2; offene
+    DESIGN-SPANNUNG in SM_SESSION 7.3 (OPEN-POL-01, OPEN-SES-05): Bleibt der
+    Peer nach Inaktivitaet im Kernel, koennte der naechste Handshake Verkehr
+    weiterleiten, bevor ein Gate gesetzt ist.
+  Alternativen:
+    A) Ephemere Peers: nach Inaktivitaet entfernen, bei Bedarf neu eintragen.
+       Scheitert technisch: Ohne Peer gibt es keinen Handshake, also kein
+       Ereignis, das den Wiedereintrag ausloesen koennte.
+    B) Persistente Peers mit Gate pro Aktivitaetsbeginn. Das Gate kaeme immer
+       NACH dem ersten Paket (Polling) - prozedural, nicht strukturell.
+    C) Persistente Peers; der Policy-Zustand einer Connection ist fuer die
+       gesamte Dauer der Peer-Praesenz hergestellt und wird bei JEDER
+       Statusaenderung nachgefuehrt.
+  Entscheidung: C.
+  Begruendung: Die Tunnel-IPs einer Connection sind fest (fixed_ip,
+    fixed_ipv6). Set-Mitgliedschaften und Shaping haengen daher nicht an
+    einer Sitzung, sondern an der Connection. Wird der Peer nur ueber die
+    Gate-Sequenz eingetragen (BASE-040_030 Abschnitt 3) und jede
+    Statusaenderung ueber vpn-policy-apply durchgesetzt, ist der Zustand
+    "Peer vorhanden" gleichbedeutend mit "zugelassen und gepolict". Ein
+    erneuter Handshake nach Inaktivitaet aendert daran nichts.
+  Schutzziel: R-04 strukturell erfuellt, ohne Abhaengigkeit von Polling.
+  Folgen: Reprovision nach Hard-Cut ist der normale Add-Pfad und erfolgt
+    automatisch, sobald der SQL-Zustand wieder PRESENT verlangt (schliesst
+    OPEN-SES-05; ersetzt SES-21 "Reprovision noetig" durch eine
+    zustandsgetriebene Regel). BASE-080 muss bei jeder Transition T-01..T-09
+    und bei Reconcile den WG-Treiber aufrufen.
+  Fehlerfall: Peer ohne SQL-Grundlage = Drift -> Entfernen (WT-08).
+
+DEC-WT-02  WAN-PORT 49392/UDP ALS SETTING wg_listen_port
+  Quelle: OPEN-NET-01 (BASE-005_030), EB-VOLLSCAN-02 (Port vom Owner
+    bestaetigt), F-004.
+  Entscheidung: Default 49392, gefuehrt als SQL-Setting wg_listen_port,
+    Dual-Stack (IPv4 und IPv6) auf ens18. Einziger zusaetzlicher WAN-Listener
+    neben UDP 500/4500 + ESP.
+  Begruendung: Der Port steht in jedem Client-Profil; er ist ein Betriebs-
+    parameter mit hoher Aenderungswirkung, kein frei drehbarer Wert.
+    Klassifikation: SETTING mit Wirkung "Interface-Neustart + Neuausstellung
+    ALLER Profile". Ein Wechsel ist ein geplanter Wartungsvorgang
+    (BASE-040_020 Abschnitt 7).
+
+DEC-WT-03  awg0.conf IST EIN GERENDERTES ARTEFAKT OHNE PEERS UND OHNE SECRET
+  Quelle: MANIFEST Abschnitt 5 ("WG-Server-Config: komplett in SQL, kein
+    Hidden Config File"), DP-02, DP-07c (SOLL/IST sichtbar).
+  Entscheidung: Parameter leben als wg_*-Settings in SQL. vpn-wg-render
+    erzeugt daraus /etc/amnezia/amneziawg/awg0.conf. Die Datei enthaelt
+    KEINE [Peer]-Abschnitte (Peers kommen ausschliesslich aus SQL ueber den
+    WG-Treiber) und KEINEN PrivateKey (siehe DEC-WT-04). SaveConfig ist aus.
+  Folgen: Datei ist hash-vergleichbar und im Panel unredigiert anzeigbar;
+    Abweichung zwischen Render-Soll und Datei bzw. Kernel ist Drift (WT-05).
+
+DEC-WT-04  SERVER-PRIVATEKEY IN EIGENER DATEI (ANPASSUNG)
+  Bisher: BASE-005_050/_060 legen fest, dass der PrivateKey direkt in der
+    Conf-Datei steht ("kein separater Key-File").
+  Entscheidung: Der Schluessel liegt in /etc/amnezia/amneziawg/awg0.key
+    (root:root 0600) und wird beim Interface-Start per
+    "awg set awg0 private-key <Datei>" gesetzt.
+  Begruendung: Folge von DEC-WT-03. Ein Renderer, der ein Secret in einer
+    regelmaessig neu erzeugten Datei erhalten muss, ist eine Fehlerquelle
+    (Verlust oder Vervielfaeltigung des Schluessels). Schutzziele bleiben
+    vollstaendig erhalten: root-only, 0600, nie in SQL, Panel oder Logs,
+    Teil des verschluesselten Backups (BASE-005_060 Abschnitt 3).
+  Einordnung: ANGEPASST. Nachzug BASE-005_050 Abschnitt 3 und BASE-005_060
+    Abschnitt 1B: AP-Q04.
+
+DEC-WT-05  KEINE FIREWALL-KOMMANDOS IN PostUp/PostDown
+  Quelle: Widerspruch 04_PHASE_PLAN ("Single-Source-of-Truth: awg0.conf
+    PostUp/PostDown") gegen DP-05/R-11 (BF-0006); EB-VOLLSCAN-04-Residuum.
+  Entscheidung: awg0.conf enthaelt keinerlei nft-/iptables-Aufrufe. Das
+    vollstaendige Regelwerk wird frueh und unabhaengig vom Interface geladen
+    (Changelog v2.1.14); Regeln referenzieren awg0 per Interface-NAME und
+    wirken, sobald das Interface entsteht. PostUp setzt nur Schluessel und
+    Routen (BASE-040_020 Abschnitt 3).
+  Begruendung: Ein zweiter Schreibweg fuer nftables erzeugt Drift und
+    Fail-Open-Fenster beim Interface-Start; ein globaler Ruleset-Reload
+    wuerde PostUp-Regeln loeschen.
+  Folge: BF-0006 wird fuer den WG-Teil hier, vollstaendig in BASE-050
+    aufgeloest; 04_PHASE_PLAN ist anzugleichen (AP-A06).
+
+DEC-WT-06  AWG-PROTOKOLLSTAND 1.0 ALS NORMATIVER PARAMETERSATZ
+  Entscheidung: Normativ sind die Parameter Jc, Jmin, Jmax, S1, S2, H1-H4.
+    Weitergehende Parameter neuerer AWG-Generationen werden NICHT verwendet,
+    solange nicht fuer JEDE Zielplattform (A-06) ein Client nachgewiesen ist,
+    der sie unterstuetzt.
+  Begruendung: Server und alle Clients muessen S1, S2, H1-H4 identisch
+    fuehren. Ein Parameter, den ein Zielclient nicht kennt, sperrt diese
+    Plattform aus. Kleinster gemeinsamer Nenner zuerst; Erweiterung ist
+    eine Roadmap-Position (VERBESSERUNGEN) mit Massen-Neuausstellung.
+  Empirisch offen: exakte Wertebereiche der installierten Modulversion
+    (T-WT-04).
+
+DEC-WT-07  KEIN PARALLELER STANDARD-WIREGUARD-LISTENER
+  Entscheidung: Es gibt genau einen WireGuard-Endpunkt (AWG, awg0). Ein
+    zweiter Listener mit Standard-WireGuard-Signatur wird nicht betrieben.
+  Begruendung: Zweiter WAN-Port, zweites Interface mit eigener Firewall-,
+    Accounting- und SimUse-Behandlung, DPI-erkennbare Signatur. Der Nutzen
+    (Clients ohne AWG-App) rechtfertigt die doppelte Angriffsflaeche nicht.
+  Folge: Plattformen ohne AWG-faehigen Client sind fuer tunnel_type=
+    WIREGUARD nicht unterstuetzt (BASE-040_080).
+
+DEC-WT-08  CONTROLLER ALS POLLING-DAEMON (schliesst OPEN-SES-01)
+  Alternativen: (a) periodischer systemd-Timer-Job; (b) Daemon mit Polling
+    ueber "awg show awg0 dump"; (c) Netlink-Ereignisse.
+  Entscheidung: (b). WireGuard liefert keine Ereignisse fuer Handshakes
+    (c entfaellt); ein Daemon haelt den Grace-Automaten, die Vorwerte und
+    den Aktivitaetszustand ohne Prozessstart je Zyklus und kann beim
+    Beenden den Pflicht-Snapshot schreiben (a waere dafuer ungeeignet).
+  Intervalle: wg_counter_poll_interval_seconds (Erfassung), getrennt davon
+    wg_accounting_flush_interval_seconds (Buchung), BASE-040_050.
+
+DEC-WT-09  LIVENESS-SCHWELLE (schliesst OPEN-SES-02)
+  Entscheidung: runtime_activity = AKTIV, wenn latest-handshake juenger als
+    wg_handshake_stale_threshold_seconds, Default 180 (D004-E09). Der
+    Altname wg_modern_session_stale_seconds (SM_SESSION 13, Failsafe 300)
+    wird als Alias gefuehrt; maßgeblich ist der D004-Name.
+  Begruendung: Bei laufendem Verkehr erneuert WireGuard die Sitzungs-
+    schluessel etwa alle 120 s; ohne neuen Handshake verfaellt die
+    Kryptositzung nach 180 s. PersistentKeepalive (Client, 25 s) haelt die
+    Erneuerung auch bei Leerlauf in Gang. 180 s bildet damit "Kryptositzung
+    noch gueltig" ab. Kalibrierung gegen reale Clients: T-WT-33.
+
+DEC-WT-10  LAUFZEIT-MAPPING OHNE DATEIEN (schliesst OPEN-SES-03)
+  Entscheidung: Fuer WireGuard gibt es kein Gegenstueck zu
+    /run/vpn-sessions/<ppp_if>.env. Das Mapping Peer -> Connection ergibt
+    sich vollstaendig aus Kernel (PublicKey, AllowedIPs) und SQL
+    (wg_connection_auth.wg_public_key, vpn_connections.fixed_ip/_ipv6).
+    runtime_ref = wg_public_key. Fuer Hard-Cut ohne Auth-Row (Tombstone)
+    wird der Peer ueber AllowedIPs identifiziert (BASE-040_030 Abschnitt 4).
+  Begruendung: Eine zusaetzliche Mapping-Datei waere eine dritte, drift-
+    anfaellige Darstellung derselben Information.
+
+DEC-WT-11  ALLES WG-SCHLUESSELMATERIAL AT-REST VERSCHLUESSELT (VERBESSERUNG)
+  Bisher (Changelog v2.1.13): Client-Profil inkl. PrivateKey liegt als
+    Klartext-.conf auf Platte, Schutz nur ueber Dateirechte; PresharedKey
+    als Klartextspalte wg_connection_auth.wg_preshared_key (Webpanel-SELECT).
+  Entscheidung: Client-Profile werden mit dem CEK per AEAD verschluesselt
+    abgelegt (/var/lib/retrotunnel/wg-profiles/<connection_ref>.conf.enc);
+    der PresharedKey wird in der Spalte wg_preshared_key_enc (VARBINARY)
+    ebenfalls CEK-verschluesselt gefuehrt. Die Anzeige im Panel bleibt
+    dauerhaft moeglich (Vorgabe des Owners), laeuft aber ueber den
+    privilegierten Reveal-Helfer (BASE-110), nicht ueber direkten Datei-
+    oder Spaltenzugriff von www-data.
+  Begruendung: Gleichbehandlung mit dem L2TP-Passwort (subaccount_
+    password_enc). Ein DB-Dump oder ein Dateisystem-Backup ausserhalb der
+    GPG-Kette gibt damit keine WG-Zugangsdaten preis. Folgekosten gering
+    (CEK-Infrastruktur existiert konzeptionell bereits).
+  Einordnung: wesentlich vorteilhafte Verbesserung; Schema-Nachzug
+    BASE-010_030 (AP-Q04), Registereintrag VB-0001.
+
+DEC-WT-12  SERVICE_GW_WG ALS EIGENER NON-BIND-ANCHOR
+  Entscheidung: awg0 traegt 10.77.0.11/32 und fd77:0:0:0::11/128.
+  Begruendung: Definierte Quelladresse fuer ICMP/ICMPv6-Fehlermeldungen des
+    Routers innerhalb des Tunnels (sonst waehlt der Kernel eine Adresse
+    eines anderen Interfaces, ggf. die WAN-Adresse); Analogie zu
+    SERVICE_GW_PPP (.10); Wartbarkeits-Prinzip aus BASE-005_030.
+  Folge: Nachtrag in BASE-005_030 Abschnitt 1 und in lo-service-ips nicht
+    noetig (Adresse lebt auf awg0, nicht auf lo).
+
+================================================================================
+3) GESCHLOSSENE OFFENE PUNKTE (UEBERSICHT)
+================================================================================
+
+  Kennung            Quelle                        Aufloesung
+  ------------------ ----------------------------- ---------------------------
+  OPEN-NET-01        BASE-005_030, PHASE_PLAN      DEC-WT-02
+  OPEN-SES-01        SM_SESSION 17                 DEC-WT-08, BASE-040_050
+  OPEN-SES-02        SM_SESSION 17                 DEC-WT-09
+  OPEN-SES-03        SM_SESSION 17                 DEC-WT-10
+  OPEN-SES-05        SM_SESSION 17                 DEC-WT-01
+  OPEN-SES-06        SM_SESSION 17                 D004 P-01, BASE-040_050
+  OPEN-POL-01        SM_SESSION 7.3 (Verweis)      DEC-WT-01
+  EB-VOLLSCAN-02     REVIEW_TRACKER 1b             DEC-WT-02
+  EB-VOLLSCAN-03     REVIEW_TRACKER 1b             BASE-040_INDEX 5b (Units)
+  EB-VOLLSCAN-04     REVIEW_TRACKER 1b (Residuum)  DEC-WT-05
+  EB-008-04          Changelog v2.1.3              BASE-040_060 Abschnitt 6
+  EB-008-FIX-01      Changelog v2.1.3              BASE-040_060 Abschnitt 4
+  Entwurf-Fragen     ENTWURF_IPV6_DUALSTACK 4      /128 und Dualstack-DNS:
+                                                   BASE-040_040 Abschnitt 3
+
+================================================================================
+4) BEDROHUNGSBILD DES WIREGUARD-PFADS (Kurzfassung)
+================================================================================
+
+  Angriff / Fehler                      Gegenmassnahme (Verweis)
+  ------------------------------------- --------------------------------------
+  Unbekannter Absender flutet den Port  WG antwortet nicht auf ungueltige
+                                        Pakete; Cookie-Mechanismus unter Last;
+                                        Raten-Limit pro Quelle (BASE-050)
+  Gestohlenes Profil                    Rotation = Session-Schnitt, kein
+                                        Parallelbetrieb zweier Keys (WT-27);
+                                        Flatter-Erkennung als Hinweis (WT-36)
+  Quell-IP-Faelschung im Tunnel         Kryptokey-Routing (AllowedIPs /32 +
+                                        /128) + Anti-Spoof-Regel (BASE-050)
+  Peer ohne Berechtigung im Kernel      Drift-Abgleich, unbekannter Peer wird
+                                        entfernt (WT-08)
+  DB-Ausfall                            Grace-Automat, danach Dienst-Stop
+                                        (BASE-040_060)
+  Controller-Ausfall                    Watchdog, Restart, OnFailure-Stop
+                                        (WT-45)
+  DB-Leak                               Keine Klartext-Schluessel in der DB
+                                        (DEC-WT-11); RADIUS sieht wg_* nicht
+  Kompromittiertes Panel (www-data)     kein Zugriff auf awg0.key, Profile
+                                        oder CEK; nur auditierte Helfer
+  Verlust des Server-PrivateKey         Backup verschluesselt; Rotation =
+                                        Massen-Neuausstellung (BASE-040_040 6)
+  Vollstaendiges Bedrohungsmodell: Arbeitspaket AP-A05.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

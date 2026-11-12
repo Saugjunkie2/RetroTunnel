@@ -1,0 +1,296 @@
+================================================================================
+BASE-040 — INTERFACE UND SERVER-CONFIG (awg0)
+================================================================================
+DATEI: BASE-040_020_INTERFACE_UND_SERVER_CONFIG.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Legt fest, wie das Interface awg0 entsteht: Settings, Render-Vertrag fuer
+  awg0.conf, Obfuskationsparameter, Adressen, MTU, Routen, systemd-Gating,
+  Aenderungsverfahren und Fehlerbilder.
+
+================================================================================
+1) SETTINGS-KEYS (Kandidaten fuer BASE-090; Scope ueberall GLOBAL)
+================================================================================
+
+  Wirkungsklassen:
+    LIVE     wirkt ab dem naechsten Controller-Zyklus, kein Verbindungsabriss
+    RESTART  erfordert Neustart von awg0 (alle WG-Verbindungen brechen kurz ab,
+             Clients verbinden sich selbst neu)
+    REISSUE  wie RESTART, zusaetzlich muessen ALLE Client-Profile neu
+             ausgestellt werden (alte Profile funktionieren nicht mehr)
+    PROFILE  wirkt nur in neu ausgestellten Profilen, kein Server-Eingriff
+
+  Fehlerverhalten:
+    STRICT   fehlt der Wert oder ist er ungueltig, verweigert die Komponente
+             die Aktion (Render bricht ab, bestehende Datei bleibt)
+    LKG      letzter gueltig gelesener Wert gilt weiter (Cache); beim Kaltstart
+             ohne DB gilt der im Katalog dokumentierte Failsafe-Wert. Kein
+             stiller Default: Failsafe-Nutzung erzeugt ein Log-Ereignis.
+
+  KEY                                    TYP / BEREICH        VORSCHLAG  WIRKUNG  FEHLER
+  -------------------------------------- -------------------- ---------- -------- ------
+  wg_listen_port                         INT 1024..65535      49392      REISSUE  STRICT
+  wg_endpoint_host                       FQDN oder IP         (Pflicht)  PROFILE  STRICT
+  wg_tunnel_mtu                          INT 1280..1420       1380       REISSUE  STRICT
+  wg_client_persistent_keepalive_seconds INT 15..60           25         PROFILE  STRICT
+  wg_obf_jc                              INT 1..128           erzeugt    RESTART  STRICT
+  wg_obf_jmin                            INT 1..1279          erzeugt    RESTART  STRICT
+  wg_obf_jmax                            INT 2..1280          erzeugt    RESTART  STRICT
+  wg_obf_s1                              INT 0..1132          erzeugt    REISSUE  STRICT
+  wg_obf_s2                              INT 0..1188          erzeugt    REISSUE  STRICT
+  wg_obf_h1 .. wg_obf_h4                 INT 5..2147483647    erzeugt    REISSUE  STRICT
+  wg_counter_poll_interval_seconds       INT 2..60            5          LIVE     LKG
+  wg_accounting_flush_interval_seconds   INT 10..300          60         LIVE     LKG
+  wg_handshake_stale_threshold_seconds   INT 135..900         180        LIVE     LKG
+  wg_counter_seen_refresh_seconds        INT 60..3600         300        LIVE     LKG
+  wg_endpoint_flap_window_seconds        INT 60..3600         600        LIVE     LKG
+  wg_endpoint_flap_threshold             INT 2..100           6          LIVE     LKG
+  wg_db_health_interval_seconds          INT 2..30            5          LIVE     LKG
+  wg_db_health_timeout_ms                INT 500..5000        2000       LIVE     LKG
+  wg_failclosed_grace_seconds            INT 60..900          300        LIVE     LKG
+  wg_grace_warn_seconds                  INT 10..(grace-1)    30         LIVE     LKG
+  wg_grace_alert_seconds                 INT (warn+1)..(grace-1) 240     LIVE     LKG
+  wg_grace_reset_stable_seconds          INT 120..3600        600        LIVE     LKG
+  wg_recovery_min_stable_seconds         INT 10..600          30         LIVE     LKG
+
+  HINWEISE:
+  - Die Werte in der Spalte VORSCHLAG sind Vorschlaege dieses Konzepts bzw.
+    die in D004-E09 / Changelog v2.1.3 belegten Vorschlaege; die endgueltige
+    Katalogisierung (Typ, Fail-Class-Bezeichner, Aenderungsrechte) erfolgt
+    in BASE-090.
+  - ENTFALLEN: wg_grace_accounting_buffer_max (D004 P-02),
+    wg_counter_wrap_detection (D004 P-01).
+  - ALIAS: wg_modern_session_stale_seconds -> wg_handshake_stale_threshold_
+    seconds (DEC-WT-09).
+  - Konsistenzregeln (vom Katalog zu erzwingen): jmin < jmax;
+    s1 + 56 != s2; h1..h4 paarweise verschieden;
+    warn < alert < grace; poll <= flush; stale >= 135 und
+    stale >= 5 * wg_client_persistent_keepalive_seconds.
+  - Pool-CIDRs und SERVICE_GW_WG sind KEINE wg_-Settings; sie stammen aus
+    vpn_pool_config (BASE-070/BASE-010) bzw. der Registry BASE-005_030.
+
+================================================================================
+2) RENDER-VERTRAG (vpn-wg-render)
+================================================================================
+
+  EINGABE (nur lesen): wg_*-Settings der Wirkungsklassen RESTART/REISSUE,
+    Pool-CIDRs aller Rollen (v4 und v6), SERVICE_GW_WG.
+  AUSGABE: /etc/amnezia/amneziawg/awg0.conf (root:root 0600) sowie
+    /run/retrotunnel/wg/awg0.conf.sha256 (Hash des gerenderten Solls).
+  AUFRUFER: Installation; Admin-Aktion "Interface-Parameter anwenden"
+    (Panel -> sudo-Helfer, nur mit validierten festen Argumenten);
+    Reconcile im Pruefmodus (--check).
+
+  ABLAUF:
+    R1  Settings in EINER lesenden Transaktion laden; Konsistenzregeln aus
+        Abschnitt 1 pruefen. Fehler -> Abbruch, Exit 2, nichts geschrieben.
+    R2  Zielinhalt deterministisch erzeugen (feste Reihenfolge, LF, keine
+        Zeitstempel im Inhalt).
+    R3  Syntaxpruefung in einem Wegwerf-Namespace ist NICHT vorgesehen
+        (wuerde Kernel-Zustand erzeugen); stattdessen strikte Wertepruefung
+        gegen den Katalog.
+    R4  Atomar schreiben: temporaere Datei im selben Verzeichnis, fsync,
+        rename. Vorherige Datei als awg0.conf.prev behalten (genau eine
+        Generation, fuer Rollback).
+    R5  Hash ablegen. KEIN automatischer Interface-Neustart: Neustart ist
+        eine getrennte, bewusst ausgeloeste Aktion (Abschnitt 7).
+  MODUS --check: rendert in den Speicher und vergleicht mit Datei und mit
+    dem laufenden Interface (awg show awg0: listen-port; ip link: mtu).
+    Abweichung = Drift-Ereignis WG_IFACE_DRIFT (WT-05), keine Selbstheilung
+    durch Neustart (Abwaegung: Neustart trennt alle Nutzer; Entscheidung
+    beim Admin).
+  IDEMPOTENZ: gleicher Settings-Stand => byteidentische Datei.
+
+================================================================================
+3) INHALT VON awg0.conf (Schablone)
+================================================================================
+
+  [Interface]
+  ListenPort = <wg_listen_port>
+  Address = 10.77.0.11/32, fd77:0:0:0::11/128
+  MTU = <wg_tunnel_mtu>
+  Table = off
+  SaveConfig = false
+  Jc = <wg_obf_jc>
+  Jmin = <wg_obf_jmin>
+  Jmax = <wg_obf_jmax>
+  S1 = <wg_obf_s1>
+  S2 = <wg_obf_s2>
+  H1 = <wg_obf_h1>
+  H2 = <wg_obf_h2>
+  H3 = <wg_obf_h3>
+  H4 = <wg_obf_h4>
+  PostUp = awg set %i private-key /etc/amnezia/amneziawg/awg0.key
+  PostUp = ip -4 route replace <pool_v4_cidr> dev %i proto static     (je Rolle)
+  PostUp = ip -6 route replace <pool_v6_cidr> dev %i proto static     (je Rolle)
+  PostUp = install -d -m 0700 /run/retrotunnel/wg
+  PostUp = /usr/local/bin/vpn-wg-render --write-generation
+
+  REGELN:
+  - KEIN PrivateKey-Eintrag, KEINE [Peer]-Abschnitte, KEIN DNS-Eintrag,
+    KEINE Firewall-Kommandos (DEC-WT-03/-04/-05).
+  - Table = off: awg-quick legt keine Routen aus AllowedIPs an. Die acht
+    Pool-Routen (vier IPv4, vier IPv6) sind die einzigen Tunnelrouten.
+    L2TP-Clients derselben Pools sind ueber ihre /32-Hostrouten auf pppX
+    spezifischer geroutet; es gibt keinen Routenkonflikt.
+  - SaveConfig = false: Der Laufzeitzustand (Peers) darf nie in die Datei
+    zurueckgeschrieben werden.
+  - --write-generation legt /run/retrotunnel/wg/generation an: eine bei
+    jedem Interface-Start neu erzeugte Zufallskennung (128 Bit, hex). Der
+    Controller erkennt daran, dass die Kernel-Zaehler neu begonnen haben
+    (BASE-040_050 Abschnitt 5).
+  - Schlaegt ein PostUp-Schritt fehl, bricht awg-quick ab und entfernt das
+    Interface wieder (kein halb konfiguriertes Interface).
+
+================================================================================
+4) OBFUSKATIONSPARAMETER
+================================================================================
+
+  Bedeutung (AWG-Protokollstand 1.0, DEC-WT-06):
+    Jc          Anzahl Junk-Pakete vor dem Handshake-Initiation-Paket
+    Jmin/Jmax   Groessenbereich der Junk-Pakete (Bytes)
+    S1 / S2     Junk-Praefix vor Initiation- bzw. Response-Paket (Bytes)
+    H1..H4      Typkennungen fuer Initiation, Response, Cookie, Transport
+                (ersetzen die festen WireGuard-Werte 1..4)
+
+  KOPPLUNG: S1, S2, H1..H4 MUESSEN auf Server und allen Clients identisch
+  sein. Jc/Jmin/Jmax wirken je Seite; das Profil uebernimmt die Serverwerte.
+
+  ERZEUGUNG (einmalig bei Installation, durch CSPRNG, danach in SQL):
+    Jc    gleichverteilt aus 4..12
+    Jmin  gleichverteilt aus 40..80
+    Jmax  Jmin + (gleichverteilt aus 20..200)
+    S1    gleichverteilt aus 15..150
+    S2    gleichverteilt aus 15..150, neu ziehen solange S1 + 56 = S2
+    H1..H4 vier paarweise verschiedene Werte aus 5..2147483647
+  Diese Bereiche sind Vorschlaege dieses Konzepts innerhalb der Katalog-
+  grenzen. Die von der installierten Modulversion tatsaechlich akzeptierten
+  Bereiche sind vor Inbetriebnahme zu pruefen (T-WT-04); bei Abweichung
+  wird der Katalog angepasst, nicht die Pruefung umgangen.
+
+  VERTRAULICHKEIT: Die Parameter stehen in jedem Client-Profil und sind
+  daher kein Geheimnis im Sinne der Secret-Klassen. Sie werden trotzdem
+  nicht oeffentlich dokumentiert (kein Eintrag in Konzeptdateien, nur SQL).
+
+  KEINE Sicherheitsfunktion: Die Obfuskation erschwert die Protokoll-
+  erkennung; Vertraulichkeit, Integritaet und Authentizitaet des Tunnels
+  beruhen ausschliesslich auf der WireGuard-Kryptographie.
+
+================================================================================
+5) ADRESSEN, MTU, ROUTEN
+================================================================================
+
+  ADRESSEN: SERVICE_GW_WG 10.77.0.11/32 und fd77:0:0:0::11/128 (DEC-WT-12).
+    Kein Dienst bindet darauf. Clients erhalten diese Adresse nicht als
+    Gateway (WireGuard ist Punkt-zu-Punkt; Default-Route zeigt aufs Interface).
+
+  MTU: Vorschlag 1380 fuer Server-Interface UND Client-Profil.
+    Rechnung: aeusserer Overhead 60 Byte (IPv4-Traeger) bzw. 80 Byte (IPv6-
+    Traeger). 1380 + 80 = 1460 passt in Zugangsnetze mit reduzierter MTU
+    (z. B. PPPoE 1492, DS-Lite 1460) ohne Fragmentierung des Traegerpakets.
+    Untergrenze 1280 (IPv6-Mindest-MTU im Tunnel). TCP-MSS-Clamping auf
+    awg0: BASE-050. Wirksamkeit gegen Fragmentierung in realen Zugangs-
+    netzen ist empirisch zu bestaetigen (T-WT-10).
+
+  ROUTEN: je Rollen-Pool eine IPv4- und eine IPv6-Route auf awg0.
+    LECK-SCHUTZ (Anforderung an BASE-005/BASE-050, WT-11): Fuer 10.77.0.0/16
+    und fd77:0:0::/48 MUSS eine dauerhaft installierte Rueckfallroute vom Typ
+    "unreachable" mit schlechterer Metrik existieren. Faellt awg0 weg, werden
+    Pakete an Tunneladressen lokal verworfen statt ueber die Default-Route
+    ins WAN zu laufen.
+
+  FORWARDING: net.ipv4.ip_forward und net.ipv6.conf.all.forwarding werden
+    plattformweit gesetzt (BASE-005_080 Abschnitt 3a), nicht in awg0.conf.
+
+  REVERSE-PATH: rp_filter strikt auf awg0 ist mit den Pool-Routen
+    vertraeglich; die IPv6-Entsprechung (fib-Pruefung) definiert BASE-050.
+
+================================================================================
+6) SYSTEMD-UNITS UND STARTREIHENFOLGE
+================================================================================
+
+  awg-quick@awg0.service (Paket-Unit, oneshot + RemainAfterExit) mit Drop-In
+  /etc/systemd/system/awg-quick@awg0.service.d/10-retrotunnel.conf:
+    [Unit]
+    Requires=nftables.service
+    After=nftables.service lo-service-ips.service network-online.target
+  Wirkung (Changelog v2.1.14): Keine Firewall => kein WireGuard. Schlaegt das
+  Laden des Regelwerks fehl, startet awg0 nicht; ein explizites Stoppen von
+  nftables.service nimmt awg0 mit.
+
+  vpn-wg-controller.service:
+    [Unit]
+    Requires=awg-quick@awg0.service
+    After=awg-quick@awg0.service mariadb.service
+    PartOf=awg-quick@awg0.service
+    OnFailure=vpn-wg-failclosed.service
+    StartLimitIntervalSec=300
+    StartLimitBurst=5
+    [Service]
+    Type=notify
+    Restart=always
+    RestartSec=3
+    WatchdogSec=30
+    KillMode=mixed
+    TimeoutStopSec=30
+  Der Controller meldet READY=1 gemaess Readiness in BASE-040_INDEX 5h und
+  sendet WATCHDOG=1 je Poll-Zyklus. Beim Stop (SIGTERM) schreibt er die
+  letzte Buchung bzw. den Snapshot (BASE-040_060 Abschnitt 5).
+
+  vpn-wg-failclosed.service (oneshot): stoppt awg-quick@awg0, schreibt ein
+  CRITICAL-Ereignis WG_CONTROLLER_FAILED und loest den DB-unabhaengigen
+  Alarmweg aus (BASE-040_060 Abschnitt 6).
+
+  KALTSTART (Einordnung in BASE-005_080 Abschnitt 3):
+    nftables (frueh) -> lo-service-ips -> ... -> awg-quick@awg0 (Interface
+    ohne Peers: niemand kann sich verbinden) -> vpn-wg-controller ->
+    Erstabgleich ueber vpn-policy-apply --reconcile-all (Gate, Policy,
+    Peers) -> Normalbetrieb. Ist die DB beim Start nicht erreichbar, bleibt
+    das Interface peer-los (Fail-Closed); der Erstabgleich folgt, sobald
+    die DB wg_recovery_min_stable_seconds stabil ist.
+
+================================================================================
+7) AENDERUNGSVERFAHREN
+================================================================================
+
+  7.1 Parameter der Klasse RESTART/REISSUE aendern (Wartungsvorgang)
+    1  Neue Werte in SQL setzen (Panel, ADMIN, Klasse-C-Aktion mit Re-Auth).
+    2  Bei REISSUE: neue Profile fuer alle WIREGUARD-Connections erzeugen
+       und zustellen, BEVOR umgeschaltet wird (BASE-040_040 Abschnitt 5);
+       Ankuendigung an Kunden (BASE-110).
+    3  vpn-wg-render ausfuehren; --check zeigt die Abweichung zum Kernel.
+    4  Snapshot-Buchung aller Peers (BASE-040_050 Abschnitt 6).
+    5  systemctl restart awg-quick@awg0 (Controller folgt per PartOf).
+    6  Erstabgleich; Verifikation (T-WT-08).
+    Rollback: awg0.conf.prev zurueckbenennen, Settings zuruecksetzen,
+    Schritte 3-6 wiederholen. Alte Profile sind dann wieder gueltig.
+
+  7.2 Paket-/Kernel-Update: DKMS baut das Modul neu. Ist das Modul nach
+    einem Kernelwechsel nicht ladbar, startet awg0 nicht (Fail-Closed, kein
+    Rueckfall auf Standard-WireGuard). Vor- und Nachpruefung: MOD-008.
+
+================================================================================
+8) FEHLERBILDER
+================================================================================
+
+  Bild                                 Ursache / Verhalten
+  ------------------------------------ ---------------------------------------
+  awg0 startet nicht                   nftables nicht aktiv (Gating); Modul
+                                       fehlt; awg0.key fehlt/unlesbar; Port
+                                       belegt. Kein Teilstart.
+  Interface up, kein Client verbindet  Peers fehlen (Erstabgleich nicht
+                                       gelaufen: DB down?) oder Parameter
+                                       S1/S2/H1-H4 weichen vom Profil ab.
+  Handshake ok, kein Verkehr           Gate nicht geloest (connect_pending),
+                                       Pool-Route fehlt, Forwarding aus.
+  Render bricht ab                     Setting fehlt/ungueltig (STRICT);
+                                       alte Datei bleibt in Kraft.
+  Drift WG_IFACE_DRIFT                 Datei oder Kernel weicht vom SQL-Soll
+                                       ab; Admin entscheidet ueber Neustart.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
