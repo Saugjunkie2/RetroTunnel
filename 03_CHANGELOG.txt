@@ -1,7 +1,7 @@
 ================================================================================
 RetroTunnel — CHANGELOG (Zentrales Projektgedaechtnis)
 ================================================================================
-VERSION: v2.3.0
+VERSION: v2.4.0
 DATUM: 2026-11-13
 STATUS: ACTIVE
 
@@ -13,6 +13,89 @@ sind leer (Verweis auf diese Datei).
 ================================================================================
 VERSIONSHISTORIE
 ================================================================================
+
+v2.4.0 (2026-11-13) — BASE-070_SESSION_CORE
+
+  AUSLOESER: Arbeitspaket AP-K070 des Betreiberauftrags. Setzt D004-E03
+  um, loest model/state_machines/SM_SESSION.txt auf und beantwortet
+  ANF-WT-09/10 aus BASE-040.
+
+  base/BASE-070_SESSION_CORE (NEU, 11 Dateien):
+    Leitsatz "Die Laufzeit weiss, ob ein Tunnel lebt - SQL weiss, was er
+    darf und was er verbraucht hat". Entscheidungen DEC-SC-01..21,
+    Invarianten SC-01..SC-61, Tests T-SC-01..T-SC-80 (Belegstand:
+    geplant), Anforderungen an Nachbarmodule ANF-SC-01..15, zu
+    verifizierende Annahmen E-SC-01..09 mit Ausweichwegen.
+    Inhalt: Definition von runtime_activity je Tunnel; Signalvertrag mit
+    den Schreibvorgaengen SV-1..SV-6; SimUse=1 in vier Schichten;
+    Sperrvertrag; Laufzeit-Adapter (list, probe, kill); Bereinigung
+    (On-Demand, L2TP-Abgleich, periodisch, nach Neustart); Hard-Cut;
+    Verbrauchsbuchung beider Tunnel; Quota-Periode; Adressvergabe,
+    Quarantaene und Rueckgabe; Laufzeitmarken; Betrieb und Ereignisse.
+    Tabellen: vpn_session_locks (Vertrag), log_runtime_activity,
+    vpn_l2tp_acct_state, log_quota_period, log_usage_daily,
+    vpn_pool_config, vpn_ip_quarantine, vpn_runtime_marks.
+    Werkzeuge: vpn-sessiond, vpn-session-check, vpn-session-janitor,
+    vpn-session-kill, vpn-quota-period; vpn-l2tp-sync (Runner BASE-030).
+
+  GESCHLOSSEN: SM_SESSION (27 Invarianten und 38 Tests einzeln
+    eingeordnet), OPEN-SES-01..06, D002 Risiko 2 (alte Adresse nach
+    Rollenwechsel), OPEN-010-01 d (Owner des Quarantaene-Laufs),
+    Allokator-Entwurf (Option B), D004-E08 (Zeitzone und Ausfuehrung),
+    Folgebefund aus v1.2 (Ablehnungsgrund R_SIMUSE_GUARD_BUSY), Heimat
+    der Gesundheitsmarken.
+
+  ABWEICHUNGEN VON FRUEHEREN FESTLEGUNGEN (jeweils begruendet, Schutzziel
+  erhalten; Fundstelle in governance/register/trace/):
+    - L2TP-Daemon weist eine zweite Sitzung ab (single-session=deny)
+      statt die bestehende zu ersetzen (LT-35; Befund BF-0012)
+    - L2TP-Wahrheit ist die Sitzungstabelle des Daemons; Mapping-Datei
+      und Kernelpruefung (D004-E03 a) bleiben Spiegel bzw. Ausweichweg
+    - Episoden und Verbrauch aus dem L2TP-Abgleich; die Korrelation im
+      ip-up-Hook (BASE-030_050) und der Kernel-Collector (B165) entfallen
+    - Sitzungsereignisse in eigener Tabelle statt im Lifecycle-Log
+      (fruehere Betreiberentscheidung EIGEN-07); das Panel zeigt beide
+      in einer gemeinsamen Zeitleiste
+    - Sperre nach Sonde und Protokollpruefung, danach Nachpruefung unter
+      der Sperre (statt Sperre zuerst und Recheck vor dem Eintrag);
+      Freigabe nach dem Schreiben der radacct-Zeile
+    - kein Puffer im Arbeitsspeicher bei Datenbankstoerung (D004 P-02);
+      L2TP: dauerhafter Meldungspuffer beim AAA-Dienst
+    - Hard-Cut entzieht keinen Zugang (WireGuard: Wiedereintrag bei
+      unveraendertem SOLL); Entzug ist DISABLED
+    - Alter allein schliesst keine Sitzung (JANITOR_STALE entfaellt);
+      l2tp_radacct_stale_threshold_seconds Vorschlag 900 statt 300
+    - vpn_ip_quarantine ergaenzt den Tombstone-Vertrag (v1.4), ersetzt
+      ihn nicht
+
+  NEU (jeweils begruendet): Tagesreihe des Verbrauchs je Connection und
+    Richtung (VB-0018); Zulassungswaechter fuer L2TP-Sitzungen ohne
+    Berechtigung; Drift-Waechter der Adressen; L2TP-Kennwortwechsel
+    beendet die laufende Sitzung (VB-0021); Live-Liste fuer das Panel;
+    Ereignis bei Nutzung eines Rueckfallwerts; eine Vergleichsuhr fuer
+    Fristen (Datenbankzeit).
+
+  RUECKVERFOLGUNG: 1147 Records zu BASE-070 in 40 Dateien (747
+    uebernommen, 267 angepasst, 133 ersetzt), Zitate maschinell gegen
+    die Baseline geprueft; 4 neu begruendete Invarianten. Rueckverfolgung
+    gesamt 1720 Records. BASE-070 steht unter maschineller Modulpruefung.
+
+  GEAENDERT: BASE-040_050 (Tagesreihe im Buchungslauf), BASE-050_030
+    (Adressvergleich), PRIORITAETENLISTE (M2-070).
+  NICHT GEAENDERT: BASE-000..030, model/. Der Nachzug (unter anderem
+    single-session, Hooks ohne Korrelation, SimUse-Baustein P1..P6,
+    Gruppe D im Schema, Registry) ist als ANF-SC-01..05 und ANF-SC-15
+    gefuehrt (AP-Q04).
+
+  REGISTER: BF-0012; VB-0016..0021; BM-0006..0010 (BM-0010: Der Betreiber
+    hat fehlende Unterlagen wiedergefunden; Lesestand unveraendert, bis
+    sie vorliegen).
+
+  OFFEN: unabhaengige Gegenpruefung von BASE-070 (zwei Mehr-Agenten-Laeufe
+    brachen am 2026-11-13 ohne Ergebnis ab; bisher Selbstpruefung und
+    maschinelle Pruefung); praktische Pruefung der Annahmen E-SC-01..09.
+
+  STATUS: Fachstatus IN_BEARBEITUNG. M2-070 [ACTIVE].
 
 v2.3.0 (2026-11-13) — BASE-050_FIREWALL_CORE
 

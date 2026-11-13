@@ -25,6 +25,17 @@ zwei getrennten Vollaudits und Fail-Closed-Freigabe über die Gates G1–G4.
    setzen → Konzeptdateien schreiben → Rückverfolgung (`register/trace/`) → Register/Status aktualisieren →
    **committen und pushen**. Kleine, abgeschlossene Einheiten; keine breite Parallelität (Nutzungslimit).
 
+## Stand der Module (Checkpoint 5, 2026-11-13)
+Geschrieben und unter maschineller Modulprüfung: BASE-040, BASE-050, BASE-070 (alle noch `IN_ARBEIT`: es fehlen
+die Antworten der Nachbarmodule und für BASE-070 die unabhängige Gegenprüfung). Als Nächstes: AP-K080 (BASE-080).
+Arbeitsnotizen dafür liegen nicht im Repository; maßgeblich sind die offenen Anforderungen `ANF-WT-07/08`,
+`ANF-FW-03`, `ANF-SC-07` in den jeweiligen `_OWNER_GRENZEN`-Dateien.
+
+**Nachlieferung durch den Betreiber (BM-0010):** Der Betreiber hat angekündigt, fehlende Unterlagen wiedergefunden
+zu haben (Liste: BF-0001, BF-0003, BF-0010). Liegen neue Dateien im Repository (vorgeschlagen: `nachlieferung/`),
+gilt vor jeder weiteren Modularbeit: inventarisieren, vollständig lesen, gegen `decisions/D004…` (Rekonstruktion)
+und die geschriebenen Module abgleichen, Abweichungen als Befunde führen - nichts stillschweigend überschreiben.
+
 ## Feste Grenzen
 - Kein `FREIGEGEBEN` und kein `ABGESCHLOSSEN_UND_UEBERNOMMEN`, solange G4 nicht nachweislich erfüllt ist
   (dann höchstens `FACHLICH_FERTIG_FREIGABE_BLOCKIERT`). **Dass der Stand auf `main` liegt, ist keine Freigabe**

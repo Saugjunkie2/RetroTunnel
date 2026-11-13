@@ -2,8 +2,8 @@ schema: trace/1
 quelle: RT
 datei: base/BASE-030_TUNNEL_L2TP_IPSEC/BASE-030_010_ACCEL_PPP_ARCHITEKTUR.txt
 einheit: AP-K070
-vollstaendigkeit: TEILWEISE (single-session, Verwaltungsschnittstelle, Accounting-Parameter, LCP-Echo soweit Wiedereinwahl;
-  uebrige Konfiguration in AP-Q04)
+vollstaendigkeit: 'TEILWEISE (Aussagen mit Bezug zum Sitzungskern: single-session, Verwaltungsschnittstelle, Accounting-Parameter,
+  LCP-Echo, Neustartverhalten, Adressherkunft, Hook-Stau; uebrige Konfiguration in AP-Q04)'
 records:
 - id: TR-R03010-01
   zitat: '- Eingebautes Session-Management (single-session=replace)'
@@ -134,3 +134,53 @@ records:
   zeilen:
   - 164
   - 164
+- id: TR-R03010-12
+  zitat: 'Bei accel-ppp Crash: alle aktiven L2TP-Sessions sterben.'
+  art: DEFINITION
+  aussage: Ein Absturz des Daemons beendet alle Sitzungen.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt#L3
+  - 'base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#DAEMON-NEUSTART OHNE SYSTEMSTART (accel-ppp): wie
+    oben ueber Schritt L3.'
+  begruendung: 'Grundlage der Neustart-Regel: Zeilen aus der Zeit vor dem Start des laufenden Daemons koennen nicht leben.'
+  zeilen:
+  - 194
+  - 194
+- id: TR-R03010-13
+  zitat: 'accel-ppp hat KEINEN eigenen IP-Pool. Alle IPs kommen ueber RADIUS:'
+  art: SCHUTZZIEL
+  aussage: Der Daemon vergibt keine Adressen.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-46
+  - base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt#AV-3
+  begruendung: Uebernommen.
+  zeilen:
+  - 202
+  - 202
+- id: TR-R03010-14
+  zitat: liefert (z.B. bei DB-Fehler), scheitert die Session (Fail-Closed).
+  art: SCHUTZZIEL
+  aussage: Ohne Adresse aus der Datenbank keine Sitzung.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt#- Ohne Datenbank gibt es keine Vergabe.
+  - base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt#S-3
+  begruendung: Uebernommen; eine abweichende Adresse fuehrt zum Beenden.
+  zeilen:
+  - 214
+  - 214
+- id: TR-R03010-15
+  zitat: sich Hooks. PPP-Sessions stehen, aber Release
+  art: BETRIEB
+  aussage: Bei vielen gleichzeitigen Verbindungen stauen sich die Hooks.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - 'base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt#EIGENSCHAFTEN: idempotent; jeder Schritt
+    je Zeile atomar; ein Abbruch an'
+  begruendung: 'Episoden und Buchung haengen nicht mehr an den Hooks: Der Abgleich arbeitet unabhaengig von Reihenfolge und
+    Verzug der Hook-Aufrufe. Die Freigabe des Verkehrs bleibt Sache des Hooks (BASE-030, BASE-080).'
+  zeilen:
+  - 154
+  - 154
