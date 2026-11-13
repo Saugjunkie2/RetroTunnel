@@ -1,0 +1,345 @@
+================================================================================
+BASE-080 — ARCHITEKTUR UND ENTSCHEIDUNGEN
+================================================================================
+DATEI: BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt
+STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
+
+ZWECK:
+  Schutzziele, Begriffe, Komponenten und die tragenden Entscheidungen des
+  Policy-Apply-Kerns. Dieses Modul loest
+  model/state_machines/SM_POLICY_RESTRICT.txt vollstaendig auf und
+  uebernimmt den dort und in SM_CONNECTION benannten Policy-Evaluator.
+
+================================================================================
+1) AUFGABE IN EINEM SATZ
+================================================================================
+
+  BASE-080 sorgt dafuer, dass der Zustand jeder Connection in SQL richtig
+  BEWERTET ist (ACTIVE, RESTRICTED, DISABLED mit dem zutreffenden Grund)
+  und dass genau dieser Zustand im Kernel HERGESTELLT ist (Sets, Peers,
+  L2TP-Freigabe, beendete Fluesse) - bei jedem Verbindungsaufbau, bei
+  jedem Statuswechsel und durch regelmaessigen ABGLEICH.
+
+  BASE-080 definiert keine Regeln der Firewall (BASE-050), keine
+  Tunnel-Mechanik (BASE-030, BASE-040), keine Statusuebergaenge und keine
+  Gruende (BASE-010) und keine Limits (BASE-100, MOD-010). Es fuehrt aus,
+  was diese Module festlegen, und haelt die Reihenfolge ein, von der die
+  Schutzwirkung abhaengt.
+
+================================================================================
+2) SCHUTZZIELE
+================================================================================
+
+  SZ-1  KEIN VERKEHR OHNE HERGESTELLTEN ZUSTAND. Kein Client sendet oder
+        empfaengt Verkehr, bevor sein Policy-Zustand im Kernel steht.
+        Scheitert die Herstellung, bleibt der Weg geschlossen.
+  SZ-2  SQL IST MASSGEBLICH. Der Kernel-Zustand ist abgeleitet. Weicht er
+        ab, wird er in begrenzter Zeit berichtigt; ein Eingriff von Hand
+        an den dynamischen Zustaenden ueberlebt den Abgleich nicht.
+  SZ-3  KEIN STATUSWECHSEL GEHT VERLOREN. Jede festgeschriebene Aenderung
+        erreicht den Kernel innerhalb von Sekunden - auch wenn der
+        ausloesende Prozess abstuerzt, der Lock belegt ist oder der erste
+        Versuch scheitert.
+  SZ-4  EINSCHRAENKUNG UND SPERRUNG WIRKEN SOFORT, auch auf bestehende
+        Fluesse. Es gibt keine Schonfrist fuer laufende Verbindungen.
+  SZ-5  EIN SCHREIBER. Den durchsetzenden Kernel-Zustand aendert genau
+        ein Werkzeug, nacheinander, nie parallel.
+  SZ-6  DIE BEWERTUNG IST DETERMINISTISCH. Gleiche Eingaben ergeben
+        denselben Zustand; es gilt stets der hoechstpriore Grund;
+        geschrieben wird nur bei einer Aenderung.
+  SZ-7  FEHLENDES WISSEN OEFFNET NICHTS UND ZERSTOERT NICHTS. Ohne
+        Datenbank oder ohne Regelwerk wird nichts geoeffnet und keine
+        Entscheidung getroffen; bestehende Zustaende bleiben stehen.
+  SZ-8  KEINE UNUMKEHRBARE MASSENFOLGE AUS EINEM EINZELFEHLER. Eine
+        falsche Uhr, ein Datenfehler oder ein Programmfehler darf nicht
+        in einem Lauf viele Connections endgueltig sperren.
+  SZ-9  KEIN STILLER FEHLSCHLAG. Jeder gescheiterte Schritt hat einen
+        Ergebniscode, bleibt als offener Auftrag sichtbar und wird
+        gemeldet.
+  SZ-10 ADMIN-CONNECTIONS WERDEN NIE EINGESCHRAENKT (R-08). Der Notaus
+        fuer eine ADMIN-Connection ist die Sperrung, nicht der
+        eingeschraenkte Betrieb.
+
+================================================================================
+3) BEGRIFFE
+================================================================================
+
+  Bewertung            Feststellung, welchen op_status und welchen Grund
+                       eine Connection nach den geltenden Bedingungen
+                       haben muss (BASE-080_020).
+  Bedingungsquelle     eine der sechs Quellen eines Einschraenkungs-
+                       grundes (Pause, Verwaltung, Frist ohne Claim,
+                       Quota, Laufzeit, Plan-Limit).
+  Uebergangsroutine    Routine von BASE-010, die einen Statusuebergang
+                       (T-01 bis T-09, Tombstone) atomar schreibt und
+                       protokolliert. BASE-080 ruft sie auf; es schreibt
+                       op_status nie an ihr vorbei.
+  Herstellung (Apply)  Angleichen des Kernel-Zustands EINER Connection an
+                       SQL (BASE-080_030).
+  Abgleich             Herstellung fuer ALLE Connections samt Hygiene der
+                       Sets und Loesen des Siegels (BASE-080_040).
+  Admission            Zulassung im Kernel: WireGuard-Peer eingetragen
+                       bzw. Element in allowed_l2tp_v4 vorhanden.
+  Policy-Zustand       Mitgliedschaften einer Tunneladresse in den
+                       Sperr-Sets (restricted, connect_pending) und die
+                       Zuordnung der Verkehrsformung.
+  Hard-Cut             (1) im Sinn dieses Moduls: sofortiges Beenden
+                       bestehender Fluesse beim Eintritt in RESTRICTED
+                       (Sets, dann conntrack). (2) im Sinn von BASE-070:
+                       Beenden der Laufzeit (Sitzung bzw. Peer). Wo beide
+                       gemeint sein koennten, steht "Fluss-Schnitt" fuer
+                       (1) und "Laufzeit-Schnitt" fuer (2).
+  Auftrag              Eintrag im Auftragsbuch vpn_policy_outbox: "fuer
+                       diese Connection ist der Kernel-Zustand neu
+                       herzustellen" (BASE-080_050).
+  Einzel-Lock          /run/vpn-policy-apply.lock; serialisiert alle
+                       Schreibzugriffe auf Sets, Peers, conntrack und
+                       Verkehrsformung (R-11).
+  Registrierter        Unterprogramm eines anderen Owners, das unter dem
+  Helfer               Einzel-Lock eine fest umrissene Aufgabe ausfuehrt
+                       (BASE-080_070).
+
+================================================================================
+4) KOMPONENTEN
+================================================================================
+
+  Komponente               Art                Aufgabe
+  ------------------------ ------------------ ------------------------------
+  vpn-policy-eval          Zeitgesteuerter    Bewerter: Fristen, Gruende,
+                           Lauf und Werkzeug  Kaskaden; ruft die
+                                              Uebergangsroutinen (_020)
+  vpn-policy-apply         Werkzeug           Herstellung, Abgleich,
+                                              Verbindungsaufbau und -abbau
+                                              (_030, _040)
+  vpn_policy_outbox        Tabelle            Auftragsbuch (_050)
+  vpn-role-change          Werkzeug           Rollenwechsel-Kaskade (_060)
+  WG-Treiber               Bibliothek des     Peer-Sequenzen in
+                           Owners BASE-040    vpn-policy-apply
+  Laufzeit-Adapter         Schnittstelle des  list, probe, kill fuer beide
+                           Owners BASE-070    Tunnel
+  Hard-Cut-Kern            Bibliothek des     Laufzeit-Schnitt "Laufzeit
+                           Owners BASE-070    zuerst"
+  Sperr-Helfer             registrierter      Sperrliste banned_* (MOD-005)
+                           Helfer
+  Helfer der Verwaltungs-  registrierter      admin_panel_allowed_*
+  freigabe                 Helfer             (BASE-110)
+  Formungs-Helfer          registrierter      Verkehrsformung (MOD-003)
+                           Helfer
+  Lese-Helfer              Hilfsprogramm      SOLL und IST je Connection
+                                              fuer das Panel, ohne Lock
+
+================================================================================
+5) ENTSCHEIDUNGEN
+================================================================================
+
+DEC-PA-01  ZWEI PROGRAMME: BEWERTEN OHNE KERNEL, HERSTELLEN OHNE ENTSCHEIDEN
+  vpn-policy-eval arbeitet nur auf der Datenbank und beruehrt den Kernel
+  nie. vpn-policy-apply stellt den Kernel-Zustand her und aendert keinen
+  op_status und keinen Grund. Begruendung: Die Bewertung braucht keine
+  root-Rechte und darf lange Abfragen stellen; die Herstellung braucht
+  root und haelt den Einzel-Lock so kurz wie moeglich. Getrennt bleibt
+  jede Seite pruefbar, und ein Fehler der einen kann den Schaden der
+  anderen nicht vergroessern.
+  Der Bestand nennt beides "Reconcile" (BASE-010_070: "Reconcile
+  re-evaluiert", BASE-010_080: op_status "nur SYSTEM (Apply/Reconcile)").
+  Hier sind es zwei benannte Programme desselben Owners.
+
+DEC-PA-02  ZUSTANDSBASIERT, NICHT EREIGNISBASIERT
+  vpn-policy-apply leitet jede Handlung aus dem Vergleich von SQL-SOLL
+  und Kernel-IST ab. Ein Aufruf nennt nur, WELCHE Connection zu pruefen
+  ist; Art und Anlass der Aenderung sind fuer die Wirkung unerheblich.
+  Folgen: Jeder Aufruf ist wiederholbar; ein verlorener, doppelter oder
+  verspaeteter Anstoss aendert das Ergebnis nicht; der Fluss-Schnitt wird
+  aus dem Kernel-Vorzustand erkannt (wie im Vorgaenger: Pre-Check).
+
+DEC-PA-03  AUFTRAGSBUCH: STATUSWECHSEL UND ANSTOSS IN EINER TRANSAKTION
+  Jede Transaktion, die den herzustellenden Zustand einer Connection
+  aendert, schreibt in derselben Transaktion einen Auftrag in
+  vpn_policy_outbox. Ein Lauf im Sekundentakt arbeitet offene Auftraege
+  ab; ein direkter Aufruf beschleunigt nur.
+  Begruendung: Der Vorgaenger verlangt, dass Panel-Ereignisse die
+  Herstellung ausloesen "muessen", sichert das aber nur ueber den Abgleich
+  im Minutenraster ab. Stuerzt der ausloesende Prozess zwischen Commit
+  und Aufruf ab oder ist der Lock belegt, bliebe eine Sperrung wegen
+  Missbrauchs minutenlang wirkungslos. Mit dem Auftragsbuch ist die
+  Verzoegerung auf den Takt des Auftragslaufs begrenzt (SZ-3), und
+  gescheiterte Versuche bleiben sichtbar (SZ-9). Verbesserung VB-0022.
+
+DEC-PA-04  EIN SCHREIBER, EIN LOCK, KURZE HALTEDAUER
+  Alle Schreibzugriffe laufen unter dem Einzel-Lock (flock). SQL wird
+  NACH dem Erwerb gelesen, damit kein veralteter Lesestand angewandt
+  wird. Das Warten ist begrenzt; danach TEMPFAIL_LOCKED ohne Teilwirkung.
+  Der Abgleich haelt den Lock nicht durchgehend: Er arbeitet in
+  Abschnitten mit begrenzter Haltedauer und laesst dazwischen wartende
+  Einzelauftraege vor. Begruendung: Ein Verbindungsaufbau darf nicht auf
+  das Ende eines Massenabgleichs warten.
+  Ein mit dem Prozess endender Lock (flock) kennt keine Leichen; gegen
+  einen haengenden Halter wirkt das Zeitlimit jeder Operation.
+
+DEC-PA-05  POLICY VOR FREIGABE, ADMISSION ZUERST ENTZIEHEN
+  Beim Aufbau wird erst der Policy-Zustand hergestellt, dann die
+  Admission erteilt. Beim Abbau wird erst die Admission entzogen, dann
+  der Policy-Zustand geraeumt. Gilt fuer beide Tunnel und fuer jeden Weg
+  (Einzelziel, Abgleich, Umbau). Erfuellt BASE-050_030 Abschnitt 3.
+
+DEC-PA-06  WIREGUARD: DER TREIBER VON BASE-040 IST DIE GATE-MECHANIK
+  Die im Vorgaenger offene Frage, wie Gate und Peer-Eintrag verknuepft
+  werden (OPEN-POL-01), ist durch DEC-WT-01 und die Sequenzen in
+  BASE-040_030 entschieden. BASE-080 bettet den Treiber ein und liefert
+  dessen Schritt A3 (Policy herstellen). Ein eigenes Gate-Verfahren gibt
+  es hier nicht.
+
+DEC-PA-07  L2TP: FREIGABE ALS LETZTER SCHRITT; KEIN STUMMER DAUERZUSTAND
+  Eine L2TP-Sitzung ist bis zum Eintrag in allowed_l2tp_v4 vollstaendig
+  gesperrt (BASE-050, Changelog v2.1.15). vpn-policy-apply traegt sie
+  erst ein, wenn Berechtigung, Adresse und Policy-Zustand stimmen.
+  Ist die Sitzung nicht berechtigt, wird sie beendet. Scheitert die
+  Herstellung nur voruebergehend, bleibt sie gesperrt und wird ueber das
+  Auftragsbuch erneut versucht; ist sie nach vpn_connect_gate_ttl_seconds
+  noch nicht freigegeben, wird sie beendet.
+  ABWEICHUNG vom Bestand BASE-030_040 ("die Sitzung laeuft ohne Freigabe
+  weiter"): Eine verbundene, aber dauerhaft stumme Sitzung ist fuer den
+  Kunden nicht von einer Stoerung zu unterscheiden und haelt SimUse
+  belegt. Das Beenden entspricht POL-14 des Vorgaengers (Kill-Pfad MUSS
+  versucht werden); der sichere Zustand "gesperrt" bleibt bestehen, wenn
+  das Beenden scheitert.
+
+DEC-PA-08  FLUSS-SCHNITT: SETS ZUERST, DANN CONNTRACK, KILL ALS RUECKFALL
+  Beim Eintritt in RESTRICTED wird die Adresse in das Sperr-Set
+  aufgenommen (wirkt ab dem naechsten Paket, DEC-FW-09) und danach
+  werden alle conntrack-Eintraege beider Adressfamilien der Connection
+  geloescht. Scheitert das Loeschen, wird die Laufzeit beendet. Scheitert
+  auch das, ist das Ergebnis ein Fehler - nie ein stiller Erfolg.
+  Der Ausloeser wird familienweise aus dem Kernel-Vorzustand bestimmt;
+  geloescht wird immer fuer beide Familien.
+
+DEC-PA-09  SPERRUNG: LAUFZEIT ZUERST (KERN VON BASE-070)
+  Wird eine Connection DISABLED oder widerrufen, beendet vpn-policy-apply
+  die Laufzeit ueber den Hard-Cut-Kern von BASE-070 (L2TP) bzw. die
+  Remove-Sequenz des WG-Treibers und raeumt danach den Policy-Zustand.
+  Bei L2TP wird zuvor das Element in allowed_l2tp_v4 entfernt: Das wirkt
+  sofort, auch wenn der Daemon die Sitzung nicht beendet.
+
+DEC-PA-10  ABGLEICH: VOLLSTAENDIG, EXAKT, IN ABSCHNITTEN
+  Der Abgleich bringt Peers, restricted_* und allowed_l2tp_v4 exakt auf
+  den aus SQL und Laufzeit bestimmten Stand, entfernt aus
+  connect_pending_* nur bestaetigt harmlose Reste und loest danach das
+  Siegel. Connections, deren Zustand sich seit dem Lesestand geaendert
+  hat (offener Auftrag), ueberlaesst er dem Einzelauftrag.
+
+DEC-PA-11  EIN GATE LAEUFT NIE AB
+  Ein Element in connect_pending_* wird nie wegen seines Alters entfernt
+  (BASE-050_030 Abschnitt 2). vpn_connect_gate_ttl_seconds ist deshalb
+  keine Entfernungsfrist mehr, sondern die Schwelle, ab der ein
+  haengendes Gate als Stoerung gemeldet wird (WireGuard) bzw. eine nicht
+  freigegebene Sitzung beendet wird (L2TP).
+  ABWEICHUNG vom Vorgaenger (SM_POLICY_RESTRICT Abschnitt 7, Pruefung 2:
+  Entfernen nach Ablauf, wenn der Peer nicht mehr aktiv ist): Das
+  Kriterium "kein Peer traegt die Adresse" genuegt allein und ist
+  schaerfer als ein Alter; das Alter wuerde ein Gate entfernen koennen,
+  waehrend ein Aufbau noch laeuft.
+
+DEC-PA-12  DER BEWERTER SAMMELT ALLE SECHS QUELLEN
+  Vertrag aus SM_CONNECTION 5.4: Pause und Verwaltungs-Einschraenkung
+  (gespeicherte Tatsachen), Frist ohne Claim, Quota, Laufzeit und
+  Plan-Limit (berechnet). Aus der Menge der aktiven Gruende gilt der mit
+  dem niedrigsten precedence_rank. Geschrieben wird nur bei einer
+  Aenderung von Status oder Grund; die Schreibwege gehoeren BASE-010.
+
+DEC-PA-13  REIHENFOLGE DER BEWERTUNG JE CONNECTION
+  (1) Kaskade aus dem Customer-Status, (2) harte Frist ohne Claim,
+  (3) Gruende neu bestimmen, (4) Finalisierungsfrist des danach noch
+  geltenden Grundes, (5) Widerruf nach Ablauf des Restore-Fensters.
+  Begruendung zu (3) vor (4): Eine Connection, deren Grund inzwischen
+  entfallen ist, darf nicht wegen einer abgelaufenen Frist dieses Grundes
+  endgueltig gesperrt werden.
+
+DEC-PA-14  SCHUTZ VOR UNUMKEHRBAREN MASSENFOLGEN
+  Fristgetriebene Uebergaenge, die sich nicht zuruecknehmen lassen
+  (Sperrung nach Fristablauf, Widerruf), fuehrt der Bewerter nur aus,
+  wenn die Systemzeit als synchronisiert gilt, seit dem letzten Lauf
+  keine unplausible Zeitluecke liegt und die Zahl solcher Uebergaenge in
+  einem Lauf unter einer einstellbaren Grenze bleibt. Andernfalls werden
+  sie zurueckgestellt und gemeldet; der Betreiber gibt sie frei.
+  Begruendung: Die Timeout-Sperrungen sind nicht wiederherstellbar und
+  ziehen eine Quarantaene der Adresse von bis zu einem Jahr nach sich.
+  Ein Uhrensprung oder ein fehlerhaft gesetztes Datum wuerde sonst in
+  einem einzigen Lauf endgueltige Folgen fuer viele Kunden haben. Im
+  Bestand nicht behandelt. Verbesserung VB-0023.
+
+DEC-PA-15  QUOTA-BEWERTUNG IM EIGENEN KURZEN TAKT
+  Der Bewerter laeuft im Takt vpn_policy_eval_interval_seconds und
+  ermittelt die Kandidaten mengenweise in SQL (gespeicherter Zustand
+  ungleich berechnetem). Die Ueberziehung einer Quota ist damit auf
+  Messlatenz (BASE-070_050) plus Bewertungstakt plus Auftragslauf
+  begrenzt. Beantwortet ANF-SC-07 a.
+
+DEC-PA-16  UMBAUTEN SIND BENANNTE ABLAEUFE MIT FESTER REIHENFOLGE
+  Rollenwechsel, Customer-Sperrung und -Loeschung, Restore,
+  Schluesselrotation und Kennwortwechsel folgen je einem festen Ablauf:
+  Sperre (BASE-070), eine Transaktion mit Auftraegen, Commit, Laufzeit-
+  bzw. Fluss-Schnitt, Freigabe. Der Commit liegt immer VOR dem Schnitt
+  (D002 7.4); das Fenster dazwischen ist durch Auftragsbuch und
+  Rollen-Netze der Firewall gedeckt.
+
+DEC-PA-17  REGISTRIERTE HELFER STATT FREMDER SCHREIBER
+  Sperrliste, Verwaltungsfreigabe und Verkehrsformung gehoeren anderen
+  Modulen, aendern aber Kernel-Zustand derselben Art. Sie laufen als fest
+  verzeichnete Helfer unter dem Einzel-Lock, mit geprueften Eingaben. Es
+  gibt keinen zweiten Schreiber und kein Nachladen von Programmteilen aus
+  beschreibbaren Verzeichnissen.
+
+DEC-PA-18  DATENBANKSTOERUNG: NICHTS AENDERN, NICHTS ENTSCHEIDEN
+  Ohne lesbare Datenbank veraendert vpn-policy-apply den Kernel nicht
+  (TEMPFAIL_SQL, ANF-WT-08) und der Bewerter trifft keine Entscheidung.
+  Es gibt keine Herstellung aus zwischengespeicherten Werten und keinen
+  Ersatzzustand "eingeschraenkt". Nach der Rueckkehr: Bewertung aller
+  Connections, Auftragslauf, vollstaendiger Abgleich.
+
+DEC-PA-19  ERGEBNISCODES DES VORGAENGERS BLEIBEN; EIN CODE KOMMT HINZU
+  0 bis 7 wie in SM_POLICY_RESTRICT 3.2. Neu ist 8 TEMPFAIL_FIREWALL: Das
+  Regelwerk ist nicht in einem Zustand, in dem Sets geschrieben werden
+  duerfen (RIEGEL, KEIN_REGELWERK; ANF-FW-03 f). Ein eigener Code, weil
+  der Aufrufer anders reagieren muss als bei einem Einzelfehler.
+
+DEC-PA-20  VERKEHRSFORMUNG UEBER EINEN HAKEN
+  Wann die Formung einer Connection gesetzt und entfernt wird, legt
+  BASE-080 fest (im selben Ablauf wie der Policy-Zustand). Wie sie
+  aussieht, gehoert MOD-003. Bis MOD-003 es anders bestimmt, gilt ein
+  Fehler des Formungs-Helfers als Fehler der Herstellung.
+
+DEC-PA-21  ZEITGEBER FEST, TAKT AUS SETTINGS
+  Wie in BASE-070 (U-1): Die Zeitgeber laufen in festem Raster, der Lauf
+  entscheidet aus Setting und Marke, ob er faellig ist. Ersetzt den
+  "Wiring-Tick 60 s" des Vorgaengers durch dieselbe Bauart mit kuerzerem
+  Raster.
+
+================================================================================
+6) DAMIT GESCHLOSSENE OFFENE PUNKTE
+================================================================================
+
+  OPEN-POL-01  Gate-Mechanik WireGuard          -> DEC-PA-06 (BASE-040_030)
+  OPEN-POL-02  Peer-Remove, Wiedereintrag       -> BASE-040_030 Abschnitt 5,
+                                                   BASE-070_040 (HC-4)
+  OPEN-POL-03  Mechanik der Verkehrsformung     -> MOD-003; Haken DEC-PA-20
+  OPEN-POL-04  Marke des Abgleichs              -> vpn_runtime_marks
+                                                   (BASE-070_070);
+                                                   BASE-080_070
+  OPEN-POL-05  Units, Lock, Hooks               -> BASE-080_050, _070
+  Heimat des Policy-Evaluators (SM_CONNECTION   -> BASE-080_020
+  4.6, 4.9, 5.4)
+  Heimat der Fristenlaeufe (R-15, LR-02, T-06)  -> BASE-080_020
+  Lebenszyklus allowed_l2tp_v4 (ANF-FW-03 a)    -> BASE-080_030, _040
+  Vorbedingung zum Loesen des Siegels           -> BASE-080_040
+  (ANF-FW-03 d)
+  Verzoegertes Raeumen kritischer Gate-Reste    -> BASE-080_040 Abschnitt 5
+  (Changelog v1.9: CONNECT_PURGE_DEFERRED)
+  ANF-WT-07, ANF-WT-08, ANF-SC-07               -> BASE-080_080 Abschnitt 4
+  boot-reconcile.service, Reconcile-Zeitgeber   -> BASE-080_070
+  (BASE-005_070)
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

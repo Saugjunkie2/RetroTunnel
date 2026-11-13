@@ -1,0 +1,373 @@
+================================================================================
+BASE-080 — BEWERTUNG UND LIFECYCLE-LAUF (vpn-policy-eval)
+================================================================================
+DATEI: BASE-080_020_BEWERTUNG_UND_LIFECYCLE_LAUF.txt
+STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
+
+ZWECK:
+  Vertrag des Bewerters: welche Bedingungen er liest, wie er daraus den
+  Zielzustand einer Connection bestimmt, in welcher Reihenfolge er
+  Kaskaden, Fristen und Gruende behandelt, wie er Uebergaenge ausfuehrt
+  und wovor er sich selbst schuetzt. Der Bewerter ist der im Bestand
+  benannte "Policy-Evaluator" (SM_CONNECTION 4.6, 4.9, 5.4) und der Runner
+  der Fristenlaeufe (R-15, T-02, T-06, LR-02).
+
+  Der Bewerter arbeitet NUR auf der Datenbank (DB-User system). Er
+  beruehrt weder Sets noch Peers noch Sitzungen (DEC-PA-01).
+
+================================================================================
+1) WAS DER BEWERTER ENTSCHEIDET - UND WAS NICHT
+================================================================================
+
+  ER ENTSCHEIDET (als Runner der Regeln von BASE-010):
+    - ob eine Connection wegen einer Bedingung eingeschraenkt wird oder
+      wieder frei ist (T-02, T-03, T-05) und welcher Grund gilt
+    - ob eine Frist abgelaufen ist und der Folgeuebergang faellig wird
+      (T-04/T-06 wegen claim_deadline, T-06 wegen restrict_finalize_at,
+      Widerruf nach LR-02)
+    - ob der Status des Customers eine Kaskade verlangt (SUSPENDED,
+      DELETED)
+
+  ER ENTSCHEIDET NICHT:
+    - Verwaltungshandlungen (Sperren, Wiederherstellen, Rollenwechsel,
+      Setzen und Aufheben der Verwaltungs-Einschraenkung): Die loest das
+      Panel aus; der Bewerter wird dabei nur als Bewertungskern gerufen
+      (Abschnitt 5).
+    - Limits, Laufzeiten, Plaene: Die liefern BASE-100 und MOD-010.
+    - Was ein Status im Kernel bedeutet: BASE-050; Herstellung: _030.
+
+  ER SCHREIBT NIE SELBST einen Status: Jeder Uebergang laeuft ueber die
+  Uebergangsroutine von BASE-010 (Felder, Zeitstempel, Lifecycle-Log,
+  Auftrag im Auftragsbuch - eine Transaktion; ANF-PA-01).
+
+================================================================================
+2) BEDINGUNGSQUELLEN (abschliessend)
+================================================================================
+
+  Grund                         aktiv, wenn                    Quelle
+  ----------------------------- ------------------------------ --------------
+  RESTRICT_ADMIN_MANUAL         admin_manual_restricted_at     Tatsache auf
+                                IS NOT NULL                    vpn_connections
+  RESTRICT_UNCLAIMED_OVERDUE    customer_id IS NULL UND        Felder auf
+                                jetzt > unclaimed_grace_until  vpn_connections
+                                                               (Fristen:
+                                                               MOD-001)
+  RESTRICT_PLAN_LIMIT_EXCEEDED  die Plan-Auskunft nennt die    MOD-010
+                                Connection als ueberzaehlig    (Auskunft A-1)
+  RESTRICT_EXPIRY_PASSED        expiry_date IS NOT NULL UND    Feld auf
+                                jetzt > expiry_date            vpn_connections
+  RESTRICT_QUOTA_EXHAUSTED      die Kontingent-Auskunft        BASE-100 /
+                                meldet: verbraucht >= Limit    MOD-010
+                                                               (Auskunft A-2)
+  RESTRICT_CUSTOMER_PAUSED      customer_paused_at             Tatsache auf
+                                IS NOT NULL                    vpn_connections
+
+  "jetzt" ist die Datenbankzeit.
+
+  AUSKUENFTE DER BERECHNETEN BEDINGUNGEN (Vertrag an die Owner):
+    A-1  PLAN-LIMIT: je Connection ja/nein. Welche Connections eines
+         Customers bei einem ueberschrittenen Limit als ueberzaehlig
+         gelten, bestimmt allein MOD-010 - deterministisch, damit
+         wiederholte Bewertung dasselbe Ergebnis liefert.
+    A-2  KONTINGENT: je Connection das wirksame Limit (NULL = unbegrenzt)
+         und der dagegen zu rechnende Verbrauch. Gebucht wird je
+         Connection (quota_used, BASE-070_050); teilen sich mehrere
+         Connections ein Kontingent, liefert die Auskunft die Summe
+         (D004-E04, ANF-SC-12).
+    A-3  Beide Auskuenfte sind in SQL mengenweise abfragbar (Sicht oder
+         gespeicherte Routine), lesen nur festgeschriebene Daten und
+         haben keine Nebenwirkung.
+    A-4  Ist eine Auskunft nicht lesbar oder widerspruechlich, gilt die
+         Bedingung als UNBEKANNT - nicht als "nicht aktiv" (Abschnitt 3).
+
+  KEINE WEITEREN QUELLEN: Ein neuer Einschraenkungsgrund braucht einen
+  Eintrag in vpn_reason_registry (BASE-010_050) UND eine Zeile in dieser
+  Tabelle. Gruende ohne Quelle werden nie gesetzt.
+
+================================================================================
+3) ZIELZUSTAND (deterministisch)
+================================================================================
+
+  Fuer eine Connection c, die nicht DISABLED ist:
+
+    R(c)  :=  Menge der Gruende aus Abschnitt 2, deren Bedingung aktiv ist
+    access_role = ADMIN        ->  R(c) := leer            (R-08, INV-56)
+    R(c) leer                  ->  Ziel ACTIVE, Grund NULL
+    sonst                      ->  Ziel RESTRICTED, Grund = der Grund aus
+                                   R(c) mit dem niedrigsten
+                                   precedence_rank (INV-22)
+
+  REGELN:
+    Z-1  UNBEKANNT AENDERT NICHTS: Ist die Bedingung irgendeines Grundes
+         UNBEKANNT, wird fuer diese Connection in diesem Lauf kein
+         Uebergang aus den Abschnitten 4 (E5 bis E7) ausgefuehrt - weder
+         einschraenken noch freigeben. Zaehler und Meldung
+         POLICY_EVAL_INPUT_UNKNOWN (SZ-7).
+    Z-2  Tatsachen einer ADMIN-Connection (Pause, Verwaltungs-
+         Einschraenkung) sind unzulaessig; findet der Bewerter sie vor,
+         meldet er POLICY_EVAL_ADMIN_FACT und laesst die Connection
+         ACTIVE.
+    Z-3  Der Zielzustand haengt nur von den gelesenen Daten ab, nicht von
+         der Reihenfolge der Bearbeitung und nicht vom Ausloeser.
+    Z-4  Gleicher Zielzustand wie gespeichert: KEINE Schreiboperation,
+         kein Log, kein Auftrag (INV-24; SM_CONNECTION 4.6 "nur bei
+         Delta").
+
+================================================================================
+4) ABLAUF JE CONNECTION (normativ; EINE Transaktion)
+================================================================================
+
+  E1  SPERREN UND LESEN: Connection-Zeile mit Zeilensperre lesen
+      (SELECT ... FOR UPDATE); Status des Customers, Registry-Zeile des
+      geltenden Grundes und die Auskuenfte A-1, A-2 dazu.
+  E2  KASKADE AUS DEM CUSTOMER-STATUS (nur CLAIMED):
+        Customer DELETED    -> Tombstone-Routine (BASE-010_070 Abschnitt
+                               5), auch wenn die Connection bereits
+                               DISABLED ist (INV-84). Ende.
+        Customer SUSPENDED  -> ist die Connection ACTIVE oder RESTRICTED:
+                               T-04 bzw. T-07 mit
+                               DISABLE_CUSTOMER_SUSPENDED (INV-65). Ende.
+  E3  HARTE FRIST OHNE CLAIM: customer_id IS NULL UND jetzt >=
+      claim_deadline UND Status ACTIVE oder RESTRICTED
+        -> T-04 (aus ACTIVE) bzw. T-06 Trigger B (aus RESTRICTED) mit
+           DISABLE_UNCLAIMED_TIMEOUT. UNUMKEHRBAR (Abschnitt 7). Ende.
+  E4  STATUS DISABLED: Es wird nur die Widerrufsfrist geprueft.
+        revocation_mode des Grundes = AFTER_RESTORE_WINDOW UND
+        restore_until IS NOT NULL UND jetzt >= restore_until UND
+        revoked_at IS NULL
+        -> Widerruf nach LR-02 (revoked_at, quarantine_until;
+           restore_until NULL). UNUMKEHRBAR (Abschnitt 7).
+      MANUAL_ONLY wird nie vom Bewerter widerrufen (LR-03). Ende.
+  E5  GRUENDE BESTIMMEN: R(c) und Zielzustand nach Abschnitt 3.
+  E6  VERGLEICHEN UND UEBERGEHEN:
+        gespeichert   Ziel                    Uebergang
+        ------------- ----------------------- -------------------------
+        ACTIVE        ACTIVE                  keiner
+        ACTIVE        RESTRICTED, Grund g     T-02 (g = Frist ohne
+                                              Claim) bzw. T-03
+        RESTRICTED    ACTIVE                  T-05 (Freigabe)
+        RESTRICTED    RESTRICTED, anderer     T-05 (Grundwechsel);
+                      Grund g                 restrict_finalize_at wird
+                                              aus g neu bestimmt
+        RESTRICTED    RESTRICTED, gleicher    keiner; weiter mit E7
+                      Grund
+      Bei Eintritt und bei Grundwechsel wird restrict_finalize_at aus
+      default_restrict_window_days des Grundes gesetzt, ab jetzt
+      gerechnet; hat der Grund keine Auto-Finalisierung, wird es NULL
+      (INV-15).
+  E7  FINALISIERUNG: Nur wenn in E6 KEIN Uebergang stattfand:
+        Status RESTRICTED UND restrict_finalize_at IS NOT NULL UND
+        jetzt >= restrict_finalize_at
+        -> T-06 Trigger A mit auto_finalize_to_reason_code des geltenden
+           Grundes. UNUMKEHRBAR (Abschnitt 7).
+  E8  ABSCHLUSS: Commit. Jeder ausgefuehrte Uebergang hat ueber die
+      Uebergangsroutine Felder, Lifecycle-Log und Auftrag geschrieben.
+
+  WARUM E5/E6 VOR E7: Ein Grund, der inzwischen entfallen ist, darf nicht
+  mehr zur endgueltigen Sperrung fuehren. Erst wird festgestellt, was
+  jetzt gilt; nur ein weiter geltender Grund kann seine Frist ausloesen.
+
+  WARUM E2/E3 VOR E5: Kaskade und harte Frist haengen nicht von den
+  Gruenden ab und gehen ihnen vor; eine Connection, die gesperrt werden
+  muss, wird nicht zuvor noch umbewertet.
+
+  FOLGEN FUER DEN KERNEL: keine unmittelbare. Der Auftrag aus E8 fuehrt
+  zur Herstellung (_030): Einschraenkung mit Fluss-Schnitt, Freigabe,
+  Sperrung mit Laufzeit-Schnitt.
+
+================================================================================
+5) DER BEWERTUNGSKERN ALS BAUSTEIN FREMDER TRANSAKTIONEN
+================================================================================
+
+  Die Schritte E5 und E6 bilden den BEWERTUNGSKERN. Er existiert in genau
+  einer Implementierung und wird auch INNERHALB der Transaktion einer
+  Verwaltungs- oder Kundenhandlung gerufen, wenn diese eine Eingabe der
+  Bewertung aendert. So gilt das Ergebnis mit dem Commit der Handlung und
+  nicht erst nach dem naechsten Lauf.
+
+  Handlung (Owner)                         Aufruf des Bewertungskerns
+  ---------------------------------------- ------------------------------
+  T-08 Restore (BASE-010, Panel)           PFLICHT, in der Transaktion:
+                                           Restore ist kein Umgehen der
+                                           geltenden Bedingungen
+                                           (SM_CONNECTION 4.9)
+  T-01 Claim (BASE-010, MOD-001)           PFLICHT, in der Transaktion:
+                                           nur ACTIVE, wenn KEIN Grund
+                                           mehr aktiv ist (INV-23)
+  Pause / Reaktivieren (Kunde)             PFLICHT, in der Transaktion
+  Verwaltungs-Einschraenkung setzen /      PFLICHT, in der Transaktion
+  aufheben
+  Grace-Reset, Laufzeit aendern,           in der Transaktion oder
+  Planwechsel, Limit aendern,              unmittelbar danach
+  Kontingent auffuellen                    (vpn-policy-eval
+                                           --connection-id bzw.
+                                           --customer-id)
+  Periodenwechsel der Quota (BASE-070)     vpn-policy-eval --all nach dem
+                                           Wechsel (ANF-SC-07 a)
+
+  Unterbleibt ein solcher Aufruf, holt der Lauf im Bewertungstakt die
+  Bewertung nach. Fuer T-08 und T-01 ist der Aufruf Teil der
+  Korrektheit, nicht nur der Schnelligkeit.
+
+  ABGRENZUNG: Der Kern prueft keine Fristen (E3, E4, E7) und loest keine
+  Kaskaden aus; das bleibt dem Lauf vorbehalten.
+
+================================================================================
+6) DER LAUF (vpn-policy-eval)
+================================================================================
+
+  AUFRUFE:
+    vpn-policy-eval --all                      Lauf im Bewertungstakt
+    vpn-policy-eval --connection-id <id>       eine Connection (E1 bis E8)
+    vpn-policy-eval --customer-id <id>         alle Connections eines
+                                               Customers (Kaskade)
+    vpn-policy-eval --explain <id>             nur lesend: alle aktiven
+                                               Gruende, Fristen, Ziel
+    vpn-policy-eval --release-held --max <n>   Freigabe zurueckgestellter
+        --actor <Kennung>                      Uebergaenge (Abschnitt 7)
+  Eingaben werden streng geprueft (nur Ziffern bzw. feste Schalter).
+
+  LAUF --all (Takt vpn_policy_eval_interval_seconds, Vorschlag 60):
+    V1  Einzel-Lock des Bewerters (kein Kernel-Lock); Zeitlimit.
+    V2  Datenbank nicht erreichbar: Ende ohne Wirkung (DEC-PA-18).
+    V3  ZEITPRUEFUNG nach Abschnitt 7: bestimmt, ob unumkehrbare
+        Uebergaenge in diesem Lauf erlaubt sind.
+    V4  KANDIDATEN mengenweise bestimmen (Abschnitt 2, A-3):
+          a) Connections von Customern mit Status SUSPENDED oder DELETED,
+             die noch nicht entsprechend gesperrt sind
+          b) faellige Fristen (claim_deadline, restrict_finalize_at,
+             restore_until)
+          c) nicht gesperrte Connections, deren berechneter Zielzustand
+             vom gespeicherten abweicht
+        Die Indizes auf den Fristfeldern (BASE-010_020) tragen a) und b);
+        c) ist ein Verbund ueber die sechs Quellen.
+    V5  MENGENBREMSE nach Abschnitt 7 auf die unumkehrbaren Kandidaten.
+    V6  Je Kandidat der Ablauf E1 bis E8 in EIGENER Transaktion. Ein
+        Fehler bei einer Connection beendet den Lauf nicht; er wird
+        gezaehlt und die Connection im naechsten Lauf erneut bearbeitet.
+    V7  Marken und Statusdatei: policy_eval_last_run_at immer;
+        policy_eval_last_ok_at nur, wenn kein Kandidat fehlschlug.
+
+  EIGENSCHAFTEN: idempotent (ein zweiter Lauf ohne geaenderte Eingaben
+  schreibt nichts); jede Connection fuer sich atomar; Abbruch an
+  beliebiger Stelle wird vom naechsten Lauf fortgesetzt; der Aufwand
+  waechst mit der Zahl der Kandidaten, nicht mit der Zahl der
+  Connections.
+
+  GLEICHZEITIGKEIT MIT HANDLUNGEN: Die Zeilensperre aus E1 ordnet den
+  Lauf gegen jede Handlung an derselben Connection. Der Lauf liest die
+  Eingaben erst NACH dem Erwerb der Sperre; ein Kandidat, dessen Lage sich
+  inzwischen geaendert hat, ergibt keinen Uebergang (Z-4).
+
+================================================================================
+7) SCHUTZ VOR UNUMKEHRBAREN MASSENFOLGEN (DEC-PA-14)
+================================================================================
+
+  UNUMKEHRBAR sind: Sperrung nach claim_deadline (E3), Finalisierung
+  (E7) und Widerruf (E4). Ihre Zielgruende sind nicht wiederherstellbar
+  bzw. beenden das Restore-Fenster und binden die Adresse fuer die
+  Quarantaene.
+  NICHT gebremst werden Kaskaden aus dem Customer-Status (E2): Sie folgen
+  einer ausdruecklichen Verwaltungshandlung.
+
+  Ein Lauf fuehrt unumkehrbare Uebergaenge nur aus, wenn ALLE Bedingungen
+  gelten:
+    U-1  ZEIT SYNCHRONISIERT: Die Zeitbasis meldet die Systemzeit als
+         synchronisiert (Signal von BASE-060, ANF-PA-06). Nicht
+         feststellbar gilt als nicht synchronisiert.
+    U-2  KEINE ZEITLUECKE: Der Abstand zwischen jetzt und
+         policy_eval_last_run_at ist nicht negativ und nicht groesser als
+         vpn_policy_eval_gap_hold_seconds (Vorschlag 3600). Fehlt die
+         Marke (erster Lauf), gilt die Bedingung als nicht erfuellt.
+    U-3  MENGE: Die Zahl der in diesem Lauf faelligen unumkehrbaren
+         Uebergaenge ist nicht groesser als
+         vpn_policy_eval_max_irreversible_per_run (Vorschlag 25).
+
+  IST EINE BEDINGUNG NICHT ERFUELLT:
+    - KEINER der unumkehrbaren Uebergaenge dieses Laufs wird ausgefuehrt
+      (bei U-3 auch nicht die ersten bis zur Grenze: Die Grenze ist ein
+      Hinweis auf eine gestoerte Lage, kein Kontingent).
+    - Umkehrbare Uebergaenge (einschraenken, freigeben, Grundwechsel) und
+      Kaskaden laufen normal.
+    - Ereignis POLICY_EVAL_HELD (ALERT) mit Zahl und verletzter
+      Bedingung; die Statusdatei fuehrt die zurueckgestellten
+      Connections nach Art.
+    - Eine reine Zeitluecke (U-2) loest sich mit dem naechsten
+      regulaeren Lauf von selbst.
+
+  FREIGABE DURCH DEN BETREIBER: vpn-policy-eval --release-held ueber den
+  privilegierten Auftragsweg (Klasse C, erneute Anmeldung). Sie gilt fuer
+  EINEN Lauf, traegt eine Obergrenze und den Akteur, setzt U-3 aus -
+  nicht aber U-1 und U-2 - und wird im Lifecycle-Log der betroffenen
+  Connections ueber actor_detail kenntlich.
+
+  WAS DER SCHUTZ NICHT LEISTET (offen ausgewiesen): Eine falsche, aber als
+  synchronisiert gemeldete Uhr, die nur wenige Connections betrifft,
+  wird nicht erkannt. Einschraenkungen (umkehrbar) werden nicht gebremst;
+  uebersteigt ihre Zahl in einem Lauf vpn_policy_eval_restrict_alert_per_
+  run (Vorschlag 100), wird POLICY_EVAL_MASS_RESTRICT gemeldet.
+
+================================================================================
+8) QUOTA: WIRKUNG UND MESSGRENZE
+================================================================================
+
+  - Ist das Kontingent ausgeschoepft, wird die Connection eingeschraenkt
+    (T-03, RESTRICT_QUOTA_EXHAUSTED), sofern kein hoeherpriorer Grund
+    gilt. Sie wird wieder frei, sobald die Auskunft A-2 es ergibt:
+    Periodenwechsel (BASE-070 SV-6), hoeheres Limit, Auffuellen.
+  - Ueberziehung: Zwischen dem Erreichen des Limits und der Wirkung im
+    Kernel liegen hoechstens Messlatenz des Tunnels (BASE-070_050),
+    Bewertungstakt, Takt des Auftragslaufs und die Dauer der
+    Herstellung. Der in dieser Zeit fliessende Verkehr wird gebucht.
+  - Planwechsel setzt den Verbrauch nicht zurueck; bei Herabstufung gilt
+    sofort das neue Limit (D004-E08) - der Bewertungskern wird mit dem
+    Planwechsel gerufen (Abschnitt 5).
+  - BASE-080 kennt keine Limits und keine Plaene; es vergleicht nur, was
+    die Auskunft liefert.
+
+================================================================================
+9) FEHLERBILDER
+================================================================================
+
+  Stoerung                        Verhalten
+  ------------------------------- -------------------------------------------
+  Datenbank nicht erreichbar      Lauf ohne Wirkung; keine Entscheidung;
+                                  nach Rueckkehr vollstaendige Bewertung
+  Auskunft A-1/A-2 nicht lesbar   Bedingung UNBEKANNT: betroffene
+                                  Connections bleiben unveraendert; Meldung
+  Uebergangsroutine scheitert     Transaktion verworfen; kein Teilzustand;
+                                  naechster Lauf wiederholt
+  Lauf bricht ab                  bereits abgeschlossene Connections sind
+                                  gueltig; Rest im naechsten Lauf
+  Uhr springt vor                 unumkehrbare Uebergaenge zurueckgestellt
+                                  (U-1 bis U-3); Einschraenkungen sind
+                                  umkehrbar und werden nach Korrektur der
+                                  Uhr im naechsten Lauf aufgehoben
+  Uhr springt zurueck             U-2 verletzt; wie oben; bereits
+                                  ausgefuehrte Uebergaenge bleiben
+  Registry unvollstaendig         Uebergangsroutine lehnt ab (BASE-010,
+  (Grund ohne Zeile)              INV-08/09); Meldung; keine Aenderung
+  Bewerter laeuft nicht           Marke altert; POLICY_EVAL_OVERDUE;
+                                  bestehende Zustaende bleiben; Handlungen
+                                  mit Bewertungskern (Abschnitt 5) wirken
+                                  weiter
+
+================================================================================
+10) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  - Je Connection: ALLE aktiven Gruende (nicht nur der gespeicherte
+    hoechstpriore), ihre Quellen, die laufenden Fristen und der
+    Zielzustand - ueber vpn-policy-eval --explain (nur lesend).
+  - Betrieb: letzter Lauf, letzter fehlerfreier Lauf, Zahl der
+    Uebergaenge je Art, UNBEKANNTE Auskuenfte, zurueckgestellte
+    unumkehrbare Uebergaenge mit Anlass (Statusdatei, BASE-080_070).
+  - Handlungen: "Bewertung jetzt" fuer eine Connection oder einen
+    Customer; Freigabe zurueckgestellter Uebergaenge (Klasse C).
+  - Keine Bearbeitung von op_status oder Grund am Bewerter vorbei.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

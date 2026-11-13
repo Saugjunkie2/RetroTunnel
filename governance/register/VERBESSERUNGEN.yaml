@@ -179,3 +179,22 @@ eintraege:
   folgekosten: Der Nutzer wird nach einem selbst ausgelösten Kennwortwechsel getrennt und verbindet sich neu; die Bestätigung muss vor dem Hard-Cut ausgeliefert werden (MOD-006). Nachzug in BASE-010 (ANF-SC-01 f).
   integriert_in: [base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt#Kennwortwechsel (L2TP), base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt#KENNWORTWECHSEL L2TP ALS UMBAU]
   entdeckt_in: AP-K070
+
+- id: VB-0022
+  titel: Auftragsbuch für die Herstellung des Kernel-Zustands (Statuswechsel und Anstoß in einer Transaktion)
+  zweck: Kein festgeschriebener Statuswechsel bleibt ohne Wirkung im Kernel, auch wenn der auslösende Prozess abstürzt, der Einzel-Lock belegt ist oder der erste Versuch scheitert; eine Sperrung wegen Missbrauchs wirkt in Sekunden statt erst mit dem nächsten Abgleich.
+  einstufung: WESENTLICH_VORTEILHAFT
+  entscheidung: INTEGRIEREN
+  begruendung: Der Vorgänger (B166, SM_POLICY_RESTRICT Abschnitt 8) verlangt, dass Panel-Ereignisse die Herstellung auslösen, sichert das aber nur über den Abgleich im Minutenraster ab. Ein Auftrag, der in derselben Transaktion wie der Statuswechsel geschrieben wird, macht den Anstoß unverlierbar und gescheiterte Versuche sichtbar; die Mehrkosten sind eine kleine Tabelle und ein Lauf im Sekundentakt.
+  folgekosten: Die Übergangsroutinen von BASE-010 und die Schreibwege des Panels müssen den Auftrag mitschreiben (Anforderung an BASE-010 und BASE-110); ein zusätzlicher Zeitgeber.
+  integriert_in: [base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-PA-03]
+  entdeckt_in: AP-K080
+- id: VB-0023
+  titel: Schutz vor unumkehrbaren Massenfolgen der fristgetriebenen Übergänge (Uhr, Zeitlücke, Mengengrenze)
+  zweck: Ein Uhrensprung, ein fehlerhaft gesetztes Datum oder ein Programmfehler darf nicht in einem einzigen Lauf viele Connections endgültig sperren oder widerrufen.
+  einstufung: BETRIEBLICH_NOTWENDIG
+  entscheidung: INTEGRIEREN
+  begruendung: Sperrungen nach Fristablauf sind nicht wiederherstellbar und binden die Adresse für die Quarantäne; der Bestand kennt dafür keinen Schutz. Der Bewerter führt solche Übergänge nur bei synchronisierter Zeit, ohne unplausible Zeitlücke und unter einer Mengengrenze aus, stellt sie sonst zurück und meldet sie; die Freigabe ist eine protokollierte Betreiberhandlung. Die harte Frist selbst wird nicht verlängert.
+  folgekosten: Ein Signal der Zeitbasis (BASE-060), drei Settings, eine Freigabehandlung im Panel (Klasse C).
+  integriert_in: [base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-PA-14, base/BASE-080_POLICY_APPLY_CORE/BASE-080_020_BEWERTUNG_UND_LIFECYCLE_LAUF.txt#7) SCHUTZ VOR UNUMKEHRBAREN MASSENFOLGEN]
+  entdeckt_in: AP-K080
