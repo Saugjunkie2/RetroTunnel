@@ -32,9 +32,13 @@ ZWECK:
   counter_epoch          INT UNSIGNED         +1 nur bei Zaehler-Reset bzw.
                          NOT NULL DEFAULT 0   kontrolliertem Cursor-Reset
                                               (WireGuard)
-  last_counter_seen_at   TIMESTAMP NULL       letzter Zeitpunkt, zu dem die
-                                              Zaehler geprueft wurden (auch
-                                              bei Delta 0)
+  last_counter_seen_at   TIMESTAMP NULL       Zeitpunkt, bis zu dem die
+                                              Rohzaehler ausgewertet sind
+                                              (auch bei Delta 0).
+                                              WireGuard: Lesezeit des
+                                              Kernels. L2TP: Zeit der
+                                              zuletzt ausgewerteten
+                                              Abrechnungsmeldung
   last_runtime_seen_at   TIMESTAMP NULL       Hinweisfeld (_020)
   runtime_active_since   TIMESTAMP NULL       Hinweisfeld (_020)
 
@@ -136,13 +140,19 @@ ZWECK:
          bleiben Schlussbuchung und Ende zuordenbar.
 
   SV-5  BUCHUNG(r, s)      r = radacct-Zeile, s = ihr Buchungsstand
+      t_m    = Zeit der ausgewerteten Meldung: r.acctstoptime, sonst
+               r.acctupdatetime, sonst r.acctstarttime
       d_in   = r.acctinputoctets  - s.booked_in_octets
       d_out  = r.acctoutputoctets - s.booked_out_octets
       d_in < 0 oder d_out < 0:
                   nichts schreiben; Anomalie L2TP_ACCT_COUNTER_REGRESSION
                   (verspaetet eingespielte aeltere Meldung); abwarten
       d_in = 0 und d_out = 0:
-                  nichts schreiben
+                  keine Buchung. last_counter_seen_at wird auf t_m
+                  fortgeschrieben, sofern t_m um mehr als
+                  vpn_runtime_seen_refresh_seconds neuer ist als der
+                  gespeicherte Wert ("Zaehler geprueft", auch ohne
+                  Verkehr)
       sonst:      EINE Transaktion
         1  UPDATE vpn_l2tp_acct_state
               SET booked_in_octets  = :in_neu,
@@ -156,7 +166,8 @@ ZWECK:
         2  falls s.vpn_connection_id gesetzt:
            UPDATE vpn_connections
               SET quota_used = quota_used + :d_in + :d_out,
-                  last_counter_seen_at = NOW()
+                  last_counter_seen_at = GREATEST(
+                      COALESCE(last_counter_seen_at, :t_m), :t_m)
             WHERE id = :c
         3  falls s.vpn_connection_id gesetzt: Tagesreihe um d_in (rx) und
            d_out (tx) fortschreiben (Abschnitt 10)
@@ -325,9 +336,12 @@ ZWECK:
     Q-2  quota_used bezieht sich immer auf [quota_period_start,
          quota_period_end); nach dem Wechsel ist es 0 bzw. der seither
          gebuchte Verbrauch.
-    Q-3  last_counter_seen_at zeigt, wann die Zaehler zuletzt geprueft
-         wurden. Ein alter Wert bei aktiver Connection bedeutet: Der
-         Verbrauch ist moeglicherweise hoeher als gebucht.
+    Q-3  last_counter_seen_at zeigt, bis zu welchem Zeitpunkt die
+         Rohzaehler ausgewertet sind. Bei L2TP ist das die Zeit der
+         zuletzt ausgewerteten Meldung, nicht die Laufzeit des Abgleichs:
+         Bleiben Meldungen aus, altert der Wert. Ein alter Wert bei
+         aktiver Connection bedeutet: Der Verbrauch ist moeglicherweise
+         hoeher als gebucht.
     Q-4  Nach einem Periodenwechsel stoesst vpn-quota-period die
          Neubewertung an.
   ERWARTUNG AN DEN BEWERTER (ANF-SC-07): eigener, kurzer Bewertungstakt
