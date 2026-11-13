@@ -1,0 +1,178 @@
+xp-vpn-stack/blocks/B345_WRITE_PATH_MATRIX_CONTRACT.txt
+================================================================================
+BLOCK-ID: B345
+TITLE: Write Path Matrix Contract (AuthZ-by-Design / SQL-first Write-Ownership)
+VERSION: v1.2
+DATUM: 2026-01-26
+STATUS: ACTIVE
+PRIORITY: MUST
+REQUIRES: B055, B057, B150, B155, B166
+INFLUENCES: alle Write-Paths (Panel, Provisioning, Reconcile, Restrict, Disable/Hardcut)
+OWNER-INTENT: Kanonischer Write-Contract: Wer DARF welche Felder/Tabellen schreiben – und über welchen Pfad (SYSTEM/ADMIN/USER). Ziel: Drift vermeiden, AuthZ-by-Design, keine impliziten „Darf man halt“-Writes.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- USER schreibt NIE direkt in Core-Tabellen. USER triggert nur Requests im Panel; das tatsächliche Schreiben erfolgt durch SYSTEM (serverseitig) nach Gate-Checks.
+- SQL-first: Policy-Werte (TTL/Grace/Deadline/Intervals) kommen aus Settings-Keys (B057). Keine Magic Numbers in Konsumenten.
+- Diese Matrix ist ein Contract für Implementierer: Jede Abweichung ist ein Kanon-Bruch und muss als Block-Delta diskutiert werden.
+
+================================================================================
+1) Begriffe / Akteure (KANON)
+================================================================================
+
+Akteure (Write-Actors):
+- SYSTEM: Server-Komponenten (Provisioner, Reconcile/Janitor, Restrict-Apply, AAA-Write-Back). Schreibt serverseitig nach Policy.
+- ADMIN: Panel-Admin (privilegierte Operationen; auditpflichtig; keine „heimlichen“ Writes).
+- USER (Panel): Endnutzer im Panel. USER hat keine DB-Write-Rechte; USER triggert nur Workflows (Verify/Claim), die SYSTEM ausführt.
+
+Write-Path (KANON):
+- WRITE-PATH bedeutet: Wer initiiert (USER/ADMIN) vs wer schreibt (SYSTEM).
+  Beispiel: „USER via Panel → SYSTEM“ = USER klickt, SYSTEM schreibt (nach Gate).
+
+Tabellen (Core, aus B055):
+- customers
+- vpn_connections
+- active_session_locks
+
+================================================================================
+2) Globaler Grundsatz (MUST)
+================================================================================
+
+G1) Kein Direkt-Write durch USER:
+- USER darf keine SQL-Writes auf customers/vpn_connections/active_session_locks auslösen, die nicht durch SYSTEM validiert und ausgeführt werden.
+
+G2) Atomare Writes bei Provisioning/Rotation:
+- Jede Operation, die Identität/Enforcement beeinflusst (subaccount_login, conn_group, ip_slot, fixed_ip, fixed_ipv6, claim_token_hash, status) MUSS atomar/transaktional erfolgen (kein Halbzustand).
+
+G3) Policy-Zeiten ohne Magic Numbers:
+- unclaimed_grace_until und claim_deadline sind materialisierte TIMESTAMPS in vpn_connections.
+- Die Dauer/Defaults für deren Berechnung kommen ausschließlich aus Settings-Keys (B057):
+  - unclaimed_grace_days
+  - claim_deadline_days
+- Konsumenten dürfen KEINE lokalen Defaults verwenden.
+
+Non-normativ (nur Orientierung):
+- Historische Defaults existierten (z.B. „30 Tage Grace“ / „180 Tage Deadline“). Diese Zahlen sind NICHT kanonisch.
+  Kanonisch ist ausschließlich: Settings-Keys (B057) + materialisierte Timestamps in vpn_connections.
+
+================================================================================
+3) Write-Path Matrix (MUST)
+================================================================================
+
+Legende:
+- W: Write erlaubt (unter Bedingungen)
+- R: Read-only (Write verboten)
+- C: Clear erlaubt (NULL setzen) (nur wenn explizit)
+- !: auditpflichtig (MUST: admin_audit_event oder äquivalentes Log)
+
+--------------------------------------------------------------------------------
+3.1 customers (Panel Account / Identity)
+--------------------------------------------------------------------------------
+
+Feld / Spalte                | SYSTEM | ADMIN | USER (Panel) | Write-Path / Bedingungen
+---------------------------- | ------ | ----- | ------------ | ------------------------
+email                         W      | W!    | (REQ)         | Create-only: USER initiiert Registrierung → SYSTEM führt INSERT aus (email). Danach immutable (Anti-Takeover): kein UPDATE durch USER/ADMIN ohne eigenen Email-Change-Flow/Block. ADMIN-Write nur für Import/Support (audit).
+password_hash                 W      | W!    | (REQ)         | Create + Update: SYSTEM schreibt bei Registrierung (INSERT) und bei Passwort-Reset/Change-Flow (UPDATE) nach Gate/Verify/RateLimit. USER triggert nur (REQ), kein Direktwrite. ADMIN darf Reset triggern/erzwingen (audit).
+display_name                  W      | W!    | (REQ)         | UI-only (B055): USER initiiert Set/Clear → SYSTEM schreibt (sanitizen/escape-on-output). ADMIN darf setzen/clearen (audit).
+created_at                    W      | R     | R            | Create-only: SYSTEM setzt bei INSERT, immutable.
+email_verified_at             W      | R     | (REQ)         | USER initiiert Verify → SYSTEM setzt (idempotent). Kein ADMIN-Setzen (kein Fake-Verify).
+status (ENUM: PENDING|ACTIVE|SUSPENDED|DELETED)   W      | W!    | R            | Physisches Feld (B055): SYSTEM setzt bei Create=PENDING und bei Verify-Transition ACTIVE (nur wenn email_verified_at gesetzt ist). ADMIN darf SUSPENDED/DELETED setzen (audit), aber darf ACTIVE nur im Rahmen derselben Invarianten (siehe 3.1 Invarianten).
+Invarianten (customers):
+
+- email UNIQUE (DB). Verify ist monotonic: email_verified_at einmal gesetzt, niemals „unverify“ (Reset wäre neuer Customer oder separate Forensics-Policy).
+- USER kann status nie direkt ändern.
+
+- B055-Konsistenz (MUST): status und email_verified_at dürfen nicht auseinanderlaufen:
+  • status=ACTIVE => email_verified_at IS NOT NULL (ACTIVE nur nach erfolgreichem Verify).
+  • email_verified_at IS NULL => status != ACTIVE (PENDING/SUSPENDED/DELETED möglich, aber nicht ACTIVE).
+  • Verify-Transition: SYSTEM setzt email_verified_at (monotonic) und setzt status=ACTIVE in derselben Transaktion oder deterministisch direkt danach.
+  • Admin-SUSPEND/DELETE: darf status setzen, ohne email_verified_at zu löschen (Forensics/Trace bleibt); ACTIVE darf ADMIN nur setzen, wenn email_verified_at bereits gesetzt ist.
+
+--------------------------------------------------------------------------------
+3.2 vpn_connections (Subaccount / Client / Enforcement SoT)
+--------------------------------------------------------------------------------
+
+Feld / Spalte                    | SYSTEM | ADMIN | USER (Panel) | Write-Path / Bedingungen
+-------------------------------- | ------ | ----- | ------------ | ------------------------
+subaccount_login                  W      | R     | R            | SYSTEM generiert (nicht enumerierbar). Immutable.
+conn_group (LEGACY/MODERN/ADMIN)  W      | W!    | R            | Provisioning setzt. Änderung nur ADMIN (Promotion/Demotion/Hardcut) + Audit.
+subaccount_nt_hash                W      | W!    | R            | SYSTEM setzt bei Provisioning/Rotate. ADMIN rotate möglich (audit). Kein USER-Write.
+v6_addr_policy (NONE/FIXED_SQL)   W      | W!    | R            | SYSTEM setzt bei Provisioning gemäß conn_group + Pool. ADMIN override nur wenn vorgesehen (audit).
+ip_slot                           W      | W!    | R            | SYSTEM setzt (Allocator). ADMIN darf nur im Notfall korrigieren (audit); Standard: immutable nach Set.
+fixed_ip                          W      | R     | R            | SYSTEM materialisiert aus ip_slot (B061). Immutable. Kein ADMIN-Write (sonst bypass).
+fixed_ipv6                        W      | R     | R            | SYSTEM materialisiert aus ip_slot wenn v6_addr_policy=FIXED_SQL (B055/B061). Immutable.
+status (PREPROVISIONED/CLAIMED/DISABLED)
+                                 W      | W!    | R            | SYSTEM setzt per Flow (Claim/Hard-Stop/Policy). ADMIN darf DISABLED setzen/clearen nach Regeln (audit).
+customer_id                       W      | R     | (REQ)         | USER initiiert Claim → SYSTEM setzt (einmalig, monotonic). Kein Unclaim (neue Connection statt Reset).
+claim_token_hash                  W      | W!    | R            | SYSTEM setzt bei Provisioning; ADMIN darf rotate (audit) ohne other-state drift.
+claimed_at                        W      | R     | (REQ)         | USER initiiert Claim → SYSTEM setzt (idempotent; einmalig).
+unclaimed_grace_until             W      | W!    | R            | SYSTEM setzt bei Provisioning + Grace-Reset. Dauer via Settings-Key unclaimed_grace_days (B057). ADMIN darf resetten (audit).
+claim_deadline                    W      | R     | R            | SYSTEM setzt bei Provisioning (created_at + claim_deadline_days). ADMIN darf NICHT verlängern (Hard-Stop Contract).
+disabled_at                       W      | W!    | R            | SYSTEM setzt bei Policy/Hard-Stop; ADMIN setzt/cleart für Manual Disable (audit). Monotonic Marker je Disable-Episode.
+revoked_at                        W      | W!    | R            | SYSTEM/ADMIN setzt (audit). Monotonic: einmal gesetzt, nie zurück. Unrevoke durch neue vpn_connection.
+restricted_reason                 W      | W     | R            | SYSTEM setzt/cleart ausschließlich im Restrict/Apply/Reconcile (B166). Kein USER/ADMIN Direct-Write (nur Trigger/Request).
+restricted_effective              W      | W     | R            | SYSTEM Fast-Flag (abgeleitet). Kein USER/ADMIN Direct-Write.
+
+Invarianten (vpn_connections):
+- fixed_ip / fixed_ipv6 sind abgeleitet aus ip_slot → dürfen NIE per Panel/Manual überschrieben werden (sonst bypass des Allocator-SoT).
+- customer_id + claimed_at sind monotonic (Claim ist einmalig). „Unclaim“ = neue Connection (Hardcut/Rotate Identity).
+- claim_deadline ist Hard-Stop: darf nicht verlängert werden (sonst „ewige Leichen“).
+- Admin-Operationen, die AuthZ/Enforcement verändern (conn_group, status, disabled_at, revoked_at, claim_token_hash, unclaimed_grace_until) sind auditpflichtig (!).
+
+--------------------------------------------------------------------------------
+3.3 active_session_locks (Mutex / Guard)
+--------------------------------------------------------------------------------
+
+Feld / Spalte             | SYSTEM | ADMIN | USER (Panel) | Write-Path / Bedingungen
+------------------------- | ------ | ----- | ------------ | ------------------------
+* (alle)                  W      | R     | R            | SYSTEM-only. Admin/Panel darf niemals Locks schreiben. Debugging/Diag ist read-only.
+
+================================================================================
+4) Randfälle & Race-Conditions (MUST)
+================================================================================
+
+R1) Doppel-Claim / Race:
+- USER kann mehrfach klicken / mehrere Tabs / Retries.
+- Contract: Claim ist idempotent. SYSTEM MUSS atomar prüfen+setzen (Transaction + SELECT ... FOR UPDATE) und bei Wiederholung „already claimed“ deterministisch melden.
+
+R2) Verify-Idempotenz:
+- Mehrfaches Verify darf keinen Schaden erzeugen (email_verified_at bleibt gesetzt; kein Status-Flip-Flop).
+
+R3) Hardcut/Promotion/Demotion:
+- Beim Rollenwechsel (conn_group Wechsel) MUSS ein Hardcut erfolgen:
+  - aktive Sessions deterministisch beenden (Accounting/Reconcile).
+  - neue vpn_connection erzeugen (neue Identity), alte bleibt revoked/disabled gemäß Policy.
+  - USER-Credentials können (wenn kanonisch so gewollt) beibehalten werden, aber Write-Path bleibt SYSTEM/ADMIN (B155/B061).
+
+R4) DB_DOWN / Partial Write:
+- Wenn DB nicht schreibbar: fail-closed (kein „halber“ Provisioning). Keine „best effort“-Writes in Core.
+- DoD verlangt: klare Failure-Reasons + Retry-Strategie ohne Duplikate.
+
+================================================================================
+5) DoD / Validierung (MUST)
+================================================================================
+
+DoD-W1 (Write-Enforcement):
+- Für jedes Feld, das in 3.x als R markiert ist, existiert ein Enforcement-Punkt:
+  - mindestens App-Layer (SQL statements/DAO) + Tests.
+  - optional DB-Level (Views/Procs/Grants/Triggers), wenn eingesetzt, dann als eigener Block dokumentieren.
+- Negativtests: Versuche, verbotene Felder zu schreiben, müssen deterministisch fehlschlagen (kein Silent Ignore).
+
+DoD-W2 (SQL-first / No Magic Defaults):
+- Konsumenten lesen Settings-Keys aus DB (B057) und materialisieren daraus unclaimed_grace_until/claim_deadline.
+- Tests: Missing/Invalid Settings-Key führt zu deterministischer Safety-Reaktion (B057).
+
+DoD-W3 (Atomicity):
+- Provisioning/Claim/Hardcut laufen transaktional; Tests decken „Crash zwischen Write A und Write B“ ab (keine Halbzustände).
+
+DoD-W4 (Audit):
+- Admin-Writes (!) erzeugen Audit-Events (ratelimited, PII-sparsam).
+- /diag kann für eine Connection zeigen: wer/wann/warum (via Audit-Log), ohne DB-Write-Rechte zu benötigen.
+
+================================================================================
+CHANGELOG
+================================================================================
+- v1.2 (2026-01-26): Fix F-004: customers.display_name SYSTEM=W (UI-only Feld aus B055); Matrix/Kommentar konsistent gemacht (USER=(REQ) → SYSTEM write), ADMIN bleibt auditpflichtig.
+- v1.1 (2026-01-26): Fix F-001/F-002 (B055-konform): customers.email SYSTEM=W (Create-only; immutable danach); customers.status als physisches ENUM-Feld präzisiert + Invarianten status↔email_verified_at hinzugefügt; create/update Semantik (INSERT=Write) in Matrix klargestellt.
+- v1.0 (2026-01-26): Initialer Write-Contract (Write Path Matrix) als eigener Block; Eliminierung von Phantom-Entities; SQL-first Policy-Zeiten via Settings-Keys; Matrix enthält ip_slot/v6/restricted-Felder.
+================================================================================

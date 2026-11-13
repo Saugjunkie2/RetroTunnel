@@ -1,0 +1,137 @@
+xp-vpn-stack/blocks/B052_DB_OUTAGE_CONTRACT.txt
+================================================================================
+BLOCK-ID: B052
+TITLE: DB Outage Contract (DB_DOWN + DB_UNKNOWN) — Fail-Closed + Freeze
+VERSION: v1.1
+DATUM: 2026-01-25
+STATUS: ACTIVE
+PRIORITY: MUST
+REQUIRES: B050, B055, B057, B166, B167, B270, B340, B342
+INFLUENCES: B050, B166, B167, B270, B340 (Reason/Detail), PH1–PH10 (Ops-Sicherheit)
+OWNER-INTENT: Kanonischer Querschnitts-Contract für DB-Ausfall und DB-Unknown (Drift/Invariant-Bruch) mit identischem Enforcement-Verhalten (Fail-Closed für neue Sessions, Freeze für bestehende).
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Dieser Block definiert NUR das Verhalten/Contract. Umsetzung (Hooks, Exitcodes, nftables, RADIUS SQL) bleibt in den jeweiligen Blocks.
+- Geplante/operative Wartung bei DB_OK ist NICHT Teil von B052: dafür existiert B151 (Maintenance Mode GLOBAL → RESTRICT + Portal).
+- Kernregel: DB_UNKNOWN verhält sich EXAKT wie DB_DOWN (Enforcement identisch); Unterschiede sind nur Observability (Reason/Detail) und Diagnose-Text.
+- Keine Neuinterpretation von Policy in Outage-Zuständen: Keine automatischen "Fallback-Allows" und keine Blind-Umschaltung auf RESTRICT.
+
+================================================================================
+1) Definitionen (MUST)
+================================================================================
+- DB_OK:
+  - DB/SQL ist erreichbar UND alle für Auth/Policy nötigen Facts sind deterministisch aus dem Kanon ableitbar.
+- DB_DOWN:
+  - DB/SQL ist für Auth/Policy NICHT nutzbar (connect/query/tx fail, timeout, hard error).
+- DB_UNKNOWN:
+  - DB/SQL ist erreichbar, aber Policy-Facts sind NICHT deterministisch kanonisch ableitbar (Drift/Inkonsistenz/Invariant-Bruch).
+
+MUST (Outcome-Parität):
+- DB_UNKNOWN hat EXAKT DIESELBEN OUTCOMES wie DB_DOWN.
+- Unterschied ist nur Diagnose/Observability (Down vs Unknown), NICHT das Enforcement.
+
+================================================================================
+2) Neue Verbindungen (New Sessions) (MUST)
+================================================================================
+Wenn DB_STATE in {DOWN, UNKNOWN}:
+- AAA (RADIUS) FAIL-CLOSED für ALLE conn_groups (USER + ADMIN):
+  - deterministisch DENY/REJECT (keine neuen Logins, keine neuen PPP-Sessions).
+- Connect-Gate (No-Unpoliced-Window, D009/B166):
+  - bei TEMPFAIL_SQL/ERROR/TIMEOUT bleibt das Gate aktiv und ip-up terminiert die PPP-Session (Fail-Closed).
+- Es gibt KEIN Fallback auf Portal/Restricted/Walled-Garden für neue Sessions im Outage/Unknown.
+
+================================================================================
+3) Bestehende Verbindungen (Existing Sessions) (MUST)
+================================================================================
+Wenn DB_STATE in {DOWN, UNKNOWN}:
+- Keine Policy-Änderungen an bestehenden Sessions (kein Rebuild, keine Umschaltung).
+- vpn-policy-apply/Reconcile muss deterministisch abbrechen:
+  - TEMPFAIL_SQL (Exit 2) / "keine Änderung möglich".
+- Bestehende Sessions bleiben enforced, wie der Kernel gerade steht (FREEZE).
+- Non-Escalation: In diesem Zustand darf KEIN Privileg-Widening passieren (kein Allow-All, keine Policy-Verbreiterung).
+
+KLARSTELLUNG (MUST): FREEZE vs RESTRICT
+- FREEZE = Kernel-Enforcement bleibt unverändert (keine Umschaltung, keine neuen Rulesets/Policies).
+- RESTRICT = normaler Policy-State (Walled Garden / Service-only),
+  - darf NUR bei DB_OK durch Reconcile/Policy-Apply gesetzt werden.
+  - bei DB_DOWN/DB_UNKNOWN ist eine aktive Umschaltung auf RESTRICT NICHT zulässig.
+
+RATIONALE (NOTE, konflikt-tötend):
+- Ein früherer Wunsch "Default=RESTRICT bei unklarer Policy" ist im Outage-Fall nicht sicher implementierbar,
+  wenn Policy-Facts (Allowlist/IPs) nicht vertrauenswürdig/ladbar sind.
+- Daher gilt im Kanon-Outage strikt: FREEZE (TEMPFAIL + Kernel bleibt).
+
+================================================================================
+4) Detektion: Wann ist DB_UNKNOWN zu setzen? (MUST; nur Erkennung)
+================================================================================
+DB_UNKNOWN MUST, wenn DB erreichbar ist, aber mindestens eines gilt:
+- SETTINGS_DRIFT: Required SQL-first Setting-Key fehlt oder ist ungültig (B057-Kanon verletzt).
+- ENUM_DRIFT: Required Enum/Status/Policy-Key enthält Wert außerhalb des Kanons (Glossar/Schema verletzt).
+- INVARIANT_BROKEN: State/Mapping ist logisch unmöglich oder nicht deterministisch rekonstruierbar.
+- LOCK_TX_ANOMALY: Lock/Tx-Anomalie führt dazu, dass effective Policy-Facts nicht deterministisch ableitbar sind.
+
+MUST (Outcome):
+- Auch bei DB_UNKNOWN gelten exakt die Regeln aus Abschnitt 2/3 (wie DB_DOWN).
+
+================================================================================
+5) Observability / Naming (MUST) — drift-frei zu B340/B342 (Events) und B270 (/diag)
+================================================================================
+5.1 Kontext-Trennung (MUST)
+- Es gibt ZWEI Observability-Kontexte:
+  (A) Event/Fail2ban/RADIUS-Logs (B340) -> nutzt Felder `Reason` und `Detail`.
+  (B) /diag Output-Schema (B270) -> nutzt u.a. `restricted_reason` (Policy-Level).
+
+MUST:
+- `restricted_reason` (B270) ist Policy-/Restriction-Reason und NICHT identisch mit Backend-Reason.
+- /diag Keys aus B270 werden NICHT umbenannt; Backend-Health wird höchstens als Sub-Objekt ergänzt (siehe 5.3).
+
+5.2 Event-Format (B340) — Reason/Detail (MUST; nur Codes aus B342)
+- Reason-Mapping:
+  - DB_STATE=DOWN:
+    - SQL Connection down/unreachable -> Reason=R_AUTH_BACKEND_SQL_DOWN
+    - SQL operation/query/tx fail (inkl. timeout in operation) -> Reason=R_AUTH_BACKEND_SQL_FAIL
+  - DB_STATE=UNKNOWN:
+    - Reason=R_AUTH_BACKEND_SQL_FAIL (Policy-Facts deterministisch ableiten scheitert = operation fail)
+
+VERBOT (MUST):
+- R_AUTH_BACKEND_SQL_ERROR darf nicht verwendet werden (Legacy; migriere zu R_AUTH_BACKEND_SQL_FAIL).
+
+- Detail-Regeln (MUST):
+  - Detail ist `NA` oder Token `^[A-Z0-9_]+$`.
+  - Detail enthält KEINE Secrets/PII (keine SQL-Queries, keine Usernames, keine Keys).
+
+- Empfohlene Detail-Tokens (SHOULD):
+  - DB_STATE=DOWN: SQL_CONNECT_FAIL | SQL_TIMEOUT | SQL_POOL_EXHAUSTED | SQL_TX_FAIL
+  - DB_STATE=UNKNOWN: SETTINGS_DRIFT | ENUM_DRIFT | INVARIANT_BROKEN | LOCK_TX_ANOMALY
+
+5.3 /diag Ergänzung (B270-aligned) — Backend-Health Subkeys (MUST wenn implementiert)
+- /diag behält bestehende Keys (inkl. `restricted_reason`) unverändert.
+- Backend-Health wird als Sub-Objekt ergänzt, z.B.:
+  - backend.db_state  = OK|DOWN|UNKNOWN
+  - backend.reason    = R_AUTH_BACKEND_SQL_DOWN|R_AUTH_BACKEND_SQL_FAIL
+  - backend.detail    = TOKEN|NA
+
+================================================================================
+6) Definition of Done / Validierung (MUST)
+================================================================================
+- Test A (DB_DOWN): neue VPN-Logins -> DENY/REJECT (USER+ADMIN), deterministisch/schnell.
+- Test B (DB_DOWN): bestehende Session + DB fällt aus -> Kernel-Enforcement bleibt unverändert; vpn-policy-apply=TEMPFAIL; keine Änderung möglich.
+- Test C (DB_UNKNOWN): injiziere UNKNOWN (invalid enum / missing setting) -> neue Logins DENY/REJECT; bestehende Sessions FREEZE; vpn-policy-apply=TEMPFAIL.
+- Test D (Connect-Gate): bei TEMPFAIL/ERROR/TIMEOUT -> PPP wird beendet; kein Portal/Restricted Fallback.
+- Test E (Observability):
+  - Events (B340): Reason/Detail sind korrekt (DOWN vs UNKNOWN sichtbar; keine Secrets/PII).
+  - /diag (B270): backend.* ist vorhanden (wenn implementiert), ohne `restricted_reason` zu brechen.
+
+DRIFT-GUARDS (MUST):
+- Check 1: Jeder verwendete Reason-Code existiert in B342.
+- Check 2: `R_AUTH_BACKEND_SQL_ERROR` kommt nirgends vor.
+- Check 3: Detail erfüllt Token-Regel + No-PII/No-Secrets.
+- Check 4: /diag bricht B270 nicht (keine Umbenennung; nur Sub-Objekt).
+
+================================================================================
+CHANGELOG
+================================================================================
+- v1.1 (2026-01-25): Klarstellung: B052 bleibt DB_OUTAGE-only; geplante Wartung läuft über B151 (DB_OK-only).
+- v1.0 (2026-01-25): New block B052: DB_OUTAGE_CONTRACT (DB_DOWN + DB_UNKNOWN) — Fail-Closed (New Sessions) + Freeze (Existing Sessions); aligned to B166/D009 and B340/B342/B270 naming.
+================================================================================
