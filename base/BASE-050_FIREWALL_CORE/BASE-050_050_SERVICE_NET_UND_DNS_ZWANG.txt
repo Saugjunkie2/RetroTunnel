@@ -1,0 +1,200 @@
+================================================================================
+BASE-050 — SERVICE_NET: DIENST-MATRIX UND DNS-ZWANG
+================================================================================
+DATEI: BASE-050_050_SERVICE_NET_UND_DNS_ZWANG.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Wer aus dem VPN welchen lokalen Dienst erreichen darf (Dienst-Matrix),
+  wie der DNS-Zwang im Kernel durchgesetzt wird und wie die lokalen Dienste
+  vor einzelnen Clients geschuetzt sind. Diese Datei ist die kanonische
+  Dienst-Matrix; sie loest NETWORK_MODEL Abschnitt 7 und
+  docs/nft_service_ip_scopes.txt (Altkonzept) ab.
+
+================================================================================
+1) GRUNDSATZ: PFADTRENNUNG
+================================================================================
+
+  - Ziele im SERVICE_NET (10.77.0.0/28, fd77:0:0:0::/64) sind LOKAL: Sie
+    werden in input entschieden (Kette in_vpn).
+  - Ziele im Internet werden WEITERGELEITET: forward (BASE-050_060).
+  - Das SERVICE_NET ist "nur Freigabeliste": Erreichbar ist ausschliesslich,
+    was unten steht. Es ist kein allgemeines Netz und nie Ziel einer
+    Weiterleitung.
+  - Aus dem VPN sind lokal NUR Adressen des SERVICE_NET ansprechbar
+    (IV-01), nicht die WAN-Adresse des Servers.
+
+================================================================================
+2) DIENST-MATRIX (kanonisch)
+================================================================================
+
+  Adressen: 10.77.0.N und fd77:0:0:0::N (IPv6 nur fuer WireGuard-Clients).
+  Ports und Adressen stammen aus der Registry BASE-005_030; die Tabelle
+  zeigt deren Stand. Massgeblich beim Rendern ist die Registry.
+
+  DIENST              ADR  PORT          KLASSE            USER VIP MOD ADMIN RESTR.
+  ------------------- ---- ------------- ----------------- ---- --- --- ----- ------
+  SERVICE_DNS         .1   53 UDP+TCP    ALLE              ja   ja  ja  ja    ja
+  AdGuard-Oberflaeche .1   2000 TCP      ADMIN_VERWALTUNG  -    -   -   (A)   -
+  SERVICE_RESOLVER    .2   5353 UDP+TCP  SERVER_INTERN     -    -   -   -     -
+  SERVICE_WEB         .3   80, 443 TCP   ALLE              ja   ja  ja  ja    ja
+  SERVICE_WEB (Echo)  .3   ICMP Echo     ALLE              ja   ja  ja  ja    ja
+  SERVICE_NTP         .4   123 UDP       ALLE              ja   ja  ja  ja    ja
+  SERVICE_SSH         .5   27812 TCP     ADMIN_VERWALTUNG  -    -   -   (A)   -
+  SERVICE_PMA         .6   80 TCP        ADMIN_VERWALTUNG  -    -   -   (A)   -
+  (frei)              .7   -             -                 -    -   -   -     -
+  SERVICE_GW_PPP      .10  kein Dienst   -                 -    -   -   -     -
+  SERVICE_GW_WG       .11  kein Dienst   -                 -    -   -   -     -
+  alles andere        *    *             -                 -    -   -   -     -
+
+  (A) = nur fuer Tunneladressen, die im ADMIN-Pool liegen UND im Set
+        admin_panel_allowed stehen (Abschnitt 5).
+  "-" = abgewiesen (IV-04/IV-06).
+
+  KLASSEN
+    ALLE              jede zugelassene Connection, unabhaengig von Rolle
+                      und auch im Zustand RESTRICTED
+    ADMIN_VERWALTUNG  siehe (A)
+    SERVER_INTERN     nur ueber lo; aus keinem VPN-Interface erreichbar
+
+  ZUSTAENDE
+    Gate aktiv (connect_pending)      nichts erreichbar (IN-05)
+    L2TP ohne Freigabe                nichts erreichbar (IN-06)
+    Siegel aktiv (nur WireGuard)      nichts erreichbar (IN-04)
+    gesperrt (banned)                 nichts erreichbar (PR-08)
+    RESTRICTED                        nur Klasse ALLE (IV-04)
+    ACTIVE                            nach Matrix
+
+  FESTLEGUNGEN
+  M-1  MODERATOR hat im Kernel dieselben Dienstrechte wie USER und VIP
+       (DEC-FW-11).
+  M-2  SERVICE_RESOLVER ist fuer KEINEN Client erreichbar, auch nicht fuer
+       ADMIN. Er ist ausschliesslich Upstream von AdGuard.
+  M-3  Echo wird nur an SERVICE_WEB beantwortet, nicht an andere
+       Dienstadressen und nicht an die Gateway-Anker (Diagnose laeuft
+       ueber das Portal bzw. /diag).
+  M-4  Jeder neue lokale Dienst braucht einen Eintrag in der Registry mit
+       Klasse; ohne Eintrag ist er aus dem VPN nicht erreichbar. Eine
+       neue Klasse oder eine Freigabe ausserhalb der drei Klassen ist
+       eine Aenderung dieses Moduls.
+
+================================================================================
+3) DNS-ZWANG
+================================================================================
+
+  REGELN
+    NP-01/NP-02  Jedes Paket aus einem VPN-Interface mit Zielport 53
+                 (TCP und UDP, IPv4; IPv6 aus awg0) wird auf SERVICE_DNS
+                 umgeleitet - gleich, welches Ziel der Client eingetragen
+                 hat.
+    SA-01        Die umgeleitete Anfrage wird in input zugelassen.
+    FD-09        Zielport 53 im forward wird verworfen (Sicherung).
+    FD-10        Zielport 853 (DoT ueber TCP, DoQ ueber UDP) wird
+                 abgewiesen.
+
+  EIGENSCHAFTEN
+  D-1  Gilt fuer ALLE Rollen einschliesslich ADMIN und in allen Zustaenden,
+       in denen die Connection ueberhaupt Verkehr hat (auch RESTRICTED).
+  D-2  Kein Rueckfall nach aussen: Ist SERVICE_DNS nicht erreichbar oder
+       antwortet AdGuard nicht, ist DNS fuer Clients ausgefallen. Es gibt
+       keinen Weg zu einem externen Resolver (B063 9.3).
+  D-3  IPv6 ist gleichwertig: Ohne NP-02 koennten Dualstack-Clients ueber
+       IPv6 an einem fremden Resolver fragen; NP-02 darf nie entfallen.
+       L2TP hat kein IPv6 (PR-05).
+  D-4  DNS ueber HTTPS (Port 443) ist im Kernel nicht von normalem HTTPS
+       unterscheidbar. Die Eindaemmung erfolgt ueber die Filterlisten von
+       AdGuard (BASE-060) und ist ausdruecklich KEINE Garantie dieses
+       Moduls.
+  D-5  Server-eigene Namensaufloesung laeuft ueber output und wird nicht
+       umgeleitet (DNS-EX-01). Die Kette AdGuard -> Unbound bleibt lokal
+       (lo).
+  D-6  Sichtbarkeit: Zaehler je Familie und Protokoll fuer umgeleitete
+       Anfragen (c_dnat53_*), fuer abgewiesenes DoT/DoQ (c_fwd_dot,
+       c_fwd_doq) und fuer die Sicherung (c_fwd_dns53). Es werden KEINE
+       Ziele oder Namen geloggt; die inhaltliche Sicht liefert AdGuard.
+       Steigt c_fwd_dns53, ist die Umleitung defekt (Alarm).
+
+  HINWEIS ZUR ABWEISUNG VON PORT 853
+    Clients mit automatischem "privatem DNS" versuchen zuerst Port 853.
+    Die Abweisung (TCP-Reset bzw. ICMP port-unreachable) laesst sie sofort
+    auf Port 53 zurueckfallen, das umgeleitet wird. Stilles Verwerfen
+    wuerde bei jedem Verbindungsaufbau Wartezeiten erzeugen. Clients mit
+    FEST eingestelltem privatem DNS haben keine Namensaufloesung; das ist
+    gewollt und gehoert in die Client-Hinweise (BASE-040_080, BASE-030_070).
+
+================================================================================
+4) SCHUTZ DER LOKALEN DIENSTE
+================================================================================
+
+  SETTINGS (Wirkung RENDER, Fehler STRICT)
+
+    KEY                                    TYP / BEREICH     VORSCHLAG
+    -------------------------------------- ----------------- ---------
+    vpn_fw_client_svc_new_rate_per_sec     INT 20..5000      200
+    vpn_fw_client_svc_new_burst            INT 20..10000     400
+    vpn_fw_reject_rate_per_sec             INT 1..1000       50
+    vpn_fw_reject_burst                    INT 1..2000       100
+
+  - IV-02 begrenzt neue Flows je Tunneladresse zum SERVICE_NET. Der Wert
+    ist bewusst hoch: Ein Seitenaufruf loest viele DNS-Anfragen aus, und
+    der Walled Garden muss auch unter Last des Clients benutzbar bleiben
+    (B063 9.5). Der Zaehler ist GETRENNT von der Begrenzung des
+    Internet-Verkehrs (FL-02); ein Client, der sein Internet-Limit
+    ausschoepft, erreicht weiterhin DNS, Portal und NTP.
+  - Abweisungen sind insgesamt begrenzt (vpn_fw_reject_*); darueber wird
+    still verworfen. Das begrenzt den Aufwand des Servers.
+  - Feinere Grenzen (z. B. DNS-Anfragen je Client) setzen die Dienste
+    selbst (AdGuard, BASE-060).
+
+================================================================================
+5) VERWALTUNGSDIENSTE (ADMIN_VERWALTUNG)
+================================================================================
+
+  Zugriff verlangt ZWEI Kernel-Bedingungen (IV-05):
+    (1) Quelle liegt im ADMIN-Pool (konstant, aus der Pool-Konfiguration)
+    (2) Quelle steht in admin_panel_allowed (dynamisch, Schnittmenge aus
+        SQL und root-Datei, BASE-050_030 Abschnitt 6)
+  und zusaetzlich: Quelle steht NICHT in restricted (IV-04).
+
+  Die Dienste selbst authentisieren unabhaengig davon (SSH-Schluessel,
+  Panel-Anmeldung, Quellpruefung von phpMyAdmin); die Kernel-Regel ist die
+  aeusserste Schicht.
+
+  Ob das Panel fuer Verwaltungsfunktionen einen eigenen Endpunkt der
+  Klasse ADMIN_VERWALTUNG erhaelt (zusaetzlich zur gemeinsamen Oberflaeche
+  auf SERVICE_WEB), entscheidet BASE-110; die Firewall setzt es ueber
+  einen Registry-Eintrag um (ANF-FW-06).
+
+  Verhalten bei leerem Set: BASE-050_030 Abschnitt 6 (geschlossen;
+  Notzugang).
+
+================================================================================
+6) RESERVIERTER ERWEITERUNGSPUNKT: PORTAL-UMLEITUNG
+================================================================================
+
+  Fuer MOD-002 ist in nat_pre nach NP-02 eine Regelstelle reserviert:
+    "iifname VPN, Quelle in restricted, TCP Zielport 80
+     -> dnat auf SVC_WEB:80"
+  Damit koennte ein eingeschraenkter Client bei einem beliebigen
+  http-Aufruf das Portal sehen. Die Regel ist NICHT Teil des Kerns und
+  standardmaessig nicht vorhanden; ob und wie sie eingefuehrt wird,
+  entscheidet MOD-002 (ANF-FW-11). Ohne sie gilt: Der Client erreicht das
+  Portal ueber dessen Namen; alles andere wird sofort abgewiesen (FD-08).
+
+================================================================================
+7) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  SEHEN: die Matrix aus Abschnitt 2 als wirksamer Stand (aus dem
+    aktivierten Regelwerk gelesen), Zaehler je Dienstklasse, Zaehler des
+    DNS-Zwangs, abgewiesene Zugriffe.
+  EINSTELLEN: Settings aus Abschnitt 4. Die Matrix selbst ist nicht frei
+    editierbar (M-4).
+  ALARMIEREN: c_fwd_dns53 > 0; c_in_vpn_denied oder c_in_restricted mit
+    ungewoehnlichem Anstieg (Hinweis auf Fehlkonfiguration oder Abtasten).
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

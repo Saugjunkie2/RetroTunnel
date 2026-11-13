@@ -1,0 +1,291 @@
+================================================================================
+BASE-050 — FORWARD, NAT UND EGRESS-SCHUTZ
+================================================================================
+DATEI: BASE-050_060_FORWARD_NAT_UND_EGRESS_SCHUTZ.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Der Weg der Client-Pakete ins Internet: Schutzstufen und ihre
+  Begruendung, Peer-Isolation, Abuse-Sperren, Ratenbegrenzung,
+  conntrack-Bemessung, MSS, NAT44/NAT66 und der Leck-Waechter.
+  Regelkennungen (FD-, FL-, FR-, NQ-, PG-) verweisen auf BASE-050_020.
+
+================================================================================
+1) GRUNDSATZ
+================================================================================
+
+  - Full-Tunnel: Der gesamte Verkehr eines Clients laeuft ueber den Server
+    und verlaesst ihn mit der WAN-Adresse des Servers (NAT). Kein
+    Split-Tunnel im Kern.
+  - Neue Flows entstehen nur in Richtung VPN -> WAN. Vom WAN zu Clients
+    gibt es nur Antwortverkehr.
+  - Sicherheitsregeln sind fuer alle Rollen gleich; Rollen unterscheiden
+    sich nur in Grenzwerten (R-07).
+  - IPv6 hat dieselben Schutzstufen wie IPv4 (Abschnitt 9).
+
+================================================================================
+2) SCHUTZSTUFEN IN IHRER REIHENFOLGE
+================================================================================
+
+  NR  STUFE                         REGEL    WARUM AN DIESER STELLE
+  --- ----------------------------- -------- --------------------------------
+  1   ungueltige Pakete             FD-01    billigste Verwerfung zuerst;
+                                             verhindert Pakete ohne NAT
+  2   Notzugang leitet nie weiter   FD-02    strukturelle Trennung
+  3   Siegel (awg0)                 FD-03    vor allem, was durchlassen kann
+  4   Gate (connect_pending)        FD-04    kein Verkehr vor Policy (R-04)
+  5   L2TP-Freigabe                 FD-05    Default-Deny (LT-18/19)
+  6   Peer-Isolation                FD-06    vor jedem Durchlass (R-06)
+  7   kein WAN-zu-WAN               FD-07    Server ist kein Durchgangsrouter
+  8   RESTRICTED                    FD-08    Walled Garden, wirkt sofort
+  9   DNS-Sicherung, DoT/DoQ        FD-09/10 DNS-Zwang (DP-03)
+  10  Abuse-Ports                   FD-11    Reputation (SZ-7)
+  11  MSS absenken                  FD-12    MUSS vor Stufe 12 liegen (LT-28)
+  12  bestehende Flows              FD-13    ab hier nur noch neue Flows
+  13  Erweiterungspunkt             FD-14    leer
+  14  Grenzen fuer neue Flows       FD-15    Schutz von conntrack und WAN
+  15  Rollen-Durchlass              FD-16    einziger Durchlass fuer neue
+                                             Flows; nur VPN -> WAN
+  16  Default                       FD-17    verwerfen
+
+  Stufen 3 bis 10 liegen VOR Stufe 12 (DEC-FW-09). Damit gilt fuer jede
+  dieser Sperren: Sie wirkt mit dem naechsten Paket, auch auf Flows, die
+  vorher erlaubt waren.
+
+================================================================================
+3) PEER-ISOLATION
+================================================================================
+
+  - Verworfen wird jedes Paket von einem VPN-Interface zu einem
+    VPN-Interface: ppp*->ppp*, awg0->awg0, ppp*->awg0, awg0->ppp*
+    (NETWORK_MODEL PI-01).
+  - Zusaetzlich adressbasiert: jedes Paket aus einem VPN-Interface, dessen
+    Ziel im RetroTunnel-Adressraum liegt und nicht lokal ist.
+  - Keine Ausnahme fuer Rollen: Auch ADMIN erreicht keine Client-Adressen.
+    Das im Altkonzept (B130) als Option genannte "Admin -> User" ist nicht
+    vorgesehen; Fernhilfe am Client ist kein Systemmerkmal.
+  - Nebenwirkung, ausdruecklich gewollt: Schadsoftware auf einem Client
+    kann sich nicht auf andere Clients ausbreiten (Zielgruppe mit
+    ungepatchten Systemen).
+
+================================================================================
+4) ABUSE-SPERREN UND GRENZEN FUER CLIENT-VERKEHR
+================================================================================
+
+  4.1 PORT-SPERREN (FD-11), alle Rollen einschliesslich ADMIN, IPv4 + IPv6
+
+    FEST (nicht abschaltbar)
+      TCP 25, 465, 587            Mailversand        -> Abweisung (TCP-Reset)
+      TCP 445                     SMB                -> verwerfen
+      TCP und UDP 137, 138, 139   NetBIOS            -> verwerfen
+    ZUSATZLISTEN (Settings, Wirkung RENDER, Fehler STRICT)
+      vpn_fw_abuse_extra_tcp_ports   Portliste   Vorschlag: 23, 135
+      vpn_fw_abuse_extra_udp_ports   Portliste   Vorschlag: 135
+    Die Zusatzlisten duerfen die Ports 53, 80, 123, 443 und 853 nicht
+    enthalten (der Katalog lehnt ab); die feste Liste ist nicht Teil der
+    Settings.
+
+    Mailversand wird abgewiesen statt verworfen, damit ein Mailprogramm
+    sofort einen Fehler zeigt; die Schutzwirkung ist gleich. Dass E-Mail
+    ueber das VPN nicht direkt versendet werden kann, gehoert in die
+    Kundeninformation (MOD-006).
+
+  4.2 GRENZEN FUER NEUE FLOWS (fwd_limits)
+
+    KEY                                    TYP / BEREICH     VORSCHLAG
+    -------------------------------------- ----------------- ---------
+    vpn_fw_client_new_rate_per_sec         INT 10..10000     100
+    vpn_fw_client_new_burst                INT 10..20000     200
+    vpn_fw_client_max_flows                INT 100..65535    2048
+    vpn_fw_client_icmp_rate_per_sec        INT 1..1000       10
+    vpn_fw_client_icmp_burst               INT 1..2000       20
+    vpn_fw_client_admin_factor             INT 1..16         4
+    (alle: Wirkung RENDER, Fehler STRICT)
+
+    FL-01  begrenzt die Zahl GLEICHZEITIGER Flows je Tunneladresse. Zweck:
+           Ein einzelner Client kann die conntrack-Tabelle nicht fuellen.
+    FL-02  begrenzt NEUE Flows je Sekunde und Tunneladresse. Zweck:
+           Portscans, Verbindungsfluten und Passwort-Rateangriffe ueber
+           das VPN werden gebremst.
+    FL-03  begrenzt Echo-Anfragen je Tunneladresse (Ping-Flut).
+    Fuer Adressen des ADMIN-Pools gelten die Werte mal
+    vpn_fw_client_admin_factor.
+
+    EIGENSCHAFTEN
+    - Ueberschreitung verwirft nur den NEUEN Flow; bestehende Flows des
+      Clients laufen weiter.
+    - Gezaehlt wird je Tunneladresse; IPv4 und IPv6 eines Dualstack-
+      Clients haben je ein eigenes Budget.
+    - Die Zaehlerspeicher (m_cli_*) fassen mindestens so viele Schluessel,
+      wie die Pools Adressen haben; sie koennen nicht ueberlaufen.
+      Eintraege laufen nach 60 s ohne Aktivitaet ab.
+    - Die Vorschlagswerte sind Startwerte. Sie muessen mit realen
+      Nutzungsmustern (Browser, Messenger, Tauschboersen, Spiele)
+      abgeglichen werden (E-FW-04). Massstab: Normale Nutzung loest die
+      Grenzen nicht aus; ein Scan mit tausenden Zielen je Sekunde schon.
+    - Jede Ueberschreitung zaehlt (c_fwd_newrate, c_fwd_flowcap,
+      c_fwd_icmprate) und erzeugt stichprobenartig eine Logzeile mit
+      Kennzeichen und Tunneladresse. Ob daraus eine Massnahme gegen die
+      Connection folgt (Hinweis, Einschraenkung), entscheidet MOD-005;
+      die Firewall sperrt nicht selbsttaetig.
+    - Bandbreite ist NICHT Gegenstand dieser Grenzen (MOD-003).
+
+  4.3 ZUORDNUNG ZU DEN ANFORDERUNGEN DER PRIORITAETENLISTE (M2-050)
+
+    ANFORDERUNG                                   UMSETZUNG
+    --------------------------------------------- -------------------------
+    ICMP Rate-Limiting pro User                   FL-03
+    SYN-Flood-Begrenzung pro User                 FL-02 (jeder SYN eines
+                                                  neuen Flows zaehlt), FL-01
+    Outbound Connection-Rate-Limiting             FL-02
+    Port-Scan-Erkennung und Begrenzung            Begrenzung: FL-02, FL-01;
+                                                  Erkennung: Zaehler und
+                                                  Logkennzeichen -> MOD-005
+    Outbound-Bandbreiten-Limit pro Connection     MOD-003 (nicht hier)
+
+================================================================================
+5) CONNTRACK
+================================================================================
+
+  SETTINGS (Wirkung SYSCTL, Fehler STRICT)
+
+    KEY                                         TYP / BEREICH        VORSCHLAG
+    ------------------------------------------- -------------------- ---------
+    vpn_fw_conntrack_max                        INT 65536..4194304   524288
+    vpn_fw_ct_tcp_established_timeout_seconds   INT 600..432000      7440
+
+  FEST (kein Setting):
+    - TCP-Verbindungen werden nur ab ihrem Aufbau verfolgt
+      (nf_conntrack_tcp_loose = 0). Ein Paket einer TCP-Verbindung ohne
+      conntrack-Eintrag ist ungueltig und wird verworfen (FD-01).
+      Begruendung: Nach einem conntrack-Flush (Hard-Cut) lebt eine
+      Verbindung nicht "von selbst" wieder auf.
+    - UDP-Zeitgrenzen bleiben beim Kernel-Standard (30 s unbeantwortet,
+      120 s bestaetigt).
+    - Keine conntrack-Helfer (DEC-FW-19).
+
+  BEMESSUNG
+    Zielgroesse 5.000 gleichzeitige Connections. Bei durchschnittlich
+    60 Flows je Client entstehen 300.000 Eintraege; der Vorschlag laesst
+    Reserve fuer Spitzen und fuer die WAN-Endpunkte (BASE-050_040
+    Abschnitt 3). Der Speicherbedarf (Groessenordnung 150-200 MB bei
+    vollem Vorschlagswert) ist auf der Zielhardware zu bestaetigen
+    (E-FW-05).
+    Der Fuellstand wird ueberwacht; ab 80 % erfolgt eine Meldung
+    (BASE-050_070 Abschnitt 7). Ist die Tabelle voll, verwirft der Kernel
+    neue Flows - das ist Fail-Closed, aber eine Stoerung.
+
+================================================================================
+6) MSS
+================================================================================
+
+  FD-12 senkt die TCP-MSS in SYN-Paketen ab, die groesser ist als der
+  Tunnelwert, in BEIDEN Richtungen (hin und Antwort). Eine kleinere MSS
+  wird nie angehoben.
+
+    TUNNEL   GRUNDLAGE                       MSS IPv4      MSS IPv6
+    -------- ------------------------------- ------------- -------------
+    L2TP     PPP-MTU 1400 (LT-27)            1360          -
+    WG       wg_tunnel_mtu (Vorschlag 1380)  MTU - 40      MTU - 60
+                                             (= 1340)      (= 1320)
+
+  Die Werte werden beim Rendern aus den Tunnel-Einstellungen abgeleitet.
+  Aendert sich wg_tunnel_mtu, ist das Regelwerk neu zu rendern (die
+  Abhaengigkeit ist im Renderer hinterlegt, BASE-050_070 Abschnitt 1).
+  Feste Werte statt Pfad-MTU-Ermittlung, weil ICMP "fragmentation needed"
+  unterwegs haeufig gefiltert wird (BASE-030_060).
+
+================================================================================
+7) NAT
+================================================================================
+
+  NQ-01  IPv4: Quelle im RetroTunnel-Adressraum, Ausgang WAN -> masquerade
+  NQ-02  IPv6: Quelle im RetroTunnel-Adressraum, Ausgang WAN -> masquerade
+         (NAT66)
+
+  - Am WAN erscheint als Quelle ausschliesslich die Adresse des Servers.
+    Client-Adressen (10.77.x.x, fd77:...) sind am WAN nie sichtbar
+    (NETWORK_MODEL 6.1, 6.4).
+  - Der Abgleich erfolgt auf den gesamten Adressraum, nicht je Pool
+    (DEC-FW-14).
+  - Quellports bleiben nach Moeglichkeit erhalten; es werden keine
+    Optionen zur Port-Randomisierung gesetzt.
+  - Das WAN fuehrt genau eine IPv6-Quelladresse fuer ausgehenden Verkehr;
+    temporaere Adressen sind am WAN abgeschaltet (BASE-050_070
+    Abschnitt 6).
+  - Ziel-NAT gibt es im Kern nur fuer DNS (NP-01/NP-02).
+  - L2TP hat keinen IPv6-Verkehr; NQ-02 betrifft nur WireGuard-Clients.
+
+================================================================================
+8) LECK-WAECHTER
+================================================================================
+
+  PG-01  Nach NAT: Ein Paket, das das WAN noch mit einer Quelladresse aus
+         dem RetroTunnel-Adressraum verlassen wuerde, wird verworfen.
+  PG-02  Ein Paket an eine RetroTunnel-Adresse verlaesst den Host nicht
+         ueber das WAN.
+
+  Zusammenspiel mit den Rueckfallrouten: Fuer 10.77.0.0/16 und
+  fd77:0:0::/48 existieren Routen vom Typ "unreachable"
+  (BASE-050_070 Abschnitt 5). Ein Paket an eine gerade nicht verbundene
+  Tunneladresse wird damit schon beim Routing abgewiesen; PG-02 ist die
+  zweite Schicht.
+
+  Steigt c_guard_src, hat ein Paket NAT umgangen: Das ist ein Fehler im
+  Regelwerk oder im Zustand und wird gemeldet.
+
+================================================================================
+9) IPv6-PARITAET (Kontrolle)
+================================================================================
+
+  SCHUTZ                        IPv4                 IPv6 (nur WireGuard)
+  ----------------------------- -------------------- ---------------------
+  Anti-Spoofing                 PR-06, PR-07         PR-06, PR-07
+  Gate                          connect_pending_v4   connect_pending_v6
+  Einschraenkung                restricted_v4        restricted_v6
+  Sperrliste                    banned_v4            banned_v6
+  Isolation                     FD-06                FD-06
+  DNS-Zwang                     NP-01, FD-09, FD-10  NP-02, FD-09, FD-10
+  Abuse-Ports                   FD-11                FD-11
+  Grenzen                       m_cli_*_v4           m_cli_*_v6
+  MSS                           FD-12                FD-12
+  NAT                           NQ-01                NQ-02
+  Leck-Waechter                 PG-01, PG-02         PG-01, PG-02
+  L2TP: kein IPv6               -                    PR-05
+
+  Es gibt keinen IPv6-Weg, der einer dieser Stufen entgeht
+  (B063 9.4, GR-07).
+
+================================================================================
+10) ERWEITERUNGSPUNKTE (leer)
+================================================================================
+
+  ext_dnat (aus nat_pre) und ext_fwd (aus forward, nach FD-13) sind fuer
+  eine moegliche Funktion "eingehende Portfreigaben fuer Kunden"
+  reserviert (DISKUSSION_PORTFREIGABEN, VB-0009). Im Kern sind beide
+  Ketten leer und es gibt keine Regel, die neue Flows vom WAN zu Clients
+  zulaesst. Wird die Funktion eingefuehrt, gilt mindestens:
+  - Freigaben nur ueber ein dynamisches Set (Adresse + Port), geschrieben
+    ueber vpn-policy-apply; keine Einzelregeln je Kunde.
+  - Die Stufen 3 bis 8 (Abschnitt 2) gelten auch fuer freigegebene Ziele.
+  - Ports der eigenen Dienste und der festen Abuse-Liste sind nie
+    freigebbar.
+
+================================================================================
+11) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  SEHEN: Zaehler je Schutzstufe und je Rolle (durchgelassene neue Flows),
+    Ueberschreitungen der Grenzen, conntrack-Fuellstand, NAT-Zaehler,
+    Leck-Waechter.
+  EINSTELLEN: Settings aus den Abschnitten 4 und 5.
+  ALARMIEREN: conntrack ueber 80 %; c_guard_src > 0; anhaltende
+    Ueberschreitungen einer Tunneladresse.
+  NUTZER-SICHT (MOD-006): Hinweis, wenn Verkehr der eigenen Connection
+    wegen einer Grenze oder Sperre verworfen wurde (ohne interne Details).
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
