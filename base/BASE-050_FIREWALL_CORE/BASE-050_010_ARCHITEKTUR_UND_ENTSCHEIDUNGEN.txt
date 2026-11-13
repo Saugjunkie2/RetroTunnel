@@ -1,0 +1,367 @@
+================================================================================
+BASE-050 — ARCHITEKTUR UND ENTSCHEIDUNGEN
+================================================================================
+DATEI: BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Komponenten des Firewall-Kerns, die tragenden Schutzziele und die
+  Entscheidungen DEC-FW-01..20 mit Alternativen und Begruendung. Schliesst
+  die im Bestand offenen Punkte zur Firewall (Abschnitt 5).
+
+================================================================================
+1) SCHUTZZIELE (geschuetzte Anforderungen, nicht verhandelbar)
+================================================================================
+
+  SZ-1  KEIN UNGEPOLICTES FENSTER (R-04, DP-04). Kein Client-Paket wird
+        weitergeleitet, bevor der Policy-Zustand seiner Connection im
+        Kernel hergestellt ist - weder beim Verbindungsaufbau noch beim
+        Systemstart noch nach einem Verlust des Regelwerks.
+  SZ-2  FAIL-CLOSED. Fehlt eine Voraussetzung (Regelwerk, Set-Inhalt,
+        Datenbank, Setting), wird gesperrt, nicht geoeffnet.
+  SZ-3  MINIMALE WAN-EXPOSITION. Am WAN sind ausschliesslich die
+        VPN-Endpunkte erreichbar; kein Verwaltungs- oder Nutzdienst.
+  SZ-4  DNS-ZWANG (DP-03). Klassisches DNS aller Clients endet bei
+        SERVICE_DNS; DoT/DoQ sind gesperrt; es gibt keinen Weg nach aussen.
+  SZ-5  PEER-ISOLATION (R-06). Kein Verkehr zwischen Clients, tunnel- und
+        rollenuebergreifend.
+  SZ-6  ROLLEN- UND ZUSTANDS-ENFORCEMENT IM KERNEL (R-05, DP-06). Rollen
+        ueber Adressbereiche, Zustaende ueber dynamische Sets;
+        gleichwertig fuer IPv4 und IPv6 (GR-07).
+  SZ-7  SCHUTZ DER SERVER-REPUTATION. Missbrauchstypischer Ausgangsverkehr
+        ist fuer alle Rollen gesperrt bzw. begrenzt.
+  SZ-8  EIN SCHREIBWEG (R-11, GR-03). Der Kernel-Zustand entsteht
+        deterministisch aus SQL und Registry; Handaenderungen sind Drift.
+  SZ-9  BEOBACHTBARKEIT OHNE LOG-FLUT. Jede Entscheidungsklasse hat einen
+        Zaehler; Logzeilen sind begrenzt und enthalten keine Geheimnisse.
+  SZ-10 WIEDERHERSTELLBARKEIT. Auch bei Datenbank-, Tunnel- oder
+        Regelwerksstoerung bleibt ein eng begrenzter Verwaltungszugang
+        bestehen (Notzugang), ohne SZ-3 aufzuweichen.
+
+================================================================================
+2) KOMPONENTEN
+================================================================================
+
+  KOMPONENTE          ART                AUFGABE
+  ------------------- ------------------ ------------------------------------
+  Regelwerk           nftables, EINE     Tabelle "inet retrotunnel": alle
+                      Tabelle            Ketten, Sets, Zaehler (BASE-050_020)
+  vpn-fw-render       Werkzeug (root)    erzeugt das Regelwerk aus Registry,
+                                         Pool-Konfiguration und Settings
+  vpn-fw-load         Werkzeug (root)    aktiviert ein Regelwerk in EINER
+                                         Transaktion; Boot, Wechsel, Stopp,
+                                         Wiederherstellung, Notfall-Riegel
+  vpn-fw-check        Werkzeug (root)    prueft Soll gegen Ist, erkennt
+                                         Verlust und Drift, schreibt Status
+  nftables.service    systemd (Bestand)  laedt frueh; Drop-In ruft vpn-fw-load
+  vpn-fw-check.timer  systemd            kurzer Takt fuer vpn-fw-check
+  Notzugang           Interface rtmgmt0  datenbankunabhaengiger Zugang zu
+                                         SERVICE_SSH (BASE-050_040 Abschn. 6)
+  Dynamische Sets     Kernel-Zustand     connect_pending, restricted,
+                                         allowed_l2tp, banned,
+                                         admin_panel_allowed (BASE-050_030)
+
+  Schreibende Akteure auf den dynamischen Sets sind ausschliesslich
+  vpn-policy-apply (BASE-080) und die dort registrierten Helfer, immer
+  unter dem Single-Writer-Lock /run/vpn-policy-apply.lock.
+  vpn-fw-load nimmt denselben Lock.
+
+  DATENFLUSS
+    SQL (Pools, Settings) --+
+    Registry (BASE-005) ----+--> vpn-fw-render --> Kandidat --> vpn-fw-load
+    Notzugangs-Datei -------+                                      |
+                                                                    v
+    SQL (Zustand) --> vpn-policy-apply --> dynamische Sets --> Kernel (nft)
+                                                                    |
+    vpn-fw-check <-------------------- Ist-Zustand <----------------+
+
+================================================================================
+3) ENTSCHEIDUNGEN
+================================================================================
+
+DEC-FW-01  EIN REGELWERK, EIN SCHREIBWEG (loest BF-0006)
+  Ausgangslage: 04_PHASE_PLAN nannte awg0.conf PostUp/PostDown als Quelle
+    der Service-Regeln; MANIFEST, DP-05 und R-11 verlangen SQL-first und
+    einen einzigen Schreiber.
+  Alternativen: (a) Regeln in Interface-Hooks (PostUp, ip-up);
+    (b) getrennte Tabellen je Dienst (Tunnel, Fail2ban, Panel);
+    (c) eine Tabelle, ein Renderer, ein Aktivierungsweg.
+  Entscheidung: (c). Der gesamte nftables-Zustand des Systems liegt in der
+    Tabelle "inet retrotunnel". Struktur (Ketten, Regeln, konstante Sets)
+    entsteht nur durch vpn-fw-render und wird nur durch vpn-fw-load
+    aktiviert. Inhalte dynamischer Sets schreibt nur vpn-policy-apply.
+  Begruendung: (a) koppelt Schutz an den Lebenszyklus eines Interfaces und
+    oeffnet beim Start ein Fenster; (b) erzeugt mehrere Schreiber und
+    Reihenfolgefragen zwischen Tabellen.
+  Folge: awg0.conf, accel-ppp-Hooks, Panel-Code und Fail2ban enthalten
+    keine nft-/iptables-Aufrufe. Jede fremde Tabelle ist Drift.
+
+DEC-FW-02  EINSTUFIGES FRUEHES LADEN (uebernimmt F-001, Changelog v2.1.14)
+  Entscheidung: Das vollstaendige Regelwerk wird durch nftables.service
+    frueh geladen (sysinit, vor network-pre.target und vor allen
+    Tunnel-Diensten). Es gibt keine eigene Minimal-Baseline als Normalweg.
+    Alle Tunnel-Units tragen Requires= und After= auf nftables.service.
+  Abweichung vom Entwurf ENTWURF_BOOT_FIREWALL_BASELINE (Option A,
+    zweistufig): nicht uebernommen; der Entwurf ist damit abgeloest.
+
+DEC-FW-03  AKTIVIERUNG ALS EINE TRANSAKTION MIT ZUSTANDSUEBERNAHME
+  Alternativen: (a) Stop/Start des Dienstes; (b) nur Ketten leeren und neu
+    fuellen; (c) "flush ruleset" + vollstaendige Definition in einer
+    Transaktion, dynamische Set-Inhalte werden in derselben Transaktion
+    uebernommen.
+  Entscheidung: (c) als einziger Weg fuer Boot und Laufzeit.
+  Begruendung: (a) hat eine echte Luecke (v2.1.14 Z-C). (b) laesst
+    veraltete Objekte stehen und braucht einen zweiten Weg fuer
+    Strukturaenderungen. (c) ergibt nach jeder Aktivierung exakt den
+    gerenderten Zustand (DP-05) und verliert keinen Laufzeitzustand.
+  Folge: Scheitert das Lesen des Ist-Zustands, wird NICHT aktiviert.
+
+DEC-FW-04  SIEGEL: BOOT-VARIANTE SPERRT DEN WIREGUARD-PFAD
+  Problem: Rollen-CIDR-Freigabe plus Deny-Sets ist fuer WireGuard nur
+    sicher, solange die Deny-Sets vollstaendig sind (Befund Neu-8 im
+    Changelog v2.1.14). Ein Regelwerk mit leeren Sets (Boot, Handladen,
+    Wiederherstellung) waere fuer eingeschraenkte WG-Connections offen.
+  Entscheidung: Jedes Regelwerk, das ohne uebernommene Set-Inhalte
+    aktiviert wird, ist VERSIEGELT: aller Verkehr von und zu awg0 wird
+    verworfen. Das Siegel wird erst geloest, wenn vpn-policy-apply einen
+    vollstaendigen Abgleich aus SQL erfolgreich abgeschlossen hat.
+  Fuer L2TP ist kein Siegel noetig: ein leeres Freigabe-Set sperrt bereits
+    alles (DEC-FW-08).
+
+DEC-FW-05  LADEKETTE MIT NOTFALL-RIEGEL ("fail to lockdown")
+  Entscheidung: Beim Laden gilt die Reihenfolge aktuelles Regelwerk ->
+    letztes funktionierendes Regelwerk (LKG) -> fest ausgelieferter
+    NOTFALL-RIEGEL. Der Notfall-Riegel verwirft alles ausser dem Notzugang
+    und laesst nftables.service fehlschlagen, sodass kein Tunnel startet.
+  Begruendung: "Kein Regelwerk" darf nie "offener Host" bedeuten; zugleich
+    muss der Betreiber den Fehler aus der Ferne beheben koennen (SZ-10).
+
+DEC-FW-06  WEITERLEITUNG IST AN DAS REGELWERK GEKOPPELT
+  Entscheidung: net.ipv4.ip_forward und net.ipv6.conf.all.forwarding
+    werden NICHT dauerhaft in sysctl-Dateien gesetzt. Nur vpn-fw-load
+    schaltet sie ein (nach erfolgreicher Aktivierung) und aus (vor jedem
+    Entladen, im Notfall-Riegel, bei erkanntem Verlust).
+  Begruendung: Ohne Regelwerk existiert keine forward-Kette; der Kernel
+    wuerde bei eingeschalteter Weiterleitung ungefiltert routen.
+
+DEC-FW-07  INTERFACES PER NAME, KEINE GERAETEGEBUNDENEN HOOKS, KEIN
+           FLOWTABLE-OFFLOAD
+  Entscheidung: Alle Regeln verwenden iifname/oifname (auch fuer das WAN).
+    Keine netdev-/ingress-/egress-Ketten, keine Flowtables.
+  Begruendung: Namensvergleiche sind ohne existierendes Interface ladbar
+    (Voraussetzung fuer DEC-FW-02, ANF-WT-02). Flowtables wuerden
+    bestehende Flows an der forward-Kette vorbeifuehren und damit
+    Zustandswechsel (DEC-FW-09) unwirksam machen.
+  Preis: geringfuegig hoehere CPU-Kosten je Paket; bei 1 Gbit/s und
+    Verschluesselung als dominierendem Kostenfaktor vertretbar.
+
+DEC-FW-08  ADMISSION TUNNELSPEZIFISCH (uebernimmt F-002 Option C, v2.1.15)
+  WireGuard: Peer-Praesenz ist die Admission (BASE-040); die Firewall
+    traegt das transiente Gate connect_pending_v4/_v6 und das Siegel bei.
+  L2TP/IPsec: struktureller Default-Deny auf ppp*; Verkehr nur fuer
+    Eintraege im Freigabe-Set allowed_l2tp_v4. Das gilt fuer forward UND
+    input (LT-18: "vollstaendig gesperrt").
+  Praezisierung (neu): Ein Freigabe-Eintrag ist an die INTERFACE-INSTANZ
+    gebunden (Schluessel Interface-Index + Adresse), nicht nur an die
+    Adresse. Ein Eintrag einer beendeten Sitzung kann eine neue Sitzung
+    derselben Connection nicht freischalten. Voraussetzung: accel-ppp
+    verwendet Interfaces nicht wieder (unit-cache aus, ANF-FW-02).
+  Begruendung der Praezisierung: Die Tunneladresse einer Connection ist
+    fest. Ein nach Absturz liegengebliebener Adress-Eintrag wuerde die
+    naechste Sitzung vor dem Policy-Apply freischalten und LT-19 verletzen.
+
+DEC-FW-09  ZUSTANDS-SPERREN VOR DEM "ESTABLISHED"-DURCHLASS
+  Alternativen: (a) "ct state established,related accept" frueh, Hard-Cut
+    nur ueber conntrack-Flush (XPN B150 2.1, SM_POLICY_RESTRICT 5);
+    (b) Sperren fuer BANNED, PENDING, L2TP-Freigabe, Isolation, RESTRICTED,
+    DNS-Umgehung und Abuse-Ports VOR dem Established-Durchlass.
+  Entscheidung: (b) in forward (und fuer BANNED/PENDING/Freigabe in input).
+  Begruendung: Der Zustandswechsel wirkt mit dem naechsten Paket, auch
+    wenn der conntrack-Flush scheitert. Der Flush bleibt Pflicht (BASE-080)
+    fuer den vollen Hard-Cut-Umfang, ist aber nicht mehr die einzige
+    Sicherung. Kosten: wenige Hash-Zugriffe je Paket.
+
+DEC-FW-10  RESTRICTED BLEIBT DENY-SET, ABGESICHERT DURCH SIEGEL UND
+           UEBERNAHME
+  Alternativen: (a) Deny-Sets restricted_v4/_v6 (Kanon R-05, Option C);
+    (b) Umkehr zu einem positiven Vollzugangs-Set fuer beide Tunnel.
+  Entscheidung: (a).
+  Begruendung: (b) waere bei Set-Verlust strukturell geschlossen, macht
+    aber jede aktive Connection zum Set-Mitglied (grosse Sets, mehr
+    Schreibvorgaenge) und wurde als "Allow-Gate fuer beide" am 2026-05-31
+    vom Betreiber verworfen. Das Restrisiko von (a) - Verlust des
+    Set-Inhalts - ist durch DEC-FW-03 (Uebernahme), DEC-FW-04 (Siegel) und
+    die Verlusterkennung (BASE-050_070) strukturell abgedeckt; es bleibt
+    nur die Handmanipulation einzelner Sets durch root, die als Drift
+    erkannt wird.
+
+DEC-FW-11  DIENSTKLASSEN IM SERVICE_NET (schliesst OPEN-NET-04)
+  Entscheidung: Drei Klassen. ALLE (jede zugelassene Connection, auch
+    RESTRICTED): DNS, Web, NTP, Echo an SERVICE_WEB. ADMIN_VERWALTUNG:
+    AdGuard-Oberflaeche, SSH, phpMyAdmin - nur fuer Adressen, die im
+    ADMIN-Pool liegen UND im Set admin_panel_allowed stehen (DP-07,
+    zwei Quellen). SERVER_INTERN: nur ueber lo (Unbound, MariaDB, RADIUS).
+  MODERATOR erhaelt KEINE zusaetzlichen Kernel-Freigaben; seine Rechte
+    liegen in der Panel-Anwendung. Begruendung: Jede Freigabe einer
+    Verwaltungsoberflaeche vergroessert die Angriffsflaeche; ein
+    Teilzugriff waere im Kernel nicht feiner als "Port offen" abbildbar.
+
+DEC-FW-12  DNS-ZWANG: DNAT53 NACH INTERFACE, 853 MIT ABWEISUNG, PORT 53
+           NIE IM FORWARD
+  Entscheidung: (1) DNAT fuer TCP/UDP 53 an allen VPN-Interfaces auf
+    SERVICE_DNS (v4 und v6). (2) TCP/UDP 853 aus VPN-Interfaces wird
+    abgewiesen (TCP-Reset bzw. ICMP port-unreachable) statt still
+    verworfen. (3) Jedes Paket mit Zielport 53, das dennoch im forward
+    ankommt, wird verworfen.
+  Begruendung: (1) RetroTunnel hat fuer beide Tunnel echte Interfaces;
+    der Quellnetz-Abgleich des Altkonzepts (B210, wegen IKEv2 ohne
+    Interface) ist nicht mehr noetig und waere gegen gefaelschte Quellen
+    schwaecher. (2) Clients mit automatischem DoT fallen sofort auf
+    klassisches DNS zurueck statt in Zeitueberschreitungen zu laufen;
+    die Schutzwirkung ist identisch. (3) Faellt die DNAT-Regel aus, ist
+    DNS kaputt und nicht umgangen (B063 9.3).
+
+DEC-FW-13  ANTI-SPOOFING IN DREI SCHICHTEN
+  Entscheidung: (1) strikte Rueckwegpruefung fuer jedes Paket an jedem
+    Interface ausser lo (Quelle muss ueber das Eingangs-Interface
+    geroutet sein); (2) an VPN-Interfaces zusaetzlich: Quelle muss in
+    einem Rollen-Pool liegen; an ppp* kein IPv6; (3) am WAN: Quell- oder
+    Zieladressen aus dem RetroTunnel-Adressraum werden verworfen.
+  Begruendung: Auf ppp* erzwingt der Tunnel die Quelladresse nicht. Ohne
+    (1) koennte eine L2TP-Sitzung mit der Adresse einer anderen, bereits
+    freigegebenen Sitzung senden. (3) schliesst den Zugriff auf lo-
+    gebundene Dienstadressen durch Nachbarn im selben Rechenzentrumsnetz.
+
+DEC-FW-14  NAT UEBER DEN GESAMTEN ADRESSRAUM, LECK-WAECHTER DANACH
+  Entscheidung: Masquerade am WAN fuer 10.77.0.0/16 und fd77:0:0::/48
+    (nicht je Pool). Dahinter eine Waechter-Kette, die jedes Paket
+    verwirft, das das WAN noch mit einer RetroTunnel-Quelladresse oder zu
+    einer RetroTunnel-Zieladresse verlassen wuerde.
+  Begruendung: Kein Pool kann beim Rendern "vergessen" werden; ungueltige
+    Pakete, die NAT umgehen, verlassen den Host nicht (NETWORK_MODEL 6.1).
+
+DEC-FW-15  RATENBEGRENZUNG: MODELL UND GRENZEN
+  Entscheidung: Vier Klassen, alle Schwellen als Settings vpn_fw_*:
+    (a) WAN-Handshake-Ports: neue Flows je Quelladresse + Gesamtdeckel;
+    (b) Client-Ausgang: neue Flows je Tunneladresse, gleichzeitige Flows
+        je Tunneladresse, ICMP-Echo je Tunneladresse;
+    (c) Zugriff auf SERVICE_NET: eigener, grosszuegiger Zaehler je
+        Tunneladresse (damit (b) den Walled Garden nie beeintraechtigt);
+    (d) Logzeilen und Abweisungen: je Kennzeichen begrenzt.
+  Form: An offenen Schluesselraeumen (WAN) "durchlassen solange unter
+    Grenze, sonst verwerfen" - ein voller Zaehlerspeicher fuehrt zum
+    Verwerfen. An geschlossenen Schluesselraeumen (Tunneladressen) sind
+    die Zaehlerspeicher groesser als der Adressraum.
+  Nicht-Ziel: Bandbreitenbegrenzung (MOD-003), Sperrentscheidungen aus
+    Auffaelligkeiten (MOD-005).
+
+DEC-FW-16  NOTZUGANG rtmgmt0 (BF-0011, VB-0008)
+  Ausgangslage: SSH ist der erklaerte letzte Notfallkanal, aber nur ueber
+    die Produkt-Tunnel erreichbar. Bei Datenbankstoerung lehnt L2TP neue
+    Anmeldungen ab und awg0 wird nach der Grace gestoppt; bei defektem
+    AWG-Modul oder Notfall-Riegel gibt es ebenfalls keinen Weg.
+  Alternativen: (a) nur Hoster-Konsole; (b) SSH am WAN mit Quell-Allowlist;
+    (c) Ausnahme-Peers auf awg0; (d) eigenes, minimales WireGuard-
+    Interface mit dateibasierter Konfiguration.
+  Entscheidung: (d) rtmgmt0 mit dem im Kernel enthaltenen WireGuard,
+    eigener UDP-Port, hoechstens wenige feste Peers aus einer root-Datei,
+    einziges erlaubtes Ziel SERVICE_SSH. Die Hoster-Konsole bleibt die
+    letzte Ebene (BASE-050_040 Abschnitt 6).
+  Begruendung: (a) allein erfuellt "SSH bleibt in jedem Fall erreichbar"
+    nicht und setzt ein lokales Konsolenpasswort voraus. (b) exponiert
+    einen Verwaltungsdienst am WAN (verletzt SZ-3). (c) haengt am
+    AWG-Modul und widerspricht dem Grace-Vertrag (Dienst-Stop).
+    (d) antwortet Unbekannten nicht, braucht weder SQL noch RADIUS noch
+    das AWG-Modul und ist auch im Notfall-Riegel verfuegbar.
+  Abgrenzung: rtmgmt0 ist KEIN Client-Endpunkt (kein Accounting, kein
+    Pool, kein Panel-Zugang, keine Weiterleitung). DEC-WT-07 und WT-01
+    (genau ein WireGuard-Endpunkt fuer Clients) bleiben bestehen.
+
+DEC-FW-17  ICMP UND ANTWORTVERHALTEN
+  Entscheidung: Am WAN wird nichts abgewiesen, nur verworfen; ausgehende
+    ICMP-Meldungen "port unreachable" werden am WAN unterdrueckt. Echo am
+    WAN ist ratenbegrenzt erlaubt und per Setting abschaltbar. ICMPv6
+    Neighbor Discovery am WAN ist immer erlaubt. Innerhalb des VPN werden
+    unzulaessige Ziele ratenbegrenzt abgewiesen (schnelle Fehlermeldung
+    statt Zeitueberschreitung).
+  Begruendung: Der Host ist ueber den IKE-Port ohnehin erkennbar; Echo
+    dient Ueberwachung und Fehlersuche. Abweisungen im VPN verraten
+    nichts, was der Client nicht wissen darf.
+
+DEC-FW-18  ABUSE-SPERREN FUER ALLE ROLLEN (uebernimmt B140, erweitert)
+  Entscheidung: Fest gesperrt (nicht abschaltbar): TCP 25, 465, 587;
+    TCP 445; TCP/UDP 137-139. Zusaetzliche Liste per Setting, Vorschlag
+    TCP 23, TCP/UDP 135. Gilt fuer IPv4 und IPv6, fuer alle Rollen
+    einschliesslich ADMIN, vor NAT.
+  Begruendung: XP-/Vista-Clients sind ueberdurchschnittlich haeufig
+    infiziert; die genannten Ports sind die Verbreitungswege der
+    einschlaegigen Wuermer und des Spam-Versands. Port 135 wird wegen der
+    Zielgruppe in den Vorschlag aufgenommen.
+
+DEC-FW-19  KEINE VERBINDUNGSHELFER, KEINE EINGEHENDEN PORTFREIGABEN IM KERN
+  Entscheidung: Es werden keine conntrack-Helfer geladen (FTP aktiv u. ae.
+    funktioniert nicht; passive Verfahren funktionieren). Neue Flows vom
+    WAN zu Clients sind ausgeschlossen. Fuer eine spaetere Funktion
+    "Portfreigaben" (DISKUSSION_PORTFREIGABEN) sind zwei leere
+    Erweiterungsketten reserviert; ueber die Funktion entscheidet die
+    Verbesserungsanalyse (VB-0009).
+
+DEC-FW-20  ZAEHLER SIND DIE WAHRHEIT, LOGS SIND STICHPROBEN
+  Entscheidung: Jede Entscheidungsklasse hat einen benannten Zaehler.
+    Logzeilen tragen ein festes Kennzeichen, sind je Kennzeichen
+    ratenbegrenzt und enthalten nur Kopfdaten (keine Nutzdaten, keine
+    DNS-Namen). Fuer umgeleitete DNS-Anfragen werden nur Zaehler gefuehrt.
+
+================================================================================
+4) BEWERTUNG GEGEN DEN VORGAENGER (XPN) UND DEN BESTAND
+================================================================================
+
+  UEBERNOMMEN
+  - Pfadtrennung input (SERVICE_NET) / forward (WAN) und die
+    Dienst-Matrix (docs/nft_service_ip_scopes.txt, B150 2.3)
+  - UDP 1701 nur mit IPsec-Kontext (B110), WAN-Minimal-Exposition (B100,
+    B300), Peer-Isolation (B130), Abuse-Sperren (B140), NAT44/NAT66 mit
+    Policy-Paritaet (B120, B063 9.4), Anti-Scan mit Settings (B063 9.1),
+    Zaehler je Entscheidung (B063 9.6), DNAT53 fuer alle Zustaende (B210)
+  ANGEPASST
+  - Reihenfolge: Zustands-Sperren vor Established (DEC-FW-09)
+  - DNAT-Kriterium: Interface statt Quellnetz (DEC-FW-12)
+  - DoT/DoQ und Restricted-WAN: Abweisung statt stillem Verwerfen
+  - Admin-Dienste: konkrete Adressen aus zwei Quellen statt ganzer Pool
+  - SSH-Port 27812 statt 22; Unbound auf 5353; SERVICE_PMA neu
+  ERSETZT
+  - Segmentmodell LEGACY/MODERN/ADMIN durch vier Rollen-Pools; IKEv2-Pfad
+    durch awg0; connect_pending fuer L2TP durch das Freigabe-Set
+  - Boot-Reihenfolge "Tunnel vor Firewall" (BASE-005_080 alt) durch
+    fruehes Laden mit Gating (F-001)
+  NEU
+  - Siegel, Ladekette mit Notfall-Riegel, Kopplung der Weiterleitung,
+    Bindung der L2TP-Freigabe an die Interface-Instanz, strikte
+    Rueckwegpruefung, Leck-Waechter, Verlusterkennung im Sekundentakt,
+    Notzugang
+
+================================================================================
+5) GESCHLOSSENE OFFENE PUNKTE
+================================================================================
+
+  BF-0006        awg0.conf-Regeln gegen Single-Writer        -> DEC-FW-01
+  OPEN-NET-04    Moderator-Dienstzugriffe                    -> DEC-FW-11
+  F-001-Folge    Zwei-Stufen-Modell im Baseline-Entwurf      -> DEC-FW-02, -05
+  F-002-Folge    "konkrete Forward-Chain-Syntax beider
+                 Pfade: BASE-050"                            -> BASE-050_020
+  Neu-8          Admission-Fail-Open bei leeren Sets         -> DEC-FW-04, -08
+  nft/IPv6-Form  "prueft ob nftables die Projekt-Textform
+                 akzeptiert" (ENTWURF_IPV6_NFTABLES_ROLLEN 3) -> BASE-050_030
+                                                                Abschnitt 6
+  ANF-WT-01..06  Anforderungen aus BASE-040                  -> BASE-050_080
+
+  Weiterhin offen und anderswo zu entscheiden:
+  - Lebenszyklus des L2TP-Freigabe-Sets im Detail            -> BASE-080
+  - Portfreigaben fuer Kunden                                -> VB-0009
+  - HTTP-Umleitung auf das Portal fuer RESTRICTED            -> MOD-002
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

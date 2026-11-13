@@ -1,0 +1,368 @@
+================================================================================
+BASE-050 — REGELWERK-STRUKTUR (Tabelle, Ketten, Regelreihenfolge)
+================================================================================
+DATEI: BASE-050_020_REGELWERK_STRUKTUR.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Normative Struktur der Tabelle "inet retrotunnel": Objekte, Ketten mit
+  Hook und Prioritaet, und die verbindliche REIHENFOLGE der Regeln. Die
+  Regeln sind als Spezifikation notiert (Kennung, Bedingung, Wirkung,
+  Zaehler); die ausfuehrbare nft-Datei erzeugt vpn-fw-render spaeter aus
+  genau dieser Struktur. Diese Datei ist KEINE ladbare Konfiguration.
+
+LESART:
+  WAN    = Name des WAN-Interfaces aus der Plattform-Registry (A-03: ens18)
+  L2TP   = Namensmuster "ppp*"          WG   = "awg0"
+  VPN    = L2TP oder WG                 MGMT = "rtmgmt0"
+  "->"   = Wirkung: accept | drop | reject | jump <Kette> | dnat | masquerade
+  [c_x]  = benannter Zaehler (Katalog: BASE-050_070 Abschnitt 6)
+  Jede Regel gilt fuer IPv4 und IPv6, sofern nicht anders angegeben; wo
+  eine Regel Adressen nennt, existiert sie je Familie mit dem passenden
+  Objekt (_v4/_v6).
+
+================================================================================
+1) OBJEKTE
+================================================================================
+
+  1.1 KONSTANTE ADRESSOBJEKTE (beim Rendern gefuellt, zur Laufzeit fest)
+
+    OBJEKT            INHALT                                  QUELLE
+    ----------------- --------------------------------------- ----------------
+    rt_net_v4         10.77.0.0/16                            Registry
+    rt_net_v6         fd77:0:0::/48                           Registry
+    service_net_v4    10.77.0.0/28                            BASE-005_030
+    service_net_v6    fd77:0:0:0::/64                         BASE-005_030
+    pool_admin_v4/v6  10.77.2.0/24    / fd77:0:0:2::/64       vpn_pool_config
+    pool_mod_v4/v6    10.77.3.0/24    / fd77:0:0:3::/64       vpn_pool_config
+    pool_vip_v4/v6    10.77.4.0/22    / fd77:0:0:4::/64       vpn_pool_config
+    pool_user_v4/v6   10.77.16.0/20   / fd77:0:0:16::/64      vpn_pool_config
+    vpn_clients_v4    Vereinigung der vier v4-Pools           abgeleitet
+    vpn_clients_v6    Vereinigung der vier v6-Pools           abgeleitet
+    mgmt_net_v4       10.77.1.0/29                            Notzugangs-Datei
+    SVC_DNS, SVC_WEB, SVC_NTP, SVC_SSH, SVC_PMA (je v4/v6), Ports der
+    Dienste, WAN-Name                                         BASE-005_030
+    wg_port           wg_listen_port                          Setting
+    mgmt_port         Port des Notzugangs                     Notzugangs-Datei
+
+    Die Pool-Werte in dieser Tabelle sind der Stand des Glossars/MANIFEST
+    4.3; massgeblich ist beim Rendern vpn_pool_config. Die IPv6-Pools sind
+    einheitlich /64 (ENTWURF_IPV6_NFTABLES_ROLLEN P-01).
+
+  1.2 DYNAMISCHE SETS (Inhalt zur Laufzeit; Vertrag: BASE-050_030)
+
+    connect_pending_v4 / _v6     WG-Gate (transient)
+    restricted_v4 / _v6          Walled Garden
+    allowed_l2tp_v4              L2TP-Freigabe (Interface-Index + Adresse)
+    banned_v4 / _v6              Sperrliste mit Ablauf
+    admin_panel_allowed_v4 / _v6 Verwaltungsfreigabe (zwei Quellen)
+
+  1.3 ZAEHLERSPEICHER FUER RATENBEGRENZUNG (vom Paketpfad gefuellt)
+
+    m_wan_new_v4/_v6      je WAN-Quelladresse, neue Flows zu Handshake-Ports
+    m_wan_ping_v4/_v6     je WAN-Quelladresse, Echo
+    m_cli_new_v4/_v6      je Tunneladresse, neue Flows Richtung WAN
+    m_cli_flows_v4/_v6    je Tunneladresse, gleichzeitige Flows
+    m_cli_icmp_v4/_v6     je Tunneladresse, Echo Richtung WAN
+    m_cli_svc_v4/_v6      je Tunneladresse, neue Flows zum SERVICE_NET
+    Alle mit Ablaufzeit und fester Maximalgroesse (BASE-050_060 Abschn. 4).
+
+================================================================================
+2) KETTEN
+================================================================================
+
+  BASISKETTEN (Hook, Prioritaet, Default)
+    pre_raw     prerouting   raw (-300)         accept
+    nat_pre     prerouting   dstnat (-100)      accept     Typ nat
+    input       input        filter (0)         DROP
+    forward     forward      filter (0)         DROP
+    out_raw     output       raw (-300)         accept
+    output      output       filter (0)         accept
+    nat_post    postrouting  srcnat (100)       accept     Typ nat
+    post_guard  postrouting  srcnat + 50 (150)  accept
+
+  UNTERKETTEN (nur per jump erreichbar)
+    seal        Siegel (versiegelt: eine drop-Regel; geloest: leer)
+    in_wan      Dienste am WAN            in_vpn   Zugriffe aus dem VPN
+    in_mgmt     Notzugang                 svc_all  Dienstklasse ALLE
+    svc_admin   Dienstklasse ADMIN_VERWALTUNG
+    fwd_limits  Ratenbegrenzung neuer Client-Flows
+    fwd_roles   Rollen-Durchlass Richtung WAN
+    ext_dnat, ext_fwd   reservierte Erweiterungspunkte (leer, DEC-FW-19)
+
+  Es gibt KEINE weiteren Tabellen und Ketten. Die Tabelle traegt einen
+  Kommentar mit Generation (Hash des gerenderten Inhalts) und Renderzeit.
+
+================================================================================
+3) pre_raw — FRUEHE VERWERFUNG (vor conntrack und NAT)
+================================================================================
+
+  PR-01  iifname lo                                       -> accept
+  PR-02  iifname WAN, ICMPv6 Neighbor Discovery
+         (Typen 133-136, Hop-Limit 255)                   -> accept
+  PR-03  iifname WAN, Quelle in rt_net                    -> drop [c_spoof_wan]
+  PR-04  iifname WAN, Ziel in rt_net                      -> drop [c_wan_dst_int]
+  PR-05  iifname L2TP, IPv6                               -> drop [c_l2tp_v6]
+  PR-06  iifname VPN, Quelle NICHT in vpn_clients         -> drop [c_spoof_vpn]
+  PR-07  iifname != lo, Rueckwegpruefung: die Route zur
+         Quelladresse fuehrt nicht ueber das Eingangs-
+         Interface                                        -> drop [c_rpf]
+  PR-08  iifname WAN oder VPN, Quelle in banned           -> drop [c_banned]
+  PR-09  iifname WAN, Protokoll ESP                       -> notrack
+
+  ERLAEUTERUNG
+  - PR-07 ist die strikte Rueckwegpruefung ("fib saddr . iif oif missing").
+    An ppp* besteht je Sitzung eine Hostroute zur Tunneladresse; ein Paket
+    mit fremder Quelle faellt durch. An awg0 fuehren die Pool-Routen
+    (BASE-040_020) zurueck; eine Adresse mit L2TP-Hostroute faellt dort
+    durch. Am WAN faellt alles durch, was nicht ueber die Standardroute
+    erreichbar waere (lokale und interne Adressen).
+  - PR-02 steht vor PR-07, weil Duplicate Address Detection die
+    unspezifizierte Quelle "::" verwendet.
+  - PR-08 gilt bewusst NICHT fuer lo und MGMT (Aussperrschutz).
+  - PR-09: ESP wird nicht in conntrack gefuehrt. Begruendung: Der
+    generische conntrack-Timeout ist lang; gefaelschte ESP-Pakete koennten
+    die Tabelle fuellen. Unbekannte SPI verwirft der Kernel selbst.
+    Der Gegenweg ist in output entsprechend markiert (OUT-01).
+
+================================================================================
+4) nat_pre — DNS-ZWANG
+================================================================================
+
+  NP-01  iifname VPN, IPv4, TCP oder UDP, Zielport 53
+         -> dnat auf SVC_DNS_v4:53                        [c_dnat53_udp_v4,
+                                                           c_dnat53_tcp_v4]
+  NP-02  iifname WG, IPv6, TCP oder UDP, Zielport 53
+         -> dnat auf [SVC_DNS_v6]:53                      [c_dnat53_udp_v6,
+                                                           c_dnat53_tcp_v6]
+  NP-03  -> jump ext_dnat                                 (leer)
+
+  Gilt fuer alle Rollen und alle Zustaende. Nach der Umleitung ist das
+  Paket lokal zugestellt und durchlaeuft input (Abschnitt 5), nicht forward.
+  Server-eigene Anfragen (output) sind nicht betroffen (DNS-EX-01).
+
+================================================================================
+5) input — LOKALE ZIELE
+================================================================================
+
+  IN-01  iifname lo                                       -> accept
+  IN-02  iifname WAN, ICMPv6 Neighbor Discovery wie PR-02;
+         Multicast Listener Discovery von fe80::/10       -> accept
+  IN-03  ct state invalid                                 -> drop [c_in_invalid]
+  IN-04  iifname WG                                       -> jump seal
+  IN-05  iifname VPN, Quelle in connect_pending           -> drop [c_in_pending]
+  IN-06  iifname L2TP, (Eingangs-Interface, Quelle) NICHT
+         in allowed_l2tp_v4                               -> drop [c_in_l2tp_closed]
+  IN-07  ct state established, related                    -> accept
+  IN-08  iifname WAN                                      -> jump in_wan
+  IN-09  iifname VPN                                      -> jump in_vpn
+  IN-10  iifname MGMT                                     -> jump in_mgmt
+  IN-11  (Default)                                        -> drop [c_in_policy]
+
+  5.1 in_wan (nur neue bzw. nicht verfolgte Pakete)
+
+  IW-01  ICMP/ICMPv6 Echo-Anfrage, je Quelle unter
+         vpn_fw_wan_ping_rate_per_sec                     -> accept [c_in_wan_ping]
+         (Wert 0 = Regel entfaellt)
+  IW-02  UDP Zielport 500 oder 4500, neu, je Quelle unter
+         Grenze UND unter Gesamtdeckel                    -> accept [c_in_ike]
+  IW-03  Protokoll ESP                                    -> accept [c_in_esp]
+  IW-04  UDP Zielport 1701 MIT IPsec-Kontext              -> accept [c_in_l2tp]
+  IW-05  UDP Zielport 1701 (ohne IPsec-Kontext)           -> drop [c_in_l2tp_naked]
+  IW-06  UDP Zielport wg_port, neu, je Quelle unter Grenze
+         UND unter Gesamtdeckel                           -> accept [c_in_wg]
+  IW-07  UDP Zielport mgmt_port, neu, je Quelle unter
+         Grenze                                           -> accept [c_in_mgmt_hs]
+  IW-08  UDP Zielport 500, 4500, wg_port, mgmt_port
+         (Grenze ueberschritten)                          -> drop [c_in_wan_rate]
+  IW-09  alles andere                                     -> drop [c_in_wan_other]
+
+  5.2 in_vpn (Quelle ist eine zugelassene Tunneladresse)
+
+  IV-01  Ziel NICHT in service_net                        -> reject* [c_in_vpn_nonsvc]
+  IV-02  neue Flows je Quelle ueber
+         vpn_fw_client_svc_new_rate_per_sec               -> drop [c_in_svc_rate]
+  IV-03  -> jump svc_all
+  IV-04  Quelle in restricted                             -> reject* [c_in_restricted]
+  IV-05  Quelle in pool_admin UND in admin_panel_allowed  -> jump svc_admin
+  IV-06  alles andere                                     -> reject* [c_in_vpn_denied]
+
+  svc_all
+  SA-01  Ziel SVC_DNS, TCP oder UDP 53                    -> accept [c_svc_dns]
+  SA-02  Ziel SVC_WEB, TCP 80 oder 443                    -> accept [c_svc_web]
+  SA-03  Ziel SVC_NTP, UDP 123                            -> accept [c_svc_ntp]
+  SA-04  Ziel SVC_WEB, Echo-Anfrage                       -> accept [c_svc_ping]
+
+  svc_admin
+  SD-01  Ziel SVC_DNS, TCP AdGuard-UI-Port (2000)         -> accept [c_svc_adm_ui]
+  SD-02  Ziel SVC_SSH, TCP SSH-Port (27812)               -> accept [c_svc_adm_ssh]
+  SD-03  Ziel SVC_PMA, TCP PMA-Port (80)                  -> accept [c_svc_adm_pma]
+
+  5.3 in_mgmt
+
+  IM-01  Quelle in mgmt_net_v4, Ziel SVC_SSH_v4, TCP
+         SSH-Port                                         -> accept [c_mgmt_ssh]
+  IM-02  Echo-Anfrage an die Adresse von rtmgmt0          -> accept
+  IM-03  alles andere                                     -> drop [c_mgmt_other]
+
+  reject*: Abweisung mit ICMP "administratively prohibited" bzw. TCP-Reset,
+  begrenzt durch vpn_fw_reject_rate_per_sec; darueber wird verworfen.
+
+  ERLAEUTERUNG
+  - IN-05/IN-06 stehen vor IN-07: Ein Gate bzw. eine entzogene Freigabe
+    trennt auch bestehende Verbindungen zu lokalen Diensten.
+  - IV-01: Aus dem VPN sind lokal NUR Adressen des SERVICE_NET
+    ansprechbar - weder die WAN-Adresse des Servers noch die Gateway-Anker
+    (SERVICE_GW_PPP, SERVICE_GW_WG).
+  - IV-04 vor IV-05: Eine eingeschraenkte Adresse erreicht nie eine
+    Verwaltungsoberflaeche, auch nicht bei fehlerhaftem Set-Inhalt.
+  - SERVICE_RESOLVER (Unbound) ist aus keinem VPN-Interface erreichbar;
+    er wird nur ueber lo angesprochen (IN-01).
+
+================================================================================
+6) forward — DURCHGELEITETER VERKEHR
+================================================================================
+
+  FD-01  ct state invalid                                 -> drop [c_fwd_invalid]
+  FD-02  iifname MGMT oder oifname MGMT                   -> drop [c_fwd_mgmt]
+  FD-03  iifname WG oder oifname WG                       -> jump seal
+  FD-04  iifname VPN, Quelle in connect_pending; oder
+         oifname VPN, Ziel in connect_pending             -> drop [c_fwd_pending]
+  FD-05  iifname L2TP, (Eingangs-Interface, Quelle) NICHT
+         in allowed_l2tp_v4; oder oifname L2TP,
+         (Ausgangs-Interface, Ziel) NICHT in
+         allowed_l2tp_v4                                  -> drop [c_fwd_l2tp_closed]
+  FD-06  iifname VPN und oifname VPN; oder iifname VPN
+         und Ziel in rt_net                               -> drop [c_fwd_isolation]
+  FD-07  iifname WAN und oifname WAN                      -> drop [c_fwd_wan2wan]
+  FD-08  iifname VPN, Quelle in restricted                -> reject* [c_fwd_restricted]
+         oifname VPN, Ziel in restricted                  -> drop [c_fwd_restricted]
+  FD-09  iifname VPN, TCP oder UDP Zielport 53            -> drop [c_fwd_dns53]
+  FD-10  iifname VPN, TCP Zielport 853                    -> reject (TCP-Reset)
+                                                             [c_fwd_dot]
+         iifname VPN, UDP Zielport 853                    -> reject (port
+                                                             unreachable)
+                                                             [c_fwd_doq]
+  FD-11  iifname VPN, oifname WAN, TCP 25/465/587         -> reject* [c_fwd_abuse_smtp]
+         iifname VPN, oifname WAN, TCP 445, TCP/UDP
+         137-139, Zusatzlisten (Settings)                 -> drop [c_fwd_abuse]
+  FD-12  TCP-SYN ueber L2TP bzw. WG (beide Richtungen):
+         MSS oberhalb des Tunnelwerts wird auf den
+         Tunnelwert ABGESENKT                             (kein Urteil)
+  FD-13  ct state established, related                    -> accept
+  ---------------- ab hier nur neue Flows ----------------
+  FD-14  -> jump ext_fwd                                  (leer)
+  FD-15  iifname VPN, oifname WAN                         -> jump fwd_limits
+  FD-16  iifname VPN, oifname WAN                         -> jump fwd_roles
+  FD-17  (Default)                                        -> drop [c_fwd_policy]
+
+  fwd_limits
+  FL-01  gleichzeitige Flows der Quelle ueber
+         vpn_fw_client_max_flows (ADMIN: x Faktor)        -> drop [c_fwd_flowcap]
+  FL-02  neue Flows der Quelle ueber
+         vpn_fw_client_new_rate_per_sec (ADMIN: x Faktor) -> drop [c_fwd_newrate]
+  FL-03  Echo-Anfragen der Quelle ueber
+         vpn_fw_client_icmp_rate_per_sec                  -> drop [c_fwd_icmprate]
+
+  fwd_roles (IPv6-Zeilen nur fuer iifname WG)
+  FR-01  Quelle in pool_user                              -> accept [c_fwd_ok_user]
+  FR-02  Quelle in pool_vip                               -> accept [c_fwd_ok_vip]
+  FR-03  Quelle in pool_mod                               -> accept [c_fwd_ok_mod]
+  FR-04  Quelle in pool_admin                             -> accept [c_fwd_ok_admin]
+
+  ERLAEUTERUNG
+  - FD-04 bis FD-11 stehen vor FD-13 (DEC-FW-09): Gate, entzogene
+    Freigabe, Isolation, Einschraenkung, DNS-Umgehung und Abuse-Sperren
+    wirken auch auf bestehende Flows.
+  - FD-06, zweite Bedingung: adressbasierte Isolation. Sie haelt auch
+    dann, wenn ein Tunnel-Interface unerwartet anders heisst.
+  - FD-09: Nach NP-01/NP-02 erreicht kein DNS-Paket den forward-Pfad.
+    Die Regel ist die Sicherung fuer den Fall, dass die Umleitung fehlt.
+  - FD-12 MUSS vor FD-13 stehen (LT-28): Antwort-SYN-Pakete aus dem
+    Internet wuerden sonst ungeklemmt durchgelassen. Tunnelwerte:
+    L2TP: PPP-MTU 1400 - 40 = 1360. WG: wg_tunnel_mtu - 40 (IPv4) bzw.
+    - 60 (IPv6); bei 1380 also 1340 bzw. 1320. Die Werte werden beim
+    Rendern ABGELEITET; es gibt keine eigenen MSS-Settings.
+  - Neue Flows sind nur in Richtung VPN -> WAN moeglich (FD-15/16).
+    Vom WAN zu Clients gibt es ausschliesslich Antwortverkehr (FD-13).
+  - Rollen unterscheiden sich im forward nur durch Zaehler und den
+    ADMIN-Faktor der Grenzen; Sicherheitsregeln sind fuer alle gleich
+    (R-07).
+
+================================================================================
+7) out_raw, output, nat_post, post_guard
+================================================================================
+
+  out_raw
+  OUT-01  oifname WAN, Protokoll ESP                      -> notrack
+
+  output (Default accept: Server-eigener Verkehr ist nicht eingeschraenkt)
+  OUT-02  oifname WAN, UDP Quellport 1701 OHNE
+          IPsec-Transformation auf dem Ausgangsweg        -> drop [c_out_l2tp_clear]
+  OUT-03  oifname WAN, ICMP/ICMPv6 "port unreachable"     -> drop [c_out_unreach]
+
+  nat_post
+  NQ-01  oifname WAN, Quelle in rt_net_v4                 -> masquerade [c_nat_v4]
+  NQ-02  oifname WAN, Quelle in rt_net_v6                 -> masquerade [c_nat_v6]
+
+  post_guard (nach NAT)
+  PG-01  oifname WAN, Quelle in rt_net                    -> drop [c_guard_src]
+  PG-02  oifname WAN, Ziel in rt_net                      -> drop [c_guard_dst]
+
+  ERLAEUTERUNG
+  - OUT-01 ist das Gegenstueck zu PR-09: ESP wird in beiden Richtungen
+    nicht in conntrack gefuehrt.
+  - OUT-03: Ist ein Tunnel-Dienst gestoppt, wuerde der Kernel auf Pakete
+    an dessen Port mit "port unreachable" antworten und damit den Zustand
+    verraten (ANF-WT-03).
+  - Masquerade ohne Port-Randomisierung: Quellports bleiben nach
+    Moeglichkeit erhalten (Vertraeglichkeit mit Spielen, VoIP, P2P).
+  - PG-01 greift, wenn ein Paket NAT umgangen hat; PG-02 ergaenzt die
+    "unreachable"-Rueckfallrouten (BASE-050_070 Abschnitt 5).
+
+================================================================================
+8) seal — SIEGEL
+================================================================================
+
+  VERSIEGELT:  SE-01  (ohne Bedingung)                    -> drop [c_seal]
+  GELOEST:     Kette ist leer (Ruecksprung ohne Wirkung)
+
+  Die Kette wird nur aus IN-04 und FD-03 angesprungen und betrifft damit
+  ausschliesslich awg0. Zustandswechsel: BASE-050_070 Abschnitt 3.
+
+================================================================================
+9) PAKETWEGE (zur Kontrolle der Reihenfolge)
+================================================================================
+
+  a) WG-Client ACTIVE oeffnet eine Webseite:
+     pre_raw PR-06/07 ok -> nat_pre (kein Port 53) -> forward: FD-03 Siegel
+     geloest, FD-04 nicht im Gate, FD-06 Ziel extern, FD-08 nicht
+     eingeschraenkt, FD-11 kein Abuse-Port, FD-12 MSS, neu: FL-01..03
+     unter Grenze, FR-01 accept -> NQ-01 masquerade -> PG ok.
+  b) Derselbe Client wird RESTRICTED waehrend eines Downloads:
+     naechstes Paket: FD-08 reject. Der Download endet sofort; der
+     conntrack-Flush (BASE-080) raeumt nur noch auf.
+  c) L2TP-Sitzung, ip-up-Hook noch nicht fertig:
+     input IN-06 drop, forward FD-05 drop. Nichts geht, auch kein DNS.
+  d) L2TP-Client sendet mit der Adresse eines anderen Clients:
+     PR-07 drop (keine Hostroute ueber dieses ppp-Interface).
+  e) Client fragt 8.8.8.8:53:
+     NP-01 dnat -> input: IV-03 -> SA-01 accept; AdGuard antwortet.
+  f) Client nutzt DoT (TCP 853):
+     FD-10 TCP-Reset; der Client faellt auf Port 53 zurueck -> e).
+  g) Scanner am WAN, TCP 22:
+     input IN-08 -> IW-09 drop, keine Antwort.
+  h) Unverschluesseltes L2TP vom WAN (UDP 1701):
+     IW-05 drop.
+  i) RESTRICTED-Client ruft das Portal auf:
+     NP-01 (DNS) -> SA-01; danach TCP 443 an SVC_WEB: IV-03 -> SA-02.
+  j) Client A an Client B (beliebige Tunnel):
+     FD-06 drop.
+  k) Nachbar im Rechenzentrum sendet an 10.77.0.5:27812 ueber das WAN:
+     PR-04 drop.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
