@@ -1,0 +1,313 @@
+================================================================================
+BASE-070 — BEREINIGUNG (JANITOR) UND HARD-CUT
+================================================================================
+DATEI: BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Die Schnittstelle zur Laufzeit (Adapter), die On-Demand-Pruefung im
+  Anmeldepfad (vpn-sessiond), das Schliessen von Geistern, der periodische
+  Bereinigungslauf, das Verhalten nach Neustarts und das Werkzeug fuer den
+  Hard-Cut.
+
+  LEITREGEL: Geschlossen wird nur, was laut Laufzeit nicht lebt. Wer es
+  nicht weiss, schliesst nicht.
+
+================================================================================
+1) LAUFZEIT-ADAPTER
+================================================================================
+
+  Tunnelneutrale Schnittstelle; je Tunnel ein Adapter des jeweiligen
+  Runners.
+
+    list()             Alle lebenden Laufzeitsitzungen mit Kennung
+                       (Anmeldename bzw. PublicKey), Laufzeit-Referenz,
+                       Tunneladresse, Zustand, Beginn; dazu die Startzeit
+                       des Daemons bzw. die Interface-Generation.
+                       Oder: FEHLER.
+    probe(kennung)     LIVE (mit Laufzeit-Referenz) | NOT_LIVE | UNKNOWN
+    kill(kennung)      KILLED | NOT_FOUND | FAILED
+
+  ANFORDERUNGEN AN JEDEN ADAPTER:
+    AD-1  UNKNOWN bzw. FEHLER bei jedem Zweifel: Zeitlimit, nicht
+          auswertbare Antwort, Verwaltungsschnittstelle nicht erreichbar.
+    AD-2  NOT_LIVE nur bei positiver Kenntnis: Die Laufzeit wurde gelesen
+          und enthaelt die Kennung nicht - ODER der Daemon laeuft gesichert
+          nicht (Dienstzustand "inaktiv" und kein Prozess), dann kann keine
+          Sitzung leben.
+    AD-3  Jede Operation hat ein Zeitlimit und keine Nebenwirkung ausser
+          der benannten.
+    AD-4  kill() beendet sofort und prueft, dass die Kennung danach nicht
+          mehr gelistet ist (Wartezeit hoechstens
+          vpn_hardcut_kill_timeout_seconds). Ohne diese Bestaetigung:
+          FAILED.
+    AD-5  Kennungen und Antworten erscheinen nicht in Prozesslisten oder
+          Protokollen mit Geheimnissen; die Verwaltungsschnittstelle des
+          Daemons ist nur lokal erreichbar und so geschuetzt, dass
+          unprivilegierte Dienste (insbesondere der AAA-Dienst) sie nicht
+          bedienen koennen.
+
+  L2TP (Runner BASE-030): Quelle ist die Sitzungstabelle von accel-ppp ueber
+    dessen lokale Verwaltungsschnittstelle. LIVE zaehlt nur den Zustand
+    "aktiv". Kennung ist der Anmeldename; Laufzeit-Referenz der
+    Interface-Name. kill() beendet die Sitzung hart; der Daemon meldet
+    danach Accounting-Stop.
+  WIREGUARD (Runner BASE-040): Quelle ist der Kernel (awg show). LIVE nach
+    BASE-070_020 Abschnitt 1. kill() ist Entfernen und - bei unveraendertem
+    SOLL - Wiedereintragen des Peers ueber den WG-Treiber von
+    vpn-policy-apply (BASE-040_030 Abschnitt 5).
+
+================================================================================
+2) GEISTER SCHLIESSEN (G-REGELN)
+================================================================================
+
+  Ein GEIST ist eine offene radacct-Zeile, deren Sitzung laut Adapter nicht
+  lebt. (WireGuard kennt keine Geister: Es gibt keine Protokollzeile, die
+  eine Nutzung behauptet; verwaiste Hinweise behandelt der Controller,
+  BASE-040_050 Fall B.)
+
+    G-1  Voraussetzung ist eine Laufzeitlesung mit Ergebnis NOT_LIVE fuer
+         den Anmeldenamen bzw. ein list() ohne ihn. Bei UNKNOWN wird nicht
+         geschlossen.
+    G-2  Mindestalter: Die Zeile ist aelter als vpn_ghost_min_age_seconds
+         (Vorschlag 15), gemessen an acctstarttime. Ausnahme: Zeilen von
+         vor dem letzten Daemon-Start (BASE-070_020 Schritt L3).
+    G-3  Nur Zeilen des eigenen NAS.
+    G-4  Geschlossen wird mit dem letzten belegten Lebenszeichen, nicht mit
+         der Feststellungszeit:
+           UPDATE radacct
+              SET acctstoptime = GREATEST(acctstarttime,
+                                 COALESCE(acctupdatetime, acctstarttime)),
+                  acctsessiontime = <Differenz dazu>,
+                  acctterminatecause = :ursache
+            WHERE radacctid = :rid AND acctstoptime IS NULL
+         :ursache ist 'Lost-Carrier' (Geist) bzw. 'NAS-Reboot' (Neustart).
+    G-5  Vor dem Schliessen wird im Buchungsstand der Grund-Hinweis
+         JANITOR_GHOST bzw. SYSTEM_RESTART hinterlegt (_050 Abschnitt 3).
+         Ereignis und Schlussbuchung erzeugt der L2TP-Abgleich (Schritt
+         L5), nicht der Schliessende.
+    G-6  Trifft spaeter doch eine echte Stop-Meldung ein, ueberschreibt sie
+         die Zeile (sie ist genauer). Die Buchung folgt den Zaehlern
+         (_050); das bereits gemeldete Ende bleibt bestehen.
+    G-7  Schliessen ist idempotent (Bedingung acctstoptime IS NULL).
+
+  SCHREIBRECHT: Geister schliesst der DB-User system. radacct bleibt Tabelle
+  des AAA-Kerns (BASE-020); das Schliessen ist die einzige Aenderung, die
+  BASE-070 dort vornimmt (ANF-SC-05).
+
+================================================================================
+3) ON-DEMAND-PRUEFUNG: vpn-sessiond UND vpn-session-check
+================================================================================
+
+  ZWECK: Schritt P1 des SimUse-Bausteins (BASE-070_030 Abschnitt 4). Der
+  AAA-Dienst erhaelt eine Laufzeitauskunft, ohne selbst Rechte an der
+  Verwaltungsschnittstelle des Tunnel-Daemons oder Schreibrechte ausserhalb
+  seiner Tabellen zu besitzen.
+
+  vpn-sessiond (Dienst, root, systemd-ueberwacht):
+    Socket   /run/retrotunnel/session/check.sock
+             Besitzer root, Gruppe des AAA-Dienstes, Modus 0660
+    Anfrage  eine Zeile:  CHECK <vpn_connection_id>
+             (nur Ziffern, hoechstens 20 Zeichen; alles andere wird ohne
+             Auswertung mit UNKNOWN beantwortet)
+    Antwort  eine Zeile:  LIVE | NOT_LIVE | UNKNOWN
+
+    ABLAUF JE ANFRAGE:
+      O1  Begrenzung: Je Connection hoechstens ein Sondenlauf je
+          vpn_cleanup_ratelimit_window_seconds (Vorschlag 5). Innerhalb
+          des Fensters wird das letzte Ergebnis geliefert, sofern es
+          juenger ist als vpn_cleanup_result_ttl_seconds (Vorschlag 5),
+          sonst UNKNOWN. Gleichzeitig bearbeitete Anfragen sind begrenzt;
+          darueber: UNKNOWN.
+      O2  Connection lesen: tunnel_type und Anmeldename. Nicht lesbar,
+          nicht vorhanden oder nicht L2TP_IPSEC: UNKNOWN.
+      O3  probe(Anmeldename).
+            LIVE     -> Antwort LIVE
+            UNKNOWN  -> Antwort UNKNOWN, nichts schliessen
+            NOT_LIVE -> offene radacct-Zeilen des Anmeldenamens nach den
+                        G-Regeln schliessen; Antwort NOT_LIVE
+      O4  Gesamtes Zeitlimit vpn_cleanup_timeout_seconds (Vorschlag 2,
+          Grenzen 1..5). Bei Ueberschreitung: UNKNOWN.
+    Der Dienst kennt keinen anderen Befehl, nimmt keine Anfragen aus dem
+    Netz an, gibt keine personenbezogenen Daten zurueck und haelt seinen
+    Zwischenspeicher nur im Arbeitsspeicher.
+
+  vpn-session-check (Hilfsprogramm, unprivilegiert):
+    Aufruf mit genau einem Argument (Ziffern). Verbindet sich mit dem
+    Socket, sendet die Anfrage, gibt die Antwortzeile aus. Jeder Fehler
+    (Socket fehlt, Zeitlimit, unerwartete Antwort) ergibt UNKNOWN. Das
+    Programm startet nichts und liest keine Konfiguration mit Geheimnissen.
+
+  WARUM EIN ZWISCHENGESPEICHERTES ERGEBNIS UNSCHAEDLICH IST: NOT_LIVE
+  entbindet nicht von den strengen Schritten P3 und P4; ein veraltetes
+  NOT_LIVE kann daher keine zweite Sitzung zulassen. Ein veraltetes LIVE
+  lehnt hoechstens fuer die Dauer der Ergebnis-Gueltigkeit zu Unrecht ab.
+
+  AUSFALL: Laeuft vpn-sessiond nicht, liefert vpn-session-check UNKNOWN; der
+  Anmeldepfad entscheidet streng nach radacct, Geister schliesst der
+  L2TP-Abgleich. Die Anmeldung haengt nicht an diesem Dienst.
+
+================================================================================
+4) PERIODISCHER BEREINIGUNGSLAUF (vpn-session-janitor)
+================================================================================
+
+  Takt vpn_janitor_interval_seconds (Vorschlag 300). Einzel-Lock, DB-User
+  system, begrenzte Stapelgroessen. Ist die Datenbank nicht erreichbar,
+  endet der Lauf ohne Wirkung. Jeder Schritt ist fuer sich idempotent; das
+  Scheitern eines Schritts verhindert die uebrigen nicht.
+
+    J1  SPERR-LEICHEN: DELETE FROM vpn_session_locks WHERE expires_at <=
+        NOW(). (Reine Hygiene; der Erwerb entfernt Abgelaufenes selbst.)
+    J2  VERWAISTE HINWEISE (L2TP): Connection mit runtime_active_since
+        NOT NULL, ohne offene radacct-Zeile ihres Anmeldenamens und ohne
+        nicht abgeschlossenen Buchungsstand: Episode nach SV-2 beenden
+        (Grund OTHER, t_end = last_runtime_seen_at). Fuer WireGuard ist das
+        Aufgabe des Controllers (Fall B); der Lauf fasst WG-Hinweise nicht
+        an.
+    J3  LAUFZEIT-SPIEGEL: Dateien unter /run/vpn-sessions/ ohne lebende
+        Sitzung laut list() und aelter als das Mindestalter entfernen. Bei
+        FEHLER des Adapters: nichts entfernen.
+    J4  ADRESSEN: abgelaufene Quarantaene-Eintraege loeschen; widerrufene
+        Connections nach Ablauf ihrer Quarantaene physisch loeschen
+        (BASE-070_060 Abschnitt 6).
+    J5  BUCHUNGSSTAENDE: abgeschlossene Eintraege nach Ablauf ihrer
+        Aufbewahrung loeschen (BASE-070_050 Abschnitt 3).
+    J6  POOL-STATISTIK: Fuellstaende berechnen, Schwellenwechsel melden
+        (BASE-070_060 Abschnitt 7).
+    J7  QUOTA-PERIODE NACHHOLEN: faellige Periodenwechsel ausfuehren, falls
+        der eigene Lauf sie versaeumt hat (BASE-070_050 Abschnitt 5).
+    J8  Marke session_janitor_last_ok_at setzen (nur wenn alle Schritte
+        fehlerfrei waren); Statusdatei fortschreiben.
+
+  Geister schliesst im Regelbetrieb der L2TP-Abgleich in seinem deutlich
+  kuerzeren Takt; der Bereinigungslauf ist dafuer nicht zustaendig.
+
+================================================================================
+5) NACH NEUSTARTS
+================================================================================
+
+  SYSTEMSTART:
+    - /run ist leer: kein Laufzeit-Spiegel, kein Zwischenspeicher.
+    - Offene radacct-Zeilen aus der Zeit vor dem Start schliesst der erste
+      L2TP-Abgleich ueber die Neustart-Regel (Schritt L3), sobald Daemon
+      und Datenbank verfuegbar sind - ohne feste Wartezeit.
+    - WireGuard: Der Controller erkennt die neue Interface-Generation,
+      bucht den Snapshot nach und beendet verwaiste Episoden
+      (BASE-040_060 Abschnitt 5, BASE-040_050 Fall B).
+    - Sperren aus der Zeit vor dem Start sind abgelaufen oder laufen
+      binnen ihrer TTL ab.
+    - Der erste vollstaendige Bereinigungslauf startet
+      vpn_boot_janitor_delay_seconds (Vorschlag 90) nach dem Systemstart.
+  DAEMON-NEUSTART OHNE SYSTEMSTART (accel-ppp): wie oben ueber Schritt L3.
+  NEUSTART VON vpn-sessiond: Zwischenspeicher leer; sonst ohne Wirkung.
+
+  KEINE STARTABHAENGIGKEIT: Kein Tunnel-Dienst wartet auf einen Lauf dieses
+  Moduls. Ist die Datenbank beim Start nicht erreichbar, starten die Units
+  dennoch; die Laeufe enden ohne Wirkung und holen nach, sobald die
+  Datenbank da ist (kein Start-Deadlock).
+
+================================================================================
+6) HARD-CUT: vpn-session-kill
+================================================================================
+
+  AUFRUF:   vpn-session-kill <vpn_connection_id> [--reason <GRUND>]
+            [--actor <Kennung>]
+  GRUENDE:  ADMIN_HARDCUT (Vorgabe), CONNECTION_DISABLED,
+            CONNECTION_ROLE_CHANGE, AUTH_KEY_ROTATED, POLICY_FAIL_CLOSED
+
+  ABLAUF (Reihenfolge ist normativ: Laufzeit zuerst, dann Abgleich):
+    K1  Eingabe pruefen (nur Ziffern; Grund aus der Liste).
+    K2  Connection lesen: tunnel_type, Kennung fuer den Adapter.
+        Datenbank nicht erreichbar:
+          L2TP       Kennung aus dem Laufzeit-Spiegel (/run/vpn-sessions/,
+                     Eintrag VPN_CONNECTION_ID); K3, K4, K7 entfallen
+          WIREGUARD  Abbruch TEMPFAIL_DB (ohne Datenbank ist der Peer nicht
+                     sicher zuordenbar; Notfallweg ist der Stop des
+                     Interfaces, BASE-040_060 Abschnitt 4)
+    K3  Sperre erwerben (Zweck HARDCUT). Belegt: begrenzt wiederholen,
+        sonst TEMPFAIL_LOCKED.
+    K4  Grund-Hinweis hinterlegen (L2TP: im Buchungsstand der offenen
+        Abrechnungssitzung).
+    K5  LAUFZEIT BEENDEN: kill() des Adapters; Ergebnis
+          KILLED     weiter
+          NOT_FOUND  nichts zu beenden; weiter (Ergebnis OK_NOT_ACTIVE)
+          FAILED     Ergebnis FAIL_KILL, Alarm CRITICAL; K6 laeuft trotzdem
+    K6  ABGLEICH ANSTOSSEN: vpn-policy-apply fuer die Connection (Sets,
+        conntrack; BASE-080); L2TP-Abgleich fuer den Anmeldenamen (meldet
+        das Ende, bucht den Rest).
+    K7  Nur bei ADMIN_HARDCUT: Eintrag SESSION_HARDCUT in
+        log_connection_lifecycle (actor, actor_detail). Bei den uebrigen
+        Gruenden dokumentiert das ausloesende Lifecycle-Ereignis den
+        Vorgang.
+    K8  Sperre freigeben.
+
+  ERGEBNISSE: OK_KILLED | OK_NOT_ACTIVE | TEMPFAIL_LOCKED | TEMPFAIL_DB |
+              FAIL_KILL
+
+  REGELN:
+    HC-1  Kein Hard-Cut besteht nur aus einer Datenbankaenderung. Weder das
+          Schliessen einer radacct-Zeile noch das Loeschen einer Sperre
+          beendet eine Nutzung.
+    HC-2  Der Webprozess des Panels fuehrt das Werkzeug nie selbst aus. Der
+          Aufruf laeuft ueber den privilegierten Auftragsweg des Panels
+          (BASE-110) mit numerischer Kennung und festem Grund
+          ADMIN_HARDCUT; die Handlung verlangt erneute Anmeldung
+          (Klasse C).
+    HC-3  Wiederholtes Ausfuehren ist unschaedlich (OK_NOT_ACTIVE).
+    HC-4  Ein Hard-Cut entzieht keinen Zugang: Das Geraet kann sich neu
+          verbinden. Wer den Zugang entziehen will, setzt die Connection
+          auf DISABLED; der Hard-Cut ist dann Folge, nicht Mittel.
+    HC-5  Bei FAIL_KILL bleibt der Zustand ehrlich: Es wird nichts als
+          beendet protokolliert. Die naechste Stufe ist der Stop des
+          betroffenen Tunnel-Dienstes durch den Betreiber.
+
+  AUFRUFER: das Panel (ADMIN_HARDCUT); vpn-policy-apply bei Wechsel nach
+  DISABLED, Rollenwechsel und fehlgeschlagener Policy-Herstellung
+  (BASE-080); der Rotationsvorgang (BASE-040_040). Diese Aufrufer koennen
+  den Kern des Werkzeugs (K4, K5) auch als Bibliothek innerhalb ihrer
+  eigenen Sperre verwenden; die Reihenfolge "Laufzeit zuerst" gilt immer.
+
+================================================================================
+7) FEHLERBILDER
+================================================================================
+
+  Stoerung                         Verhalten
+  -------------------------------- ------------------------------------------
+  Adapter antwortet nicht          UNKNOWN; nichts wird geschlossen;
+                                   Anmeldung streng nach radacct; Alarm
+                                   SESSION_PROBE_UNAVAILABLE nach drei
+                                   aufeinanderfolgenden Laeufen
+  vpn-sessiond steht               UNKNOWN im Anmeldepfad; Geister ueber den
+                                   Abgleich
+  Datenbank nicht erreichbar       Laeufe ohne Wirkung; Anmeldung abgelehnt
+                                   (AAA-03); Hard-Cut L2TP weiter moeglich
+  Geist wird faelschlich vermutet  durch G-1, G-2 und Schritt-Reihenfolge
+  (Sitzung eben beendet)           L1 vor L2 ausgeschlossen bzw. folgenlos
+                                   (G-6)
+  Lebende Sitzung geschlossen      darf nicht vorkommen (G-1). Sicherungen,
+                                   falls doch: Die Sonde meldet die Sitzung
+                                   weiter als LIVE (SimUse haelt), Schritt
+                                   L6 zeigt sie als L2TP_UNACCOUNTED, und
+                                   die Buchung folgt weiter den gemeldeten
+                                   Zaehlern (_050 Abschnitt 3)
+  Hard-Cut scheitert               FAIL_KILL, Alarm; kein Schein-Erfolg
+  Uhr springt                      Fristen haengen an der Datenbankzeit;
+                                   Ereigniszeiten werden begrenzt (W-5)
+
+================================================================================
+8) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  - Letzter erfolgreicher Bereinigungslauf, letzter L2TP-Abgleich,
+    geschlossene Geister, entfernte Sperren, Sondenausfaelle
+    (Statusdatei).
+  - Hard-Cut je Connection als ADMIN-Aktion mit Ergebniscode; bei
+    FAIL_KILL deutliche Fehlermeldung, keine Erfolgsanzeige.
+  - Live-Auskunft je Connection (LIVE/NOT_LIVE/UNKNOWN) ueber den
+    privilegierten Auftragsweg.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
