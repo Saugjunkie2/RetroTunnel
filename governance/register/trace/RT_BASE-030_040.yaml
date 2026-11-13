@@ -2,8 +2,8 @@ schema: trace/1
 quelle: RT
 datei: base/BASE-030_TUNNEL_L2TP_IPSEC/BASE-030_040_PPP_INTERFACE_LIFECYCLE.txt
 einheit: AP-K050
-vollstaendigkeit: TEILWEISE (Abschnitt 2 und die Firewall betreffenden Teile der Abschnitte 1, 3, 4, 6; Sitzungsbruecke und
-  Mapping werden in AP-K070 zugeordnet)
+vollstaendigkeit: 'TEILWEISE (Firewall- und Sitzungsbezug: Abschnitte 1 bis 6, soweit BASE-050 und BASE-070 betroffen; uebrige
+  Konfiguration in AP-Q04)'
 records:
 - id: TR-R03040-01
   zitat: Jede neue PPP-Session ist per Default vollstaendig gesperrt.
@@ -172,3 +172,186 @@ records:
   zeilen:
   - 28
   - 28
+- id: TR-R03040-16
+  zitat: '1. Session-Mapping: /run/vpn-sessions/<IFNAME>.env schreiben'
+  art: FUNKTION
+  aussage: Hook schreibt den Laufzeit-Spiegel.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_080_OWNER_GRENZEN.txt#ANF-SC-03
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-02
+  begruendung: Bleibt; der Spiegel ist Diagnose und Behelf, kein Lebendbeweis.
+  zeilen:
+  - 123
+  - 123
+- id: TR-R03040-17
+  zitat: '2. Session-Bridge: radacct-Korrelation + vpn_sessions INSERT'
+  art: FUNKTION
+  aussage: Bruecke im Hook.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-05
+  begruendung: Entfaellt; der Abgleich leitet Beginn und Ende ab.
+  zeilen:
+  - 125
+  - 125
+- id: TR-R03040-18
+  zitat: '- BASE-070: Owner der Session-Truth (vpn_sessions Schema)'
+  art: DEFINITION
+  aussage: Zustaendigkeit von BASE-070.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_080_OWNER_GRENZEN.txt#1) BASE-070 OWNT
+  begruendung: 'Ersetzt: BASE-070 besitzt Definition, Signalvertrag, Sperrvertrag, Bereinigung, Buchung und Adress-Mechanik.'
+  zeilen:
+  - 136
+  - 136
+- id: TR-R03040-19
+  zitat: '- Session wird NICHT in vpn_sessions eingetragen'
+  art: FUNKTION
+  aussage: Bei Hook-Fehler kein Sitzungseintrag.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt#L4
+  begruendung: Die Episode wird unabhaengig vom Erfolg des Hooks gemeldet, weil der Tunnel besteht und SimUse gilt; ohne Freigabe
+    fliesst kein Verkehr.
+  zeilen:
+  - 142
+  - 142
+- id: TR-R03040-20
+  zitat: '1. vpn_sessions UPDATE: closed_at = NOW(), close_reason setzen'
+  art: FUNKTION
+  aussage: Hook schliesst den Sitzungseintrag.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt#L5
+  - base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt#SV-2  ENDE
+  begruendung: 'Ersetzt: Das Ende meldet der Abgleich aus der geschlossenen radacct-Zeile.'
+  zeilen:
+  - 164
+  - 164
+- id: TR-R03040-21
+  zitat: '2. vpn_session_locks: DELETE fuer vpn_connection_id'
+  art: FUNKTION
+  aussage: Hook loescht die Sperre.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt#K-5
+  begruendung: Der Hook fasst Sperren nicht an; die Admission-Sperre ist bei Sitzungsende laengst freigegeben oder abgelaufen.
+  zeilen:
+  - 165
+  - 165
+- id: TR-R03040-22
+  zitat: 4. /run/vpn-sessions/<IFNAME>.env entfernen (Session-Mapping)
+  art: FUNKTION
+  aussage: Spiegel beim Abbau entfernen.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_080_OWNER_GRENZEN.txt#ANF-SC-03
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#J3
+  begruendung: Uebernommen; Reste entfernt der Bereinigungslauf.
+  zeilen:
+  - 168
+  - 168
+- id: TR-R03040-23
+  zitat: '- ip-down muss trotzdem aufraumen (Mapping, ggf. partielle'
+  art: FUNKTION
+  aussage: Aufraeumen nach fruehem Abbruch.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#J3
+  - base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt#EIGENSCHAFTEN
+  begruendung: Partielle Sitzungseintraege gibt es nicht mehr; Spiegel-Reste entfernt der Bereinigungslauf, der Abgleich ist
+    gegen Abbrueche unempfindlich.
+  zeilen:
+  - 179
+  - 179
+- id: TR-R03040-24
+  zitat: 'Pro aktive L2TP-Session existiert eine Mapping-Datei:'
+  art: DEFINITION
+  aussage: Eine Spiegel-Datei je Sitzung.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-02
+  begruendung: Uebernommen.
+  zeilen:
+  - 187
+  - 187
+- id: TR-R03040-25
+  zitat: CALLING_SID=92.209.149.76
+  art: IMPL_DETAIL
+  aussage: Oeffentliche Gegenstelle im Spiegel.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_080_OWNER_GRENZEN.txt#enthaelt keine oeffentliche Gegenstelle
+  begruendung: 'Entfaellt aus dem Spiegel (Datensparsamkeit): Die Gegenstelle steht nur im Ereignisprotokoll und in radacct.'
+  zeilen:
+  - 194
+  - 194
+- id: TR-R03040-26
+  zitat: VPN_CONNECTION_ID=42
+  art: IMPL_DETAIL
+  aussage: Connection-Kennung im Spiegel.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#Eintrag VPN_CONNECTION_ID
+  begruendung: Uebernommen.
+  zeilen:
+  - 195
+  - 195
+- id: TR-R03040-27
+  zitat: 'KEIN SID in der Mapping-Datei: Die Acct-Session-Id steht erst'
+  art: DEFINITION
+  aussage: Sitzungskennung nicht im Spiegel.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt#S-1
+  begruendung: Die Episodenkennung stammt aus radacct.
+  zeilen:
+  - 199
+  - 199
+- id: TR-R03040-28
+  zitat: '- Reconcile-Loop (BASE-080) kann alle aktiven Sessions auflisten'
+  art: FUNKTION
+  aussage: Spiegel als Liste aktiver Sitzungen.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#list()             Alle lebenden Laufzeitsitzungen
+  begruendung: Die Liste liefert der Laufzeit-Adapter aus der Sitzungstabelle des Daemons.
+  zeilen:
+  - 205
+  - 205
+- id: TR-R03040-29
+  zitat: '- Janitor (BASE-070) kann Stale-Sessions identifizieren'
+  art: FUNKTION
+  aussage: Spiegel als Grundlage der Bereinigung.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#AD-2
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-02
+  begruendung: 'Ersetzt: Grundlage ist die Sitzungstabelle des Daemons; eine Datei ist kein Beleg.'
+  zeilen:
+  - 206
+  - 206
+- id: TR-R03040-30
+  zitat: 'PERSISTENZ: /run/ ist tmpfs'
+  art: DEFINITION
+  aussage: Spiegel ist fluechtig.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#/run ist leer
+  begruendung: Uebernommen.
+  zeilen:
+  - 212
+  - 212
+- id: TR-R03040-31
+  zitat: '- Aktive PPP-Interfaces: Panel zeigt Liste aus accel-cmd show sessions'
+  art: FUNKTION
+  aussage: Anzeige aktiver Sitzungen.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#8) PANEL-CONSUMABILITY (R-17)
+  begruendung: Als Live-Auskunft ueber den privilegierten Auftragsweg.
+  zeilen:
+  - 218
+  - 218
