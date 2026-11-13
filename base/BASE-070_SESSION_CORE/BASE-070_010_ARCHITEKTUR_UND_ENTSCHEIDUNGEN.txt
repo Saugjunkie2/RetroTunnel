@@ -1,0 +1,339 @@
+================================================================================
+BASE-070 — ARCHITEKTUR UND ENTSCHEIDUNGEN
+================================================================================
+DATEI: BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Schutzziele, Begriffe, Komponenten und die tragenden Entscheidungen des
+  Sitzungskerns. Grundlage ist D004 (Runtime-Truth vs. SQL-Persistenz) in
+  der Fassung v2.0-REKONSTRUKTION samt P-01..P-06. Dieses Modul loest
+  model/state_machines/SM_SESSION.txt vollstaendig auf.
+
+================================================================================
+1) AUFGABE IN EINEM SATZ
+================================================================================
+
+  BASE-070 legt tunnelneutral fest, WORAN das System erkennt, dass eine
+  Connection gerade genutzt wird, WIE gleichzeitige Nutzung auf genau eine
+  begrenzt wird, WIE verwaiste Zustaende beseitigt werden, WIE Verbrauch
+  genau einmal gebucht und je Abrechnungsmonat gefuehrt wird, WIE eine
+  Nutzung hart beendet wird und WIE Tunneladressen vergeben, gesperrt und
+  zurueckgegeben werden.
+
+  BASE-070 fuehrt KEINE eigene Sitzungswahrheit. Ob ein Tunnel lebt, weiss
+  nur der Daemon bzw. der Kernel (D004-E01). SQL haelt Policy, Aggregate,
+  Budgets, Sperren und Protokoll.
+
+================================================================================
+2) SCHUTZZIELE
+================================================================================
+
+  SZ-1  EINE NUTZUNG JE CONNECTION. Zu keinem Zeitpunkt bestehen zwei
+        parallele Tunnel derselben Connection (SimUse=1).
+  SZ-2  KEINE UEBERNAHME. Eine bestehende Nutzung wird durch einen neuen
+        Anmeldeversuch nie verdraengt; nur der Betreiber (Hard-Cut) oder
+        ein Zustandswechsel beendet sie.
+  SZ-3  KEIN DAUERHAFTES AUSSPERREN. Verwaiste Protokollzeilen und Sperren
+        blockieren eine Anmeldung hoechstens fuer eine benannte, endliche
+        Frist.
+  SZ-4  KEINE ZWEITE WAHRHEIT. Kein SQL-Feld wird als Beleg fuer Liveness
+        gelesen; Hinweisfelder sind als Hinweis gekennzeichnet.
+  SZ-5  VERBRAUCH GENAU EINMAL. Keine Doppelzaehlung bei Wiederholung,
+        Neustart, verspaeteter oder umsortierter Meldung; Verluste nur
+        innerhalb ausgewiesener Messgrenzen; kein Verlust durch
+        Datenbankstoerung allein.
+  SZ-6  ABRECHNUNGSMONAT NACHVOLLZIEHBAR. Der Wechsel der Quota-Periode ist
+        atomar, wiederholbar und protokolliert; keine Buchung geht dabei
+        verloren oder zaehlt doppelt.
+  SZ-7  ADRESSEN EINDEUTIG, NICHT VORHERSAGBAR, NICHT VERFRUEHT WIEDER-
+        VERWENDET. Bei Erschoepfung wird abgelehnt, nie ausgewichen.
+  SZ-8  HARD-CUT WIRKT TECHNISCH. Erst die Laufzeit beenden, dann den
+        Zustand angleichen; nie nur einen Datensatz aendern.
+  SZ-9  FAIL-CLOSED OHNE MASSENABWURF. Fehlt Wissen (Datenbank, Sonde),
+        wird nicht zugelassen; bestehende Nutzungen werden deshalb nicht
+        pauschal beendet.
+  SZ-10 DATENSPARSAMKEIT UND NACHVOLLZIEHBARKEIT. Oeffentliche Adressen
+        der Kunden werden nur ereignisbezogen gespeichert und begrenzt
+        aufbewahrt; jede automatische Bereinigung und jede Abweisung ist
+        zaehl- und nachvollziehbar.
+
+================================================================================
+3) BEGRIFFE
+================================================================================
+
+  runtime_activity     Laufzeitsicht auf eine Connection: AKTIV oder
+                       INAKTIV (D004-E07). Tunnelspezifisch definiert in
+                       BASE-070_020.
+  Episode              Zusammenhaengender Zeitraum AKTIV einer Connection.
+                       Beginn und Ende werden als Ereignisse protokolliert;
+                       sie sind Projektion, keine Wahrheit (D004 P-03).
+  Episodenkennung      Feld session_token des Signalvertrags; eindeutig
+                       je Episode, deterministisch aus Laufzeitdaten.
+  Hinweisfeld          Spalte der Gruppe D auf vpn_connections, die einen
+                       zuletzt beobachteten Laufzeitzustand festhaelt
+                       (last_runtime_seen_at, runtime_active_since).
+  Laufzeit-Adapter     Tunnelspezifische Schnittstelle zur Laufzeit mit den
+                       Operationen list, probe, kill (BASE-070_040).
+                       Runner: BASE-030 (L2TP), BASE-040 (WireGuard).
+  Sonde                Operation probe des Adapters; Antwort LIVE,
+                       NOT_LIVE oder UNKNOWN.
+  Geist                Protokollzeile oder Hinweis, der eine Nutzung
+                       behauptet, die laut Laufzeit nicht besteht.
+  Sperre (Guard)       Zeile in vpn_session_locks: kurzlebiger Mutex je
+                       Connection, kein Zustand.
+  Schlussriegel        Durchsetzung im Daemon selbst, die auch dann haelt,
+                       wenn alle vorgelagerten Pruefungen versagen.
+  Buchung              Erhoehung von quota_used um ein Delta.
+  Buchungsstand        Merker, welcher Teil eines Rohzaehlers bereits
+                       gebucht ist (WireGuard: Cursor auf vpn_connections;
+                       L2TP: vpn_l2tp_acct_state).
+  Quota-Periode        Halboffenes Intervall [quota_period_start,
+                       quota_period_end) eines Kalendermonats.
+  Quarantaene          Frist, in der eine freigewordene Tunneladresse
+                       nicht neu vergeben wird.
+  "Session"            wird als Einzelbegriff vermieden (D004-E07). Wo er
+                       in Feld- oder Werkzeugnamen fortlebt (session_token,
+                       vpn_session_locks, vpn-session-kill), ist die
+                       jeweilige Definition dieses Moduls massgeblich.
+
+================================================================================
+4) KOMPONENTEN
+================================================================================
+
+  Komponente               Art                Aufgabe
+  ------------------------ ------------------ ------------------------------
+  vpn_session_locks        Tabelle            Sperrvertrag (_030)
+  log_runtime_activity     Tabelle            Episoden-Ereignisse (_020)
+  vpn_l2tp_acct_state      Tabelle            Buchungsstand L2TP (_050)
+  log_quota_period         Tabelle            Abschluss je Quota-Periode
+                                              (_050)
+  vpn_pool_config          Tabelle            Adress-Pools je Rolle (_060)
+  vpn_ip_quarantine        Tabelle            Adress-Quarantaene ohne
+                                              Connection-Zeile (_060)
+  vpn_runtime_marks        Tabelle            Laufzeitmarken (_070)
+  Gruppe D                 Spalten auf        Verbrauch, Cursor, Hinweise,
+                           vpn_connections    Periode; Schema-Owner BASE-010,
+                                              Schreibvertrag hier (_020, _050)
+  vpn-sessiond             Dienst             On-Demand-Pruefung im
+                                              Anmeldepfad (_040)
+  vpn-session-check        Hilfsprogramm      unprivilegierter Aufrufer von
+                                              vpn-sessiond (_040)
+  vpn-session-janitor      Zeitgesteuerter    Bereinigungslauf, Start-
+                           Lauf               bereinigung (_040)
+  vpn-session-kill         Werkzeug           Hard-Cut (_040)
+  vpn-quota-period         Zeitgesteuerter    Periodenwechsel (_050)
+                           Lauf
+  Allokator                Routine            einzige Schreibstelle fuer
+                                              ip_slot, fixed_ip, fixed_ipv6
+                                              (_060)
+  L2TP-Abgleich            Lauf des Runners   Episoden und Buchung aus
+  (vpn-l2tp-sync)          BASE-030           radacct und Laufzeit (_020,
+                                              _050); Vertrag hier
+  AWG Session Controller   Dienst des Runners Episoden und Buchung WireGuard
+                           BASE-040           (BASE-040_050); Vertrag hier
+
+  Owner ist in allen Faellen BASE-070; "Runner" fuehrt aus, entscheidet
+  aber nicht ueber die Semantik (R-15, Grenzregeln G2, G4, G5 in
+  BASE-020_060).
+
+================================================================================
+5) ENTSCHEIDUNGEN
+================================================================================
+
+DEC-SC-01  KEIN SITZUNGSDATENSATZ
+  Es gibt keine Tabelle vpn_sessions (D004-E02, P-06). runtime_activity
+  wird je Abfrage aus der Laufzeit abgeleitet. SQL fuehrt dazu nur
+  Hinweisfelder, Ereignisse und Buchungsstaende.
+  Verworfen: Sitzungstabelle als Wahrheit (zweite, driftende Wahrheit;
+  Befund ZB-001 des Drittreviews, Changelog v2.1.4).
+
+DEC-SC-02  LAUFZEIT-WAHRHEIT JE TUNNEL
+  L2TP_IPSEC: Die Sitzungstabelle von accel-ppp ist die Wahrheit. radacct
+  ist das Protokoll dessen, was der Daemon dem AAA-Dienst gemeldet hat:
+  eine offene Zeile bedeutet "als aktiv gemeldet". Beide zusammen bilden
+  die Pruefgrundlage (D004-E01); weichen sie ab, ist das Drift, die der
+  Abgleich aufloest.
+  WIREGUARD: Der Kernel-Peer mit seinem Handshake-Zeitstempel ist die
+  Wahrheit (BASE-040_050 Abschnitt 3).
+  Das im Vorgaenger genutzte Laufzeit-Mapping /run/vpn-sessions/*.env
+  bleibt als Spiegel fuer Hooks und Diagnose (BASE-030), ist aber kein
+  Lebendbeweis mehr: Bei accel-ppp gibt es - anders als bei pppd - eine
+  zentrale, abfragbare Sitzungstabelle.
+
+DEC-SC-03  EPISODEN SIND PROJEKTION, EIGENE EREIGNISTABELLE
+  Beginn, Ende und Endpunktwechsel werden in log_runtime_activity
+  protokolliert, nicht in log_connection_lifecycle. Gruende: hohe
+  Ereignisrate, personenbezogene oeffentliche Adressen mit kurzer
+  Aufbewahrung, andere Leserechte. Das Lifecycle-Log bleibt das
+  langlebige Protokoll der Zustandswechsel und Verwaltungshandlungen.
+  Folge: Die Ereignistypen SESSION_START, SESSION_END und
+  SESSION_JANITOR_CLOSE des Lifecycle-Logs entfallen; SESSION_HARDCUT
+  bleibt dort als Verwaltungshandlung; SESSION_SIMUSE_REJECT entfaellt
+  zugunsten des Ablehnungsgrundes im AAA-Protokoll (ANF-SC-06).
+
+DEC-SC-04  SIGNALVERTRAG ALS SCHREIBVERTRAG MIT EINER IMPLEMENTIERUNG
+  Der Session-Signal-Vertrag (acht Pflichtfelder, BASE-020_020 Abschnitt
+  5) wird als Satz normativer Schreibvorgaenge SV-1..SV-3 umgesetzt, die
+  Hinweisfelder und Ereignis in EINER Transaktion fortschreiben. Es gibt
+  genau eine Implementierung dieser Vorgaenge fuer alle Runner. Jeder
+  Vorgang ist ueber die Episodenkennung idempotent.
+
+DEC-SC-05  L2TP: EPISODEN AUS DEM ABGLEICH, KEINE KORRELATION IM HOOK
+  Beginn und Ende einer L2TP-Episode leitet der L2TP-Abgleich aus radacct
+  und der Laufzeit ab. Die bisherige radacct-Korrelation im ip-up-Hook
+  mit begrenzter Wiederholung (BASE-030_050 Stand vor D004) entfaellt
+  ersatzlos: Sie diente dem Schreiben von vpn_sessions. Die Fail-Closed-
+  Bedingung des Hooks bleibt (keine Freigabe ohne erfolgreiche Policy-
+  Anwendung), haengt aber nicht mehr an einer zeitkritischen Suche.
+
+DEC-SC-06  SIMUSE IN VIER SCHICHTEN, KEINE UEBERNAHME
+  (1) Wahrheitspruefung im Anmeldepfad: Sonde und radacct.
+  (2) Sperre: schliesst das Fenster zwischen Zusage und sichtbarer
+      Wahrheit.
+  (3) Bereinigung: verhindert Aussperren durch Geister.
+  (4) Schlussriegel im Daemon: accel-ppp weist eine zweite Sitzung
+      desselben Logins selbst ab (single-session=deny); WireGuard laesst
+      je Peer technisch nur einen Endpunkt zu.
+  Schicht (4) ERSETZT die bisherige Vorgabe single-session=replace
+  (LT-35). Begruendung: "replace" beendet im Wettlauf die BESTEHENDE
+  Sitzung zugunsten der neuen und verletzt damit genau dann SZ-2 (und
+  AAA-04 "kein Takeover"), wenn die vorgelagerten Schichten versagen. Der
+  Zweck von LT-35 - letzter Schutz gegen zwei parallele Sitzungen - bleibt
+  mit "deny" vollstaendig erhalten. Ein Nachteil entsteht nicht: Im
+  Regelpfad lehnt der AAA-Dienst den zweiten Versuch ohnehin ab; "deny"
+  stellt lediglich sicher, dass der Ausnahmefall genauso ausgeht.
+  Besonders wichtig ist das, weil bestehende L2TP-Sitzungen eine
+  Abrechnungsstoerung ueberleben (LT-39): In dieser Zeit kann radacct eine
+  lebende Sitzung nicht zeigen. Befund BF-0012.
+
+DEC-SC-07  EIN SPERRVERTRAG, ZWEI VERWENDUNGEN
+  vpn_session_locks dient (a) als Admission-Guard des L2TP-Pfads und (b)
+  als Mutex fuer mehrschrittige Umbauten, die SQL und Laufzeit aendern
+  (Schluesselrotation, Rollenwechsel, Hard-Cut, Aktivitaetsbeginn bei
+  WireGuard). Jede Sperre traegt Zweck, Halter und Ablauf. Erwerb in zwei
+  Schritten (Abgelaufenes loeschen, dann einfuegen), NICHT als "Einfuegen
+  oder Aktualisieren": Dessen Rueckgabewert ist je nach Verbindungsoption
+  des Datenbanktreibers nicht eindeutig (BASE-070_030 Abschnitt 4).
+
+DEC-SC-08  SONDE MIT DREI ANTWORTEN
+  LIVE, NOT_LIVE, UNKNOWN. UNKNOWN wird nie wie NOT_LIVE behandelt: Bei
+  UNKNOWN wird nichts geschlossen, und der Anmeldepfad entscheidet streng
+  nach radacct. Der Schlussriegel deckt den Rest.
+
+DEC-SC-09  BEREINIGUNG DREIFACH, NUR FUER BELEGT TOTES
+  On-Demand im Anmeldepfad, periodisch, und nach Daemon- bzw. Systemstart.
+  Geschlossen wird ausschliesslich, was laut Laufzeit nicht lebt. Die
+  Bereinigung ist "best effort", die SimUse-Pruefung streng (Zwei-Stufen-
+  Modell aus B169).
+
+DEC-SC-10  HARD-CUT: LAUFZEIT ZUERST
+  vpn-session-kill beendet die Laufzeit ueber den Adapter und stoesst
+  danach den Abgleich an. Das Loeschen einer Sperre oder das Schliessen
+  einer Protokollzeile allein ist kein Hard-Cut und als Verwaltungs-
+  handlung nicht vorgesehen (D012).
+
+DEC-SC-11  L2TP-VERBRAUCH AUS radacct MIT BUCHUNGSSTAND
+  Gebucht wird die Differenz zwischen dem in radacct gemeldeten Gesamt-
+  zaehler einer Abrechnungssitzung und dem bereits gebuchten Stand
+  (vpn_l2tp_acct_state). Das ERSETZT den Kernel-Collector des Vorgaengers
+  (B165): accel-ppp meldet serverseitig gemessene, kumulative Zaehler;
+  ein zweiter Messweg ueber Interface-Zaehler waere eine zweite Quelle
+  fuer dieselbe Groesse. Die Schutzziele des Collectors (Idempotenz,
+  Wiederholbarkeit, kein Verlust bei Datenbankstoerung, begrenzter Puffer
+  mit Alarm) bleiben erhalten: BASE-070_050.
+
+DEC-SC-12  DATENBANKSTOERUNG VERLIERT KEINEN VERBRAUCH
+  WireGuard: Kernelzaehler laufen weiter; Snapshot beim Stop (D004 P-02).
+  L2TP: Der AAA-Dienst nimmt Abrechnungsmeldungen datenbankunabhaengig an
+  und spielt sie in Reihenfolge nach (ANF-SC-04); weil die Zaehler
+  kumulativ sind, genuegt jede spaetere Meldung derselben Sitzung.
+
+DEC-SC-13  QUOTA-PERIODE: KALENDERMONAT, WECHSEL ALS COMPARE-AND-SET
+  Periodengrenzen in der Geschaeftszeitzone, gespeichert als Zeitpunkte.
+  Der Wechsel ist je Connection eine Transaktion (Abschlussprotokoll,
+  Nullstellen, neue Grenzen) mit Vergleich auf das alte Periodenende.
+  Buchungen sind immer relativ (quota_used = quota_used + Delta). Damit
+  ist jede Verschraenkung von Buchung und Wechsel korrekt (D004-E08,
+  INV-QUOTA-RESET-ATOMARITY).
+
+DEC-SC-14  BASE-070 MISST, ES BEWERTET NICHT
+  Ob eine Quota ausgeschoepft ist und welche Folge das hat, entscheiden
+  Policy (BASE-100, MOD-010) und Lifecycle (BASE-010, BASE-080). BASE-070
+  garantiert die Aktualitaet von quota_used und nennt die Messlatenz.
+
+DEC-SC-15  ADRESSVERGABE: FREIMENGE, ZUFALL, POOL-SPERRE
+  Der Allokator bestimmt die Menge freier Slots eines Pools, waehlt mit
+  einem kryptografischen Zufallsgenerator gleichverteilt daraus und
+  schreibt Slot und Adressen in der Transaktion des Aufrufers. Vergaben
+  je Pool sind ueber eine Zeilensperre auf vpn_pool_config serialisiert;
+  die UNIQUE-Bedingung auf den Adressen bleibt letzte Verteidigung.
+  Gegenueber "zufaellig probieren mit begrenzten Versuchen" (B064/B061)
+  ist das Ergebnis exakt: "kein Slot frei" ist ein Befund, kein
+  Versuchsabbruch.
+
+DEC-SC-16  QUARANTAENE EINHEITLICH, AUCH OHNE CONNECTION-ZEILE
+  Eine Adresse ist gesperrt, solange (a) irgendeine Connection-Zeile sie
+  traegt oder (b) vpn_ip_quarantine sie fuehrt. (b) schliesst zwei
+  Luecken: die alte Adresse nach Rollenwechsel (D002 Risiko 2, bisher
+  unentschieden) und die vorzeitige physische Loeschung (bisher: Schutz
+  entfaellt). Jede widerrufene Connection wird nach Ablauf ihrer
+  Quarantaene physisch geloescht; das ist der einzige Rueckgabeweg.
+
+DEC-SC-17  LAUFZEITMARKEN STATT SETTINGS
+  Maschinenzustand (Generationen, Zeitpunkte letzter erfolgreicher Laeufe)
+  steht in vpn_runtime_marks. Settings bleiben das, was der Betreiber
+  einstellt. Damit haben auch die bisher ortlosen Gesundheitsmarken
+  (policy_reconcile_last_ok_at, wg_accounting_last_ok_at, ...) eine
+  Heimat.
+
+DEC-SC-18  UMBAUTEN BEENDEN DIE EPISODE AUSDRUECKLICH
+  Rotation, Rollenwechsel, Sperrung und Hard-Cut beenden eine laufende
+  Episode mit benanntem Grund; RESTRICTED beendet keine Episode (der
+  Tunnel bleibt bestehen). Reihenfolge: Sperre erwerben, Laufzeit
+  aendern, Ende melden, Sperre freigeben.
+
+DEC-SC-19  EINE UHR FUER FRISTEN
+  Sperren, Quarantaene und Periodengrenzen werden ausschliesslich mit der
+  Datenbankzeit verglichen (NOW() des Servers), nie mit der Uhr des
+  aufrufenden Prozesses. Ereigniszeiten (source_event_at) stammen aus der
+  Laufzeit.
+
+DEC-SC-20  OEFFENTLICHE ADRESSEN NUR IM EREIGNISPROTOKOLL
+  Die oeffentliche Gegenstelle eines Kunden steht ausschliesslich in
+  log_runtime_activity.remote_endpoint (und, fuer L2TP systembedingt, in
+  radacct.callingstationid). Kein Hinweisfeld, keine Statusdatei und kein
+  Diagnoselog dieses Moduls enthaelt sie. Aufbewahrung und Einsicht:
+  MOD-007 bzw. BASE-110 (nur ADMIN).
+
+================================================================================
+6) DAMIT GESCHLOSSENE OFFENE PUNKTE
+================================================================================
+
+  OPEN-SES-01  Controller-Form WireGuard        -> BASE-040_050; Vertrag
+                                                   BASE-070_020
+  OPEN-SES-02  Stale-Schwelle WireGuard         -> wg_handshake_stale_
+                                                   threshold_seconds
+                                                   (BASE-040_020, D004-E09)
+  OPEN-SES-03  Laufzeit-Mapping fuer WireGuard  -> entfaellt: Der Kernel-
+                                                   Peer ist selbst das
+                                                   Mapping (Adapter)
+  OPEN-SES-04  Bruecke radacct -> vpn_sessions  -> entfaellt (DEC-SC-01,
+                                                   DEC-SC-05)
+  OPEN-SES-05  Wiedereintrag nach Hard-Cut      -> BASE-040_030 Abschnitt 5
+  OPEN-SES-06  Accounting WireGuard             -> D004 P-01, BASE-040_050;
+                                                   Vertrag BASE-070_050
+  D002 Risiko 2  Quarantaene der alten Adresse  -> DEC-SC-16
+  OPEN-010-01 d  Owner des Quarantaene-Janitors -> BASE-070_060 Abschnitt 6
+  Allokator-Entwurf Abschnitt 4 (Option B)      -> vpn_pool_config,
+                                                   BASE-070_060
+  D004-E08     Zeitzone und Ausfuehrung des Resets -> BASE-070_050
+  D004-E03     Vier Aufgaben von BASE-070       -> _020 (a), _050 (b, c, d)
+  ANF-WT-09 / ANF-WT-10                         -> BASE-070_080 Abschnitt 4
+  Heimat der Gesundheitsmarken                  -> DEC-SC-17
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
