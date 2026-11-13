@@ -146,8 +146,10 @@ LESART:
 ================================================================================
 
   IN-01  iifname lo                                       -> accept
-  IN-02  iifname WAN, ICMPv6 Neighbor Discovery wie PR-02;
-         Multicast Listener Discovery von fe80::/10       -> accept
+  IN-02  iifname WAN, zustandslose Ausnahmen:
+         (a) ICMPv6 Neighbor Discovery wie PR-02; Multicast
+             Listener Discovery von fe80::/10
+         (b) ICMP "fragmentation needed" (IPv4), begrenzt -> accept
   IN-03  ct state invalid                                 -> drop [c_in_invalid]
   IN-04  iifname WG                                       -> jump seal
   IN-05  iifname VPN, Quelle in connect_pending           -> drop [c_in_pending]
@@ -210,6 +212,13 @@ LESART:
   begrenzt durch vpn_fw_reject_rate_per_sec; darueber wird verworfen.
 
   ERLAEUTERUNG
+  - IN-02 (b): Weil ESP nicht in conntrack gefuehrt wird (PR-09), kann
+    eine ICMP-Meldung zu einem ESP-Paket keinem Flow zugeordnet werden;
+    sie gaelte als ungueltig (IN-03) und die Ermittlung der Pfad-MTU fuer
+    IPsec ohne NAT-T wuerde scheitern. Die Ausnahme ist ratenbegrenzt;
+    der Kernel prueft die Meldung gegen bestehende IPsec-Verbindungen.
+    Fuer alle verfolgten Flows (NAT-T, WireGuard) gelangen ICMP-
+    Fehlermeldungen ueber IN-07 an.
   - IN-05/IN-06 stehen vor IN-07: Ein Gate bzw. eine entzogene Freigabe
     trennt auch bestehende Verbindungen zu lokalen Diensten.
   - IV-01: Aus dem VPN sind lokal NUR Adressen des SERVICE_NET

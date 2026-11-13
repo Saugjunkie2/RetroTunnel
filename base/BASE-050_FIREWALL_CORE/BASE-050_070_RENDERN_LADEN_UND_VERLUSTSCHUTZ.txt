@@ -23,6 +23,40 @@ ZWECK:
     ist er ungueltig, bricht das Rendern ab; das aktive Regelwerk bleibt
     unveraendert in Kraft. Es gibt keinen stillen Standardwert (DP-02).
 
+  GESAMTLISTE DER FIREWALL-SETTINGS (24 Keys; Typ, Bereich und Vorschlag
+  stehen am jeweils genannten Ort; Katalogisierung: BASE-090, ANF-FW-04)
+
+    KEY                                         KLASSE   DEFINIERT IN
+    ------------------------------------------- -------- ------------------
+    vpn_fw_wan_new_rate_per_sec                 RENDER   BASE-050_040 Abschn. 3
+    vpn_fw_wan_new_burst                        RENDER   BASE-050_040 Abschn. 3
+    vpn_fw_wan_new_global_rate_per_sec          RENDER   BASE-050_040 Abschn. 3
+    vpn_fw_wan_new_global_burst                 RENDER   BASE-050_040 Abschn. 3
+    vpn_fw_wan_ping_rate_per_sec                RENDER   BASE-050_040 Abschn. 3
+    vpn_fw_client_svc_new_rate_per_sec          RENDER   BASE-050_050 Abschn. 4
+    vpn_fw_client_svc_new_burst                 RENDER   BASE-050_050 Abschn. 4
+    vpn_fw_reject_rate_per_sec                  RENDER   BASE-050_050 Abschn. 4
+    vpn_fw_reject_burst                         RENDER   BASE-050_050 Abschn. 4
+    vpn_fw_abuse_extra_tcp_ports                RENDER   BASE-050_060 Abschn. 4
+    vpn_fw_abuse_extra_udp_ports                RENDER   BASE-050_060 Abschn. 4
+    vpn_fw_client_new_rate_per_sec              RENDER   BASE-050_060 Abschn. 4
+    vpn_fw_client_new_burst                     RENDER   BASE-050_060 Abschn. 4
+    vpn_fw_client_max_flows                     RENDER   BASE-050_060 Abschn. 4
+    vpn_fw_client_icmp_rate_per_sec             RENDER   BASE-050_060 Abschn. 4
+    vpn_fw_client_icmp_burst                    RENDER   BASE-050_060 Abschn. 4
+    vpn_fw_client_admin_factor                  RENDER   BASE-050_060 Abschn. 4
+    vpn_fw_conntrack_max                        SYSCTL   BASE-050_060 Abschn. 5
+    vpn_fw_ct_tcp_established_timeout_seconds   SYSCTL   BASE-050_060 Abschn. 5
+    vpn_fw_log_rate_per_sec                     RENDER   Abschnitt 7.2
+    vpn_fw_log_burst                            RENDER   Abschnitt 7.2
+    vpn_fw_log_labels                           RENDER   Abschnitt 7.2
+    vpn_fw_check_interval_seconds               RENDER   Abschnitt 4
+    vpn_fw_seal_alert_seconds                   RENDER   Abschnitt 4
+
+  Fremde Settings, deren Aenderung ein Rendern ausloest: wg_listen_port,
+  wg_tunnel_mtu (BASE-040_020). Kein Key dieses Moduls wirkt je Kunde oder
+  je Connection; alle sind global.
+
   EINGABEN (nur lesend)
     a) Plattform-Registry in maschinenlesbarer Form: Name des
        WAN-Interfaces, Dienstadressen und -ports mit Dienstklasse
@@ -140,12 +174,18 @@ ZWECK:
             Zweck: Soll-Zustand bekraeftigen, Fremdobjekte entfernen.
 
   recover   (nach erkanntem Verlust, Abschnitt 4)
-    1  Weiterleitung aus
-    2  active.nft VERSIEGELT mit leeren Sets aktivieren (wie boot 2-5)
-    3  Weiterleitung an (nur bei vollem Regelwerk)
+    1  active.nft VERSIEGELT mit leeren Sets aktivieren (wie boot 2-5)
+    2  ist der Lock nicht binnen 2 Sekunden zu erhalten oder laesst sich
+       kein volles Regelwerk laden: Weiterleitung aus (dieser Schritt
+       wartet NICHT auf den Lock)
+    3  nach erfolgreichem Laden eines vollen Regelwerks: Weiterleitung an
     4  vollstaendigen Abgleich bei BASE-080 anstossen
     Die Set-Inhalte sind verloren; deshalb Siegel. Bis zum Abgleich ist
     WireGuard gesperrt und L2TP ohne Freigaben - beides geschlossen.
+    Begruendung der Reihenfolge: Das versiegelte Laden schliesst den
+    Zustand sofort und vollstaendig; das Umschalten der Weiterleitung hat
+    Nebenwirkungen (L-2) und bleibt dem Fall vorbehalten, dass nicht
+    sofort geladen werden kann.
 
   unseal    (nur durch vpn-policy-apply)
     Vorbedingung (in DIESER Generation hergestellt und vom Aufrufer
@@ -183,6 +223,11 @@ ZWECK:
     L-2  Weiterleitung ist nur in den Zustaenden VERSIEGELT und BETRIEB
          eingeschaltet. vpn-fw-load schaltet sie VOR jedem Entfernen aus
          und erst NACH erfolgreicher Pruefung ein (DEC-FW-06).
+         Das Umschalten setzt im Kernel einzelne Netzparameter zurueck
+         (unter anderem die Annahme von Umleitungen) und beeinflusst die
+         Behandlung von Router Advertisements; vpn-fw-load stellt deshalb
+         nach JEDEM Umschalten die Parameter aus Abschnitt 6 wieder her
+         (Bestaetigung an der Zielplattform: E-FW-10).
     L-3  Eine Aktivierung ohne uebernommene Set-Inhalte ist immer
          versiegelt (DEC-FW-04).
     L-4  Der Notfall-Riegel enthaelt: lo frei; bestehende Verbindungen des
@@ -200,8 +245,9 @@ ZWECK:
 
   PRUEFUNG                       BEFUND                  REAKTION
   ------------------------------ ----------------------- ---------------------
-  Tabelle vorhanden?             FW_KEIN_REGELWERK       sofort Weiterleitung
-                                 (KRITISCH)              aus; recover
+  Tabelle vorhanden?             FW_KEIN_REGELWERK       recover (versiegelt
+                                 (KRITISCH)              laden; sonst
+                                                         Weiterleitung aus)
   Generation = active.nft?       FW_GENERATION_FALSCH    recover
                                  (KRITISCH)
   Kernel-Zustand = Soll-Abbild   FW_STRUKTUR_ABWEICHUNG  reload
@@ -230,8 +276,9 @@ ZWECK:
 
   ZEITVERHALTEN (verschaerft PF-18)
     Ein Verlust des Regelwerks wird spaetestens nach einem Pruefintervall
-    erkannt. Ab der Erkennung ist die Weiterleitung aus, danach das
-    Regelwerk versiegelt geladen. Die vollstaendige Wiederherstellung der
+    erkannt. Ab der Erkennung wird das Regelwerk versiegelt geladen
+    (Dauer: Sekundenbruchteile); gelingt das nicht sofort, ist die
+    Weiterleitung aus. Die vollstaendige Wiederherstellung der
     Zustaende folgt mit dem angestossenen Abgleich (Frist dort:
     BASE-080; Obergrenze bleibt vpn_reconcile_interval_seconds + 60 s).
     Im Fenster zwischen Verlust und Erkennung gilt: Es existiert kein NAT;

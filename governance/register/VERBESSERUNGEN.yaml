@@ -65,3 +65,72 @@ eintraege:
   entscheidung: VERWORFEN
   begruendung: Zweiter WAN-Port und zweites Interface mit eigener Firewall-, Accounting- und SimUse-Behandlung; DPI-erkennbare Signatur (DEC-WT-07).
   entdeckt_in: AP-K040
+- id: VB-0008
+  titel: Datenbankunabhängiger Notzugang (rtmgmt0) für die Verwaltung im Störfall
+  zweck: SSH bleibt auch bei Ausfall von Datenbank, RADIUS, Tunnel-Diensten, AWG-Modul oder vollem Regelwerk erreichbar, ohne einen Verwaltungsdienst am WAN zu öffnen.
+  einstufung: BETRIEBLICH_NOTWENDIG
+  entscheidung: INTEGRIEREN
+  begruendung: Schließt Befund BF-0011. Ohne ihn hinge jede Wiederherstellung an der Konsole des Hosters; die Zusage "SSH bleibt in jedem Fall erreichbar" wäre nicht erfüllbar.
+  folgekosten: Zusätzlicher UDP-Port am WAN (antwortet Unbekannten nicht), ein weiteres Interface, Schlüsselpflege von Hand, Betriebsanleitung; Präzisierung von WT-01/DEC-WT-07 (genau ein WireGuard-Endpunkt für Clients).
+  integriert_in: [base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-16, base/BASE-050_FIREWALL_CORE/BASE-050_040_WAN_EXPOSITION_UND_NOTZUGANG.txt#6) NOTZUGANG rtmgmt0]
+  entdeckt_in: AP-K050
+- id: VB-0009
+  titel: Eingehende Portfreigaben für Kunden (Diskussion vom 2026-04-15)
+  zweck: Kunden können einzelne eingehende Ports auf ihre Tunneladresse leiten lassen (z. B. Tauschbörsen).
+  einstufung: OPTIONAL
+  entscheidung: OFFEN
+  begruendung: Nutzen für einen Teil der Kunden; öffnet aber erstmals neue Flows vom WAN zu Clients (Missbrauchs- und Haftungsrisiko, zusätzlicher Verwaltungs- und Prüfaufwand). Im Firewall-Kern sind nur leere Erweiterungspunkte reserviert; die Entscheidung fällt in der Gesamtanalyse AP-V01.
+  folgekosten: Schema, Panel-Funktion, Kontingent als Policy-Wert, Set-Pflege über vpn-policy-apply, zusätzliche Tests und Abuse-Regeln.
+  entdeckt_in: AP-K050
+- id: VB-0010
+  titel: Selbstschutz der Firewall (Siegel, Ladekette mit Notfall-Riegel, Weiterleitung an das Regelwerk gekoppelt, Verlusterkennung im Sekundentakt)
+  zweck: Kein offener Zustand beim Systemstart, beim Regelwerkswechsel, bei nicht ladbarem Regelwerk und nach Verlust des Regelwerks.
+  einstufung: ZWINGEND_NOTWENDIG
+  entscheidung: INTEGRIEREN
+  begruendung: Schließt den im Changelog v2.1.14 registrierten Fail-Open-Fall bei leeren Deny-Sets (Neu-8) auch für Laden und Wiederherstellung und verkürzt das in PF-18 hingenommene Fenster von Minuten auf das Prüfintervall.
+  folgekosten: Drei Werkzeuge mit klaren Operationen, ein kurzer Timer, Zustandsmodell; Abstimmung mit BASE-080 (Vorbedingung zum Lösen des Siegels).
+  integriert_in: [base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-04, base/BASE-050_FIREWALL_CORE/BASE-050_070_RENDERN_LADEN_UND_VERLUSTSCHUTZ.txt#3) LADE-OPERATIONEN]
+  entdeckt_in: AP-K050
+- id: VB-0011
+  titel: L2TP-Freigabe an die Interface-Instanz binden; strikte Rückwegprüfung an Tunnel-Interfaces
+  zweck: Ein liegengebliebener Freigabe-Eintrag oder eine gefälschte Quelladresse kann keine L2TP-Sitzung vor ihrem Policy-Apply freischalten.
+  einstufung: ZWINGEND_NOTWENDIG
+  entscheidung: INTEGRIEREN
+  begruendung: Die Tunneladresse einer Connection ist fest; ein reiner Adress-Eintrag würde nach einem Absturz die nächste Sitzung sofort freischalten (Verletzung von LT-19). Auf ppp* erzwingt der Tunnel die Quelladresse nicht; ohne Rückwegprüfung ließe sich mit der Adresse einer freigegebenen Sitzung senden.
+  folgekosten: accel-ppp ohne Interface-Wiederverwendung (ANF-FW-02); Bestätigung an der Zielplattform (E-FW-07).
+  integriert_in: [base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-08, base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-13]
+  entdeckt_in: AP-K050
+- id: VB-0012
+  titel: Zustands-Sperren vor dem Durchlass bestehender Flows
+  zweck: Einschränkung, Gate, entzogene Freigabe und Sperren wirken ab dem nächsten Paket, auch wenn der conntrack-Flush scheitert.
+  einstufung: WESENTLICH_VORTEILHAFT
+  entscheidung: INTEGRIEREN
+  begruendung: Der Hard-Cut hängt nicht mehr allein an einem Folgeschritt außerhalb des Kernels; Kosten sind wenige Set-Zugriffe je Paket.
+  folgekosten: Kein Flowtable-Offload; geringfügig höhere CPU-Last je Paket.
+  integriert_in: [base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-09]
+  entdeckt_in: AP-K050
+- id: VB-0013
+  titel: Abweisung statt stillem Verwerfen innerhalb des VPN (DoT/DoQ, eingeschränkte Clients, Mailports)
+  zweck: Clients erhalten sofort eine Fehlermeldung statt Zeitüberschreitungen; automatische DNS-Verfahren fallen sofort auf den umgeleiteten Port 53 zurück.
+  einstufung: WESENTLICH_VORTEILHAFT
+  entscheidung: INTEGRIEREN
+  begruendung: Gleiche Schutzwirkung, deutlich weniger Wartezeiten und Supportfälle; am WAN bleibt es beim stillen Verwerfen.
+  folgekosten: Ratenbegrenzung der Abweisungen.
+  integriert_in: [base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-12, base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-17]
+  entdeckt_in: AP-K050
+- id: VB-0014
+  titel: Portal-Umleitung für eingeschränkte Clients (http-Aufrufe zeigen das Portal)
+  zweck: Ein eingeschränkter Kunde sieht bei einem beliebigen http-Aufruf den Grund und den nächsten Schritt.
+  einstufung: OPTIONAL
+  entscheidung: OFFEN
+  begruendung: Verbessert die Nutzerführung, wirkt aber nur für unverschlüsselte Aufrufe; Regelstelle ist reserviert. Entscheidung in MOD-002 bzw. AP-V01.
+  entdeckt_in: AP-K050
+- id: VB-0015
+  titel: Regelmäßiger Abgleich der lauschenden Dienste und wählbare Log-Kennzeichen mit datensparsamer Voreinstellung
+  zweck: Ein falsch gebundener Dienst wird gemeldet; öffentliche Quelladressen von Internet-Scans werden nicht ohne Anlass gespeichert.
+  einstufung: WESENTLICH_VORTEILHAFT
+  entscheidung: INTEGRIEREN
+  begruendung: Der Listener-Abgleich war im Altkonzept (B100) Pflicht und fehlte bisher; die Voreinstellung der Kennzeichen setzt "keine PII in Logs" (B063) praktikabel um.
+  integriert_in: [base/BASE-050_FIREWALL_CORE/BASE-050_070_RENDERN_LADEN_UND_VERLUSTSCHUTZ.txt#LISTENER-ABGLEICH, base/BASE-050_FIREWALL_CORE/BASE-050_070_RENDERN_LADEN_UND_VERLUSTSCHUTZ.txt#vpn_fw_log_labels]
+  entdeckt_in: AP-K050
+

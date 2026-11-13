@@ -86,8 +86,9 @@ befunde:
   entdeckt_in: AP-S01
 - id: BF-0006
   klasse: SCHWERWIEGEND
-  status: IN_ARBEIT
-  stand: "2026-11-12: Für den WireGuard-Teil entschieden (BASE-040 DEC-WT-05: keine Firewall-Kommandos in awg0.conf). Vollständige Auflösung und Angleichung von 04_PHASE_PLAN in AP-K050/AP-A06."
+  status: BEHOBEN
+  stand: "2026-11-13: Entschieden in BASE-050 DEC-FW-01 (eine Tabelle, ein Renderer, ein Aktivierungsweg; Set-Inhalte nur über vpn-policy-apply; keine Regeln in awg0.conf, Hooks, Panel oder Fremdwerkzeugen). Die widersprüchliche Zeile in 04_PHASE_PLAN ist korrigiert."
+  behoben_in: ["base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-01", "base/BASE-040_TUNNEL_WIREGUARD/BASE-040_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-WT-05", "04_PHASE_PLAN.txt"]
   titel: Widerspruch zur Autorität über Firewall-Regeln (awg0.conf PostUp/PostDown vs. SQL-first/Single-Writer)
   beschreibung: >-
     04_PHASE_PLAN nennt als Single-Source-of-Truth der Firewall "awg0.conf PostUp/PostDown (Service-Regeln) +
@@ -144,7 +145,7 @@ befunde:
 - id: BF-0010
   klasse: SCHWERWIEGEND
   status: OFFEN
-  stand: "2026-11-13: Der Betreiber liefert die lokalen Moduldateien nicht nach (BM-0003). Maßnahme (3) entfällt; es bleibt bei (1) Changelog als Primärquelle und (2) Nachzug in AP-Q04. Die Vermutung des Betreibers, die Inhalte seien bereits im Projekt aufgegangen, ist durch den unter 'beleg' genannten grep-Befund widerlegt."
+  stand: "2026-11-13: Der Betreiber liefert die lokalen Moduldateien nicht nach (BM-0003). Maßnahme (3) entfällt; es bleibt bei (1) Changelog als Primärquelle und (2) Nachzug in AP-Q04. Die Vermutung des Betreibers, die Inhalte seien bereits im Projekt aufgegangen, ist durch den unter 'beleg' genannten grep-Befund widerlegt. BASE-050 setzt F-001/F-002 (v2.1.14/v2.1.15) bereits um; der daraus folgende Nachzug in BASE-005_080 (Boot-Reihenfolge) und BASE-030 (LT-32, unit-cache) ist als ANF-FW-01/ANF-FW-02 registriert."
   titel: Moduldateien im Repository liegen hinter dem im Changelog dokumentierten Entscheidungsstand (v1.5 bis v2.1.15)
   beschreibung: >-
     Root-Dokumente (Changelog, Glossar, Manifest, Regeln, Phasenplan, Tracker) stehen auf v2.1.15. Die Moduldateien
@@ -173,3 +174,26 @@ befunde:
     gegen den Nachzug abgeglichen. Kein Blocker für die Arbeit.
   arbeitspaket: AP-Q04
   entdeckt_in: AP-Q01
+- id: BF-0011
+  klasse: SCHWERWIEGEND
+  status: BEHOBEN
+  titel: Erklärter Notfallkanal SSH war bei Störungen nicht erreichbar (kein datenbankunabhängiger Verwaltungszugang)
+  beschreibung: >-
+    BASE-020_020 nennt für die Wiederherstellung bei Datenbankausfall "out-of-band (SSH/Console)"; die
+    Panel-Vorstudie bezeichnet SSH als letzten Notfallkanal "in jedem Fall". SSH ist aber nur an SERVICE_SSH
+    gebunden und ausschließlich über die Produkt-Tunnel aus dem ADMIN-Pool erreichbar. Bei Datenbankausfall lehnt
+    L2TP neue Anmeldungen ab (RADIUS) und awg0 wird nach der Grace gestoppt (WG-GRACE); bei defektem AWG-Modul
+    oder nicht ladbarem Regelwerk gibt es ebenfalls keinen Weg. Übrig blieb nur die Konsole des Hosters, die im
+    Konzept nirgends als Voraussetzung (lokales Konto, Kennwort) geführt war.
+  fundstellen: ["RT:base/BASE-020_AAA_CORE/BASE-020_020_ADMISSION_VERTRAG.txt:121", "RT:base/BASE-110_WEBSTACK_CORE/entwuerfe/panel-zentrale/VISION_PANEL_ZENTRALE.txt:579", "RT:base/BASE-005_PLATFORM_CORE/BASE-005_030_SERVICE_ENDPOINTS_UND_PORTS.txt:43"]
+  beleg: Wortlaute gelesen; Abgleich mit BASE-040_060 (Dienst-Stop nach Grace) und der Dienst-Matrix (SSH nur ADMIN-Pool).
+  auswirkung: >-
+    Im wahrscheinlichsten Störfall (Datenbank länger als die Grace nicht verfügbar) wäre der Server aus der Ferne
+    nicht mehr verwaltbar gewesen; die Wiederherstellung hätte von einer nicht dokumentierten Voraussetzung abgehangen.
+  massnahme: >-
+    Notzugang rtmgmt0 als eigene, datenbankunabhängige Ebene (BASE-050 DEC-FW-16, BASE-050_040 Abschnitt 6) mit
+    engem Zielumfang (nur SSH), Verfügbarkeit auch im Notfall-Riegel, Meldung jeder Nutzung; Konsole des Hosters als
+    letzte Ebene mit ausdrücklicher Anforderung eines lokalen Kontos (ANF-FW-01 h, ANF-FW-10).
+  behoben_in: ["base/BASE-050_FIREWALL_CORE/BASE-050_040_WAN_EXPOSITION_UND_NOTZUGANG.txt#6) NOTZUGANG rtmgmt0", "base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-16"]
+  arbeitspaket: AP-K050
+  entdeckt_in: AP-K050
