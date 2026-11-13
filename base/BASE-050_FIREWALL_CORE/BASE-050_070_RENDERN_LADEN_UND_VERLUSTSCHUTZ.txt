@@ -1,0 +1,470 @@
+================================================================================
+BASE-050 — RENDERN, LADEN, BOOT UND VERLUSTSCHUTZ
+================================================================================
+DATEI: BASE-050_070_RENDERN_LADEN_UND_VERLUSTSCHUTZ.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Wie das Regelwerk entsteht (Rendern), wie es in den Kernel kommt (Laden),
+  wie der Systemstart ablaeuft, wie Verlust und Drift erkannt und behoben
+  werden, welche Kernelparameter dazugehoeren und wie der Zustand
+  beobachtet wird. Werkzeugnamen und Pfade sind Vertragsbestandteil;
+  Befehlszeilen sind Spezifikationsbeispiele, keine Implementierung.
+
+================================================================================
+1) SETTINGS-KLASSEN UND RENDER-VERTRAG (vpn-fw-render)
+================================================================================
+
+  WIRKUNGSKLASSEN DER FIREWALL-SETTINGS
+    RENDER   wirkt, sobald ein neues Regelwerk gerendert UND aktiviert ist.
+             Bestehende Verbindungen laufen weiter (Abschnitt 3).
+    SYSCTL   wird als Kernelparameter geschrieben und wirkt sofort.
+  FEHLERVERHALTEN: fuer ALLE Firewall-Settings STRICT. Fehlt ein Wert oder
+    ist er ungueltig, bricht das Rendern ab; das aktive Regelwerk bleibt
+    unveraendert in Kraft. Es gibt keinen stillen Standardwert (DP-02).
+
+  EINGABEN (nur lesend)
+    a) Plattform-Registry in maschinenlesbarer Form: Name des
+       WAN-Interfaces, Dienstadressen und -ports mit Dienstklasse
+       (ANF-FW-01)
+    b) vpn_pool_config: Pool-Bereiche aller Rollen, IPv4 und IPv6
+    c) Settings: vpn_fw_* (dieses Modul), wg_listen_port, wg_tunnel_mtu
+    d) Notzugangs-Datei /etc/wireguard/rtmgmt0.conf (nur ListenPort und
+       Address)
+
+  AUSGABEN
+    /etc/retrotunnel/firewall/candidate.nft   Kandidat (root:root 0600)
+    /etc/retrotunnel/firewall/lockdown.nft    Notfall-Riegel; haengt nur
+                                              von a) und d) ab und wird
+                                              OHNE Datenbank erzeugt
+    /etc/sysctl.d/60-retrotunnel-net.conf     Kernelparameter (Abschnitt 6)
+    Generation = SHA-256 ueber den Kandidaten in kanonischer Form (ohne
+    Set-Inhalte und Siegelzustand); steht als Kommentar an der Tabelle.
+
+  PFLICHTEN DES RENDERERS
+    R-a  Deterministisch: gleiche Eingaben ergeben eine bytegleiche Datei.
+    R-b  Vollstaendig: Der Kandidat enthaelt alle Objekte, Ketten und
+         Regeln aus BASE-050_020 und nichts darueber hinaus.
+    R-c  Syntaxpruefung des Kandidaten ohne Aktivierung.
+    R-d  Strukturpruefung gegen feste Ordnungsbedingungen, u. a.:
+         - FD-03 bis FD-11 stehen vor FD-13; FD-12 steht vor FD-13
+         - IN-04 bis IN-06 stehen vor IN-07
+         - IW-04 steht unmittelbar vor IW-05
+         - PR-06 und PR-07 sind vorhanden
+         - NP-01 und NP-02 sind vorhanden
+         - post_guard hat eine hoehere Prioritaet als nat_post
+         - am WAN gibt es keine weiteren accept-Regeln als IW-01..IW-07
+           und IN-02
+         - jede Regel mit Urteil traegt ihren Zaehler
+    R-e  Plausibilitaet der Eingaben: Pools ueberschneiden sich nicht,
+         liegen im RetroTunnel-Adressraum und nicht im SERVICE_NET oder
+         mgmt_net; Ports der WAN-Endpunkte sind paarweise verschieden.
+    Scheitert eine Pflicht, entsteht KEIN Kandidat.
+
+  AUSLOESER: Aenderung eines Eingabewerts. Das Panel zeigt den Zustand
+    "gerendert weicht von aktiv ab", bis aktiviert wurde. Rendern braucht
+    die Datenbank; Laden, Pruefen und Booten brauchen sie nicht.
+
+================================================================================
+2) DATEIEN UND ZUSTAENDE
+================================================================================
+
+  DATEIEN
+    /etc/nftables.conf                        zeigt nur auf active.nft
+    /etc/retrotunnel/firewall/active.nft      zuletzt erfolgreich aktiviert
+    /etc/retrotunnel/firewall/lkg.nft         davor erfolgreich aktiviert
+    /etc/retrotunnel/firewall/candidate.nft   gerendert, noch nicht aktiv
+    /etc/retrotunnel/firewall/lockdown.nft    Notfall-Riegel
+    /run/retrotunnel/fw/status.json           Zustand (Abschnitt 7)
+    /run/retrotunnel/fw/expected.sha256       Soll-Abbild des Kernel-
+                                              Zustands nach Aktivierung
+
+  ZUSTAENDE DER FIREWALL
+    KEIN_REGELWERK  Tabelle fehlt. Weiterleitung MUSS aus sein. Nur
+                    voruebergehend zulaessig (vor dem Laden beim Start).
+    RIEGEL          Notfall-Riegel geladen. Weiterleitung aus. Kein Tunnel.
+                    Nur Notzugang und lokale Dienste ueber lo.
+    VERSIEGELT      Volles Regelwerk, Siegel aktiv. Weiterleitung an.
+                    L2TP nach Freigabe-Set, WireGuard gesperrt.
+    BETRIEB         Volles Regelwerk, Siegel geloest. Normalzustand.
+
+  UEBERGAENGE
+    Start            KEIN_REGELWERK -> VERSIEGELT   (Operation boot)
+                     KEIN_REGELWERK -> RIEGEL       (boot, alle Versuche
+                                                     gescheitert)
+    Abgleich ok      VERSIEGELT -> BETRIEB          (Operation unseal)
+    Regelwechsel     BETRIEB -> BETRIEB             (activate/reload,
+                                                     mit Uebernahme)
+    Verlust erkannt  * -> VERSIEGELT                (recover)
+    Notfall          * -> RIEGEL                    (lockdown)
+    Stopp            * -> KEIN_REGELWERK            (stop; Tunnel-Dienste
+                                                     enden mit)
+
+================================================================================
+3) LADE-OPERATIONEN (vpn-fw-load)
+================================================================================
+
+  Alle Operationen laufen als root unter dem Single-Writer-Lock
+  /run/vpn-policy-apply.lock (R-11). Jede Aenderung am Kernel ist EINE
+  nft-Transaktion.
+
+  boot      (ExecStart von nftables.service)
+    1  Weiterleitung aus (IPv4 und IPv6)
+    2  active.nft VERSIEGELT und mit leeren dynamischen Sets aktivieren
+    3  pruefen: Tabelle vorhanden, Generation stimmt -> Soll-Abbild
+       schreiben, Weiterleitung an, Zustand VERSIEGELT, Ende mit Erfolg
+    4  bei Fehler: dasselbe mit lkg.nft (Meldung FW_LKG_GELADEN)
+    5  bei Fehler: lockdown.nft aktivieren, Weiterleitung bleibt aus,
+       Zustand RIEGEL, Ende mit FEHLER (die Unit gilt als gescheitert;
+       wegen Requires= startet kein Tunnel-Dienst)
+    6  scheitert auch das: Zustand KEIN_REGELWERK, Weiterleitung aus,
+       Ende mit FEHLER
+
+  activate  (neuen Kandidaten in Betrieb nehmen)
+    1  Kandidat pruefen (Syntax; Generation passt zur Datei)
+    2  Elemente aller dynamischen Sets und den Siegelzustand aus dem
+       Kernel lesen (BASE-050_030 Abschnitt 8); bei Lesefehler ABBRUCH
+       ohne Aenderung
+    3  eine Transaktion: alles entfernen + Kandidat + gelesene Elemente +
+       gelesener Siegelzustand
+    4  pruefen: Generation, Elementzahlen, Siegelzustand
+    5  bei Erfolg: active.nft -> lkg.nft, Kandidat -> active.nft,
+       Soll-Abbild neu schreiben
+    6  lehnt der Kernel die Transaktion ab, bleibt der alte Zustand
+       vollstaendig bestehen (Meldung, kein Dateitausch); scheitert erst
+       Schritt 4, folgt recover
+    Bestehende Verbindungen bleiben erhalten (conntrack wird nicht
+    geleert); Zaehler und Zaehlerspeicher beginnen neu.
+
+  reload    (ExecReload) wie activate, aber mit active.nft als Quelle.
+            Zweck: Soll-Zustand bekraeftigen, Fremdobjekte entfernen.
+
+  recover   (nach erkanntem Verlust, Abschnitt 4)
+    1  Weiterleitung aus
+    2  active.nft VERSIEGELT mit leeren Sets aktivieren (wie boot 2-5)
+    3  Weiterleitung an (nur bei vollem Regelwerk)
+    4  vollstaendigen Abgleich bei BASE-080 anstossen
+    Die Set-Inhalte sind verloren; deshalb Siegel. Bis zum Abgleich ist
+    WireGuard gesperrt und L2TP ohne Freigaben - beides geschlossen.
+
+  unseal    (nur durch vpn-policy-apply)
+    Vorbedingung (in DIESER Generation hergestellt und vom Aufrufer
+    bestaetigt):
+      a) restricted_v4/_v6 sind vollstaendig aus SQL neu aufgebaut, und
+      b) fuer JEDEN im Kernel vorhandenen WireGuard-Peer gilt: seine
+         Connection ist laut SQL zugelassen und ihr Policy-Zustand ist
+         hergestellt, ODER seine Adressen stehen in connect_pending.
+    Einzelne gescheiterte Peers verhindern das Loesen nicht, solange b)
+    fuer sie ueber das Gate erfuellt ist.
+    Wirkung: Kette seal wird geleert. Idempotent. Ohne bestaetigte
+    Vorbedingung wird die Operation abgelehnt. Wie der Abgleich die
+    Vorbedingung herstellt (Reihenfolge der Schritte), legt BASE-080 fest.
+
+  stop      (ExecStop) Weiterleitung aus, dann alles entfernen. Die
+            Tunnel-Units enden ueber ihre Requires-Bindung.
+
+  lockdown  (Handeingriff im Notfall) Weiterleitung aus, Notfall-Riegel
+            aktivieren. Tunnel-Dienste sind vom Betreiber zu stoppen bzw.
+            enden mit dem Stopp von nftables.service.
+
+  has-ruleset  (nur lesend) Erfolg, wenn die Tabelle des vollen Regelwerks
+            oder des Notfall-Riegels vorhanden ist (Startbedingung des
+            Notzugangs).
+
+  ERGEBNISCODES
+    0 OK | 2 EINGABE_FEHLT | 3 SYNTAX | 4 KERNEL_ABGELEHNT |
+    5 GESPERRT (Lock belegt) | 6 PRUEFUNG_GESCHEITERT | 7 RIEGEL_GELADEN |
+    8 KEIN_REGELWERK
+
+  REGELN
+    L-1  Es gibt keinen anderen Weg, das Regelwerk zu aendern. Insbesondere
+         kein "systemctl restart nftables" im Betrieb (Abschnitt 9) und
+         kein direktes nft durch andere Komponenten.
+    L-2  Weiterleitung ist nur in den Zustaenden VERSIEGELT und BETRIEB
+         eingeschaltet. vpn-fw-load schaltet sie VOR jedem Entfernen aus
+         und erst NACH erfolgreicher Pruefung ein (DEC-FW-06).
+    L-3  Eine Aktivierung ohne uebernommene Set-Inhalte ist immer
+         versiegelt (DEC-FW-04).
+    L-4  Der Notfall-Riegel enthaelt: lo frei; bestehende Verbindungen des
+         Servers; ICMPv6 Neighbor Discovery; den Notzugang (IW-07,
+         in_mgmt) - und sonst nur Verwerfen, auch im forward.
+
+================================================================================
+4) VERLUST- UND DRIFTERKENNUNG (vpn-fw-check)
+================================================================================
+
+  TAKT: vpn-fw-check.timer, alle vpn_fw_check_interval_seconds
+    (INT 5..60, Vorschlag 10; Wirkung: beim Rendern in die Timer-Unit
+    geschrieben). Laeuft ohne Datenbank. Nur die unten genannten
+    Reaktionen veraendern den Kernel, jeweils ueber vpn-fw-load.
+
+  PRUEFUNG                       BEFUND                  REAKTION
+  ------------------------------ ----------------------- ---------------------
+  Tabelle vorhanden?             FW_KEIN_REGELWERK       sofort Weiterleitung
+                                 (KRITISCH)              aus; recover
+  Generation = active.nft?       FW_GENERATION_FALSCH    recover
+                                 (KRITISCH)
+  Kernel-Zustand = Soll-Abbild   FW_STRUKTUR_ABWEICHUNG  reload
+  (ohne Set-Inhalte, Zaehler)?   (WARNUNG)
+  fremde Tabellen/Ketten?        FW_FREMDOBJEKT          reload (entfernt sie)
+                                 (WARNUNG)
+  Weiterleitung passt zum        FW_WEITERLEITUNG        an Zustand angleichen;
+  Zustand?                       (KRITISCH, wenn an      Meldung
+                                 ohne Regelwerk)
+  Siegel aktiv laenger als       FW_SIEGEL_HAENGT        Abgleich erneut
+  vpn_fw_seal_alert_seconds?     (ALARM)                 anstossen; Meldung
+  Set-Inhalte zulaessig?         FW_SET_INHALT           Meldung; Abgleich
+  (banned ohne Ablauf oder mit   (WARNUNG)               anstossen
+  verbotener Adresse; Admin-
+  Freigabe ausserhalb des Pools)
+  Rueckfallrouten vorhanden?     FW_ROUTE_FEHLT          Routen setzen; Meldung
+  Zustand RIEGEL?                FW_RIEGEL_AKTIV (ALARM) Meldung je Lauf
+  conntrack-Fuellstand           CT_FUELLSTAND           Meldung ab 80 %
+  neuer Handshake auf rtmgmt0    MGMT_ZUGANG_GENUTZT     Meldung
+
+  vpn_fw_seal_alert_seconds: INT 30..3600, Vorschlag 120 (RENDER, STRICT).
+
+  ZEITVERHALTEN (verschaerft PF-18)
+    Ein Verlust des Regelwerks wird spaetestens nach einem Pruefintervall
+    erkannt. Ab der Erkennung ist die Weiterleitung aus, danach das
+    Regelwerk versiegelt geladen. Die vollstaendige Wiederherstellung der
+    Zustaende folgt mit dem angestossenen Abgleich (Frist dort:
+    BASE-080; Obergrenze bleibt vpn_reconcile_interval_seconds + 60 s).
+    Im Fenster zwischen Verlust und Erkennung gilt: Es existiert kein NAT;
+    Pakete der Clients verlassen das WAN mit privaten Quelladressen und
+    erhalten keine Antwort. Lokale Dienste sind in dieser Zeit nur durch
+    ihre eigene Authentisierung geschuetzt. Das Fenster ist auf das
+    Pruefintervall begrenzt und wird gemeldet.
+
+  UEBERWACHUNG DES WAECHTERS
+    Jeder Lauf schreibt seinen Zeitpunkt in status.json. Ist der letzte
+    erfolgreiche Lauf aelter als das Dreifache des Intervalls, meldet
+    MOD-007 FW_CHECK_STEHT (ANF-FW-08).
+
+  ABGRENZUNG
+    vpn-fw-check vergleicht STRUKTUR und Zulaessigkeit. Ob der INHALT der
+    Sets zu SQL passt, prueft der Abgleich von BASE-080 (PF-18, POL-05).
+
+================================================================================
+5) RUECKFALLROUTEN
+================================================================================
+
+  Dauerhaft vorhanden, mit schlechterer Metrik als jede Tunnelroute:
+    unreachable 10.77.0.0/16
+    unreachable fd77:0:0::/48
+  Wirkung: Pakete an eine Tunneladresse ohne aktive Route (Client nicht
+  verbunden, awg0 gestoppt) werden lokal abgewiesen und folgen nie der
+  Standardroute ins WAN (WT-11, ANF-WT-05).
+  Einrichtung: beim Start zusammen mit den Dienstadressen auf lo
+  (ANF-FW-01); vpn-fw-check stellt fehlende Routen wieder her.
+
+================================================================================
+6) KERNELPARAMETER
+================================================================================
+
+  Datei /etc/sysctl.d/60-retrotunnel-net.conf (gerendert; Inhalt ist
+  Vertragsbestandteil dieses Moduls, der Pfad wird in BASE-005 gefuehrt).
+
+  PARAMETER                                   WERT      ZWECK
+  ------------------------------------------- --------- ---------------------
+  net.ipv4.conf.all.rp_filter                 1         zweite Schicht zur
+  net.ipv4.conf.default.rp_filter             1         Rueckwegpruefung
+  net.ipv4.conf.all.accept_source_route       0         kein Source-Routing
+  net.ipv6.conf.all.accept_source_route       0
+  net.ipv4.conf.all.accept_redirects          0         keine Umleitungen
+  net.ipv6.conf.all.accept_redirects          0         annehmen
+  net.ipv4.conf.all.send_redirects            0         und keine senden
+  net.ipv4.conf.all.arp_ignore                1         keine ARP-Antwort
+  net.ipv4.conf.all.arp_announce              2         fuer lo-Adressen am WAN
+  net.ipv4.icmp_echo_ignore_broadcasts        1
+  net.ipv4.icmp_ignore_bogus_error_responses  1
+  net.ipv4.tcp_syncookies                     1
+  net.ipv4.conf.all.log_martians              0         keine Log-Flut
+  net.ipv6.conf.<WAN>.use_tempaddr            0         genau eine Quell-
+                                                        adresse fuer NAT66
+  net.netfilter.nf_conntrack_max              Setting   vpn_fw_conntrack_max
+  net.netfilter.nf_conntrack_tcp_timeout_     Setting   vpn_fw_ct_tcp_
+    established                                         established_timeout_
+                                                        seconds
+  net.netfilter.nf_conntrack_tcp_loose        0         BASE-050_060 Abschn. 5
+
+  NICHT IN DIESER ODER EINER ANDEREN sysctl-DATEI:
+    net.ipv4.ip_forward, net.ipv6.conf.all.forwarding
+    (schaltet ausschliesslich vpn-fw-load, DEC-FW-06).
+  HINWEIS IPv6 AM WAN: Bei eingeschalteter IPv6-Weiterleitung nimmt der
+    Kernel Router Advertisements nur an, wenn das fuer das WAN-Interface
+    ausdruecklich erlaubt ist. Ob das WAN seine Standardroute statisch
+    oder per Router Advertisement erhaelt, ist eine Plattformfrage
+    (ANF-FW-01); die Firewall laesst die noetigen ICMPv6-Typen zu
+    (PR-02, IN-02).
+
+  VERBOT WEITERER FIREWALL-WERKZEUGE
+    Auf dem System werden keine anderen Werkzeuge betrieben, die
+    nftables- oder iptables-Regeln setzen (ufw, firewalld, iptables-
+    Dienste, Container-Laufzeiten mit eigener Regelverwaltung, Fail2ban
+    mit eigenen Tabellen). Ihre Objekte waeren Fremdobjekte (Abschnitt 4).
+
+================================================================================
+7) ZAEHLER, LOGZEILEN, STATUS
+================================================================================
+
+  7.1 ZAEHLER
+    Jede Regel mit Urteil traegt den in BASE-050_020 genannten benannten
+    Zaehler (Pakete und Bytes), getrennt nach IPv4 und IPv6 (Endung _v4 /
+    _v6), wo die Regel beide Familien betrifft; die Durchlass-Zaehler
+    c_fwd_ok_* zusaetzlich getrennt nach L2TP und WireGuard.
+    Zaehler beginnen bei jeder Aktivierung neu; Auswertungen beziehen
+    sich deshalb immer auf Generation + Zaehlerstand.
+    Gruppen: c_spoof_*, c_rpf, c_banned (frueh); c_in_* (lokal);
+    c_svc_* (Dienste); c_fwd_* (Weiterleitung); c_dnat53_* (DNS-Zwang);
+    c_nat_* (NAT); c_guard_* (Leck-Waechter); c_out_* (Ausgang);
+    c_seal (Siegel); c_mgmt_* (Notzugang).
+    Aus den Zaehlern muss fuer jeden nicht funktionierenden Verkehr
+    ableitbar sein, an welcher Stufe und in welcher Zone er scheitert
+    (B063 9.6 DoD-1).
+
+  7.2 LOGZEILEN
+    SETTINGS (RENDER, STRICT)
+      vpn_fw_log_rate_per_sec   INT 0..100    Vorschlag 5   (0 = keine)
+      vpn_fw_log_burst          INT 1..200    Vorschlag 10
+    - Geloggt wird nur stichprobenartig: je Kennzeichen hoechstens die
+      eingestellte Rate, unabhaengig von der Paketrate.
+    - Inhalt: Kennzeichen, Ein-/Ausgangs-Interface, Quell- und
+      Zieladresse, Protokoll, Ports. Keine Nutzdaten, keine DNS-Namen,
+      keine Schluessel.
+    - Kein Log fuer umgeleitete DNS-Anfragen und fuer zugelassenen
+      Verkehr.
+    - Kennzeichen (jeweils mit Praefix "RTFW "): WAN_DROP, L2TP_KLAR,
+      SPOOF, GATE, L2TP_ZU, ISOLATION, RESTRICTED, DNS_SICHERUNG, DOT_DOQ,
+      ABUSE, CLI_NEURATE, CLI_FLOWS, CLI_ICMP, LECK, SIEGEL, DEFAULT.
+    - Ziel: Kernel-Log -> Journal. Aufbewahrung, Auswertung und
+      Datenschutzbehandlung der enthaltenen Adressen: MOD-007.
+
+  7.3 STATUS (/run/retrotunnel/fw/status.json, von vpn-fw-check und
+      vpn-fw-load geschrieben, ohne Datenbank lesbar)
+      zustand, generation_aktiv, generation_gerendert, siegel_seit,
+      weiterleitung_v4, weiterleitung_v6, letzte_aktivierung,
+      letzter_check_ok, befunde[], set_groessen{}, conntrack_anzahl,
+      conntrack_max, notzugang{aktiv, peers, letzter_handshake}.
+      Die Datei enthaelt keine Adressen von Clients und keine Secrets.
+
+================================================================================
+8) BOOT-REIHENFOLGE
+================================================================================
+
+  Kanonische Startfolge aus Sicht der Firewall. Sie setzt die Entscheidung
+  F-001 (Changelog v2.1.14) um; BASE-005_080 Abschnitt 3 wird daran
+  angeglichen (ANF-FW-01).
+
+  PHASE 0  FRUEH (sysinit, vor network-pre.target)
+    - Kernelparameter (Abschnitt 6)
+    - lo-service-ips: Dienstadressen auf lo, Rueckfallrouten
+    - nftables.service -> vpn-fw-load boot -> Zustand VERSIEGELT
+    - vpn-fw-check.timer aktiv
+  PHASE 1  NETZ
+    - network-online
+    - wg-quick@rtmgmt0 (Notzugang; nur ordnend nach nftables.service)
+  PHASE 2  DATENBANK
+    - mariadb
+  PHASE 3  ANMELDUNG UND TUNNEL (alle mit Requires= und After= auf
+           nftables.service)
+    - freeradius
+    - strongswan, accel-ppp
+    - awg-quick@awg0 (startet ohne Peers), vpn-wg-controller
+  PHASE 4  DIENSTE
+    - unbound, AdGuardHome, Zeitdienst, openresty, php-fpm
+  PHASE 5  ABGLEICH
+    - vollstaendiger Abgleich (vpn-policy-apply --reconcile-all):
+      Sets aus SQL, WG-Peers ueber Gate; danach unseal -> Zustand BETRIEB
+  PHASE 6  TIMER
+    - periodischer Abgleich, weitere Jobs
+
+  EIGENSCHAFTEN
+    - Zu keinem Zeitpunkt existiert ein Tunnel-Interface ohne geladenes
+      Regelwerk; zu keinem Zeitpunkt ist die Weiterleitung ohne Regelwerk
+      eingeschaltet.
+    - Ist die Datenbank beim Start nicht erreichbar, bleibt der Zustand
+      VERSIEGELT: WireGuard gesperrt, L2TP ohne Anmeldung (RADIUS lehnt
+      ab), Notzugang und Verwaltung ueber lo verfuegbar.
+    - Bereitschaft FIREWALL_RULESET_READY (einstufig): Zustand VERSIEGELT
+      oder BETRIEB und Generation = active.nft.
+
+  UNIT-VERTRAG (Spezifikation)
+    nftables.service      Drop-In: ExecStart=vpn-fw-load boot,
+                          ExecReload=vpn-fw-load reload,
+                          ExecStop=vpn-fw-load stop; Type=oneshot,
+                          RemainAfterExit; frueh wie im Bestand
+    vpn-fw-check.timer    OnBootSec kurz, danach im Intervall; Persistent
+    vpn-fw-check.service  Type=oneshot; After=nftables.service
+    wg-quick@rtmgmt0      Drop-In: After=nftables.service lo-service-ips.
+                          service; ExecStartPre=vpn-fw-load has-ruleset;
+                          kein Requires auf nftables.service
+    Tunnel-Units          Requires= und After= nftables.service
+                          (Owner der Units: BASE-030, BASE-040)
+
+================================================================================
+9) BETRIEBSVERFAHREN
+================================================================================
+
+  AENDERN (Setting, Pool, Registry, Notzugangs-Datei)
+    1 rendern -> 2 Kandidat ansehen/vergleichen (Panel zeigt Unterschied
+    zu aktiv) -> 3 activate -> 4 Kontrolle durch vpn-fw-check.
+    Rueckweg: lkg.nft als Kandidat aktivieren.
+  WAS NIE IM BETRIEB GESCHIEHT
+    - "systemctl restart nftables" oder "stop": entfernt das Regelwerk und
+      beendet bzw. startet wegen der Requires-Bindung alle Tunnel neu.
+      Zulaessig nur als bewusste Wartungshandlung mit Ankuendigung.
+    - "nft -f" oder einzelne nft-Aenderungen von Hand: gelten als Drift
+      und werden rueckgaengig gemacht (GR-03). Wer von Hand active.nft
+      laedt, erhaelt wegen der Generationspruefung und des Siegels einen
+      geschlossenen Zustand, keinen offenen.
+  PAKET-AKTUALISIERUNG von nftables oder Kernel: Wartungsfenster; das
+    Paket kann den Dienst neu starten. Ablauf und Vorpruefung (Kandidat
+    gegen neue nft-Version pruefen): MOD-008.
+  NOTFALL: vpn-fw-load lockdown trennt den Server vom Nutzverkehr; der
+    Notzugang bleibt.
+
+================================================================================
+10) FEHLERBILDER
+================================================================================
+
+  SYMPTOM                          URSACHE                 VERHALTEN / ABHILFE
+  -------------------------------- ----------------------- --------------------
+  Nach Neustart kein VPN,          Regelwerk nicht ladbar  Zustand RIEGEL;
+  Notzugang geht                   (auch LKG nicht)        Ursache beheben,
+                                                           rendern, boot
+  WireGuard verbunden, kein        Zustand VERSIEGELT;     Datenbank/Abgleich
+  Verkehr, L2TP geht               Abgleich laeuft nicht   pruefen
+  Rendern bricht ab                Setting fehlt/ungueltig aktives Regelwerk
+                                                           bleibt; Wert setzen
+  activate meldet KERNEL_ABGELEHNT Kandidat fuer diese     alter Zustand bleibt;
+                                   Kernel-/nft-Version     Kandidat korrigieren
+                                   ungueltig
+  Wiederkehrend FW_FREMDOBJEKT     anderes Werkzeug        Werkzeug entfernen
+                                   schreibt Regeln         (Abschnitt 6)
+  Internet fuer alle weg, Tunnel   Weiterleitung aus oder  status.json; reload
+  stehen                           NAT-Zaehler steht
+  Viele c_rpf-Treffer am WAN       asymmetrisches Routing  Plattform pruefen
+                                   beim Hoster             (E-FW-03)
+
+================================================================================
+11) PANEL-CONSUMABILITY (R-17, DP-07)
+================================================================================
+
+  SEHEN: Zustand, Generation aktiv/gerendert mit Unterschied, Siegel,
+    Weiterleitung, Befunde von vpn-fw-check mit Zeit, Zaehler und
+    Set-Groessen, conntrack-Fuellstand, das aktivierte Regelwerk
+    (nur lesen).
+  STEUERN (ADMIN, mit erneuter Bestaetigung): rendern, aktivieren,
+    Rueckweg auf LKG, reload. NICHT im Panel: stop, lockdown, unseal.
+  EINSTELLEN: alle vpn_fw_*-Settings mit Angabe der Wirkungsklasse.
+  ALARMIEREN: alle Befunde der Stufen KRITISCH und ALARM; die Meldung
+    haengt nicht an der Datenbank.
+  Ist die Datenbank ausgefallen, zeigt die Stoerungsseite den Zustand aus
+  status.json.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
