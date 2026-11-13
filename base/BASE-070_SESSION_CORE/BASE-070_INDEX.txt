@@ -1,0 +1,219 @@
+================================================================================
+BASE-070 — SESSION CORE (INDEX)
+================================================================================
+DATEI: BASE-070_INDEX.txt
+VERSION: v1.0
+DATUM: 2026-11-13
+STATUS: ACTIVE (Konzeptstand; keine Implementierung, kein Praxistest)
+
+================================================================================
+1) ZWECK
+================================================================================
+
+  BASE-070 ist der tunnelneutrale Sitzungskern von RetroTunnel. Er legt
+  fest, woran das System erkennt, dass eine Connection gerade genutzt wird
+  (runtime_activity), wie gleichzeitige Nutzung auf genau eine begrenzt
+  wird (SimUse=1, Sperrvertrag), wie verwaiste Zustaende beseitigt werden
+  (Bereinigung), wie eine Nutzung hart beendet wird (Hard-Cut), wie
+  Verbrauch genau einmal gebucht und je Abrechnungsmonat gefuehrt wird
+  (Gruppe D, Quota-Periode, Tagesreihe) und wie Tunneladressen vergeben,
+  gesperrt und zurueckgegeben werden (Allokator, Quarantaene).
+
+  Leitsatz: DIE LAUFZEIT WEISS, OB EIN TUNNEL LEBT - SQL WEISS, WAS ER
+  DARF UND WAS ER VERBRAUCHT HAT. Kein Datensatz wird als Lebendbeweis
+  gelesen; geschlossen wird nur, was belegt tot ist; gebucht wird genau
+  einmal.
+
+  Grundlage ist D004 (Runtime-Truth vs. SQL-Persistenz) in der Fassung
+  v2.0-REKONSTRUKTION. Der Modulname bleibt (D004 P-05); der Begriff
+  "Session" wird als Einzelbegriff vermieden (D004-E07).
+
+================================================================================
+2) SCOPE UND ABGRENZUNG
+================================================================================
+
+  IN SCOPE:
+  - runtime_activity, Episoden, Hinweisfelder, Signalvertrag,
+    Ereignistabelle log_runtime_activity, L2TP-Abgleich (Vertrag)
+  - SimUse=1 in vier Schichten, Tabelle vpn_session_locks, SimUse-Baustein
+    des L2TP-Anmeldepfads (Vorgabe), Sperren fuer Umbauten
+  - Laufzeit-Adapter (Schnittstelle), Geister-Regeln, On-Demand-Pruefung,
+    Bereinigungslauf, Verhalten nach Neustarts, Hard-Cut
+  - Schreibvertrag der Gruppe D, Buchung L2TP und WireGuard, Verhalten bei
+    Datenbankstoerung, Quota-Periode und Periodenwechsel, Tagesreihe
+  - Pool-Konfiguration, Allokator, Rollenwechsel, Quarantaene, Rueckgabe,
+    Fuellstand
+  - Laufzeitmarken, Units, Settings, Rechte, Status, Ereignisse
+
+  NICHT IN SCOPE (Owner anderswo):
+  - Schema von vpn_connections, Statusuebergaenge, Lifecycle-Log -> BASE-010
+  - FreeRADIUS, Pruefkette, Ablehnungsgruende, radacct als Tabelle -> BASE-020
+  - accel-ppp, Hooks, L2TP-Adapter und vpn-l2tp-sync als Programm  -> BASE-030
+  - Peers, awg0, Controller, WG-Adapter                            -> BASE-040
+  - Regelwerk und Sets                                             -> BASE-050
+  - vpn-policy-apply, Bewertung und Durchsetzung                   -> BASE-080
+  - Settings-Katalog                                               -> BASE-090
+  - Limits, Plaene                                                 -> BASE-100,
+                                                                      MOD-010
+  - Panel, Auftragsweg, Sichten                                    -> BASE-110,
+                                                                      MOD-006
+  - Meldewege, Aufbewahrung                                        -> MOD-007
+
+  ABDECKUNG DER PLANUNG (PRIORITAETENLISTE M2-070):
+    Sitzungs-Mapping beider Tunnel          _020 Abschnitt 1; _040 Abschnitt 1
+    Sperren, Bereinigung, Geister           _030; _040
+    Aufloesung von SM_SESSION               _080 Abschnitt 7
+    Signalvertrag (acht Pflichtfelder)      _020 Abschnitte 3, 4
+    On-Demand-Bereinigung vor SimUse        _040 Abschnitt 3; _030 Abschnitt 4
+    Roaming ist kein neuer Beginn           _020 Abschnitt 2 (WireGuard:
+                                            BASE-040_050 Fall A)
+    Ownership von vpn_session_locks         _030
+    Adressvergabe und Rueckgabe             _060
+
+================================================================================
+3) DATEIEN IN DIESEM ORDNER
+================================================================================
+
+  BASE-070_INDEX.txt                                 Dieses Dokument
+  BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt    Schutzziele, Begriffe,
+                                                     Komponenten,
+                                                     DEC-SC-01..21
+  BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt
+                                                     runtime_activity,
+                                                     Episoden, SV-1..SV-3,
+                                                     log_runtime_activity,
+                                                     L2TP-Abgleich
+  BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt           SimUse-Schichten,
+                                                     vpn_session_locks,
+                                                     SimUse-Baustein,
+                                                     Umbau-Sperren
+  BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt          Adapter, Geister,
+                                                     vpn-sessiond,
+                                                     Bereinigungslauf,
+                                                     vpn-session-kill
+  BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt
+                                                     Gruppe D, SV-4..SV-6,
+                                                     vpn_l2tp_acct_state,
+                                                     Quota-Periode,
+                                                     log_quota_period,
+                                                     log_usage_daily
+  BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt     vpn_pool_config,
+                                                     Allokator,
+                                                     vpn_ip_quarantine,
+                                                     Rueckgabe, Fuellstand
+  BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt
+                                                     vpn_runtime_marks,
+                                                     Units, Settings,
+                                                     Rechte, Status,
+                                                     Ereignisse
+  BASE-070_080_OWNER_GRENZEN.txt                     Besitz, Grenzregeln,
+                                                     ANF-SC-01..15,
+                                                     E-SC-01..09, Verbleib
+                                                     der SES-Invarianten
+  BASE-070_090_INVARIANTEN.txt                       SC-01..SC-60
+  BASE-070_095_TESTS.txt                             T-SC-01..T-SC-78
+
+  entwuerfe/ENTWURF_IPV6_ALLOKATOR.txt               Vorstudie (nicht
+                                                     normativ, KR-01);
+                                                     aufgeloest in _060
+
+================================================================================
+4) TABELLEN DIESES MODULS
+================================================================================
+
+  Tabelle                Zweck                               Datei
+  ---------------------- ----------------------------------- --------
+  vpn_session_locks      Sperrvertrag (Mutex je Connection)  _030
+  log_runtime_activity   Episoden-Ereignisse                 _020
+  vpn_l2tp_acct_state    Buchungsstand je Abrechnungssitzung _050
+  log_quota_period       Abschluss je Quota-Periode          _050
+  log_usage_daily        Verbrauch je Tag und Richtung       _050
+  vpn_pool_config        Adress-Pools je Rolle               _060
+  vpn_ip_quarantine      Adress-Quarantaene ohne Connection  _060
+  vpn_runtime_marks      Laufzeitmarken                      _070
+  Gruppe D               Spalten auf vpn_connections; Schema _050, _020
+                         BASE-010, Schreibvertrag hier
+
+  Es gibt KEINE Tabelle vpn_sessions (D004-E02, P-06).
+
+================================================================================
+5) PLATTFORM-CONTRACT (KURZFASSUNG)
+================================================================================
+
+  Dienst      vpn-sessiond.service (On-Demand-Pruefung; Socket
+              /run/retrotunnel/session/check.sock)
+  Laeufe      vpn-session-janitor, vpn-quota-period (Zeitgeber fest, Takt
+              aus Settings); vpn-l2tp-sync (Runner BASE-030)
+  Werkzeuge   vpn-session-check, vpn-session-kill
+  Pfade       /run/retrotunnel/session/, /run/vpn-sessions/,
+              /var/lib/vpn-accounting/
+  Bereitschaft SESSION_CORE_READY (Socket antwortet); KEINE Voraussetzung
+              fuer die Tunnel-Dienste
+  Einzelheiten: BASE-070_070 Abschnitt 2.
+
+================================================================================
+6) ZUSAGEN IM UEBERBLICK
+================================================================================
+
+  - Nie zwei Tunnel einer Connection; nie eine Uebernahme (SC-12, SC-13).
+  - Aussperren durch Leichen ist begrenzt (SC-27).
+  - Verbrauch wird genau einmal gebucht; eine Datenbankstoerung allein
+    verliert nichts (SC-35, SC-39); Messgrenzen sind benannt (SC-40).
+  - Der Monatswechsel ist atomar und protokolliert (SC-42, SC-43).
+  - Adressen sind eindeutig, zufaellig gewaehlt und waehrend der
+    Quarantaene gesperrt (SC-47, SC-50).
+  - Ein Hard-Cut beendet die Laufzeit oder meldet ehrlich sein Scheitern
+    (SC-31).
+
+================================================================================
+7) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  Je Detaildatei ein Abschnitt "Panel-Consumability". Zusammengefasst
+  liefert BASE-070 dem Panel: Hinweise "zuletzt gesehen" und "verbunden
+  seit", Episodenverlauf, Live-Auskunft ueber den privilegierten
+  Auftragsweg, Verbrauch der laufenden und vergangener Perioden,
+  Tagesverlauf und Ranglisten, Pool-Ampel, Hard-Cut als ADMIN-Handlung,
+  Betriebsseite mit Statusdateien, Marken und Alarmen. Das Panel
+  bearbeitet weder Sperren noch Marken, Hinweisfelder oder
+  Buchungsstaende.
+
+================================================================================
+8) VORGAENGER UND AUFGELOESTE DOKUMENTE
+================================================================================
+
+  RetroTunnel:
+    model/state_machines/SM_SESSION.txt (DEPRECATED)   vollstaendig
+                                                       aufgeloest
+    decisions/D004 (Rekonstruktion)                    umgesetzt
+    BASE-020_020 Abschnitte 5, 6                       Vertrag erfuellt
+    BASE-030_050 (Stand vor D004)                      ersetzt; Nachzug
+                                                       AP-Q04
+    entwuerfe/ENTWURF_IPV6_ALLOKATOR.txt               aufgeloest
+    ENTWURF_ADMIN_DASHBOARD Abschnitte 3, 4            Datenquelle
+                                                       Tagesreihe
+  Vorgaenger xp-vpn-stack:
+    B061, B064 (Slots, Lebenszyklus der Adressen), B165 (Accounting,
+    Sitzungs-Mapping), B167 (Verdrahtung), B168 (Janitor), B169
+    (Anmeldefluss, On-Demand), B170 (Stabilitaet), B171 und D012
+    (Sitzungskontrolle), B310 (Abnahmetests, Abschnitte zu SimUse,
+    Geistern, Slots, Hard-Cut)
+  Die Einordnung jeder Vorgaenger-Aussage (uebernommen, angepasst,
+  ersetzt, nicht anwendbar) steht in den Rueckverfolgungs-Records unter
+  governance/register/trace/.
+
+================================================================================
+9) BELEGSTAND
+================================================================================
+
+  Dokumentiert und logisch geprueft (Fallanalysen in _030 Abschnitt 7,
+  _050 Abschnitt 9, _060 Abschnitt 8). Maschinell geprueft ist allein die
+  formale Konsistenz (Nummerierung, Verweise, Rueckverfolgung) durch
+  qa/pruefe_register.py. Kein Test dieses Moduls wurde ausgefuehrt; die
+  Annahmen E-SC-01 bis E-SC-09 sind nicht praktisch bestaetigt.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

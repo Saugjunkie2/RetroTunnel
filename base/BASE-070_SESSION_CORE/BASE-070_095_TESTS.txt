@@ -1,0 +1,511 @@
+================================================================================
+BASE-070 — TESTS UND VALIDIERUNG (Sitzungskern)
+================================================================================
+DATEI: BASE-070_095_TESTS.txt
+STATUS: ACTIVE
+
+BELEGSTAND ALLER TESTS: GEPLANT. Keiner dieser Tests wurde ausgefuehrt; es
+existiert keine Implementierung. Die Tests sind Abnahmekriterien fuer die
+spaetere Umsetzung (Definition of Done von BASE-070).
+
+TESTARTEN:
+  [K]  Konzept-/Konfigurationspruefung (Review, statische Pruefung)
+  [L]  Labortest an einer Implementierung (isolierte Testumgebung)
+  [E]  Empirischer Test an Zielplattform, realen Daemons oder realen
+       Clients (Annahmen und Ausweichwege: BASE-070_080 Abschnitt 6)
+
+PROOF-ANKER (04_PHASE_PLAN):
+  RT-PH1-PROOF-05 (Reconnect ohne Geister)      -> T-SC-22, T-SC-30, T-SC-33
+  RT-PH1-PROOF-06 (Adressen deterministisch,
+                   Allokator)                   -> T-SC-61, T-SC-63
+  RT-PH7-PROOF-02 (Geist in definierter Zeit
+                   erkannt und geraeumt)        -> T-SC-30, T-SC-33, T-SC-35
+  RT-PH7-PROOF-03 (Online-Sicht aus der
+                   Laufzeit-Pipeline)           -> T-SC-05, T-SC-08, T-SC-11
+Die Platzhalter "T-SE-XX" des Phasenplans fuer BASE-070 werden durch diese
+Kennungen ersetzt (Nachzug AP-A06). Die dort noch BASE-010 zugeordneten
+Allokator-Tests (T-IS-01..04) gehen in T-SC-61 bis T-SC-66 auf.
+
+Soweit nicht anders angegeben, wird jeder Labortest fuer L2TP UND
+WireGuard ausgefuehrt, wo der Fall beide betrifft.
+
+================================================================================
+WAHRHEIT UND HINWEISE
+================================================================================
+
+  T-SC-01  [K] Schema- und Registry-Pruefung: Es existiert keine Tabelle
+            vpn_sessions und kein Recht darauf; kein Programm dieses Moduls
+            oder eines Runners liest oder schreibt sie. [SC-01]
+
+  T-SC-02  [K] Alle Lesezugriffe auf Hinweisfelder, vpn_session_locks,
+            vpn_l2tp_acct_state, log_runtime_activity, vpn_runtime_marks
+            und Statusdateien auflisten: Keiner dient im Anmeldepfad, im
+            SimUse-Baustein, in der Bereinigung oder in der Sperrlogik als
+            Kriterium fuer Liveness. [SC-02]
+
+  T-SC-03  [L] Verwaltungsschnittstelle des L2TP-Daemons blockieren: Der
+            Abgleich arbeitet mit UNBEKANNT, meldet weder Beginn noch Ende
+            und schliesst keine Zeile; die Buchung aus radacct laeuft
+            weiter; nach drei Laeufen Alarm SESSION_PROBE_UNAVAILABLE.
+            [SC-03, SC-15, SC-23]
+
+  T-SC-04  [L] SV-1 mit Beginn in der Zukunft: Wert wird auf die
+            Datenbankzeit begrenzt, RT_CLOCK_ANOMALY gezaehlt. Ein Versuch,
+            last_runtime_seen_at zu verringern, bleibt wirkungslos. Ein
+            Abgleich ohne beobachtete Aktivitaet veraendert das Feld nicht.
+            [SC-04]
+
+  T-SC-05  [K] Panel: Jede aus Hinweisfeldern gespeiste Anzeige traegt die
+            Kennzeichnung "zuletzt gesehen" bzw. "laut letztem Abgleich"
+            mit Alter; "jetzt verbunden" erscheint nur nach einer
+            Live-Auskunft des Adapters. [SC-04]
+
+================================================================================
+SIGNALVERTRAG UND EPISODEN
+================================================================================
+
+  T-SC-06  [L] SV-1 mit erzwungenem Fehler nach dem Einfuegen des
+            Ereignisses: Die Transaktion wird verworfen; weder Ereignis
+            noch Hinweisfeld sind geschrieben; der naechste Lauf holt den
+            Beginn nach. [SC-05, SC-09]
+
+  T-SC-07  [K] Es existiert genau eine Implementierung von SV-1 bis SV-3;
+            Controller, L2TP-Abgleich und Bereinigung benutzen sie. Der
+            DB-User radius besitzt keine Rechte auf log_runtime_activity
+            und keine Schreibrechte auf Gruppe D. [SC-05, SC-21]
+
+  T-SC-08  [L] Dieselbe Episode zweimal melden (Controller-Neustart;
+            Abgleich doppelt gestartet): genau ein ACTIVITY_START, spaeter
+            genau ein ACTIVITY_END; die Episodenkennung ist beide Male
+            identisch. [SC-06]
+
+  T-SC-09  [L] Aktivitaet einer gesperrten Connection provozieren (Status
+            nach der Zulassung auf DISABLED setzen, Durchsetzung
+            verzoegern): kein ACTIVITY_START, Ereignis
+            RT_ACTIVITY_NOT_ALLOWED, Laufzeit wird beendet. L2TP-Sitzung
+            mit abweichender Tunneladresse: RT_ADDRESS_MISMATCH, Sitzung
+            beendet. [SC-07, SC-30]
+
+  T-SC-10  [L] Das Ende einer alten Episode wird erst nach dem Beginn
+            einer neuen verarbeitet (verspaetete Stop-Meldung):
+            runtime_active_since der neuen Episode bleibt gesetzt; das
+            Ende der alten wird protokolliert. [SC-08]
+
+  T-SC-11  [L] Ende-Gruende: Client trennt, Leitung faellt aus, Geist,
+            Daemon-Neustart, Wechsel nach DISABLED, Rollenwechsel,
+            Schluesselrotation, Hard-Cut, WireGuard-Handshake zu alt,
+            WireGuard-Stop - jeweils erscheint der Grund aus der Liste,
+            und die Endzeit ist das letzte belegte Lebenszeichen.
+            [SC-08, SC-10]
+
+  T-SC-12  [L] ACTIVE -> RESTRICTED bei laufender Nutzung: kein
+            ACTIVITY_END, der Tunnel steht. Restore einer gesperrten
+            Connection: kein ACTIVITY_START, bevor sich das Geraet neu
+            verbindet. [SC-10]
+
+  T-SC-13  [L] Datenbank waehrend eines Beginns und eines Endes nicht
+            erreichbar: Es entsteht kein Puffer (weder Datei noch
+            wachsender Speicher); nach Rueckkehr werden Beginn und Ende
+            korrekt nachgemeldet. [SC-09]
+
+  T-SC-14  [K] Suche nach oeffentlichen Adressen: nur in
+            log_runtime_activity.remote_endpoint und radacct;
+            Hinweisfelder, Marken, Statusdateien und Ereignismeldungen
+            sind frei davon. Aendernde Zugriffe auf log_runtime_activity
+            existieren nur im Loeschlauf. [SC-11, SC-58]
+
+  T-SC-15  [L] Aufbewahrung: Nach Ablauf der Frist fuer die Gegenstelle
+            ist remote_endpoint leer und die Zeile vorhanden; nach Ablauf
+            der Ereignis-Frist ist die Zeile geloescht. [SC-11]
+
+================================================================================
+SIMUSE UND SPERREN
+================================================================================
+
+  T-SC-16  [L] Zwei parallele Anmeldungen derselben Connection, 50
+            Wiederholungen, dazu parallele Anmeldungen verschiedener
+            Connections: je Connection genau eine Zusage, nie zwei
+            Sitzungen, keine Deadlocks, danach keine Sperr-Leichen.
+            [SC-12, SC-14, SC-17]
+
+  T-SC-17  [L] Anmeldung bei bestehender Sitzung: Ablehnung mit
+            R_SIMUSE_ACTIVE; die bestehende Sitzung laeuft unveraendert
+            weiter. [SC-12, SC-15]
+
+  T-SC-18  [E] Schlussriegel (E-SC-01): SimUse-Baustein testweise
+            abschalten und eine zweite Anmeldung senden: Der Daemon weist
+            sie ab, die erste Sitzung bleibt. Ebenso bei gleichzeitiger
+            Authentisierung und waehrend die erste Sitzung noch im Aufbau
+            ist. Konfigurationspruefung: Die Einstellung "bestehende
+            Sitzung ersetzen" ist nicht gesetzt. [SC-13]
+
+  T-SC-19  [L] Sitzung lebt, ihre radacct-Zeile fehlt (Accounting-Start
+            unterdrueckt). Sonde arbeitet: Ablehnung. Sonde blockiert:
+            Zusage durch den AAA-Dienst, Abweisung durch den Daemon. In
+            beiden Faellen entsteht keine zweite Sitzung.
+            [SC-12, SC-13, SC-15]
+
+  T-SC-20  [K] Die Schritte P1 bis P5 stehen in dieser Reihenfolge in der
+            Konfiguration des AAA-Dienstes; eine Anfrage mit falschem
+            Kennwort erreicht vpn-session-check nicht. [SC-14, SC-26]
+
+  T-SC-21  [L] Datenbankfehler in P3 bzw. in P4 erzwingen: Ablehnung mit
+            Backend-Grund, nie eine Zusage. [SC-14]
+
+  T-SC-22  [L] Zusage ohne nachfolgenden Accounting-Start (Meldung
+            verwerfen): Die Sperre laeuft nach ihrer TTL ab; danach
+            gelingt die Anmeldung; es entsteht kein dauerhaftes
+            Aussperren. [SC-16, SC-27]
+
+  T-SC-23  [L] Sperrerwerb: 20 gleichzeitige Erwerber - genau einer
+            erwirbt; eine abgelaufene Sperre wird uebernommen;
+            Schluesselkonflikt und Datenbankfehler gelten als nicht
+            erworben; der Erwerb kehrt sofort zurueck. Statische Pruefung:
+            keine Anweisung "einfuegen oder aktualisieren" auf
+            vpn_session_locks. [SC-17]
+
+  T-SC-24  [K] Schema von vpn_session_locks: Primaerschluessel auf
+            vpn_connection_id; Zweck, Halter und Ablauf sind Pflicht; die
+            Settings-Grenzen deckeln die TTL je Zweck. [SC-16]
+
+  T-SC-25  [L] Uhr des aufrufenden Prozesses um Stunden verstellen:
+            Erwerb, Ablauf und Verlaengerung von Sperren, der Ablauf einer
+            Quarantaene und der Periodenwechsel verhalten sich
+            unveraendert. [SC-18]
+
+  T-SC-26  [L] Freigabe durch einen fremden Halter: ohne Wirkung. Bei
+            Accounting-Start wird die Sperre erst nach dem Commit der
+            radacct-Zeile entfernt. Bei einer Rotation erfolgt die
+            Freigabe erst nach bestaetigtem Wechsel des Peers. [SC-19]
+
+  T-SC-27  [K] Panel und Werkzeuge bieten keine Funktion zum Loeschen
+            einer Sperre; keine Anzeige "online" speist sich aus Sperren.
+            [SC-20]
+
+  T-SC-28  [K] Alle Anweisungen des DB-Users radius auf vpn_session_locks
+            tragen den Zweck L2TP_ADMISSION; er besitzt keine
+            Schreibrechte auf andere Tabellen dieses Moduls. [SC-21]
+
+  T-SC-29  [L] Umbau-Sperren: Waehrend Rotation bzw. Rollenwechsel wird
+            eine L2TP-Anmeldung mit R_SIMUSE_GUARD_BUSY abgelehnt und der
+            Controller verschiebt die Meldung eines Beginns. Rollenwechsel
+            mit drei Connections, eine Sperre belegt: Abbruch
+            TEMPFAIL_LOCKED, keine Connection veraendert, alle Sperren
+            zurueckgegeben. Verlust der Sperre mitten im Umbau (TTL
+            kuenstlich kurz): Abbruch, nach erneutem Erwerb laeuft der
+            Vorgang vollstaendig durch. [SC-22]
+
+================================================================================
+BEREINIGUNG
+================================================================================
+
+  T-SC-30  [L] Geist erzeugen (Sitzung beenden, Stop-Meldung verwerfen):
+            Die On-Demand-Pruefung der naechsten Anmeldung schliesst die
+            Zeile, die Anmeldung gelingt. Endzeit ist das letzte
+            Lebenszeichen, Grund JANITOR_GHOST; ein zweiter Lauf aendert
+            nichts. [SC-24, SC-27]
+
+  T-SC-31  [L] 1000 Abgleich- und On-Demand-Laeufe gegen lebende
+            Sitzungen, waehrend andere Sitzungen auf- und abgebaut werden:
+            Keine Zeile einer lebenden Sitzung wird geschlossen.
+            [SC-23, SC-29]
+
+  T-SC-32  [L] Mindestalter: Eine eben begonnene Sitzung, deren Zeile im
+            Laufzeitabbild noch fehlt, wird nicht geschlossen. Zeilen
+            eines anderen NAS werden nie angefasst. Die Lesereihenfolge
+            (Laufzeit vor Datenbank) ist im Ablaufprotokoll des Abgleichs
+            sichtbar. [SC-24, SC-29]
+
+  T-SC-33  [L] Daemon hart beenden bei 20 offenen Sitzungen und neu
+            starten: Der erste Abgleich schliesst alle alten Zeilen (Grund
+            SYSTEM_RESTART) ohne Mindestalter und schreibt die Marke fort;
+            neue Anmeldungen sind sofort moeglich. Dasselbe nach einem
+            Systemneustart. [SC-25]
+
+  T-SC-34  [L] vpn-sessiond: Eingaben ausserhalb von "CHECK <Ziffern>"
+            ergeben UNKNOWN ohne Auswertung; 100 Anfragen je Sekunde fuer
+            eine Connection fuehren zu hoechstens einem Sondenlauf je
+            Fenster; Ueberlast ergibt UNKNOWN; das Zeitlimit wird
+            eingehalten; die Settings-Tabellen werden nicht je Anfrage
+            gelesen (Abfrageprotokoll der Datenbank). [SC-26]
+
+  T-SC-35  [L] vpn-sessiond gestoppt: Eine Anmeldung ohne Geist gelingt;
+            mit Geist wird abgelehnt, bis der naechste Abgleich die Zeile
+            geschlossen hat (hoechstens Takt plus Mindestalter), danach
+            Zusage. [SC-26, SC-27]
+
+  T-SC-36  [L] Jeden Lauf doppelt starten: Der zweite endet am
+            Einzel-Lock. Datenbank stoppen: Die Laeufe enden ohne Wirkung,
+            die Units bleiben aktiv, die Tunnel-Dienste starten
+            unabhaengig davon (Systemstart mit nicht erreichbarer
+            Datenbank). Wiederholung eines Laufs ohne Zustandsaenderung
+            ist wirkungslos. [SC-28]
+
+  T-SC-37  [L] Connection auf DISABLED setzen und den Hard-Cut
+            unterdruecken: Der naechste Abgleich beendet die Sitzung
+            (L2TP_ORPHAN_SESSION). Lebende Sitzung ohne Protokollzeile:
+            L2TP_UNACCOUNTED wird gemeldet, die Sitzung bleibt; nach der
+            naechsten Abrechnungsmeldung ist ihr gesamter Verbrauch
+            gebucht. [SC-30, SC-37]
+
+  T-SC-38  [L] Bereinigungslauf: Sperr-Leichen werden entfernt; ein
+            verwaister L2TP-Hinweis wird beendet; ein Laufzeit-Spiegel
+            ohne Sitzung wird entfernt, bei Adapter-Fehler aber nicht; ein
+            fehlschlagender Schritt verhindert die uebrigen nicht; die
+            Marke wird nur nach fehlerfreiem Lauf gesetzt.
+            [SC-23, SC-28]
+
+================================================================================
+HARD-CUT
+================================================================================
+
+  T-SC-39  [L] Hard-Cut bei aktiver Nutzung: Die Laufzeit wird beendet
+            (vom Adapter bestaetigt), DANACH laeuft der Abgleich
+            (Reihenfolge im Protokoll); Ende mit ADMIN_HARDCUT; Eintrag
+            SESSION_HARDCUT mit Akteur im Lifecycle-Log; das Geraet kann
+            sich neu verbinden; ein zweiter Aufruf liefert OK_NOT_ACTIVE.
+            [SC-31, SC-32]
+
+  T-SC-40  [L] Der Adapter meldet FAILED: Ergebnis FAIL_KILL, Alarm
+            CRITICAL, kein ACTIVITY_END, kein Erfolgs-Eintrag. [SC-31]
+
+  T-SC-41  [K] Der Webprozess besitzt kein Ausfuehrungsrecht fuer
+            vpn-session-kill; der Aufruf laeuft ueber den privilegierten
+            Auftragsweg mit Ziffern-Kennung und festem Grund und verlangt
+            erneute Anmeldung. Eine Kennung mit anderen Zeichen wird
+            abgewiesen. [SC-32]
+
+  T-SC-42  [L] Hard-Cut einer L2TP-Sitzung bei gestoppter Datenbank: Die
+            Sitzung wird ueber den Laufzeit-Spiegel gefunden und beendet.
+            WireGuard bei gestoppter Datenbank: TEMPFAIL_DB ohne Wirkung.
+            [SC-33]
+
+================================================================================
+VERBRAUCHSBUCHUNG
+================================================================================
+
+  T-SC-43  [K] Schreibzugriffe auf die Spalten der Gruppe D stammen nur
+            aus den Vorgaengen der Schreiber-Tabelle (BASE-070_050
+            Abschnitt 1); die DB-User webpanel und radius haben kein
+            Schreibrecht auf diese Spalten. [SC-34]
+
+  T-SC-44  [L] L2TP-Sitzung mit bekanntem Verkehr je Richtung: Nach dem
+            Stop entspricht der Zuwachs von quota_used der Summe beider
+            Richtungen und die Tagesreihe den Einzelwerten; zehn weitere
+            Abgleichlaeufe aendern nichts. [SC-35, SC-37]
+
+  T-SC-45  [L] Takt-Lauf und fuenf Hook-Anstoesse gleichzeitig waehrend
+            laufender Interim-Meldungen: keine Doppelbuchung (Summe gleich
+            gemeldetem Zaehler). Abbruch zwischen den Anweisungen einer
+            Buchung: alles oder nichts ist geschrieben. [SC-35]
+
+  T-SC-46  [L] Aeltere Interim-Meldung nach einer neueren einspielen: keine
+            Buchung, Anomalie gezaehlt; die naechste hoehere Meldung wird
+            korrekt gebucht. [SC-35, SC-37]
+
+  T-SC-47  [L] Geist wird geschlossen und abgeschlossen; danach trifft die
+            echte Stop-Meldung mit hoeherem Zaehler ein: Die Differenz
+            wird gebucht; es bleibt bei einem Ende-Ereignis. [SC-37]
+
+  T-SC-48  [L] Tombstone waehrend laufender Sitzung (Auth-Zeile geloescht,
+            Hard-Cut): Schlussbuchung und Ende werden der Connection
+            zugeordnet. Der Loeschlauf fuer radacct laesst Zeilen mit
+            nicht abgeschlossenem Buchungsstand stehen. [SC-38]
+
+  T-SC-49  [K] Bewertung und Abrechnung lesen ausschliesslich quota_used,
+            nicht die Tagesreihe und nicht das Periodenprotokoll. [SC-36]
+
+  T-SC-50  [L] Tagesreihe: Die Summe ueber die Tage einer Periode
+            entspricht dem in der Periode gebuchten Verbrauch (ausserhalb
+            des Grenzbereichs); die Richtungen stimmen mit Kernel- bzw.
+            radacct-Zaehlern ueberein; der Tageswechsel folgt
+            vpn_quota_timezone. [SC-35, SC-36]
+
+  T-SC-51  [L] Datenbankstoerung von zehn Minuten bei laufenden
+            L2TP-Sitzungen, von denen einige waehrend der Stoerung enden:
+            Nach Rueckkehr ist der Verbrauch aller Sitzungen vollstaendig
+            gebucht. Puffergrenze erzwingen: Zuerst werden
+            Interim-Meldungen verworfen, Start und Stop bleiben; jeder
+            Verwurf ist gemeldet. [SC-39]
+
+  T-SC-52  [L] Datenbankstoerung bei WireGuard einschliesslich Stop nach
+            Grace: Nach Rueckkehr entspricht der Zuwachs von quota_used
+            und der Tagesreihe den Kernelzaehlern bzw. dem Snapshot.
+            [SC-39]
+
+  T-SC-53  [L] Messlatenz: Zeit zwischen Verkehr und Sichtbarkeit in
+            quota_used je Tunnel liegt unter der zugesagten Schranke
+            (L2TP fuer Interim-Intervall 300 und 60). Eine Konfiguration,
+            die Regel K-b verletzt, wird gemeldet und faellt auf den
+            Vorschlagswert zurueck. [SC-40, SC-59]
+
+================================================================================
+QUOTA-PERIODE
+================================================================================
+
+  T-SC-54  [L] Periodengrenzen fuer Europe/Berlin in den Monaten Maerz,
+            April, Oktober, November sowie ueber den Jahreswechsel: Beginn
+            und Ende liegen bei 00:00 Uhr Ortszeit am Monatsersten und
+            sind als Zeitpunkte korrekt (E-SC-09). Eine neue Connection
+            erhaelt bei der Anlage die laufende Periode. [SC-41]
+
+  T-SC-55  [L] Periodenwechsel: Protokollzeile mit dem Endstand,
+            quota_used ist 0, neue Grenzen gesetzt; ein zweiter Lauf ist
+            wirkungslos; zwei gleichzeitige Laeufe erzeugen genau eine
+            Protokollzeile; Cursor, counter_epoch und Buchungsstaende sind
+            unveraendert. [SC-42]
+
+  T-SC-56  [L] Dauerverkehr ueber die Monatsgrenze auf beiden Tunneln,
+            Buchungs- und Wechsellaeufe in zufaelliger Reihenfolge, 100
+            Durchlaeufe: Endstand der alten Periode plus quota_used der
+            neuen entspricht jedes Mal dem Gesamtverkehr laut Rohzaehlern.
+            [SC-43, SC-35]
+
+  T-SC-57  [L] Ein Wechsel wird waehrend einer Datenbankstoerung faellig:
+            Er wird nachgeholt, nichts geht verloren, ab der Schwelle
+            Alarm QUOTA_PERIOD_OVERDUE. Stillstand ueber zwei
+            Monatsgrenzen: eine Protokollzeile fuer die alte Periode, die
+            aktuelle Periode ist gesetzt. [SC-42, SC-43]
+
+  T-SC-58  [L] Planwechsel, Restore, Rollenwechsel, Schluesselrotation,
+            Hard-Cut und Neustart der Dienste: quota_used ist jeweils
+            unveraendert. [SC-44]
+
+  T-SC-59  [K] Kein Programm dieses Moduls schreibt op_status. [L] Eine
+            wegen ausgeschoepfter Quota eingeschraenkte Connection ist
+            nach dem Periodenwechsel innerhalb des Bewertungstakts wieder
+            frei (Anstoss durch vpn-quota-period). [SC-45]
+
+================================================================================
+ADRESSEN
+================================================================================
+
+  T-SC-60  [K] Schreibzugriffe auf ip_slot, fixed_ip, fixed_ipv6 stammen
+            nur vom Allokator; die RADIUS-Antwort liefert fixed_ip, der
+            Peer-Eintrag fixed_ip und fixed_ipv6; kein Daemon fuehrt einen
+            eigenen Adress-Pool. [SC-46]
+
+  T-SC-61  [L] Testvektoren (Slot -> fixed_ip / fixed_ipv6):
+              USER 2      10.77.16.2    / fd77:0:0:16::16:2
+              USER 42     10.77.16.42   / fd77:0:0:16::16:42
+              USER 255    10.77.16.255  / fd77:0:0:16::16:255
+              USER 256    10.77.17.0    / fd77:0:0:16::17:0
+              USER 300    10.77.17.44   / fd77:0:0:16::17:44
+              USER 4094   10.77.31.254  / fd77:0:0:16::31:254
+              VIP 5       10.77.4.5     / fd77:0:0:4::4:5
+              VIP 1022    10.77.7.254   / fd77:0:0:4::7:254
+              ADMIN 5     10.77.2.5     / fd77:0:0:2::2:5
+              MODERATOR 12  10.77.3.12  / fd77:0:0:3::3:12
+            Bei L2TP_IPSEC ist fixed_ipv6 NULL. Die Textform ist exakt
+            diese (keine fuehrenden Nullen, keine andere Kurzform); ein
+            Reconnect aendert keine Adresse. [SC-49]
+
+  T-SC-62  [L] Einen Pool bis auf die Slots 0, 1 und die Reserve fuellen:
+            Slot 0, Slot 1 und der Wert hinter dem letzten Slot werden nie
+            vergeben; die Reserve nur mit Freigabe, dann Ereignis
+            POOL_RESERVE_USED mit Akteur. [SC-48]
+
+  T-SC-63  [L] 500 Vergaben in einen leeren USER-Pool: keine monotone
+            Folge; ein statistischer Test auf Gleichverteilung ueber den
+            Slot-Raum besteht. [SC-47]
+
+  T-SC-64  [L] 50 parallele Anlagen in einem Pool: 50 verschiedene
+            Adressen, keine nach aussen sichtbare UNIQUE-Verletzung, keine
+            Deadlocks. Parallele Rollenwechsel in beide Richtungen
+            zwischen zwei Pools: keine Deadlocks. [SC-52]
+
+  T-SC-65  [L] Erschoepfung: Pool fuellen; die naechste Anlage scheitert
+            mit POOL_EXHAUSTED_OR_QUARANTINED, nichts ist teilweise
+            angelegt, kein anderer Pool wird benutzt; Ampel ROT und
+            Ereignis POOL_EXHAUSTED. Rollenwechsel mit drei Connections
+            bei zwei freien Slots: Abbruch ohne Aenderung.
+            [SC-51, SC-56]
+
+  T-SC-66  [L] Wiedervergabe-Schutz: Adresse einer widerrufenen Connection
+            ist waehrend der Frist nicht vergebbar; nach Fristablauf, aber
+            vor der Bereinigung, weiterhin nicht; nach der Loeschung
+            vergebbar. Gueltiger Quarantaene-Eintrag: nicht vergebbar;
+            abgelaufener: vergebbar. [SC-50, SC-54]
+
+  T-SC-67  [L] Rollenwechsel: Die alte Adresse steht mit Ursache
+            ROLE_CHANGE fuer vpn_quarantine_days in vpn_ip_quarantine; ein
+            Wechsel zurueck ergibt eine andere Adresse. Vorzeitige
+            Loeschung einer Connection: Eintrag ohne Herkunft bis zum
+            urspruenglichen Fristende. [SC-53]
+
+  T-SC-68  [L] Rueckgabe: Die Bereinigung loescht widerrufene Connections
+            nach Fristablauf - Tombstones und sonstige Widerrufe
+            gleichermassen; CONNECTION_DELETED steht vor dem Loeschen im
+            Protokoll; abhaengige Zeilen behalten ihre Snapshot-Felder;
+            eine gesperrte Connection ohne Widerruf bleibt bestehen.
+            [SC-54]
+
+  T-SC-69  [L] Pool-Konfiguration: fehlende Zeile, ueberlappende Netze,
+            falsches Praefix, Reserve nicht kleiner als die nutzbaren
+            Slots - jeweils POOL_CONFIG_INVALID, keine Vergabe, kein
+            gerendertes Regelwerk. Eine Aenderung von Netz oder Praefix bei
+            vergebenem Slot wird abgewiesen; Stellgroessen sind mit
+            Protokoll aenderbar. [SC-55]
+
+  T-SC-70  [L] Fuellstand: Die Kennzahlen stimmen mit einer unabhaengigen
+            Zaehlung ueberein ("frei" entspricht der tatsaechlichen
+            Freimenge); jeder Stufenwechsel erzeugt genau ein Ereignis.
+            [K] Die Kundensicht zeigt keine fremden Adressen. [SC-56]
+
+  T-SC-71  [E] Randadressen (E-SC-05): Windows XP und Vista ueber L2TP
+            sowie aktuelle WireGuard-Clients mit Tunneladressen, deren
+            letztes Oktett 0 bzw. 255 ist: Verbindung, DNS und Web
+            funktionieren. Mit skip_edge_octets = 1 werden diese Slots
+            nicht vergeben. [SC-49, SC-55]
+
+================================================================================
+MARKEN, BETRIEB, GRENZEN
+================================================================================
+
+  T-SC-72  [K] vpn_runtime_marks: je Marke ein Schreiber laut Verzeichnis;
+            keine Geheimnisse, keine personenbezogenen Daten; das Panel
+            hat keine Schreibfunktion; Leser vertragen eine fehlende
+            Marke. [SC-57]
+
+  T-SC-73  [K] Statusdateien und Ereignismeldungen enthalten keine
+            Anmeldenamen, Tunneladressen von Kunden oder Gegenstellen;
+            Connections erscheinen nur als connection_ref. [SC-58]
+
+  T-SC-74  [L] vpn_janitor_interval_seconds aendern: Der naechste Lauf
+            folgt dem neuen Takt, ohne dass eine Unit-Datei geaendert
+            wurde. Ein Setting loeschen bzw. eine der Regeln K-a bis K-e
+            verletzen: Der Vorschlagswert wirkt und der Zustand ist
+            gemeldet. [SC-59]
+
+  T-SC-75  [K] Grenzpruefung nach dem Nachzug der Nachbarmodule (AP-Q04):
+            BASE-020, BASE-030, BASE-040 und BASE-080 definieren keine von
+            diesem Modul abweichende Semantik und fuehren keine eigene
+            Sitzungswahrheit; vpn_session_locks hat keine
+            tunnelspezifischen Spalten. [SC-60]
+
+  T-SC-76  [E] Adapter L2TP gegen den realen Daemon (E-SC-02, E-SC-03):
+            list, probe und kill liefern die geforderten Angaben; kill
+            erzeugt Accounting-Stop; die Antwortzeit unter Last liegt im
+            Zeitlimit; der Benutzer des AAA-Dienstes kann die
+            Verwaltungsschnittstelle nicht bedienen.
+            [SC-23, SC-31, SC-26]
+
+  T-SC-77  [E] Verhalten des AAA-Dienstes und der Datenbank (E-SC-04,
+            E-SC-06): Eine Interim-Meldung legt eine fehlende Zeile an;
+            eine Stop-Meldung ueberschreibt eine geschlossene Zeile; der
+            Pufferbetrieb arbeitet wie gefordert; ein Schluesselkonflikt
+            beim Sperrerwerb wird als "nicht erworben" erkannt.
+            [SC-17, SC-37, SC-39]
+
+  T-SC-78  [E] Last (E-SC-07, E-SC-08): 5.000 aktive WireGuard-Peers und
+            500 gleichzeitige L2TP-Sitzungen (Pruefgroesse dieses Tests;
+            eine Zielgroesse fuer L2TP legt BASE-030 fest): Die
+            On-Demand-Pruefung bleibt unter dem Zeitlimit; Abgleich und
+            Buchung einschliesslich Tagesreihe bleiben innerhalb ihrer
+            Takte. [SC-26, SC-28, SC-40]
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
