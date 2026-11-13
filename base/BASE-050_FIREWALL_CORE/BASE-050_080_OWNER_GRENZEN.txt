@@ -1,0 +1,272 @@
+================================================================================
+BASE-050 — OWNER-GRENZEN
+================================================================================
+DATEI: BASE-050_080_OWNER_GRENZEN.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Abgrenzung nach PATTERN-01: was BASE-050 fachlich besitzt und was nicht,
+  Antworten auf die Anforderungen aus BASE-040 (ANF-WT-01..06), eigene
+  Anforderungen an Nachbarmodule (ANF-FW-01..12) und die Punkte, die erst
+  an der Zielplattform bestaetigt werden koennen (E-FW-01..12).
+
+================================================================================
+1) BASE-050 OWNT
+================================================================================
+
+  a) die Tabelle "inet retrotunnel": Objekte, Ketten, Hooks, Prioritaeten,
+     Regelreihenfolge, Zaehler, Logkennzeichen
+  b) DEFINITION und WIRKUNG aller dynamischen Sets
+  c) Render-Vertrag, Lade-Operationen, Zustaende der Firewall, Siegel,
+     Notfall-Riegel, Kopplung der Weiterleitung
+  d) Verlust- und Drifterkennung der Regelwerks-STRUKTUR
+  e) die Dienst-Matrix des SERVICE_NET und den DNS-Zwang im Kernel
+  f) WAN-Exposition und Ratenbegrenzung
+  g) Inhalt der Netz-Kernelparameter; Rueckfallrouten als Anforderung
+  h) den Notzugang rtmgmt0 (Regeln, Interface-Vertrag, Ueberwachung)
+  i) Bedeutung der vpn_fw_*-Settings
+
+================================================================================
+2) BASE-050 OWNT NICHT
+================================================================================
+
+  a) INHALT der dynamischen Sets (wer wann hinein gehoert) und alle
+     Schreibvorgaenge darauf, vpn-policy-apply, Single-Writer-Lock,
+     Abgleich gegen SQL, conntrack-Flush                     -> BASE-080
+  b) Peer-Logik, awg0, Add-/Remove-Sequenzen                 -> BASE-040
+  c) accel-ppp, strongSwan, Hooks, PPP-Interfaces            -> BASE-030
+  d) Pools, Adressvergabe, Connection-Zustaende              -> BASE-010/-070
+  e) Dienste selbst (AdGuard, Unbound, Zeitdienst)           -> BASE-060
+  f) Panel, Verwaltungs-Abgleich der zwei Quellen            -> BASE-110
+  g) Settings-Katalog (Typen, Rechte, Aenderungsweg)         -> BASE-090
+  h) Registry der Adressen, Ports, Units, Pfade, Secrets;
+     sshd; Dienstadressen auf lo                             -> BASE-005
+  i) Bandbreite / Shaping                                    -> MOD-003
+  j) Sperrentscheidungen (Fail2ban)                          -> MOD-005
+  k) Meldewege, Aufbewahrung, Auswertung                     -> MOD-007
+  l) Sicherung, Wiederherstellung, Updates                   -> MOD-008
+  m) Walled-Garden-Ablaeufe, Portal-Umleitung                -> MOD-002
+
+================================================================================
+3) GRENZREGELN (MUST)
+================================================================================
+
+  GF-1  BASE-050 veraendert Set-Inhalte nicht. Einzige Ausnahme ist die
+        unveraenderte Uebernahme bei einer Aktivierung; vpn-fw-check
+        entfernt nie ein Element.
+  GF-2  BASE-050 trifft keine Entscheidung ueber Connections: kein
+        op_status, keine Sperre aus Zaehlern oder Logzeilen.
+  GF-3  Kein anderes Modul definiert Regeln, Ketten, Sets oder
+        Prioritaeten. Bedarf wird als Aenderung dieses Moduls eingebracht
+        oder nutzt einen reservierten Erweiterungspunkt.
+  GF-4  Keine Komponente ausser vpn-fw-load und vpn-policy-apply (mit
+        registrierten Helfern) ruft nft schreibend auf (R-11).
+  GF-5  Zwei Schichten, keine ersetzt die andere: Dienste binden nur an
+        ihre Dienstadresse und authentisieren selbst; die Firewall
+        begrenzt unabhaengig davon die Erreichbarkeit.
+  GF-6  Der Notzugang dient ausschliesslich der Verwaltung im Stoerfall.
+        Kein Modul nutzt ihn fuer Regelablaeufe, Sicherungen oder
+        Ueberwachung.
+
+================================================================================
+4) LESE- UND SCHREIBGRENZEN
+================================================================================
+
+  DATENBANK
+    LIEST (nur vpn-fw-render): Settings vpn_fw_*, wg_listen_port,
+           wg_tunnel_mtu; vpn_pool_config
+    SCHREIBT: nichts. Zustand liegt in /run, Ereignisse gehen an MOD-007.
+  DATEISYSTEM
+    SCHREIBT /etc/retrotunnel/firewall/, /etc/nftables.conf,
+             /etc/sysctl.d/60-retrotunnel-net.conf, /run/retrotunnel/fw/
+    LIEST    Plattform-Registry, /etc/wireguard/rtmgmt0.conf (nur Port und
+             Adresse; nie Schluessel in Ausgaben)
+  KERNEL
+    nftables-Struktur (vpn-fw-load), Schalter der Weiterleitung
+    (vpn-fw-load), Rueckfallrouten (Wiederherstellung durch vpn-fw-check)
+
+================================================================================
+5) ANTWORTEN AUF ANFORDERUNGEN AUS BASE-040
+================================================================================
+
+  ANF-WT-01  UEBERNOMMEN und erweitert. connect_pending_v4/_v6 existieren
+             in jedem Regelwerk ab dem fruehen Laden, Elemente ohne Ablauf;
+             verworfen wird in forward (beide Richtungen, auch bestehende
+             Flows) UND in input. Zusaetzlich Siegel fuer Regelwerke ohne
+             Set-Inhalte. (BASE-050_030 Abschnitt 2; FD-04, IN-05; FW-18, FW-09)
+  ANF-WT-02  UEBERNOMMEN. Alle Regeln nennen awg0 per Name; das Regelwerk
+             laedt ohne das Interface. awg0.conf enthaelt keine Regeln.
+             (DEC-FW-01, DEC-FW-07; FW-01, FW-04)
+  ANF-WT-03  UEBERNOMMEN. UDP wg_listen_port am WAN, IPv4 und IPv6, mit
+             Grenze je Quelle und Gesamtdeckel; keine "port unreachable"-
+             Antwort am WAN. (IW-06, IW-08, OUT-03; FW-13, FW-15, FW-16)
+  ANF-WT-04  UEBERNOMMEN und erweitert. Quellen ausserhalb der Pools werden
+             an awg0 verworfen; zusaetzlich strikte Rueckwegpruefung.
+             (PR-06, PR-07; FW-17)
+  ANF-WT-05  UEBERNOMMEN. Rueckfallrouten als Anforderung an den fruehen
+             Start (ANF-FW-01), Wiederherstellung durch vpn-fw-check,
+             zweite Schicht PG-02. (BASE-050_070 Abschnitt 5; FW-39)
+  ANF-WT-06  UEBERNOMMEN. NAT66 fuer den gesamten IPv6-Adressraum am WAN;
+             MSS-Absenkung auf awg0 in beiden Richtungen, Werte aus
+             wg_tunnel_mtu abgeleitet. (NQ-02, FD-12; FW-36, FW-34)
+
+================================================================================
+6) ANFORDERUNGEN AN NACHBARMODULE
+================================================================================
+
+  Jede Anforderung muss im Zielmodul unter ihrer Kennung beantwortet werden
+  (uebernommen oder begruendet anders geloest).
+
+  ANF-FW-01 (BASE-005)
+    a) Plattform-Registry in maschinenlesbarer Form: Name des
+       WAN-Interfaces; je Dienst Adresse (v4/v6), Protokoll, Port und
+       Dienstklasse (ALLE / ADMIN_VERWALTUNG / SERVER_INTERN).
+    b) BASE-005_080 Abschnitt 3 an die Boot-Reihenfolge in BASE-050_070
+       Abschnitt 8 angleichen; der Satz, ohne geladenes Regelwerk gebe es
+       keinen offenen Weiterleitungspfad, entfaellt (F-001).
+    c) Der fruehe Start-Helfer fuer die Dienstadressen setzt auch die
+       Rueckfallrouten.
+    d) Registry-Nachtraege: Units, Werkzeuge, Pfade, sysctl-Datei dieses
+       Moduls; mgmt_net 10.77.1.0/29; UDP-Port des Notzugangs; Secrets des
+       Notzugangs (hoechste Klasse).
+    e) sshd: Bindung an SERVICE_SSH, nur Schluessel, zulaessige Quellen
+       ADMIN-Pool und mgmt_net.
+    f) Betriebsart von IPv6 am WAN (statisch oder Router Advertisement)
+       und die dazu noetige Interface-Einstellung.
+    g) Keine weiteren Firewall-Werkzeuge im Paketbestand
+       (BASE-050_070 Abschnitt 6).
+    h) Ein lokales Konsolenkonto fuer Wiederherstellungs-Ebene 4.
+
+  ANF-FW-02 (BASE-030)
+    a) accel-ppp erzeugt je Sitzung ein neues Interface (unit-cache aus).
+    b) Die Hooks ip-pre-up/ip-up/ip-down enthalten keine nft-Aufrufe; sie
+       rufen vpn-policy-apply.
+    c) strongswan.service und accel-ppp.service tragen Requires= und
+       After= auf nftables.service; LT-32 wird entsprechend nachgezogen.
+    d) Der Servername fuer L2TP-Clients loest nur auf IPv4 auf.
+    e) strongSwan begrenzt halboffene IKE-Verbindungen.
+    f) Client-Hinweis: fest eingestelltes "privates DNS" ist abzuschalten.
+
+  ANF-FW-03 (BASE-080)
+    a) Lebenszyklus von allowed_l2tp_v4 gemaess BASE-050_030 Abschnitt 4
+       (Schluessel Interface + Adresse; Einfuegen als letzter Schritt;
+       Entfernen bei Sitzungsende und als Hard-Cut; Abgleich der Reste).
+    b) "Policy vor Freigabe" fuer beide Tunnel (BASE-050_030 Abschnitt 3).
+    c) Scheitert ein Peer-Remove, werden die Adressen der Connection
+       sofort in connect_pending eingetragen.
+    d) Herstellung und Bestaetigung der Vorbedingung fuer unseal
+       (BASE-050_070 Abschnitt 3); vollstaendiger Abgleich nach recover
+       und nach dem Systemstart.
+    e) Registrierte Helfer: Sperr-Helfer (MOD-005), Helfer der
+       Verwaltungsfreigabe (BASE-110), Lese-Helfer (Panel). Alle
+       Schreibzugriffe unter dem Lock, IPv4 und IPv6 einer Connection in
+       einer Transaktion.
+    f) Behandlung der Ergebniscodes von vpn-fw-load; kein Apply, solange
+       der Zustand RIEGEL oder KEIN_REGELWERK ist.
+    g) conntrack-Flush bleibt Teil jedes Hard-Cuts (POL-09..12).
+
+  ANF-FW-04 (BASE-090)
+    Katalogisierung aller vpn_fw_*-Keys mit Typ, Bereich, Wirkungsklasse
+    (RENDER/SYSCTL) und Fehlerverhalten STRICT; Konsistenzregeln
+    (Burst >= Rate; Portlisten ohne 53, 80, 123, 443, 853; WAN-Ports
+    paarweise verschieden). Aenderungen an wg_listen_port und
+    wg_tunnel_mtu loesen ein Rendern des Regelwerks aus.
+
+  ANF-FW-05 (BASE-060)
+    Dienste binden nur an ihre Dienstadresse; AdGuard nutzt als Upstream
+    nur Unbound ueber lo; die Ratenbegrenzung von AdGuard ist auf IV-02
+    abgestimmt; Listen gegen DNS ueber HTTPS; Zeitdienst an SERVICE_NTP.
+
+  ANF-FW-06 (BASE-110, MOD-006)
+    Der Abgleich der Verwaltungsfreigabe (zwei Quellen, DP-07) schreibt
+    admin_panel_allowed nur ueber den Helfer und als Gesamtaustausch.
+    Entscheidung, ob das Panel einen eigenen Endpunkt der Klasse
+    ADMIN_VERWALTUNG erhaelt. Anzeige nach den Abschnitten
+    "Panel-Consumability" dieses Moduls; Stoerungsseite liest status.json.
+
+  ANF-FW-07 (MOD-005)
+    Sperren ausschliesslich ueber den Sperr-Helfer in banned_v4/_v6, immer
+    mit Ablauf; verbotene Adressen gemaess BASE-050_030 Abschnitt 5;
+    Regeln fuer geteilte oeffentliche Adressen; Auswertung der
+    Kennzeichen CLI_*; keine eigenen nftables-Tabellen.
+
+  ANF-FW-08 (MOD-007)
+    Ereignisklassen aus BASE-050_070 Abschnitt 4 auf einem Meldeweg, der
+    nicht an der Datenbank haengt; FW_CHECK_STEHT; Erfassung der Zaehler
+    zusammen mit der Generation; Aufbewahrung und Datenschutzbehandlung
+    der Logzeilen.
+
+  ANF-FW-09 (MOD-003)
+    Shaping veraendert das Regelwerk nicht. Benoetigt MOD-003 Paketmarken,
+    werden Markenbereich und Regelstelle als Aenderung dieses Moduls
+    eingebracht. Derzeit vergibt BASE-050 keine Paketmarken.
+
+  ANF-FW-10 (MOD-008)
+    Sicherungsumfang: rtmgmt0.conf (verschluesselt, getrennt),
+    active.nft/lkg.nft. Wiederherstellung beginnt mit Regelwerk und
+    Notzugang. Betriebsanleitung fuer Notzugang und Konsolenkonto.
+    Update-Verfahren fuer nftables und Kernel mit Vorpruefung des
+    Kandidaten.
+
+  ANF-FW-11 (MOD-002)
+    Entscheidung ueber die Portal-Umleitung (BASE-050_050 Abschnitt 6) und
+    die Nutzerfuehrung bei abgewiesenen Verbindungen.
+
+  ANF-FW-12 (BASE-040)
+    Wortlaut von WT-01, DEC-WT-07 und T-WT-02 auf "genau ein
+    WireGuard-Endpunkt FUER CLIENTS" praezisieren; der Notzugang ist kein
+    Client-Endpunkt. (Mit dieser Aenderung bereits nachgezogen.)
+
+================================================================================
+7) AN DER ZIELPLATTFORM ZU BESTAETIGEN (E-FW)
+================================================================================
+
+  Diese Punkte sind Architektur-Annahmen ueber das Verhalten von Kernel,
+  nftables, accel-ppp, strongSwan und der Hoster-Umgebung. Sie sind
+  logisch begruendet, aber nicht praktisch geprueft. Je Punkt: Sollbild
+  und Ausweichweg. Zugehoerige Tests: BASE-050_095 (Art [E]).
+
+  E-FW-01  nftables-Funktionsumfang von Debian 13: Namensmuster fuer
+           Interfaces, Schluessel aus Interface-Index + Adresse,
+           benannte Zaehler, Begrenzung gleichzeitiger Flows, NAT in der
+           Familie inet, Kommentar an der Tabelle.
+           SOLL: Kandidat laedt fehlerfrei. AUSWEICH: je Merkmal
+           gleichwertige Schreibweise (z. B. zwei Regeln statt Menge;
+           Generation an einer eigenen Kette); die Regel-SEMANTIK aus
+           BASE-050_020 aendert sich nicht.
+  E-FW-02  post_guard sieht die bereits uebersetzte Quelladresse.
+           SOLL: Zaehler c_guard_src bleibt im Betrieb 0; ein kuenstlich
+           an NAT vorbeigefuehrtes Paket wird gezaehlt und verworfen.
+           AUSWEICH: Waechter an spaeterer Stelle des Ausgangswegs.
+  E-FW-03  Strikte Rueckwegpruefung am WAN in der Umgebung des Hosters.
+           SOLL: c_rpf am WAN nahe 0 im Normalbetrieb. AUSWEICH: am WAN
+           nur PR-03/PR-04 anwenden; an VPN-Interfaces bleibt PR-07.
+  E-FW-04  Grenzwerte fuer Client-Verkehr gegen reale Nutzung.
+           SOLL: Browser, Messenger, Spiele, Tauschboersen loesen keine
+           Grenze aus; ein Scan wird deutlich gebremst.
+  E-FW-05  Bemessung: Durchsatz und Speicher bei Zielgroesse.
+           SOLL: 1 Gbit/s Durchleitung bei 5.000 Set-Elementen ohne
+           Verluste durch die Firewall; conntrack-Speicher im Rahmen.
+  E-FW-06  Erkennung des IPsec-Kontexts mit strongSwan, Transportmodus,
+           mit und ohne NAT-T. SOLL: entpacktes L2TP trifft IW-04,
+           unverschluesseltes IW-05; OUT-02 verwirft Klartext.
+  E-FW-07  accel-ppp ohne Interface-Wiederverwendung vergibt je Sitzung
+           einen neuen Interface-Index. SOLL: Ein liegengelassener
+           Freigabe-Eintrag passt nach Neuverbindung nicht.
+           AUSWEICH (zusaetzlich): Entfernen im ip-pre-up, sofern
+           accel-ppp auf diesen Hook wartet.
+  E-FW-08  Fruehes Laden vor Erscheinen der Interfaces.
+           SOLL: 20 Neustarts in Folge ohne Ladefehler.
+  E-FW-09  systemd: Stopp/Neustart von nftables.service wirkt wie
+           angenommen auf Units mit Requires=.
+  E-FW-10  IPv6 am WAN mit eingeschalteter Weiterleitung beim Hoster.
+  E-FW-11  Clients mit automatischem privatem DNS fallen nach der
+           Abweisung von Port 853 auf Port 53 zurueck.
+  E-FW-12  WireGuard des Kernels (rtmgmt0) und AmneziaWG (awg0)
+           arbeiten nebeneinander.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

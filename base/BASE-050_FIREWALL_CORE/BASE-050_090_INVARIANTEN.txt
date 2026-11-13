@@ -1,0 +1,297 @@
+================================================================================
+BASE-050 — INVARIANTEN (Firewall-Kern)
+================================================================================
+DATEI: BASE-050_090_INVARIANTEN.txt
+STATUS: ACTIVE
+
+Harter Vertrag. Jede Verletzung ist ein Fehler. Kennungen FW-01..FW-50.
+Regelkennungen in Klammern (PR-, NP-, IN-, IW-, IV-, SA-, SD-, IM-, FD-,
+FL-, FR-, OUT-, NQ-, PG-) verweisen auf BASE-050_020.
+Herkunft je Invariante: Rueckverfolgungs-Records unter
+governance/register/trace/ (Feld erfuellt_in) bzw. NEU_BEGRUENDET.yaml.
+
+================================================================================
+ARCHITEKTUR UND SCHREIBWEG
+================================================================================
+
+  FW-01  Der gesamte nftables-Zustand des Systems liegt in der Tabelle
+         "inet retrotunnel". Es gibt keine weitere Tabelle. Interface-
+         Hooks, awg0.conf, Panel-Code und Fremdwerkzeuge enthalten und
+         setzen keine Regeln.
+
+  FW-02  Die Struktur des Regelwerks entsteht nur durch vpn-fw-render und
+         wird nur durch vpn-fw-load aktiviert. Inhalte dynamischer Sets
+         schreibt nur vpn-policy-apply mit seinen registrierten Helfern.
+         Jeder Schreibzugriff erfolgt unter dem Single-Writer-Lock.
+
+  FW-03  Rendern ist deterministisch: gleiche Eingaben ergeben ein
+         bytegleiches Regelwerk mit gleicher Generation. Fehlt eine
+         Eingabe oder ist sie ungueltig, entsteht kein Kandidat und das
+         aktive Regelwerk bleibt in Kraft.
+
+  FW-04  Alle Regeln nennen Interfaces per Name. Das Regelwerk ist
+         ladbar, bevor WAN- oder Tunnel-Interfaces existieren. Es gibt
+         keine geraetegebundenen Hooks und keine Flowtables.
+
+  FW-46  Schwellen, Ports und Listen stammen aus Settings (vpn_fw_*),
+         der Registry oder der Pool-Konfiguration. Feste Werte im
+         Regelwerk sind nur: die feste Abuse-Liste, die Protokoll-
+         konstanten 500, 4500, 1701, 53 und 853 sowie die festgelegten
+         conntrack-Eigenschaften.
+
+  FW-47  Die Firewall trifft keine Entscheidung ueber Connections und
+         veraendert keine Set-Inhalte; einzige Ausnahme ist die
+         unveraenderte Uebernahme bei einer Aktivierung.
+
+================================================================================
+LADEN, ZUSTAENDE, VERLUSTSCHUTZ
+================================================================================
+
+  FW-05  Jede Aktivierung ist genau eine nft-Transaktion. Lehnt der
+         Kernel sie ab, bleibt der vorherige Zustand vollstaendig
+         bestehen. Stoppen oder Neustarten des Dienstes ist kein
+         Aenderungsweg.
+
+  FW-06  IPv4- und IPv6-Weiterleitung sind nur in den Zustaenden
+         VERSIEGELT und BETRIEB eingeschaltet, nie ohne geladenes volles
+         Regelwerk. Sie stehen in keiner sysctl-Datei; nur vpn-fw-load
+         schaltet sie.
+
+  FW-07  Jede Unit, die ein Tunnel-Interface erzeugt, traegt Requires=
+         und After= auf nftables.service. Laedt kein volles Regelwerk,
+         startet kein Tunnel-Dienst.
+
+  FW-08  Ladekette: aktuelles Regelwerk, sonst letztes funktionierendes,
+         sonst Notfall-Riegel. Im Zustand RIEGEL wird alles verworfen
+         ausser lo, bestehendem Server-Verkehr, Neighbor Discovery und
+         Notzugang; die Weiterleitung ist aus; nftables.service gilt als
+         gescheitert.
+
+  FW-09  Ein Regelwerk, das ohne uebernommene Set-Inhalte aktiviert wird,
+         ist versiegelt: aller Verkehr von und zu awg0 wird in input und
+         forward verworfen. Das Siegel loest nur vpn-policy-apply nach
+         bestaetigter Vorbedingung.
+
+  FW-10  Eine Aktivierung zur Laufzeit uebernimmt die Elemente aller
+         dynamischen Sets und den Siegelzustand in derselben
+         Transaktion. Kann der Ist-Zustand nicht gelesen werden, wird
+         nicht aktiviert.
+
+  FW-11  Fehlt das Regelwerk oder traegt es eine falsche Generation,
+         wird das spaetestens nach vpn_fw_check_interval_seconds erkannt.
+         Reaktion: Weiterleitung aus, versiegelt laden, vollstaendigen
+         Abgleich anstossen.
+
+  FW-12  Laden, Pruefen, Systemstart, Notfall-Riegel und Notzugang
+         benoetigen keine Datenbank.
+
+================================================================================
+WAN
+================================================================================
+
+  FW-13  Am WAN sind ausschliesslich erreichbar: UDP 500 und 4500 sowie
+         ESP (nur IPv4), UDP 1701 mit IPsec-Kontext (nur IPv4), UDP
+         wg_listen_port, UDP-Port des Notzugangs, Echo (begrenzt,
+         abschaltbar), ICMPv6 Neighbor Discovery und MLD. Alles andere
+         wird verworfen (IW-01..IW-09).
+
+  FW-14  UDP 1701 ohne IPsec-Kontext wird am WAN ausnahmslos verworfen
+         (IW-05). Der Server sendet am WAN kein L2TP ohne IPsec-Schutz
+         (OUT-02).
+
+  FW-15  Am WAN wird nur verworfen: kein TCP-Reset und keine ICMP-
+         Fehlermeldung als Reaktion auf unerwuenschte Pakete; ausgehende
+         Meldungen "port unreachable" werden unterdrueckt (OUT-03).
+
+  FW-16  Neue Flows zu den Endpunkten am WAN sind je Quelladresse
+         begrenzt, fuer IKE und WireGuard zusaetzlich insgesamt. Ein
+         voller Zaehlerspeicher fuehrt zum Verwerfen. Bestehende Flows
+         sind nicht betroffen.
+
+================================================================================
+ANTI-SPOOFING
+================================================================================
+
+  FW-17  An jedem Interface ausser lo wird ein Paket verworfen, dessen
+         Quelladresse nicht ueber das Eingangs-Interface geroutet ist
+         (PR-07). An VPN-Interfaces muss die Quelle zusaetzlich in einem
+         Rollen-Pool liegen (PR-06); an ppp* gibt es kein IPv6 (PR-05);
+         am WAN werden Quell- und Zieladressen aus dem RetroTunnel-
+         Adressraum verworfen (PR-03, PR-04).
+
+================================================================================
+ADMISSION UND GATE
+================================================================================
+
+  FW-18  connect_pending_v4/_v6 existieren in jedem Regelwerk; ihre
+         Elemente tragen keinen Ablauf. Steht eine Adresse im Set, wird
+         aller Verkehr von und zu ihr in input und forward verworfen,
+         auch bestehende Flows (IN-05, FD-04).
+
+  FW-19  Ohne Element in allowed_l2tp_v4 wird aller Verkehr einer
+         L2TP-Sitzung in input und forward verworfen, einschliesslich
+         DNS und Portal (IN-06, FD-05).
+
+  FW-20  Ein Element in allowed_l2tp_v4 ist an die Interface-Instanz
+         gebunden. Ein Element einer beendeten Sitzung schaltet keine
+         spaetere Sitzung frei, auch nicht bei gleicher Adresse und
+         gleichem Interface-Namen.
+
+  FW-21  Das Entfernen eines Elements aus allowed_l2tp_v4 und das
+         Einfuegen in connect_pending wirken ab dem naechsten Paket in
+         beide Richtungen, unabhaengig davon, ob der Tunnel-Dienst die
+         Verbindung beendet.
+
+================================================================================
+ZUSTANDS-ENFORCEMENT
+================================================================================
+
+  FW-22  Steht eine Adresse in restricted_v4/_v6, erreicht sie lokal nur
+         die Dienstklasse ALLE; Verkehr Richtung WAN wird abgewiesen,
+         Antworten vom WAN werden verworfen. Das gilt ab dem naechsten
+         Paket auch fuer bestehende Flows, ohne conntrack-Flush
+         (IV-04, FD-08).
+
+  FW-23  Im forward liegen Siegel, Gate, L2TP-Freigabe, Isolation,
+         Einschraenkung, DNS-Sicherung, DoT/DoQ-Abweisung und
+         Abuse-Sperren vor dem Durchlass bestehender Flows (FD-03 bis
+         FD-11 vor FD-13); in input liegen Siegel, Gate und
+         L2TP-Freigabe davor (IN-04 bis IN-06 vor IN-07).
+
+  FW-24  banned_v4/_v6 enthalten nur Elemente mit Ablauf und nie
+         Adressen aus SERVICE_NET, mgmt_net oder des Servers. Die
+         Sperrliste wirkt am WAN und an VPN-Interfaces, nicht an lo und
+         nicht am Notzugang.
+
+  FW-25  Jeder Schutz dieses Moduls existiert fuer IPv6 gleichwertig zu
+         IPv4. Es gibt keinen IPv6-Weg, der einer Schutzstufe entgeht;
+         L2TP fuehrt kein IPv6.
+
+  FW-49  Sicherheitsregeln (DNS-Zwang, Isolation, Abuse-Sperren,
+         Anti-Spoofing, Gate, Einschraenkung) gelten fuer alle Rollen
+         gleich. Rollen unterscheiden sich im Regelwerk nur durch die
+         Dienstklasse ADMIN_VERWALTUNG, getrennte Zaehler und den
+         ADMIN-Faktor der Grenzen.
+
+  FW-50  Die Rollenzuordnung im Regelwerk beruht allein auf den
+         Pool-Bereichen der Pool-Konfiguration. Die IPv6-Pools sind /64;
+         kein Pool ueberschneidet SERVICE_NET oder mgmt_net.
+
+================================================================================
+SERVICE_NET UND DNS
+================================================================================
+
+  FW-26  Aus dem VPN sind lokal nur Adressen des SERVICE_NET ansprechbar
+         und dort nur, was die Dienst-Matrix nennt. Alles andere wird
+         abgewiesen oder verworfen (IV-01, IV-06).
+
+  FW-27  Die Dienstklasse ALLE (DNS 53, Web 80/443, NTP 123, Echo an
+         SERVICE_WEB) ist fuer jede zugelassene Connection erreichbar,
+         auch im Zustand RESTRICTED. Die Grenzen fuer Internet-Verkehr
+         beeintraechtigen sie nicht (eigener Zaehler IV-02).
+
+  FW-28  Die Dienstklasse ADMIN_VERWALTUNG ist nur erreichbar, wenn die
+         Quelle im ADMIN-Pool liegt UND in admin_panel_allowed steht UND
+         nicht in restricted steht. Ein leeres Set schliesst die Klasse.
+         MODERATOR hat keine zusaetzlichen Kernel-Freigaben.
+
+  FW-29  SERVICE_RESOLVER und alle Dienste der Klasse SERVER_INTERN sind
+         aus keinem VPN-Interface erreichbar.
+
+  FW-30  Jedes Paket aus einem VPN-Interface mit Zielport 53 (TCP und
+         UDP; IPv4, und IPv6 aus awg0) wird auf SERVICE_DNS umgeleitet,
+         fuer alle Rollen und Zustaende (NP-01, NP-02). Kein Paket mit
+         Zielport 53 wird weitergeleitet (FD-09). Zielport 853 wird
+         abgewiesen (FD-10).
+
+================================================================================
+FORWARD
+================================================================================
+
+  FW-31  Kein Paket wird von einem VPN-Interface zu einem VPN-Interface
+         weitergeleitet, und keines aus einem VPN-Interface an eine nicht
+         lokale Adresse des RetroTunnel-Adressraums. Es gibt keine
+         Ausnahme fuer Rollen (FD-06).
+
+  FW-32  Neue Flows entstehen nur in Richtung VPN nach WAN. Es gibt
+         keinen neuen Flow vom WAN zu einem Client, keine Weiterleitung
+         WAN zu WAN und keine Weiterleitung von oder zum Notzugang
+         (FD-02, FD-07, FD-15..FD-17).
+
+  FW-33  TCP 25, 465, 587 und 445 sowie TCP/UDP 137-139 sind fuer alle
+         Rollen einschliesslich ADMIN gesperrt, fuer IPv4 und IPv6, und
+         nicht abschaltbar (FD-11).
+
+  FW-34  Die TCP-MSS wird fuer Verbindungen ueber L2TP und WireGuard in
+         beiden Richtungen auf den Tunnelwert abgesenkt, vor dem
+         Durchlass bestehender Flows; eine kleinere MSS wird nie
+         angehoben. Die Tunnelwerte sind aus den Tunnel-MTUs abgeleitet
+         (FD-12).
+
+  FW-35  Die Grenzen je Tunneladresse (neue Flows, gleichzeitige Flows,
+         Echo) verwerfen nur neue Flows. Ihre Zaehlerspeicher fassen
+         mindestens den Adressraum der Pools. Die Firewall sperrt nicht
+         selbsttaetig (FL-01..FL-03).
+
+================================================================================
+NAT, LECK-SCHUTZ, CONNTRACK
+================================================================================
+
+  FW-36  Client-Verkehr verlaesst das WAN ausschliesslich mit der Adresse
+         des Servers als Quelle: NAT44 und NAT66 ueber den gesamten
+         RetroTunnel-Adressraum (NQ-01, NQ-02).
+
+  FW-37  Kein Paket verlaesst das WAN mit einer Quell- oder Zieladresse
+         aus dem RetroTunnel-Adressraum (PG-01, PG-02).
+
+  FW-38  Ungueltige Pakete werden verworfen (IN-03, FD-01). TCP wird nur
+         ab Verbindungsaufbau verfolgt. Es werden keine conntrack-Helfer
+         geladen; ESP wird nicht verfolgt.
+
+  FW-39  Fuer 10.77.0.0/16 und fd77:0:0::/48 existieren dauerhaft
+         Rueckfallrouten vom Typ "unreachable"; fehlen sie, wird das
+         gemeldet und sie werden wiederhergestellt.
+
+================================================================================
+NOTZUGANG
+================================================================================
+
+  FW-40  Ueber rtmgmt0 ist ausschliesslich der SSH-Port von SERVICE_SSH
+         erreichbar (zusaetzlich Echo an die eigene Adresse). Es gibt
+         keine Weiterleitung; Siegel und dynamische Sets wirken auf
+         rtmgmt0 nicht (IM-01..IM-03, FD-02).
+
+  FW-41  Der Notzugang haengt nicht an Datenbank, RADIUS, Tunnel-Diensten,
+         vpn-policy-apply oder dem vollen Regelwerk; er startet nur, wenn
+         irgendein Regelwerk geladen ist. Seine Konfiguration stammt
+         nicht aus SQL; hoechstens 5 Peers, jeder mit eigenem Schluessel
+         und PresharedKey.
+
+  FW-42  Jede Nutzung des Notzugangs erzeugt ein Ereignis auf einem
+         Meldeweg, der nicht an der Datenbank haengt.
+
+================================================================================
+BEOBACHTBARKEIT
+================================================================================
+
+  FW-43  Jede Regel mit Urteil traegt einen benannten Zaehler. Aus den
+         Zaehlern ist ableitbar, an welcher Stufe und in welcher Zone
+         Verkehr scheitert.
+
+  FW-44  Logzeilen sind je Kennzeichen ratenbegrenzt und enthalten keine
+         Nutzdaten, DNS-Namen oder Schluessel. Fuer umgeleitete
+         DNS-Anfragen und zugelassenen Verkehr gibt es keine Logzeilen.
+
+  FW-45  status.json nennt Zustand, Generation und Befunde, ist ohne
+         Datenbank lesbar und enthaelt keine Client-Adressen und keine
+         Secrets.
+
+  FW-48  Jeder Zustandswechsel der Firewall (Aktivierung, Siegel gesetzt
+         oder geloest, Notfall-Riegel, erkannter Verlust) wird mit
+         Zeitpunkt und Generation protokolliert.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

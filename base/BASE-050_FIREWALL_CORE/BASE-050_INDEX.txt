@@ -1,0 +1,232 @@
+================================================================================
+BASE-050 — FIREWALL CORE (INDEX)
+================================================================================
+DATEI: BASE-050_INDEX.txt
+VERSION: v1.0
+DATUM: 2026-11-13
+STATUS: ACTIVE (Konzeptstand; keine Implementierung, kein Praxistest)
+
+================================================================================
+1) ZWECK
+================================================================================
+
+  BASE-050 beschreibt den Firewall-Kern von RetroTunnel auf Basis von
+  nftables: die eine Tabelle mit allen Ketten und Regeln in verbindlicher
+  Reihenfolge, die dynamischen Sets fuer Zustaende, WAN-Exposition und
+  Eingangsschutz, die Dienst-Matrix des SERVICE_NET mit DNS-Zwang, den
+  Weg der Client-Pakete ins Internet (Isolation, Abuse-Sperren, Grenzen,
+  NAT), sowie Rendern, Laden, Systemstart, Verlustschutz und den
+  datenbankunabhaengigen Notzugang.
+
+  Leitsatz: KEIN PAKET OHNE REGELWERK, KEIN DURCHLASS OHNE HERGESTELLTEN
+  ZUSTAND. Was nicht ausdruecklich zugelassen ist, wird verworfen - beim
+  Systemstart, im Betrieb und nach jedem Verlust des Regelwerks. Der
+  Kernel-Zustand entsteht deterministisch aus SQL und Registry ueber genau
+  einen Schreibweg.
+
+  Policy-ENDZUSTAENDE (voll, eingeschraenkt, gesperrt, im Gate) sind
+  tunnelneutral; die ADMISSION ist tunnelspezifisch (WireGuard: Peer-
+  Praesenz mit Gate; L2TP: Default-Deny mit Freigabe-Set), Changelog
+  v2.1.15.
+
+================================================================================
+2) SCOPE UND ABGRENZUNG
+================================================================================
+
+  IN SCOPE:
+  - Tabelle "inet retrotunnel": Objekte, Ketten, Regelreihenfolge
+  - Definition und Wirkung der Sets connect_pending, restricted,
+    allowed_l2tp, banned, admin_panel_allowed
+  - WAN-Exposition, L2TP nur ueber IPsec, Ratenbegrenzung, Antwortverhalten
+  - Dienst-Matrix SERVICE_NET, DNS-Zwang (DNAT53, DoT/DoQ)
+  - Forward: Isolation, Abuse-Sperren, Grenzen, MSS, NAT44/NAT66,
+    Leck-Waechter, conntrack-Bemessung
+  - Anti-Spoofing, Netz-Kernelparameter, Rueckfallrouten (Anforderung)
+  - Render-Vertrag, Lade-Operationen, Zustaende, Siegel, Notfall-Riegel,
+    Boot-Reihenfolge, Verlust- und Drifterkennung
+  - Notzugang rtmgmt0
+  - Zaehler, Logkennzeichen, Status
+
+  NICHT IN SCOPE (Owner anderswo):
+  - Inhalt der Sets, vpn-policy-apply, Abgleich, conntrack-Flush -> BASE-080
+  - Peers und awg0                                           -> BASE-040
+  - accel-ppp, strongSwan, Hooks                             -> BASE-030
+  - Pools, Adressvergabe, Connection-Zustaende               -> BASE-010, -070
+  - DNS- und Zeitdienste                                     -> BASE-060
+  - Settings-Katalog                                         -> BASE-090
+  - Kundenrechte und -grenzen als Policy-Werte               -> BASE-100
+  - Panel, Verwaltungs-Abgleich                              -> BASE-110, MOD-006
+  - Registry, sshd, Dienstadressen auf lo                    -> BASE-005
+  - Walled-Garden-Ablaeufe                                   -> MOD-002
+  - Shaping / Bandbreite                                     -> MOD-003
+  - Sperrentscheidungen                                      -> MOD-005
+  - Meldewege, Aufbewahrung                                  -> MOD-007
+  - Sicherung, Wiederherstellung, Updates                    -> MOD-008
+
+================================================================================
+3) DATEIEN IN DIESEM ORDNER
+================================================================================
+
+  BASE-050_INDEX.txt                                 Dieses Dokument
+  BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt    Schutzziele, Komponenten,
+                                                     DEC-FW-01..20
+  BASE-050_020_REGELWERK_STRUKTUR.txt                Objekte, Ketten,
+                                                     Regelreihenfolge
+  BASE-050_030_SETS_UND_ZUSTANDS_ENFORCEMENT.txt     Vertrag der dynamischen
+                                                     Sets
+  BASE-050_040_WAN_EXPOSITION_UND_NOTZUGANG.txt      WAN, Eingangsschutz,
+                                                     rtmgmt0
+  BASE-050_050_SERVICE_NET_UND_DNS_ZWANG.txt         Dienst-Matrix, DNS-Zwang
+  BASE-050_060_FORWARD_NAT_UND_EGRESS_SCHUTZ.txt     Forward, Grenzen, NAT,
+                                                     Leck-Waechter
+  BASE-050_070_RENDERN_LADEN_UND_VERLUSTSCHUTZ.txt   Rendern, Laden, Boot,
+                                                     Verlust, Kernelparameter,
+                                                     Zaehler
+  BASE-050_080_OWNER_GRENZEN.txt                     PATTERN-01, ANF-FW-01..12,
+                                                     E-FW-01..12
+  BASE-050_090_INVARIANTEN.txt                       FW-01..FW-50
+  BASE-050_095_TESTS.txt                             T-FW-01..T-FW-69
+  entwuerfe/                                         Vorstudien (KR-01, nicht
+                                                     normativ; durch dieses
+                                                     Modul abgeloest bzw.
+                                                     eingeordnet, Abschnitt 7)
+
+================================================================================
+4) ABHAENGIGKEITEN
+================================================================================
+
+  REQUIRES:
+  - BASE-000  (Naming der Settings-Keys)
+  - BASE-005  (Registry: WAN-Interface, Dienstadressen und -ports, Units,
+               Pfade; fruehe Dienstadressen auf lo)
+  - BASE-010  (Pool-Konfiguration, Rollen)
+  - BASE-030  (ppp*-Interfaces, Hooks, IPsec-Endpunkt)
+  - BASE-040  (awg0, Gate-Sequenz, wg_listen_port, wg_tunnel_mtu)
+  - 02_ASSUMPTIONS_AND_RULES R-04, R-05, R-06, R-07, R-08, R-11
+  INFLUENCES:
+  - BASE-080  (schreibt die Sets; Abgleich; loest das Siegel)
+  - BASE-060  (Dienste hinter dem DNS-Zwang)
+  - BASE-090  (Settings vpn_fw_*)
+  - BASE-110 / MOD-006 (Verwaltungsfreigabe, Anzeige)
+  - MOD-002, MOD-003, MOD-005, MOD-007, MOD-008
+
+================================================================================
+5) PLATTFORM-CONTRACT (BASE-005)
+================================================================================
+
+  a) PAKETE
+     - nftables, iproute2, conntrack
+     - wireguard-tools (wg, wg-quick) fuer den Notzugang
+     Kein weiteres Firewall-Werkzeug (BASE-050_070 Abschnitt 6).
+
+  b) SYSTEMD-UNITS (Owner BASE-050; Nachtrag im Inventar BASE-005_070)
+     nftables.service        core    frueh; Drop-In ruft vpn-fw-load
+     vpn-fw-check.timer      core    Takt der Verlust-/Drifterkennung
+     vpn-fw-check.service    core    oneshot
+     wg-quick@rtmgmt0.service core   Notzugang
+
+  c) LINUX-USER: root (Kernel-Netzwerk-Operationen)
+
+  d) ENDPUNKTE
+     keine eigenen Dienst-Endpunkte ausser dem Notzugang:
+     UDP mgmt_port am WAN (IPv4 und IPv6); mgmt_net 10.77.1.0/29 auf
+     rtmgmt0 (Nachtrag BASE-005_030)
+
+  e) PFADE (Nachtrag in BASE-005_040)
+     /etc/nftables.conf                         zeigt auf active.nft
+     /etc/retrotunnel/firewall/active.nft       aktiviertes Regelwerk
+     /etc/retrotunnel/firewall/lkg.nft          letztes funktionierendes
+     /etc/retrotunnel/firewall/candidate.nft    gerenderter Kandidat
+     /etc/retrotunnel/firewall/lockdown.nft     Notfall-Riegel
+     /etc/sysctl.d/60-retrotunnel-net.conf      Netz-Kernelparameter
+     /etc/wireguard/rtmgmt0.conf                Notzugang (0600 root)
+     /usr/local/bin/vpn-fw-render               Renderer
+     /usr/local/bin/vpn-fw-load                 Lade-Operationen
+     /usr/local/bin/vpn-fw-check                Verlust-/Drifterkennung
+     /run/retrotunnel/fw/                       Status, Soll-Abbild
+
+  f) SECRETS (Nachtrag BASE-005_060)
+     Privater Schluessel und PresharedKeys des Notzugangs (hoechste
+     Klasse, nur Datei, nie in SQL, Logs oder Panel)
+
+  g) DEPENDENCIES
+     nftables.service:   vor network-pre.target und vor allen Tunnel-Units
+     Tunnel-Units:       Requires=+After=nftables.service (Owner BASE-030,
+                         BASE-040)
+     wg-quick@rtmgmt0:   After=nftables.service lo-service-ips.service;
+                         kein Requires
+     vpn-fw-check:       After=nftables.service; keine Datenbank
+
+  h) READINESS
+     FIREWALL_RULESET_READY: Zustand VERSIEGELT oder BETRIEB und
+     Generation des Kernels = active.nft
+
+  i) RESTART
+     nftables.service: oneshot, kein Auto-Restart; im Betrieb weder
+     Neustart noch Stopp (BASE-050_070 Abschnitt 9)
+
+================================================================================
+6) PANEL-CONSUMABILITY (R-17, DP-07)
+================================================================================
+
+  SEHEN
+  - Zustand der Firewall (KEIN_REGELWERK / RIEGEL / VERSIEGELT / BETRIEB),
+    Generation aktiv und gerendert mit Unterschied, Siegel, Weiterleitung
+  - Befunde der Verlust-/Drifterkennung, Zeitpunkt des letzten Laufs
+  - Zaehler je Schutzstufe, Dienstklasse und Rolle; conntrack-Fuellstand
+  - Groessen der Sets; je Connection SOLL/IST der Set-Mitgliedschaften
+  - wirksame Dienst-Matrix und WAN-Exposition; Zustand des Notzugangs
+  STEUERN (ADMIN, mit erneuter Bestaetigung)
+  - rendern, aktivieren, Rueckweg auf das letzte funktionierende Regelwerk
+  EINSTELLEN
+  - alle vpn_fw_*-Settings mit Wirkungsklasse
+  ALARMIEREN
+  - Verlust, falsche Generation, Notfall-Riegel, haengendes Siegel,
+    Fremdobjekte, DNS-Sicherung ausgeloest, Leck-Waechter ausgeloest,
+    conntrack-Fuellstand, Nutzung des Notzugangs
+  NICHT IM PANEL
+  - einzelne Regeln oder Set-Elemente aendern; Stopp, Notfall-Riegel,
+    Siegel loesen; Pflege des Notzugangs
+  Details je Thema stehen in den Abschnitten "Panel-Consumability" der
+  Einzeldateien.
+
+================================================================================
+7) VORGAENGER (Altkonzept) UND VORSTUDIEN
+================================================================================
+
+  Bewertete Vorgaengerquellen (Rueckverfolgung: governance/register/trace/):
+    B060_NETPLAN_IPS_SEGMENTS.txt           Netzmodell, Dienstadressen
+    B063_NFT_ENFORCEMENT_ANTISCAN_EGRESS_DNS.txt
+                                            Enforcement-Rahmen, Anti-Scan,
+                                            Reachability, Egress, Zaehler
+    B100_WAN_Exposure_Model_(Binding-First, optional Stealth).txt
+                                            WAN-Minimal-Exposition
+    B110_NFT_L2TP_ONLY_VIA_IPSEC.txt        UDP 1701 nur mit IPsec
+    B120_NFT_FORWARD_NAT_FULLTUNNEL.txt     Forward, NAT44/NAT66, Gate
+    B130_NFT_PEER_ISOLATION.txt             Peer-Isolation
+    B140_NFT_OUTBOUND_ABUSE_BLOCKS.txt      Abuse-Sperren
+    B150_Walled_Garden_Restricted_Mode_(QuotaExpiryManual).txt
+                                            Restricted im input/forward
+    B210_DNS_ENFORCEMENT_DNAT53.txt         DNS-Zwang
+    B300_SECURITY_STEALTH_GUIDELINES.txt    Leitlinien
+    docs/nft_service_ip_scopes.txt          Dienst-Matrix
+  RetroTunnel-Quellen: model/NETWORK_MODEL.txt,
+    model/state_machines/SM_POLICY_RESTRICT.txt, BASE-030 (LT-18..20,
+    LT-28, LT-29), BASE-005 (Registry, Lifecycle, PF-18),
+    03_CHANGELOG v2.1.14 (F-001) und v2.1.15 (F-002), MANIFEST DP-03..07,
+    PRIORITAETENLISTE M2-050.
+  Vorstudien in entwuerfe/ und ihr Verbleib:
+    ENTWURF_IPV6_NFTABLES_ROLLEN            uebernommen (Pools /64,
+                                            Reihenfolge, Sets); offener
+                                            Punkt zur Adressform entschieden
+    boot-firewall-baseline/                 abgeloest durch einstufiges
+                                            fruehes Laden (DEC-FW-02, -05)
+    portfreigaben/                          nicht Teil des Kerns;
+                                            Erweiterungspunkt reserviert,
+                                            Entscheidung VB-0009
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

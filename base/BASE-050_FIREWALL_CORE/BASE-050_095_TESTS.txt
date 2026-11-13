@@ -1,0 +1,382 @@
+================================================================================
+BASE-050 — TESTS UND VALIDIERUNG (Firewall-Kern)
+================================================================================
+DATEI: BASE-050_095_TESTS.txt
+STATUS: ACTIVE
+
+BELEGSTAND ALLER TESTS: GEPLANT. Keiner dieser Tests wurde ausgefuehrt; es
+existiert keine Implementierung. Die Tests sind Abnahmekriterien fuer die
+spaetere Umsetzung (Definition of Done von BASE-050).
+
+TESTARTEN:
+  [K]  Konzept-/Konfigurationspruefung (Review, statische Pruefung)
+  [L]  Labortest an einer Implementierung (isolierte Testumgebung)
+  [E]  Empirischer Test an Zielplattform, realen Clients oder realen Netzen
+       (Sollbild und Ausweichweg: BASE-050_080 Abschnitt 7)
+
+PROOF-ANKER (04_PHASE_PLAN):
+  RT-PH1-PROOF-03 (Full-Tunnel, kein Leck)      -> T-FW-51, T-FW-57
+  RT-PH1-PROOF-04 (Peer-Isolation)              -> T-FW-50
+  RT-PH1-PROOF-07 (NAT66-Egress)                -> T-FW-39, T-FW-57
+  RT-PH3-PROOF-01 / -02 (DNS-Zwang v4/v6)       -> T-FW-45, T-FW-46
+  RT-PH8-PROOF-02 (RESTRICTED nur Portal)       -> T-FW-37, T-FW-44
+  RT-PH8-PROOF-08 (Baseline bleibt im
+                   RESTRICTED aktiv)            -> T-FW-45, T-FW-50
+Die Platzhalter "T-FW-XX" im Phasenplan werden durch diese Kennungen
+ersetzt (Nachzug AP-A06).
+
+Soweit nicht anders angegeben, wird jeder Labortest fuer IPv4 UND IPv6
+sowie fuer L2TP UND WireGuard ausgefuehrt, wo der Fall beide betrifft.
+
+================================================================================
+RENDERN UND SCHREIBWEG
+================================================================================
+
+  T-FW-01  [K] Bestandspruefung: Es existiert genau eine nftables-Tabelle.
+            awg0.conf, accel-ppp-Hooks, Panel-Code und Fail2ban-Aktionen
+            enthalten keine nft-/iptables-Aufrufe; im Paketbestand ist
+            kein weiteres Firewall-Werkzeug. [FW-01]
+
+  T-FW-02  [L] Zweimal rendern bei gleichen Eingaben: identischer Hash.
+            Ein Setting entfernen bzw. ungueltig setzen: Rendern bricht
+            ab, active.nft und Kernel-Zustand unveraendert, Meldung
+            vorhanden. [FW-03, FW-46]
+
+  T-FW-03  [K] Strukturpruefung des Kandidaten: alle Ordnungsbedingungen
+            aus BASE-050_070 Abschnitt 1 (R-d) erfuellt; jede Regel mit
+            Urteil traegt ihren Zaehler; feste Zahlen nur in den
+            dokumentierten Faellen. [FW-23, FW-43, FW-46]
+
+  T-FW-04  [L] Der Kandidat laedt in einer Umgebung, in der weder das
+            WAN-Interface noch awg0 noch ein ppp-Interface existiert.
+            [FW-04]
+
+  T-FW-05  [E] Funktionsumfang von nftables auf der Zielplattform
+            (E-FW-01): der Kandidat laedt fehlerfrei; je Merkmal ist
+            dokumentiert, welche Schreibweise verwendet wird. [FW-04]
+
+  T-FW-06  [L] Ein fremder Prozess aendert eine Regel bzw. ein Set ohne
+            Lock: Die Aenderung wird als Abweichung erkannt und
+            zurueckgenommen. Das Protokoll zeigt fuer jeden regulaeren
+            Schreibvorgang Akteur und Lock. vpn-fw-check entfernt kein
+            Set-Element. [FW-02, FW-47]
+
+================================================================================
+LADEN, ZUSTAENDE, VERLUSTSCHUTZ
+================================================================================
+
+  T-FW-07  [L] activate mit einem Kandidaten, den der Kernel ablehnt:
+            Kernel-Zustand und Dateien unveraendert; eine laufende
+            Uebertragung laeuft ohne Unterbrechung weiter. [FW-05]
+
+  T-FW-08  [L] activate bei laufendem Dauerverkehr: keine Unterbrechung
+            bestehender Verbindungen; es gibt keinen Zeitpunkt ohne
+            Regeln (Mitschnitt und Zaehler). [FW-05, FW-10]
+
+  T-FW-09  [L] Weiterleitung je Zustand auslesen: aus in KEIN_REGELWERK und
+            RIEGEL, an in VERSIEGELT und BETRIEB. Keine sysctl-Datei
+            enthaelt einen Weiterleitungs-Schalter. Bei stop wird zuerst
+            die Weiterleitung abgeschaltet, dann entfernt
+            (Reihenfolge im Protokoll). [FW-06]
+
+  T-FW-10  [L] nftables.service im Zustand RIEGEL bzw. gescheitert:
+            accel-ppp, strongswan und awg-quick@awg0 starten nicht.
+            systemctl stop nftables beendet die Tunnel-Units. [FW-07]
+
+  T-FW-11  [L] Ladekette: active.nft unbrauchbar -> lkg.nft wird geladen,
+            Meldung. Beide unbrauchbar -> Zustand RIEGEL, Unit
+            gescheitert, Weiterleitung aus, vom WAN nur der Notzugang
+            erreichbar. [FW-08]
+
+  T-FW-12  [L] Nach boot, nach recover und nach Handladen von active.nft
+            wird Verkehr von und zu awg0 verworfen (Zaehler c_seal). Nach
+            erfolgreichem Abgleich ist das Siegel geloest. unseal ohne
+            bestaetigte Vorbedingung wird abgelehnt. [FW-09]
+
+  T-FW-13  [L] Eingeschraenkte WireGuard-Connection mit eingetragenem
+            Peer; das Regelwerk wird von Hand mit leeren Sets geladen:
+            Bis zum Abgleich gelangt kein Paket der Connection ins WAN.
+            [FW-09, FW-22]
+
+  T-FW-14  [L] activate zur Laufzeit: Elemente aller dynamischen Sets vor
+            und nach der Aktivierung identisch (banned mit Restlaufzeit
+            innerhalb der Messtoleranz), Siegelzustand unveraendert.
+            Simulierter Lesefehler: keine Aktivierung. [FW-10]
+
+  T-FW-15  [L] "nft flush ruleset" als root bei Dauerverkehr: Erkennung
+            innerhalb des Pruefintervalls; Weiterleitung aus; Regelwerk
+            versiegelt geladen; Abgleich angestossen; danach Sollzustand.
+            Gemessene Zeiten und Protokolleintraege liegen vor.
+            [FW-11, FW-48]
+
+  T-FW-16  [L] Fremde Tabelle anlegen bzw. Regel von Hand einfuegen:
+            Befund, reload stellt den Sollzustand her, Set-Inhalte
+            bleiben erhalten. [FW-11, FW-01]
+
+  T-FW-17  [L] Bei gestoppter Datenbank funktionieren boot, reload,
+            vpn-fw-check, lockdown und der Notzugang; das Rendern bricht
+            mit Meldung ab. [FW-12, FW-03]
+
+  T-FW-18  [E] 20 Neustarts der Zielplattform: Jedes Mal ist der Zustand
+            VERSIEGELT erreicht, bevor ein Tunnel-Interface existiert;
+            zu keinem Zeitpunkt ist die Weiterleitung ohne Regelwerk
+            eingeschaltet (Boot-Protokoll). [FW-04, FW-06, FW-07]
+
+  T-FW-19  [E] systemd-Verhalten bei Stopp und Neustart von
+            nftables.service gegenueber Units mit Requires= entspricht
+            der Annahme (E-FW-09). [FW-07]
+
+================================================================================
+WAN
+================================================================================
+
+  T-FW-20  [E] Externer Scan aller TCP- und UDP-Ports, IPv4 und IPv6:
+            Erkennbar ist nur IKE; es gibt keine Resets und keine
+            ICMP-Fehlermeldungen; WireGuard- und Notzugangs-Port sind
+            nicht von geschlossenen Ports unterscheidbar. [FW-13, FW-15]
+
+  T-FW-21  [L] UDP-Flut mit 100.000 Paketen je Sekunde auf offene und
+            geschlossene WAN-Ports, gefaelschte Quellen: Logvolumen
+            bleibt begrenzt, das System bleibt bedienbar, die
+            conntrack-Belegung bleibt unter dem rechnerischen Deckel.
+            [FW-16, FW-44]
+
+  T-FW-22  [L] Unter derselben Flut laufen bestehende IPsec- und
+            WireGuard-Tunnel weiter; ein neuer Verbindungsaufbau von
+            unbeteiligter Quelle wird gemessen und das Ergebnis
+            dokumentiert. [FW-16]
+
+  T-FW-23  [L] Scan-Verkehr ist in den Zaehlern sichtbar; die Zahl der
+            Logzeilen uebersteigt die eingestellte Rate nicht.
+            [FW-43, FW-44]
+
+  T-FW-24  [L] Unverschluesseltes UDP 1701 vom WAN wird verworfen und
+            gezaehlt; L2TP ueber IPsec verbindet; am WAN verlaesst kein
+            L2TP-Paket den Server im Klartext (Mitschnitt). [FW-14]
+
+  T-FW-25  [E] IPsec-Kontext wird mit und ohne NAT-T korrekt erkannt
+            (E-FW-06). [FW-14]
+
+  T-FW-26  [L] Ein Testdienst an 0.0.0.0 ist vom WAN nicht erreichbar.
+            Ein Paket an 10.77.0.5 ueber das WAN wird verworfen; der
+            Server beantwortet am WAN keine ARP-Anfrage fuer
+            Dienstadressen. [FW-13, FW-17]
+
+  T-FW-27  [L] awg0 gestoppt: Auf ein Paket an wg_listen_port folgt am
+            WAN keine ICMP-Antwort. [FW-15]
+
+  T-FW-28  [L] IKE, ESP und UDP 1701 ueber IPv6 am WAN werden verworfen;
+            WireGuard ueber IPv6 verbindet. [FW-13]
+
+================================================================================
+ANTI-SPOOFING
+================================================================================
+
+  T-FW-29  [L] Ein L2TP-Client sendet mit der Adresse eines anderen,
+            freigegebenen Clients sowie mit beliebigen Adressen: alles
+            verworfen und gezaehlt; am WAN erscheint kein Paket. [FW-17]
+
+  T-FW-30  [L] Ein WireGuard-Peer mit von Hand erweitertem AllowedIPs
+            sendet mit einer Quelle ausserhalb der Pools: verworfen.
+            IPv6 ueber ppp*: verworfen. Paket am WAN mit Quelle aus
+            10.77.0.0/16: verworfen. [FW-17]
+
+  T-FW-31  [E] Rueckwegpruefung am WAN in der Umgebung des Hosters
+            (E-FW-03): keine Fehltreffer im Normalbetrieb. [FW-17]
+
+================================================================================
+ADMISSION UND GATE
+================================================================================
+
+  T-FW-32  [L] Adresse in connect_pending eintragen: Eine laufende
+            Uebertragung bricht sofort ab, DNS und Portal sind nicht
+            erreichbar; das Element laeuft auch nach langer Wartezeit
+            nicht ab. [FW-18, FW-21]
+
+  T-FW-33  [L] L2TP-Sitzung mit kuenstlich verzoegertem bzw.
+            abgebrochenem ip-up: kein Verkehr, auch kein DNS, bis zur
+            Freigabe; nach der Freigabe sofort. [FW-19]
+
+  T-FW-34  [L] Freigabe-Element liegen lassen (ip-down unterdrueckt), neu
+            verbinden mit gleicher Adresse und gleichem Interface-Namen:
+            Die neue Sitzung ist gesperrt, bis ihr eigenes Apply
+            abgeschlossen ist. [FW-20]
+
+  T-FW-35  [E] accel-ppp vergibt je Sitzung einen neuen Interface-Index
+            (E-FW-07). [FW-20]
+
+  T-FW-36  [L] Freigabe-Element bei laufender Sitzung entfernen, waehrend
+            accel-ppp die Sitzung haelt: Verkehr ist in beiden
+            Richtungen sofort unterbrochen. [FW-21]
+
+================================================================================
+ZUSTANDS-ENFORCEMENT
+================================================================================
+
+  T-FW-37  [L] Waehrend eines Downloads wird die Adresse in restricted
+            eingetragen, der conntrack-Flush wird absichtlich NICHT
+            ausgefuehrt: Der Download endet; Portal, DNS und NTP sind
+            erreichbar. Nach dem Entfernen funktioniert das Internet
+            sofort. [FW-22, FW-23, FW-27]
+
+  T-FW-38  [L] Sperrliste: Ein Element ohne Ablauf und eine verbotene
+            Adresse werden abgelehnt bzw. gemeldet. Eine gesperrte
+            WAN-Quelle erreicht keinen Endpunkt. Am Notzugang wirkt die
+            Sperrliste nicht. [FW-24]
+
+  T-FW-39  [L] Paritaet: Gate, Einschraenkung, Isolation, DNS-Zwang,
+            Abuse-Sperren, Grenzen, NAT und Leck-Waechter werden fuer
+            IPv6 einzeln nachgewiesen; L2TP fuehrt kein IPv6. [FW-25]
+
+  T-FW-40  [K] Im Regelwerk unterscheidet keine Sicherheitsregel nach
+            Rolle; Rollen kommen nur in fwd_roles, svc_admin und beim
+            ADMIN-Faktor vor. Die Pools sind ueberschneidungsfrei, die
+            IPv6-Pools /64. [FW-49, FW-50]
+
+  T-FW-41  [L] Je Rolle eine Testadresse: Der richtige Rollen-Zaehler
+            steigt; fuer ADMIN gelten die mit dem Faktor erhoehten
+            Grenzen. [FW-50, FW-35]
+
+================================================================================
+SERVICE_NET UND DNS
+================================================================================
+
+  T-FW-42  [L] USER, VIP und MODERATOR erreichen DNS, Web, NTP und Echo
+            an SERVICE_WEB. Abgewiesen werden: AdGuard-Oberflaeche, SSH,
+            phpMyAdmin, Unbound, beliebige andere Ports, die WAN-Adresse
+            des Servers und die Gateway-Anker. [FW-26, FW-27, FW-29]
+
+  T-FW-43  [L] ADMIN-Adresse im Set: Oberflaeche, SSH und phpMyAdmin
+            erreichbar. ADMIN-Adresse nicht im Set: abgewiesen. Adresse
+            ausserhalb des ADMIN-Pools im Set: abgewiesen. Leeres Set:
+            alle abgewiesen. MODERATOR: abgewiesen. [FW-28]
+
+  T-FW-44  [L] RESTRICTED: erreichbar ist nur die Dienstklasse ALLE; ein
+            Verwaltungsdienst ist auch dann nicht erreichbar, wenn die
+            Adresse (fehlerhaft) in admin_panel_allowed steht.
+            [FW-22, FW-28]
+
+  T-FW-45  [L] Client mit fest eingetragenem fremdem Resolver (UDP und
+            TCP, IPv4 und IPv6): Antworten stammen von SERVICE_DNS, am
+            WAN erscheint kein DNS-Paket. Gleiches Ergebnis fuer ADMIN
+            und fuer RESTRICTED. [FW-30]
+
+  T-FW-46  [L] Testregelwerk ohne die Umleitungsregeln: DNS scheitert,
+            die Sicherung zaehlt, kein DNS-Paket am WAN, Meldung.
+            [FW-30]
+
+  T-FW-47  [L] DoT (TCP 853) wird sofort zurueckgesetzt; DoQ (UDP 853)
+            wird mit "port unreachable" abgewiesen. [FW-30]
+
+  T-FW-48  [E] Aktuelle Android-, iOS- und Windows-Clients mit
+            automatischem privatem DNS loesen Namen ueber Port 53 auf
+            (E-FW-11). [FW-30]
+
+  T-FW-49  [L] Ein Client, der die Grenze fuer neue Internet-Flows
+            dauerhaft ausschoepft, kann weiterhin DNS, Portal und NTP
+            nutzen. [FW-27, FW-35]
+
+================================================================================
+FORWARD
+================================================================================
+
+  T-FW-50  [L] Isolation: Client A an Client B fuer ppp-ppp, awg-awg,
+            ppp-awg, innerhalb und zwischen Rollen, ICMP/TCP/UDP: alles
+            verworfen; ADMIN an USER ebenfalls; auch wenn A oder B
+            eingeschraenkt ist. [FW-31]
+
+  T-FW-51  [L] Vom WAN laesst sich kein neuer Flow zu einem Client
+            aufbauen. Zwischen rtmgmt0 und anderen Interfaces wird nichts
+            weitergeleitet. Der gesamte Client-Verkehr laeuft ueber den
+            Tunnel (Routenverfolgung zeigt den Server). [FW-32, FW-40]
+
+  T-FW-52  [L] Abuse-Ports je Rolle einschliesslich ADMIN: 25, 465, 587
+            werden zurueckgesetzt; 445 und 137-139 verworfen. Die
+            Zusatzliste wirkt nach dem Rendern; die feste Liste laesst
+            sich ueber Settings nicht entfernen. [FW-33, FW-49]
+
+  T-FW-53  [L] SYN und SYN-ACK ueber ppp* und awg0 tragen hoechstens den
+            Tunnelwert der MSS; eine kleinere MSS bleibt unveraendert.
+            [FW-34]
+
+  T-FW-54  [E] Grosse Uebertragungen ueber L2TP und WireGuard aus
+            Festnetz (PPPoE) und Mobilfunk ohne Haenger. [FW-34]
+
+  T-FW-55  [L] Scan mit 5.000 Zielen je Sekunde wird auf die Grenze
+            gebremst, bestehende Flows des Clients laufen weiter; ueber
+            dem Deckel gleichzeitiger Flows werden neue verworfen; eine
+            Ping-Flut wird begrenzt. Die Connection wird dabei nicht
+            gesperrt. [FW-35, FW-47]
+
+  T-FW-56  [E] Grenzwerte gegen reale Nutzung (E-FW-04): keine
+            Ausloesung bei ueblicher Nutzung; Messwerte dokumentiert.
+            [FW-35]
+
+================================================================================
+NAT, LECK-SCHUTZ, CONNTRACK
+================================================================================
+
+  T-FW-57  [L] Mitschnitt am WAN: Als Quelle erscheint nur die
+            Serveradresse (IPv4 und IPv6), nie 10.77.x.x oder fd77:...;
+            eine externe Adressanzeige nennt die Serveradresse.
+            [FW-36, FW-37]
+
+  T-FW-58  [L] Ein Paket ohne gueltigen Verbindungszustand wird verworfen.
+            Nach einem conntrack-Flush lebt eine TCP-Verbindung nicht
+            wieder auf. Es ist kein conntrack-Helfer geladen.
+            [FW-37, FW-38]
+
+  T-FW-59  [E] Der Leck-Waechter sieht die uebersetzte Quelladresse
+            (E-FW-02). [FW-37]
+
+  T-FW-60  [L] Rueckfallrouten sind vorhanden. Wird eine geloescht,
+            erfolgen Meldung und Wiederherstellung. Ein Paket an eine
+            nicht verbundene Tunneladresse verlaesst das WAN nicht.
+            [FW-39, FW-37]
+
+  T-FW-61  [E] Bemessung (E-FW-05): Durchsatz und Speicherbedarf bei
+            Zielgroesse gemessen und dokumentiert. [FW-38]
+
+================================================================================
+NOTZUGANG
+================================================================================
+
+  T-FW-62  [L] Ueber rtmgmt0 ist SSH erreichbar; DNS, Web, phpMyAdmin,
+            Internet und andere Clients sind es nicht. [FW-40]
+
+  T-FW-63  [L] Datenbank, RADIUS, accel-ppp, strongSwan und awg0 gestoppt
+            sowie Zustand RIEGEL: Der Notzugang funktioniert. Ohne jedes
+            Regelwerk startet rtmgmt0 nicht. Mehr als 5 Peers oder ein
+            Peer ohne PresharedKey werden gemeldet. [FW-41, FW-12]
+
+  T-FW-64  [L] Ein Handshake auf rtmgmt0 erzeugt innerhalb eines
+            Pruefintervalls ein Ereignis, auch bei gestoppter Datenbank.
+            [FW-42]
+
+  T-FW-65  [E] WireGuard des Kernels und AmneziaWG arbeiten
+            nebeneinander (E-FW-12). [FW-41]
+
+================================================================================
+BEOBACHTBARKEIT
+================================================================================
+
+  T-FW-66  [L] Fuer zehn vorbereitete Stoerfaelle (je Schutzstufe einer)
+            ist die Ursache allein aus den Zaehlern bestimmbar. [FW-43]
+
+  T-FW-67  [L] Bei 10.000 verworfenen Paketen je Sekunde bleibt die Zahl
+            der Logzeilen je Kennzeichen unter der Rate; die Zeilen
+            enthalten keine Nutzdaten; umgeleitete DNS-Anfragen erzeugen
+            keine Zeile. [FW-44]
+
+  T-FW-68  [K] status.json enthaelt keine Adresse aus den Pools und kein
+            Secret und ist bei gestoppter Datenbank lesbar. [FW-45]
+
+  T-FW-69  [L] Das Protokoll der Zustandswechsel ist vollstaendig fuer
+            boot, activate, recover, unseal und lockdown (Zeitpunkt,
+            Generation). [FW-48]
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
