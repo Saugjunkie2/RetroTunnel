@@ -218,6 +218,10 @@ ZWECK:
   verbotener Adresse; Admin-
   Freigabe ausserhalb des Pools)
   Rueckfallrouten vorhanden?     FW_ROUTE_FEHLT          Routen setzen; Meldung
+  Lauscht an der WAN-Adresse     FW_LISTENER_FREMD       Meldung (kein
+  oder an allen Adressen         (WARNUNG)               Eingriff in Dienste)
+  (0.0.0.0, ::) etwas anderes
+  als die erlaubten Endpunkte?
   Zustand RIEGEL?                FW_RIEGEL_AKTIV (ALARM) Meldung je Lauf
   conntrack-Fuellstand           CT_FUELLSTAND           Meldung ab 80 %
   neuer Handshake auf rtmgmt0    MGMT_ZUGANG_GENUTZT     Meldung
@@ -240,6 +244,13 @@ ZWECK:
     Jeder Lauf schreibt seinen Zeitpunkt in status.json. Ist der letzte
     erfolgreiche Lauf aelter als das Dreifache des Intervalls, meldet
     MOD-007 FW_CHECK_STEHT (ANF-FW-08).
+
+  LISTENER-ABGLEICH
+    Erlaubt an der WAN-Adresse bzw. an allen Adressen sind nur: IKE
+    (UDP 500, 4500), L2TP (UDP 1701, LT-03), wg_listen_port und der Port
+    des Notzugangs. Geprueft werden IPv4 und IPv6. Der Abgleich ist die
+    Kontrolle der ersten Schicht (Bindung, GF-5); die Firewall haelt einen
+    falsch gebundenen Dienst unabhaengig davon vom WAN fern (IW-09).
 
   ABGRENZUNG
     vpn-fw-check vergleicht STRUKTUR und Zulaessigkeit. Ob der INHALT der
@@ -327,17 +338,28 @@ ZWECK:
     SETTINGS (RENDER, STRICT)
       vpn_fw_log_rate_per_sec   INT 0..100    Vorschlag 5   (0 = keine)
       vpn_fw_log_burst          INT 1..200    Vorschlag 10
+      vpn_fw_log_labels         Liste         Vorschlag: SPOOF, ISOLATION,
+                                              DNS_SICHERUNG, ABUSE,
+                                              CLI_NEURATE, CLI_FLOWS,
+                                              CLI_ICMP, LECK, SIEGEL
+    - Logzeilen gibt es NUR fuer verworfenen oder abgewiesenen Verkehr,
+      nie fuer zugelassenen und nie fuer umgeleitete DNS-Anfragen. Wo
+      und wohin ein Client regulaer kommuniziert, wird nicht
+      aufgezeichnet.
     - Geloggt wird nur stichprobenartig: je Kennzeichen hoechstens die
       eingestellte Rate, unabhaengig von der Paketrate.
-    - Inhalt: Kennzeichen, Ein-/Ausgangs-Interface, Quell- und
-      Zieladresse, Protokoll, Ports. Keine Nutzdaten, keine DNS-Namen,
-      keine Schluessel.
-    - Kein Log fuer umgeleitete DNS-Anfragen und fuer zugelassenen
-      Verkehr.
-    - Kennzeichen (jeweils mit Praefix "RTFW "): WAN_DROP, L2TP_KLAR,
+    - Inhalt einer Zeile: Kennzeichen und die Kopfdaten des verworfenen
+      Pakets (Interfaces, Adressen, Protokoll, Ports). Keine Nutzdaten,
+      keine DNS-Namen, keine Schluessel.
+    - Welche Kennzeichen Zeilen erzeugen, bestimmt vpn_fw_log_labels.
+      Verfuegbar (jeweils mit Praefix "RTFW "): WAN_DROP, L2TP_KLAR,
       SPOOF, GATE, L2TP_ZU, ISOLATION, RESTRICTED, DNS_SICHERUNG, DOT_DOQ,
       ABUSE, CLI_NEURATE, CLI_FLOWS, CLI_ICMP, LECK, SIEGEL, DEFAULT.
-    - Ziel: Kernel-Log -> Journal. Aufbewahrung, Auswertung und
+      Im Vorschlag sind die WAN-Kennzeichen (WAN_DROP, L2TP_KLAR) AUS:
+      Scans vom Internet sind Dauerrauschen und ueber Zaehler
+      ausreichend sichtbar; oeffentliche Quelladressen werden so nicht
+      ohne Anlass gespeichert.
+    - Ziel: Kernel-Log -> Journal. Aufbewahrungsdauer, Auswertung und
       Datenschutzbehandlung der enthaltenen Adressen: MOD-007.
 
   7.3 STATUS (/run/retrotunnel/fw/status.json, von vpn-fw-check und

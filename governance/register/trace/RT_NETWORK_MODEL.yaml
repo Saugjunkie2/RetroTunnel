@@ -1,0 +1,488 @@
+schema: trace/1
+quelle: RT
+datei: model/NETWORK_MODEL.txt
+einheit: AP-K050
+vollstaendigkeit: TEILWEISE (Abschnitte 2, 3, 6, 7, 8, 9, 10 soweit Firewall; Pools und Slot-Regeln aus Abschnitt 5 sowie
+  Dienst-Anker aus Abschnitt 4 werden in AP-Q04/AP-K070 zugeordnet)
+records:
+- id: TR-RNET-01
+  zitat: UDP 1701 — L2TP NUR via XFRM/IPsec, NICHT als Plain-L2TP
+  art: SCHUTZZIEL
+  aussage: L2TP nur ueber IPsec.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-14
+  begruendung: IW-04/IW-05.
+  zeilen:
+  - 109
+  - 109
+- id: TR-RNET-02
+  zitat: TCP 22 — SSH nur intern (SERVICE_SSH auf lo)
+  art: SCHUTZZIEL
+  aussage: SSH nicht am WAN.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-13
+  begruendung: Uebernommen (Port 27812).
+  zeilen:
+  - 108
+  - 108
+- id: TR-RNET-03
+  zitat: Uneingeschränkt (apt, DNS-Resolution via Google DNS, Let's Encrypt etc.)
+  art: FUNKTION
+  aussage: Server-Ausgang frei.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_020_REGELWERK_STRUKTUR.txt#output (Default accept
+  begruendung: Mit Schutzregeln OUT-01..03.
+  zeilen:
+  - 112
+  - 112
+- id: TR-RNET-04
+  zitat: Client-zu-Client Traffic ist GLOBAL verboten, unabhängig vom Tunnel-Typ.
+  art: SCHUTZZIEL
+  aussage: Globale Peer-Isolation.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-31
+  begruendung: FD-06.
+  zeilen:
+  - 146
+  - 146
+- id: TR-RNET-05
+  zitat: Keine Ausnahmen, keine Rollen-Sonderrechte.
+  art: SCHUTZZIEL
+  aussage: Keine Rollenausnahme.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-31
+  begruendung: Uebernommen.
+  zeilen:
+  - 153
+  - 153
+- id: TR-RNET-06
+  zitat: 'Einzige erlaubte Ziele für VPN-Clients: SERVICE_NET + WAN (via Forward).'
+  art: SCHUTZZIEL
+  aussage: Nur SERVICE_NET und WAN.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-26
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-32
+  begruendung: IV-01, FD-06, FD-15/16.
+  zeilen:
+  - 152
+  - 152
+- id: TR-RNET-07
+  zitat: 'DNS-Enforcement: iifname "ppp*" → DNAT53'
+  art: FUNKTION
+  aussage: DNAT53 nach Interface.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-12
+  begruendung: Uebernommen fuer beide Tunnel.
+  zeilen:
+  - 125
+  - 125
+- id: TR-RNET-08
+  zitat: Am WAN darf NIEMALS eine Client-ULA (fd77:...) als Source auftauchen
+  art: SCHUTZZIEL
+  aussage: Keine Client-Adresse am WAN.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-37
+  begruendung: Leck-Waechter.
+  zeilen:
+  - 292
+  - 292
+- id: TR-RNET-09
+  zitat: 'IPv6-Egress läuft über NAT66/MASQUERADE: Source am WAN ist Server-GUA'
+  art: FUNKTION
+  aussage: NAT66.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-36
+  begruendung: NQ-02.
+  zeilen:
+  - 291
+  - 291
+- id: TR-RNET-10
+  zitat: 'nftables POSTROUTING: ip6 saddr fd77::/16 oifname ens18 → masquerade'
+  art: IMPL_DETAIL
+  aussage: Masquerade fuer fd77::/16.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_020_REGELWERK_STRUKTUR.txt#NQ-02
+  begruendung: Praezisiert auf den Projektbereich fd77:0:0::/48.
+  zeilen:
+  - 307
+  - 307
+- id: TR-RNET-11
+  zitat: 'Negative Guard: Kein ULA-Source am WAN (tcpdump Proof, wie im alten B310)'
+  art: TEST
+  aussage: Mitschnitt-Nachweis.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-57
+  begruendung: Uebernommen.
+  zeilen:
+  - 309
+  - 309
+- id: TR-RNET-12
+  zitat: 'Grundregel: Traffic zu SERVICE_* (dst ∈ 10.77.0.0/28) ist LOKALES ZIEL'
+  art: DEFINITION
+  aussage: Pfadtrennung.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_050_SERVICE_NET_UND_DNS_ZWANG.txt#PFADTRENNUNG
+  begruendung: Uebernommen.
+  zeilen:
+  - 315
+  - 315
+- id: TR-RNET-13
+  zitat: DoT/DoQ 853 TCP+UDP ✗ ✗ ✗ ✗ (DROP für ALLE)
+  art: SCHUTZZIEL
+  aussage: DoT/DoQ fuer alle gesperrt.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_020_REGELWERK_STRUKTUR.txt#FD-10
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-30
+  begruendung: Abweisung statt Verwerfen (schneller Rueckfall auf Port 53).
+  zeilen:
+  - 334
+  - 334
+- id: TR-RNET-14
+  zitat: SERVICE_PMA (.6) 443 TCP ✗ ✗ ✗ ✓
+  art: FUNKTION
+  aussage: PMA nur Admin.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_050_SERVICE_NET_UND_DNS_ZWANG.txt#SERVICE_PMA
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-28
+  begruendung: Port 80 laut Registry BASE-005_030; zusaetzlich Set-Mitgliedschaft.
+  zeilen:
+  - 331
+  - 331
+- id: TR-RNET-15
+  zitat: SERVICE_SSH (.5) 22 TCP ✗ ✗ ✗ ✓
+  art: FUNKTION
+  aussage: SSH nur Admin.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_050_SERVICE_NET_UND_DNS_ZWANG.txt#27812 TCP
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-28
+  begruendung: Port 27812 laut Registry; zusaetzlich Set-Mitgliedschaft.
+  zeilen:
+  - 330
+  - 330
+- id: TR-RNET-16
+  zitat: R (DNS muss immer funktionieren)
+  art: SCHUTZZIEL
+  aussage: DNS im Restricted.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-27
+  begruendung: SA-01.
+  zeilen:
+  - 340
+  - 340
+- id: TR-RNET-17
+  zitat: R (Panel muss erreichbar sein für Self-Service)
+  art: SCHUTZZIEL
+  aussage: Panel im Restricted.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-27
+  begruendung: SA-02.
+  zeilen:
+  - 343
+  - 343
+- id: TR-RNET-18
+  zitat: R (Zeitfix muss im Restricted Mode funktionieren)
+  art: SCHUTZZIEL
+  aussage: NTP im Restricted.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-27
+  begruendung: SA-03.
+  zeilen:
+  - 344
+  - 344
+- id: TR-RNET-19
+  zitat: 'WAN-Forward: ALLES ✗ (kein Internet im Restricted Mode)'
+  art: SCHUTZZIEL
+  aussage: Restricted ohne Internet.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-22
+  begruendung: FD-08.
+  zeilen:
+  - 348
+  - 348
+- id: TR-RNET-20
+  zitat: 1. Banned-Check (frühester Drop)
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Sperrliste zuerst.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_020_REGELWERK_STRUKTUR.txt#PR-08
+  begruendung: Bereits in pre_raw.
+  zeilen:
+  - 376
+  - 376
+- id: TR-RNET-21
+  zitat: 2. Connect-Pending-Check (kein WAN bis Apply)
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Gate an zweiter Stelle.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_020_REGELWERK_STRUKTUR.txt#FD-04
+  begruendung: FD-04/IN-05.
+  zeilen:
+  - 377
+  - 377
+- id: TR-RNET-22
+  zitat: 3. Restricted-Check (Walled Garden Allowlist)
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Restricted an dritter Stelle.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_020_REGELWERK_STRUKTUR.txt#FD-08
+  begruendung: FD-08/IV-04.
+  zeilen:
+  - 378
+  - 378
+- id: TR-RNET-23
+  zitat: 4. Rollen-basierte Regeln (ADMIN/MOD/VIP/USER Differenzierung)
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Rollenregeln.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_020_REGELWERK_STRUKTUR.txt#fwd_roles
+  begruendung: fwd_roles, svc_admin.
+  zeilen:
+  - 379
+  - 379
+- id: TR-RNET-24
+  zitat: 5. Forward-Regeln (Full-Tunnel, NAT)
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Durchlass und NAT.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_020_REGELWERK_STRUKTUR.txt#NQ-01
+  begruendung: Uebernommen.
+  zeilen:
+  - 380
+  - 380
+- id: TR-RNET-25
+  zitat: Gilt für ALLE Rollen (USER, VIP, MODERATOR, ADMIN). Keine Ausnahmen.
+  art: SCHUTZZIEL
+  aussage: DNS-Zwang fuer alle Rollen.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_050_SERVICE_NET_UND_DNS_ZWANG.txt#D-1
+  begruendung: Uebernommen.
+  zeilen:
+  - 394
+  - 394
+- id: TR-RNET-26
+  zitat: Gilt in ALLEN Zuständen (normal, restricted, pending).
+  art: SCHUTZZIEL
+  aussage: DNS-Zwang in allen Zustaenden.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_050_SERVICE_NET_UND_DNS_ZWANG.txt#D-1
+  begruendung: Im Gate und ohne L2TP-Freigabe ist gar nichts erreichbar; sonst gilt der Zwang.
+  zeilen:
+  - 395
+  - 395
+- id: TR-RNET-27
+  zitat: iifname {"ppp*","awg0"} tcp dport 853 → DROP
+  art: FUNKTION
+  aussage: DoT sperren.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_020_REGELWERK_STRUKTUR.txt#FD-10
+  begruendung: Abweisung mit TCP-Reset.
+  zeilen:
+  - 404
+  - 404
+- id: TR-RNET-28
+  zitat: Kann nicht per Port geblockt werden (teilt sich Port 443 mit normalem
+  art: DEFINITION
+  aussage: DoH nicht per Port sperrbar.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_050_SERVICE_NET_UND_DNS_ZWANG.txt#D-4
+  begruendung: Als Grenze ausgewiesen.
+  zeilen:
+  - 410
+  - 410
+- id: TR-RNET-29
+  zitat: Server-OUTPUT ist NICHT Teil des Client-DNS-Enforcement-Pfads.
+  art: DEFINITION
+  aussage: DNS-EX-01.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_050_SERVICE_NET_UND_DNS_ZWANG.txt#D-5
+  begruendung: Uebernommen.
+  zeilen:
+  - 414
+  - 414
+- id: TR-RNET-30
+  zitat: 'OPEN-NET-04: Moderator Service-Zugriffe'
+  art: OFFEN
+  aussage: Offener Punkt Moderator.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-11
+  begruendung: 'Entschieden: keine zusaetzlichen Kernel-Freigaben.'
+  nahe_zeile: 446
+  zeilen:
+  - 446
+  - 446
+- id: TR-RNET-31
+  zitat: Ein Client im USER-Pool (10.77.16.x) darf NICHT auf Admin-Only
+  art: TEST
+  aussage: T-NET-01.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-42
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-43
+  begruendung: Uebernommen.
+  zeilen:
+  - 456
+  - 456
+- id: TR-RNET-32
+  zitat: 'T-NET-03: DNS-Zwang funktioniert für beide Tunnel-Typen'
+  art: TEST
+  aussage: T-NET-03.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-45
+  begruendung: Uebernommen.
+  zeilen:
+  - 464
+  - 464
+- id: TR-RNET-33
+  zitat: 'T-NET-04: DoT/DoQ geblockt'
+  art: TEST
+  aussage: T-NET-04.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-47
+  begruendung: Uebernommen.
+  zeilen:
+  - 469
+  - 469
+- id: TR-RNET-34
+  zitat: Test für pppX↔pppX, awg0↔awg0, und pppX↔awg0 (Cross-Tunnel).
+  art: TEST
+  aussage: T-NET-05.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-50
+  begruendung: Uebernommen.
+  zeilen:
+  - 476
+  - 476
+- id: TR-RNET-35
+  zitat: IPv6 Egress am WAN zeigt Server-GUA als Source, niemals Client-ULA.
+  art: TEST
+  aussage: T-NET-06.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-57
+  begruendung: Uebernommen.
+  zeilen:
+  - 479
+  - 479
+- id: TR-RNET-36
+  zitat: Port-Scan von extern zeigt NUR die offenen VPN-Ports.
+  art: TEST
+  aussage: T-NET-08.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-20
+  begruendung: Uebernommen.
+  zeilen:
+  - 488
+  - 488
+- id: TR-RNET-37
+  zitat: Restricted Client erreicht NICHT SSH/PMA/AdGuard-UI.
+  art: TEST
+  aussage: T-NET-07.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-44
+  begruendung: Uebernommen.
+  zeilen:
+  - 485
+  - 485
+- id: TR-RNET-38
+  zitat: 'T-NET-02: Rollen-Range korrekt'
+  art: TEST
+  aussage: T-NET-02.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-41
+  begruendung: Uebernommen.
+  zeilen:
+  - 460
+  - 460
+- id: TR-RNET-39
+  zitat: 'PR-02 CIDR-ENFORCEMENT: nftables-Regeln nutzen CIDR-Ranges für'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Rollen ueber Bereiche.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-50
+  begruendung: Uebernommen.
+  zeilen:
+  - 239
+  - 239
+- id: TR-RNET-40
+  zitat: 'Peer-Isolation: iifname "awg0" oifname "awg0" → DROP'
+  art: FUNKTION
+  aussage: Isolation awg0.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-31
+  begruendung: FD-06.
+  zeilen:
+  - 138
+  - 138
+- id: TR-RNET-41
+  zitat: SERVICE_RESOLVER(.2) 53 UDP+TCP ✗ ✗ ✗ ✗ (server-only)
+  art: SCHUTZZIEL
+  aussage: Resolver nur Server.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-29
+  - base/BASE-050_FIREWALL_CORE/BASE-050_050_SERVICE_NET_UND_DNS_ZWANG.txt#5353 UDP+TCP
+  begruendung: Port 5353 laut Registry.
+  nahe_zeile: 327
+  zeilen:
+  - 327
+  - 327
+- id: TR-RNET-42
+  zitat: AdGuard UI (.1) 2000 TCP ✗ ✗ ✗ ✓
+  art: FUNKTION
+  aussage: UI nur Admin.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-28
+  begruendung: Zusaetzlich Set-Mitgliedschaft.
+  zeilen:
+  - 326
+  - 326
+- id: TR-RNET-43
+  zitat: 'Server-eigene DNS (OUTPUT): NICHT betroffen.'
+  art: DEFINITION
+  aussage: Server-DNS frei.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_050_SERVICE_NET_UND_DNS_ZWANG.txt#D-5
+  begruendung: Uebernommen.
+  zeilen:
+  - 400
+  - 400

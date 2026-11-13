@@ -1,0 +1,288 @@
+schema: trace/1
+quelle: XPN
+datei: blocks/B150_Walled_Garden_Restricted_Mode_(QuotaExpiryManual).txt
+einheit: AP-K050
+vollstaendigkeit: TEILWEISE (Kernel-Enforcement des Restricted Mode; Ausloeser, Reason-Codes, Portal und Ablaeufe werden in
+  AP-M002/AP-K080 zugeordnet)
+records:
+- id: TR-XB150-01
+  zitat: 'Kein externes Captive-Portal: Walled Garden ist ausschließlich intern im SERVICE_NET erreichbar (SERVICE_*), nie
+    am WAN.'
+  art: SCHUTZZIEL
+  aussage: Walled Garden nur intern.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-13
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-27
+  begruendung: Dienstklasse ALLE; nichts am WAN.
+  zeilen:
+  - 16
+  - 16
+- id: TR-XB150-02
+  zitat: Allowlist muss minimal bleiben (DNS/WEB/NTP/ICMP nur zu SERVICE_*); alles andere bleibt geblockt, inkl. DNS-Bypass.
+  art: SCHUTZZIEL
+  aussage: Minimale Freigabeliste.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-27
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-22
+  begruendung: svc_all; FD-08 bis FD-10.
+  zeilen:
+  - 24
+  - 24
+- id: TR-XB150-03
+  zitat: ICMP optional nur zu SERVICE_WEB (10.77.0.3) (echo-request + replies)
+  art: FUNKTION
+  aussage: Echo nur an SERVICE_WEB.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_050_SERVICE_NET_UND_DNS_ZWANG.txt#M-3
+  begruendung: SA-04.
+  zeilen:
+  - 33
+  - 33
+- id: TR-XB150-04
+  zitat: Restricted Mode wird pro zugewiesener VPN-IP enforced (nicht pro User-Agent / nicht per URL).
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Einschraenkung je Tunneladresse.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-22
+  begruendung: Set restricted.
+  zeilen:
+  - 43
+  - 43
+- id: TR-XB150-05
+  zitat: 'Daher MUSS Restricted Mode zweifach enforced werden:'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Durchsetzung in input und forward.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-22
+  begruendung: IV-04 und FD-08.
+  zeilen:
+  - 60
+  - 60
+- id: TR-XB150-06
+  zitat: Wenn ip saddr @connect_pending_v4 => DROP (forward, egal wohin).
+  art: FUNKTION
+  aussage: Gate verwirft alles.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-18
+  begruendung: Zusaetzlich in input und fuer die Gegenrichtung.
+  zeilen:
+  - 69
+  - 69
+- id: TR-XB150-07
+  zitat: Set wird beim Connect sofort gesetzt (ip-up) und erst nach SUCCESS von vpn-policy-apply entfernt.
+  art: FUNKTION
+  aussage: Gate im ip-up-Hook.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-08
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-19
+  begruendung: Der Hook laeuft asynchron; L2TP nutzt deshalb Default-Deny mit Freigabe-Set, WireGuard das Gate vor dem Peer-Eintrag.
+  zeilen:
+  - 70
+  - 70
+- id: TR-XB150-08
+  zitat: 1) ct state established,related accept
+  art: FUNKTION
+  aussage: Established frueh.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-09
+  begruendung: Zustands-Sperren liegen jetzt davor.
+  zeilen:
+  - 73
+  - 73
+- id: TR-XB150-09
+  zitat: 'Performance-Reason: bleibt früh.'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Begruendung Leistung.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-09
+  begruendung: Sofortwirkung der Sperren wiegt schwerer; Kosten gering.
+  zeilen:
+  - 74
+  - 74
+- id: TR-XB150-10
+  zitat: 'Wichtig: HARD CUT verhindert Established-Bypass (Conntrack-Flush bei Eintritt in Restricted; siehe 2.2 / B166).'
+  art: SCHUTZZIEL
+  aussage: Kein Established-Bypass.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-22
+  - base/BASE-050_FIREWALL_CORE/BASE-050_030_SETS_UND_ZUSTANDS_ENFORCEMENT.txt#conntrack-Flush aller Adressen der
+  begruendung: Strukturell durch die Regelreihenfolge; der Flush bleibt Pflicht des Aufrufers.
+  zeilen:
+  - 75
+  - 75
+- id: TR-XB150-11
+  zitat: DROP Forward zu anderen VPN-Clients (Peer-Isolation bleibt wirksam)
+  art: SCHUTZZIEL
+  aussage: Isolation auch im Restricted.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-31
+  begruendung: FD-06 liegt vor FD-08.
+  zeilen:
+  - 82
+  - 82
+- id: TR-XB150-12
+  zitat: 'restricted_v4: type ipv4_addr (dynamisch aus SQL-Truth gepflegt)'
+  art: DEFINITION
+  aussage: Set-Definition.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_030_SETS_UND_ZUSTANDS_ENFORCEMENT.txt#restricted_v4
+  begruendung: Uebernommen.
+  zeilen:
+  - 89
+  - 89
+- id: TR-XB150-13
+  zitat: 'Scope: Der Hard Cut betrifft ALLE Verbindungen/States der Client-IP (auch solche, die im Restricted Mode prinzipiell
+    erlaubt wären, z.B. DNS/Panel/NTP).'
+  art: SCHUTZZIEL
+  aussage: Hard-Cut umfasst alle Zustaende.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_030_SETS_UND_ZUSTANDS_ENFORCEMENT.txt#conntrack-Flush aller Adressen der
+  begruendung: Flush aller Adressen der Connection durch BASE-080.
+  zeilen:
+  - 101
+  - 101
+- id: TR-XB150-14
+  zitat: SERVICE_RESOLVER 10.77.0.2:53 ist server-only und darf von Clients NIE direkt erreicht werden (auch nicht im Restricted).
+  art: SCHUTZZIEL
+  aussage: Resolver nie fuer Clients.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-29
+  begruendung: Uebernommen (Port jetzt 5353).
+  zeilen:
+  - 131
+  - 131
+- id: TR-XB150-15
+  zitat: DNS muss TCP+UDP erlauben (große Antworten/EDNS/Retry).
+  art: FUNKTION
+  aussage: DNS ueber TCP und UDP.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_020_REGELWERK_STRUKTUR.txt#SA-01
+  begruendung: Uebernommen.
+  zeilen:
+  - 129
+  - 129
+- id: TR-XB150-16
+  zitat: NTP ist für XP/Cert/TLS Stabilität erforderlich.
+  art: SCHUTZZIEL
+  aussage: NTP im Walled Garden.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-27
+  begruendung: SA-03.
+  zeilen:
+  - 130
+  - 130
+- id: TR-XB150-17
+  zitat: restricted_v4/restricted_v6 werden ausschließlich nach SQL-Truth gesetzt (restricted_effective).
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Set-Inhalt nur aus SQL.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_030_SETS_UND_ZUSTANDS_ENFORCEMENT.txt#SOLL-INHALT
+  begruendung: op_status = RESTRICTED.
+  zeilen:
+  - 144
+  - 144
+- id: TR-XB150-18
+  zitat: 'Bootstrap/Self-Heal MUST: Auch im Restricted (insb. UNCLAIMED_OVERDUE) muss das Panel/Portal auf SERVICE_WEB 10.77.0.3:80/443
+    erreichbar bleiben'
+  art: SCHUTZZIEL
+  aussage: Portal bleibt erreichbar.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-27
+  begruendung: Uebernommen.
+  zeilen:
+  - 35
+  - 35
+- id: TR-XB150-19
+  zitat: 'Ordering Test: Client-IP in restricted_v4 *oder* restricted_v6 -> darf NICHT über forward ins WAN;'
+  art: TEST
+  aussage: Reihenfolgetest.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-37
+  begruendung: Uebernommen.
+  zeilen:
+  - 205
+  - 205
+- id: TR-XB150-20
+  zitat: 'Hard Cut (ESTABLISHED) Test: Starte einen laufenden Download (WAN) und setze dann restricted_effective=true (Quota/Manual/Expiry).'
+  art: TEST
+  aussage: Hard-Cut-Test.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-37
+  begruendung: 'Verschaerft: der Flush wird im Test absichtlich ausgelassen.'
+  zeilen:
+  - 206
+  - 206
+- id: TR-XB150-21
+  zitat: 'Input-Pfad Test (lokale Services): restricted client darf NICHT auf andere Ports im SERVICE_NET zugreifen (auch
+    nicht über v6):'
+  art: TEST
+  aussage: Input-Test Restricted.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-44
+  begruendung: Uebernommen.
+  zeilen:
+  - 209
+  - 209
+- id: TR-XB150-22
+  zitat: Toggle back -> internet works immediately.
+  art: TEST
+  aussage: Entsperren wirkt sofort.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-37
+  begruendung: Uebernommen.
+  zeilen:
+  - 202
+  - 202
+- id: TR-XB150-23
+  zitat: 'Ausnahme: Manual Restrict / Not-Aus gilt für ALLE conn_groups (inkl. ADMIN) und erzwingt restricted_effective=true.'
+  art: FUNKTION
+  aussage: Manuelle Einschraenkung auch fuer ADMIN.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_030_SETS_UND_ZUSTANDS_ENFORCEMENT.txt#ADMIN-Connections sind nie enthalten
+  begruendung: 'RetroTunnel R-08: ADMIN ist nie eingeschraenkt; Not-Aus ist DISABLE.'
+  zeilen:
+  - 20
+  - 20
+- id: TR-XB150-24
+  zitat: 'Primärmechanik: Firewall allowlist (kein DNS cache chaos).'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Freigabeliste statt DNS-Portal.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-27
+  begruendung: Uebernommen.
+  zeilen:
+  - 155
+  - 155
+- id: TR-XB150-25
+  zitat: 'DNS-Portal: only if TTL extremely low + flushdns after unlock.'
+  art: FUNKTION
+  aussage: Option DNS-Portal.
+  einordnung: NICHT_ANWENDBAR
+  begruendung: Nicht Teil des Kerns; ueber eine Portal-Umleitung entscheidet MOD-002 (BASE-050_050 Abschnitt 6).
+  zeilen:
+  - 193
+  - 193

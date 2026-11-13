@@ -2,7 +2,7 @@ schema: trace/1
 quelle: XPN
 datei: blocks/B100_WAN_Exposure_Model_(Binding-First, optional Stealth).txt
 einheit: AP-K040
-vollstaendigkeit: TEILWEISE (nur die fuer BASE-040 massgeblichen Aussagen; weitere Records folgen in den zustaendigen Arbeitspaketen)
+vollstaendigkeit: VOLLSTAENDIG (mit AP-K050)
 records:
 - id: TR-XB100-01
   zitat: VPN-Endpunkte bleiben die einzigen dauerhaft gewollten WAN-Listener.
@@ -16,3 +16,175 @@ records:
   zeilen:
   - 41
   - 41
+- id: TR-XB100-02
+  zitat: SSH/Panel/DB dürfen niemals auf WAN lauschen oder durchgelassen werden.
+  art: SCHUTZZIEL
+  aussage: Keine Verwaltungsdienste am WAN.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-13
+  begruendung: IW-09.
+  zeilen:
+  - 16
+  - 16
+- id: TR-XB100-03
+  zitat: nftables-Regeln müssen stateful + rate-limited sein, um Scan/Bruteforce Noise zu minimieren (Logging sparsam).
+  art: SCHUTZZIEL
+  aussage: Zustandsbehaftet und begrenzt.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-16
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-44
+  begruendung: Uebernommen.
+  zeilen:
+  - 17
+  - 17
+- id: TR-XB100-04
+  zitat: Firewall-Stealth (DROP/Filter inkl. ICMP-Policy) ist optionaler Zusatzschutz, nicht die primäre Methode.
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Verwerfen am WAN ist optional.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_040_WAN_EXPOSITION_UND_NOTZUGANG.txt#W-2
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-51
+  begruendung: In RetroTunnel verpflichtende zweite Schicht neben der Bindung.
+  zeilen:
+  - 15
+  - 15
+- id: TR-XB100-05
+  zitat: 'Primärmodell = Exposure-by-Binding: Dienste binden nicht an WAN/Public-IP/0.0.0.0/::, außer die VPN-Endpunkte.'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Exposition durch Bindung.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-51
+  begruendung: Erste Schicht, regelmaessig geprueft.
+  zeilen:
+  - 32
+  - 32
+- id: TR-XB100-06
+  zitat: 'Default policy: accept (Host-Outbound ist nicht das Exposure-Modell).'
+  art: FUNKTION
+  aussage: Server-Ausgang frei.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_020_REGELWERK_STRUKTUR.txt#output (Default accept
+  begruendung: Mit drei Schutzregeln OUT-01..03.
+  zeilen:
+  - 37
+  - 37
+- id: TR-XB100-07
+  zitat: 'Stealth/DROP auf WAN ist optional, aber wenn aktiviert: strikt nur auf ens13 scoped und darf VPN-Inputs (ppp*/xfrm)
+    nicht beeinflussen.'
+  art: FUNKTION
+  aussage: WAN-Regeln nur am WAN-Interface.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_020_REGELWERK_STRUKTUR.txt#in_wan
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-13
+  begruendung: WAN-Regeln in eigener Kette in_wan; Interface-Name aus der Registry (ens18).
+  zeilen:
+  - 42
+  - 42
+- id: TR-XB100-08
+  zitat: 'Regelmäßiger Listener-Audit (IPv4+IPv6) ist Pflicht:'
+  art: BETRIEB
+  aussage: Regelmaessige Listener-Pruefung.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-51
+  - base/BASE-050_FIREWALL_CORE/BASE-050_070_RENDERN_LADEN_UND_VERLUSTSCHUTZ.txt#LISTENER-ABGLEICH
+  begruendung: Teil von vpn-fw-check.
+  zeilen:
+  - 43
+  - 43
+- id: TR-XB100-09
+  zitat: 'nmap von außen: nur VPN-Endpunkte (UDP 500/4500 + ESP) sind OPEN/erreichbar.'
+  art: TEST
+  aussage: Externer Scan.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-20
+  begruendung: Zusaetzlich WG- und Notzugangs-Port, die einem Scan nicht antworten.
+  zeilen:
+  - 52
+  - 52
+- id: TR-XB100-10
+  zitat: 'nmap -6 von außen: gleiche Erwartung für IPv6 (Dualstack).'
+  art: TEST
+  aussage: Externer Scan IPv6.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-20
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-28
+  begruendung: IPsec nur ueber IPv4; WG und Notzugang auch IPv6.
+  zeilen:
+  - 53
+  - 53
+- id: TR-XB100-11
+  zitat: Wenn Port 22 sichtbar -> ssh bind/fwrule falsch.
+  art: BETRIEB
+  aussage: SSH am WAN ist ein Fehler.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-13
+  - base/BASE-050_FIREWALL_CORE/BASE-050_070_RENDERN_LADEN_UND_VERLUSTSCHUTZ.txt#FW_LISTENER_FREMD
+  begruendung: Durch Firewall verhindert, durch Listener-Abgleich gemeldet.
+  zeilen:
+  - 49
+  - 49
+- id: TR-XB100-12
+  zitat: 'Minimiert Angriffsfläche: WAN zeigt nur IPsec.'
+  art: SCHUTZZIEL
+  aussage: WAN zeigt nur VPN.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-13
+  begruendung: Zusaetzlich WireGuard und Notzugang (antworten Unbekannten nicht).
+  zeilen:
+  - 21
+  - 21
+- id: TR-XB100-13
+  zitat: Client-Outbound wird in der Client-Bubble per FORWARD/NAT/Policy erzwungen (nicht hier).
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Client-Ausgang ueber forward/NAT.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_060_FORWARD_NAT_UND_EGRESS_SCHUTZ.txt#GRUNDSATZ
+  begruendung: BASE-050_060.
+  zeilen:
+  - 38
+  - 38
+- id: TR-XB100-14
+  zitat: Rate-limit log for scans.
+  art: FUNKTION
+  aussage: Scan-Logs begrenzen.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_070_RENDERN_LADEN_UND_VERLUSTSCHUTZ.txt#vpn_fw_log_labels
+  begruendung: WAN-Kennzeichen waehlbar, im Vorschlag aus.
+  zeilen:
+  - 46
+  - 46
+- id: TR-XB100-15
+  zitat: Kein SSH auf WAN.
+  art: SCHUTZZIEL
+  aussage: Kein SSH am WAN.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-13
+  begruendung: Uebernommen.
+  zeilen:
+  - 24
+  - 24
+- id: TR-XB100-16
+  zitat: Kein Web auf WAN.
+  art: SCHUTZZIEL
+  aussage: Kein Web am WAN.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-13
+  begruendung: Uebernommen.
+  zeilen:
+  - 25
+  - 25

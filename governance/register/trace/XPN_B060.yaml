@@ -1,0 +1,121 @@
+schema: trace/1
+quelle: XPN
+datei: blocks/B060_NETPLAN_IPS_SEGMENTS.txt
+einheit: AP-K050
+vollstaendigkeit: TEILWEISE (Firewall-relevante Aussagen; Segment- und Pool-Definitionen werden in AP-K070/AP-Q04 zugeordnet)
+records:
+- id: TR-XB060-01
+  zitat: Alle internen Dienste binden an SERVICE_* (nicht an WAN, nicht an 0.0.0.0).
+  art: SCHUTZZIEL
+  aussage: Dienste binden nur an Dienstadressen.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-51
+  - base/BASE-050_FIREWALL_CORE/BASE-050_080_OWNER_GRENZEN.txt#GF-5
+  begruendung: Bindung ist die erste Schicht; die Firewall prueft sie regelmaessig und ist die zweite Schicht.
+  zeilen:
+  - 49
+  - 49
+- id: TR-XB060-02
+  zitat: VPN-Clients erreichen Dienste nur über erlaubte Scopes/Ports (nft input allowlists pro SERVICE-IP).
+  art: SCHUTZZIEL
+  aussage: Lokale Dienste nur nach Freigabeliste.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-26
+  begruendung: Dienst-Matrix in input (Kette in_vpn).
+  zeilen:
+  - 50
+  - 50
+- id: TR-XB060-03
+  zitat: 'DNAT DNS: Client DNS forced to SERVICE_DNS (10.77.0.1 / fd77:0:0:0::1) (B210 details)'
+  art: FUNKTION
+  aussage: DNS-Zwang per DNAT.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-30
+  begruendung: NP-01/NP-02.
+  zeilen:
+  - 51
+  - 51
+- id: TR-XB060-04
+  zitat: 'SERVICE_NET_v4: 10.77.0.0/28'
+  art: DEFINITION
+  aussage: Adressbereich der Dienste.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_020_REGELWERK_STRUKTUR.txt#service_net_v4
+  begruendung: Unveraendert als konstantes Objekt.
+  zeilen:
+  - 25
+  - 25
+- id: TR-XB060-05
+  zitat: LEGACY ist IPv4-only (kein IPv6 im Legacy-PPP Pool)
+  art: DEFINITION
+  aussage: L2TP fuehrt kein IPv6.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-25
+  - base/BASE-050_FIREWALL_CORE/BASE-050_020_REGELWERK_STRUKTUR.txt#PR-05
+  begruendung: IPv6 an ppp* wird frueh verworfen.
+  zeilen:
+  - 38
+  - 38
+- id: TR-XB060-06
+  zitat: 'MODERN_VPN_NET_v4 (Pool): 10.77.32.0/20'
+  art: DEFINITION
+  aussage: Segment MODERN mit eigenem Pool.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_020_REGELWERK_STRUKTUR.txt#pool_user_v4
+  begruendung: Ersetzt durch vier Rollen-Pools unabhaengig vom Tunneltyp (MANIFEST 4.1).
+  zeilen:
+  - 45
+  - 45
+- id: TR-XB060-07
+  zitat: 'Service-Scope-Test: Kein Dienst lauscht auf WAN oder 0.0.0.0; alle lauschen nur auf SERVICE_*.'
+  art: TEST
+  aussage: Listener-Pruefung.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-70
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-51
+  begruendung: accel-ppp muss an 0.0.0.0:1701 binden (LT-03); geprueft wird gegen die Liste erlaubter Endpunkte.
+  zeilen:
+  - 58
+  - 58
+- id: TR-XB060-08
+  zitat: 'SERVICE_SSH: 10.77.0.5 / fd77:0:0:0::5 (SSH, admin-only Scope; kein USER/RESTRICTED Zugriff)'
+  art: SCHUTZZIEL
+  aussage: SSH nur fuer Admin.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-28
+  begruendung: Zusaetzlich konkrete Adressen aus zwei Quellen; Port 27812.
+  zeilen:
+  - 33
+  - 33
+- id: TR-XB060-09
+  zitat: 'SERVICE_RESOLVER: 10.77.0.2 / fd77:0:0:0::2 (Unbound, server-only)'
+  art: SCHUTZZIEL
+  aussage: Resolver nur serverintern.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-29
+  begruendung: Aus keinem VPN-Interface erreichbar.
+  zeilen:
+  - 30
+  - 30
+- id: TR-XB060-10
+  zitat: 'RESTRICTED forward drop: nur SERVICE_WEB (10.77.0.3 / fd77:0:0:0::3 :443/80) + SERVICE_DNS (10.77.0.1 / fd77:0:0:0::1
+    :53) + SERVICE_NTP (10.77.0.4 / fd77:0:0:0::4 :123/udp)'
+  art: SCHUTZZIEL
+  aussage: 'Walled Garden: nur Web, DNS, NTP.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-22
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-27
+  begruendung: Dienstklasse ALLE; WAN abgewiesen.
+  zeilen:
+  - 52
+  - 52

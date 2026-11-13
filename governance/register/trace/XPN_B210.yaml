@@ -1,0 +1,243 @@
+schema: trace/1
+quelle: XPN
+datei: blocks/B210_DNS_ENFORCEMENT_DNAT53.txt
+einheit: AP-K050
+vollstaendigkeit: TEILWEISE (Kernel-Anteile des DNS-Zwangs vollstaendig; Aussagen zu den DNS-Diensten werden in AP-K060 zugeordnet)
+records:
+- id: TR-XB210-01
+  zitat: sämtlichen VPN-DNS (UDP+TCP/53) zwangsweise auf SERVICE_DNS.
+  art: SCHUTZZIEL
+  aussage: DNAT53 fuer alle.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-30
+  begruendung: NP-01/NP-02.
+  zeilen:
+  - 15
+  - 15
+- id: TR-XB210-02
+  zitat: 'ADMIN/MODERN: Dualstack (v4+v6), DNAT53 MUSS für v4+v6 aktiv sein (sonst DNS-Leak über v6 möglich).'
+  art: SCHUTZZIEL
+  aussage: DNAT53 auch v6.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_050_SERVICE_NET_UND_DNS_ZWANG.txt#D-3
+  begruendung: Uebernommen.
+  zeilen:
+  - 20
+  - 20
+- id: TR-XB210-03
+  zitat: Server-eigene DNS Queries (OUTPUT) sind nicht Teil dieses DNAT und werden über lokale Resolver-Config gesteuert.
+  art: DEFINITION
+  aussage: Server-DNS nicht umgeleitet.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_050_SERVICE_NET_UND_DNS_ZWANG.txt#D-5
+  begruendung: Uebernommen.
+  nahe_zeile: 22
+  zeilen:
+  - 22
+  - 22
+- id: TR-XB210-04
+  zitat: Gilt für ALLE VPN-Clients (auch restricted), damit DNS immer über AdGuardHome läuft
+  art: SCHUTZZIEL
+  aussage: Alle Clients, auch restricted.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_050_SERVICE_NET_UND_DNS_ZWANG.txt#D-1
+  begruendung: Uebernommen.
+  zeilen:
+  - 31
+  - 31
+- id: TR-XB210-05
+  zitat: Aktivieren erst wenn DNS stack stabil (B200).
+  art: BETRIEB
+  aussage: DNAT erst nach stabilem DNS-Stack.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_050_SERVICE_NET_UND_DNS_ZWANG.txt#D-2
+  begruendung: Die Umleitung ist fester Teil jedes Regelwerks; faellt der Dienst aus, ist DNS aus (fail-closed).
+  zeilen:
+  - 34
+  - 34
+- id: TR-XB210-06
+  zitat: DoH (HTTPS/443), DoT (TCP/853) und DoQ sind NICHT Teil dieses Blocks.
+  art: DEFINITION
+  aussage: DoT/DoQ/DoH nicht behandelt.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_050_SERVICE_NET_UND_DNS_ZWANG.txt#D-4
+  - base/BASE-050_FIREWALL_CORE/BASE-050_020_REGELWERK_STRUKTUR.txt#FD-10
+  begruendung: DoT und DoQ werden jetzt abgewiesen (DP-03); DoH bleibt Sache der Filterlisten.
+  zeilen:
+  - 36
+  - 36
+- id: TR-XB210-07
+  zitat: 'Match basiert auf Client-Source-Scope (VPN-Netze), nicht auf iifname:'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Abgleich auf Quellnetz.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-12
+  begruendung: RetroTunnel hat fuer beide Tunnel Interfaces; Abgleich auf das Interface.
+  zeilen:
+  - 67
+  - 67
+- id: TR-XB210-08
+  zitat: Local OUTPUT bleibt getrennt (Server-DNS/Upstreams werden via Resolver-Config gesteuert, nicht via DNAT).
+  art: DEFINITION
+  aussage: OUTPUT getrennt.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_050_SERVICE_NET_UND_DNS_ZWANG.txt#D-5
+  begruendung: Uebernommen.
+  zeilen:
+  - 71
+  - 71
+- id: TR-XB210-09
+  zitat: Nach DNAT ist es lokales Ziel (SERVICE_NET) => Enforcement liegt im filter input (B150 + docs/nft_service_ip_scopes.txt).
+  art: DEFINITION
+  aussage: Nach DNAT gilt input.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_020_REGELWERK_STRUKTUR.txt#durchlaeuft input
+  begruendung: Uebernommen.
+  zeilen:
+  - 72
+  - 72
+- id: TR-XB210-10
+  zitat: Restricted Allowlist (B150) muss DNS (tcp/udp 53) weiterhin erlauben, sonst bricht DNS-Enforcement im Restricted
+    Mode.
+  art: SCHUTZZIEL
+  aussage: DNS im Walled Garden.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-27
+  begruendung: SA-01.
+  zeilen:
+  - 76
+  - 76
+- id: TR-XB210-11
+  zitat: Both UDP and TCP 53
+  art: FUNKTION
+  aussage: UDP und TCP.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-30
+  begruendung: Uebernommen.
+  zeilen:
+  - 83
+  - 83
+- id: TR-XB210-12
+  zitat: 'Hook/Order: nft nat prerouting (DNAT) auf Client-Source-Scope (VPN-Netze) muss vor filter/input Enforcement greifen.'
+  art: IMPL_DETAIL
+  aussage: DNAT vor Filter.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_020_REGELWERK_STRUKTUR.txt#dstnat (-100)
+  begruendung: Kette nat_pre mit Prioritaet dstnat.
+  zeilen:
+  - 84
+  - 84
+- id: TR-XB210-13
+  zitat: Kein nftables syslog logging fuer "external DNS attempts" (Noise/Logspam).
+  art: SCHUTZZIEL
+  aussage: Kein Log fuer DNS-Umleitung.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-44
+  begruendung: Uebernommen.
+  zeilen:
+  - 91
+  - 91
+- id: TR-XB210-14
+  zitat: Es duerfen Counters (aggregierte Pakete/Bytes) an den DNS-DNAT-Regeln vorhanden sein (UDP/53 und TCP/53 getrennt).
+  art: FUNKTION
+  aussage: Zaehler an den DNAT-Regeln.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_050_SERVICE_NET_UND_DNS_ZWANG.txt#D-6
+  begruendung: c_dnat53_* je Familie und Protokoll.
+  zeilen:
+  - 94
+  - 94
+- id: TR-XB210-15
+  zitat: Keine Ziel-IPs/Domains/PII erfassen, keine syslog/kernel logs.
+  art: SCHUTZZIEL
+  aussage: Keine Ziele/Namen erfassen.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_050_SERVICE_NET_UND_DNS_ZWANG.txt#D-6
+  begruendung: Uebernommen.
+  zeilen:
+  - 95
+  - 95
+- id: TR-XB210-16
+  zitat: Client set DNS 8.8.8.8 -> still uses 10.77.0.1.
+  art: TEST
+  aussage: DNS-Zwang-Test.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-45
+  begruendung: Uebernommen.
+  zeilen:
+  - 105
+  - 105
+- id: TR-XB210-17
+  zitat: 'IPv6 DNS Test (ADMIN/MODERN): Client setzt IPv6 DNS (z.B. 2001:4860:4860::8888) -> Traffic wird dennoch zu fd77:0:0:0::1:53
+    umgebogen.'
+  art: TEST
+  aussage: DNS-Zwang-Test v6.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-45
+  begruendung: Uebernommen.
+  zeilen:
+  - 113
+  - 113
+- id: TR-XB210-18
+  zitat: 'TCP DNS Test: Client erzeugt DNS über tcp/53 (z.B. große Antwort / erzwungen) -> wird ebenfalls zu 10.77.0.1 umgebogen.'
+  art: TEST
+  aussage: DNS-Zwang-Test TCP.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-45
+  begruendung: Uebernommen.
+  zeilen:
+  - 106
+  - 106
+- id: TR-XB210-19
+  zitat: 'Negativtest (DoH): Wenn ein Client ausschliesslich DoH nutzt, steigen UDP/TCP-53 Counters nicht (falls Option B
+    aktiv) und DNAT greift nicht.'
+  art: TEST
+  aussage: DoH nicht erfasst.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_050_SERVICE_NET_UND_DNS_ZWANG.txt#D-4
+  begruendung: Als Grenze ausgewiesen.
+  zeilen:
+  - 109
+  - 109
+- id: TR-XB210-20
+  zitat: Falls später ein "Total-DNS-Lockdown" gewünscht ist, ist das eine separate Outbound-Policy-Entscheidung (eigener
+    Block/Decision).
+  art: OFFEN
+  aussage: Weitergehende DNS-Sperre offen.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-12
+  begruendung: 'Entschieden: DoT/DoQ gesperrt, Port 53 nie im forward.'
+  zeilen:
+  - 37
+  - 37
+- id: TR-XB210-21
+  zitat: '"Idiotensicher" DNS egal was User einträgt.'
+  art: SCHUTZZIEL
+  aussage: Betreiberabsicht.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#SZ-4
+  begruendung: Schutzziel SZ-4.
+  zeilen:
+  - 11
+  - 11
