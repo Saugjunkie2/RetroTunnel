@@ -1,0 +1,379 @@
+================================================================================
+BASE-070 — LAUFZEITMARKEN, BETRIEB UND BEOBACHTBARKEIT
+================================================================================
+DATEI: BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Tabelle der Laufzeitmarken; Units, Werkzeuge und Pfade (Plattform-
+  Contract); Settings dieses Moduls; Datenbankrechte; Statusdateien,
+  Ereignisse und Zaehler; Verhalten bei Stoerungen im Ueberblick.
+
+================================================================================
+1) TABELLE vpn_runtime_marks
+================================================================================
+
+  Feld          Typ            Constraint   Beschreibung
+  ------------- -------------- ------------ -------------------------------
+  mark_key      VARCHAR(64)    PK           Name der Marke
+  mark_value    VARCHAR(255)   NOT NULL     Wert als Text
+  updated_at    TIMESTAMP      NOT NULL     Datenbankzeit des Schreibens
+
+  REGELN:
+    M-1  Marken sind Maschinenzustand: Generationen, Zeitpunkte letzter
+         erfolgreicher Laeufe. Sie sind KEINE Settings: keine
+         Aufloesungsreihenfolge, kein Failsafe, keine Bearbeitung durch
+         Menschen oder Panel.
+    M-2  Jede Marke hat genau EINEN Schreiber (Tabelle unten). Es schreibt
+         der DB-User system.
+    M-3  Marken enthalten keine Geheimnisse und keine personenbezogenen
+         Daten.
+    M-4  Leser muessen eine fehlende Marke vertragen ("noch nie").
+    M-5  Neue Marken werden hier eingetragen, bevor sie benutzt werden.
+    M-6  Eine Marke belegt keinen Lebendzustand eines Tunnels (SZ-4); sie
+         sagt nur, wann ein Lauf zuletzt erfolgreich war bzw. welche
+         Generation zuletzt verarbeitet wurde.
+
+  VERZEICHNIS DER MARKEN:
+    Marke                          Schreiber                 Bedeutung
+    ------------------------------ ------------------------- --------------
+    wg_interface_generation        AWG Session Controller    zuletzt
+                                   (BASE-040_060 Abschn. 5)  verarbeitete
+                                                             Generation von
+                                                             awg0
+    wg_accounting_last_ok_at       AWG Session Controller    letzter
+                                   (BASE-040_050 F6)         erfolgreicher
+                                                             Buchungslauf
+    wg_peer_sync_last_ok_at        WG-Treiber von            letzter
+                                   vpn-policy-apply          fehlerfreier
+                                   (BASE-040_030 S9)         Massenabgleich
+    policy_reconcile_last_ok_at    vpn-policy-apply          letzter
+                                   (BASE-080)                vollstaendiger
+                                                             Abgleich
+    l2tp_daemon_started_at         L2TP-Abgleich (L3)        Startzeit des
+                                                             zuletzt
+                                                             gesehenen
+                                                             Daemon-
+                                                             Prozesses
+    l2tp_sync_last_ok_at           L2TP-Abgleich (L9)        letzter
+                                                             erfolgreicher
+                                                             Lauf
+    session_janitor_last_ok_at     vpn-session-janitor (J8)  letzter
+                                                             fehlerfreier
+                                                             Lauf
+    quota_period_last_ok_at        vpn-quota-period          letzter
+                                                             erfolgreicher
+                                                             Lauf
+
+  Damit ist die in ANF-WT-10 verlangte Tabelle definiert, und die bisher
+  ortlosen Gesundheitsmarken haben eine Heimat (DEC-SC-17).
+
+================================================================================
+2) PLATTFORM-CONTRACT: UNITS, WERKZEUGE, PFADE
+================================================================================
+
+  UNITS (systemd):
+    Unit                          Art       Ausloeser / Bindung
+    ----------------------------- --------- ------------------------------
+    vpn-sessiond.service          Dienst    dauerhaft; Neustart bei
+                                            Fehler; stellt den Socket
+    vpn-session-janitor.timer     Zeitgeber fester kurzer Takt
+    vpn-session-janitor.service   Lauf      entscheidet anhand Setting und
+                                            Marke, ob er faellig ist
+    vpn-quota-period.timer        Zeitgeber fester kurzer Takt
+    vpn-quota-period.service      Lauf      arbeitet nur, wenn Perioden
+                                            faellig sind
+    vpn-l2tp-sync.timer/.service  Lauf      Runner BASE-030; Vertrag
+                                            BASE-070_020 Abschnitt 7
+
+  REGELN FUER UNITS:
+    U-1  ZEITGEBER FEST, TAKT AUS SETTINGS: Die Zeitgeber laufen in einem
+         festen, kurzen Raster. Ob ein Lauf faellig ist, entscheidet der
+         Lauf selbst aus dem Setting und seiner Marke. So aendert ein
+         Setting den Takt, ohne dass Unit-Dateien neu erzeugt werden.
+    U-2  Kein Tunnel-Dienst haengt von einer Unit dieses Moduls ab; die
+         Units dieses Moduls verlangen die Datenbank nicht als harte
+         Startbedingung (kein Start-Deadlock, BASE-070_040 Abschnitt 5).
+    U-3  Jeder Lauf haelt einen eigenen Einzel-Lock unter
+         /run/retrotunnel/session/ und hat ein Zeitlimit.
+    U-4  Alle Units laufen als root mit eingeschraenkten Rechten
+         (kein Netzwerkzugriff ausser lokal, nur die benoetigten Pfade
+         schreibbar); Einzelheiten der Haertung: BASE-005.
+
+  WERKZEUGE (/usr/local/bin):
+    vpn-sessiond          On-Demand-Dienst (_040 Abschnitt 3)
+    vpn-session-check     unprivilegierter Aufrufer (_040 Abschnitt 3)
+    vpn-session-janitor   Bereinigungslauf (_040 Abschnitt 4)
+    vpn-session-kill      Hard-Cut (_040 Abschnitt 6)
+    vpn-quota-period      Periodenwechsel (_050 Abschnitt 5)
+    vpn-l2tp-sync         L2TP-Abgleich (Runner BASE-030)
+
+  PFADE:
+    /run/retrotunnel/session/            root:root 0755
+      check.sock                         root:<Gruppe des AAA-Dienstes> 0660
+      status-<komponente>.json           0644, je Schreiber eine Datei
+      *.lock                             Einzel-Locks
+    /run/vpn-sessions/                   Laufzeit-Spiegel L2TP (BASE-030)
+    /var/lib/vpn-accounting/             Spool-Bereich beider Tunnel
+      wg-snapshot/                       BASE-040_060
+      l2tp-acct-buffer/                  Puffer des AAA-Dienstes
+                                         (ANF-SC-04)
+
+  BEREITSCHAFT: SESSION_CORE_READY gilt, wenn der Socket von vpn-sessiond
+  Anfragen beantwortet. Die Bereitschaft ist KEINE Voraussetzung fuer die
+  Tunnel (U-2); ihr Fehlen ist ein Alarm.
+
+================================================================================
+3) SETTINGS
+================================================================================
+
+  Kanonische Namen, Klassen und Katalogeintraege vergibt BASE-090 (D004
+  P-04). Bis dahin gelten die hier genannten Namen; belegte Altnamen sind
+  als solche gekennzeichnet. Die Vorschlagswerte sind zugleich die
+  eingebauten Rueckfallwerte, wenn ein Key fehlt oder ungueltig ist.
+
+  Key                                      Vorschlag  Grenzen    Herkunft
+  ---------------------------------------- ---------- ---------- ---------
+  vpn_active_session_lock_ttl_seconds      20         10..60     belegt
+  vpn_session_lock_operation_ttl_seconds   60         15..300    neu
+  vpn_cleanup_timeout_seconds              2          1..5       belegt
+  vpn_cleanup_ratelimit_window_seconds     5          1..60      belegt
+  vpn_cleanup_result_ttl_seconds           5          1..60      belegt
+  vpn_ghost_min_age_seconds                15         5..120     neu
+  runtime_activity_check_interval_seconds  30         10..300    D004-E09
+  l2tp_radacct_stale_threshold_seconds     900        Regel K-b  D004-E09
+  vpn_runtime_seen_refresh_seconds         60         10..600    neu
+  vpn_janitor_interval_seconds             300        60..3600   belegt
+  vpn_boot_janitor_delay_seconds           90         30..600    belegt
+  vpn_hardcut_kill_timeout_seconds         10         2..60      neu
+  vpn_l2tp_acct_state_retention_days       35         7..400     neu
+  vpn_quota_timezone                       Europe/    gueltige   neu
+                                           Berlin     Zeitzone
+  quota_reset_mode                         calendar_  nur dieser D004-E09
+                                           month      Wert
+  quota_scope                              per_       nur dieser D004-E09
+                                           connection Wert
+  vpn_quota_cutover_wait_seconds           20         0..120     neu
+  vpn_quota_overdue_alert_seconds          900        300..86400 neu
+  vpn_quarantine_days                      365        30..3650   belegt
+  vpn_pool_alloc_max_attempts              3          1..10      neu
+  vpn_runtime_endpoint_retention_days      14         MOD-007    neu
+  vpn_runtime_activity_retention_days      180        MOD-007    neu
+
+  FREMDE KEYS, AUF DIE DIESES MODUL BEZUG NIMMT:
+    radius_acct_interim_seconds              Owner BASE-020/BASE-030;
+                                             belegt 300, Empfehlung 60
+                                             (BASE-070_050 Abschnitt 3)
+    wg_handshake_stale_threshold_seconds     Owner BASE-040
+    wg_accounting_flush_interval_seconds     Owner BASE-040
+    wg_counter_poll_interval_seconds         Owner BASE-040
+
+  KONSISTENZREGELN:
+    K-a  vpn_cleanup_result_ttl_seconds <=
+         vpn_cleanup_ratelimit_window_seconds
+    K-b  l2tp_radacct_stale_threshold_seconds >=
+         2 * radius_acct_interim_seconds +
+         runtime_activity_check_interval_seconds
+    K-c  vpn_ghost_min_age_seconds < vpn_active_session_lock_ttl_seconds
+         (ein Geist soll spaetestens nach Ablauf einer Sperre schliessbar
+         sein)
+    K-d  vpn_cleanup_timeout_seconds ist kleiner als das Zeitlimit, das
+         der Tunnel-Daemon dem AAA-Dienst fuer eine Antwort laesst
+    K-e  vpn_l2tp_acct_state_retention_days ist groesser als die laengste
+         zugelassene Verweildauer im L2TP-Puffer
+  Verletzt eine Kombination eine Regel, gilt fuer die beteiligten Keys der
+  Vorschlagswert und der Zustand wird gemeldet.
+
+  ABWEICHUNG VON EINEM BELEGTEN VORSCHLAG: D004-E09 nennt fuer
+  l2tp_radacct_stale_threshold_seconds 300. Bei einem Interim-Intervall
+  von 300 s laege das unter dem doppelten Meldeabstand und wuerde lebende
+  Sitzungen als saeumig melden; der Vorgaenger verlangte ausdruecklich
+  mindestens das Doppelte (B168). Deshalb Regel K-b und Vorschlag 900.
+
+  LESEN DER SETTINGS:
+    - vpn-sessiond liest seine Settings beim Start und danach in festem
+      Abstand, NIE je Anfrage: Der Anmeldepfad wartet nicht auf
+      Settings-Abfragen.
+    - Der AAA-Dienst erhaelt Sperr-TTL und Zeitlimit mit seiner
+      Konfiguration (BASE-020); auch er liest sie nicht je Anfrage.
+    - Die Laeufe lesen ihre Settings je Lauf.
+
+  ENTFALLENE ODER ERSETZTE ALTNAMEN (fuer den Katalog, BASE-090):
+    vpn_stale_threshold_seconds, stale_threshold_seconds
+        -> l2tp_radacct_stale_threshold_seconds mit geaenderter Bedeutung
+           (Meldeverzug statt Schliesskriterium)
+    wg_modern_session_stale_seconds
+        -> wg_handshake_stale_threshold_seconds
+    active_session_lock_ttl_seconds
+        -> vpn_active_session_lock_ttl_seconds
+    janitor_interval_seconds  -> vpn_janitor_interval_seconds
+    cleanup_ratelimit_window_seconds, cleanup_result_ttl_seconds,
+    cleanup_timeout_seconds   -> vpn_cleanup_*
+    vpn_l2tp_radacct_correlation_window_seconds,
+    vpn_l2tp_radacct_retry_count,
+    vpn_l2tp_radacct_retry_interval_seconds
+        -> entfallen (DEC-SC-05)
+    online_window_seconds
+        -> entfaellt; Aktualitaetszusage BASE-070_020 Abschnitt 2, Anzeige
+           MOD-006
+    tail_reserve_slots, ip_pool_green_threshold, ip_pool_red_threshold
+        -> Spalten in vpn_pool_config
+    QUARANTINE_DAYS           -> vpn_quarantine_days
+    wg_counter_wrap_detection, wg_grace_accounting_buffer_max
+        -> entfallen (D004 P-01, P-02)
+
+================================================================================
+4) DATENBANKRECHTE (Tabellen dieses Moduls)
+================================================================================
+
+  Tabelle                 radius                webpanel        system
+  ----------------------- --------------------- --------------- ----------
+  vpn_session_locks       SELECT, INSERT,       -               alle
+                          DELETE (vertraglich
+                          nur Zweck
+                          L2TP_ADMISSION)
+  log_runtime_activity    -                     SELECT ueber    alle
+                                                Sichten (_020
+                                                E-3)
+  vpn_l2tp_acct_state     -                     -               alle
+  log_quota_period        -                     SELECT          alle
+  vpn_pool_config         -                     SELECT          alle
+  vpn_ip_quarantine       -                     SELECT (ADMIN)  alle
+  vpn_runtime_marks       -                     SELECT          alle
+  Gruppe D                SELECT (kein          SELECT (kein    alle
+  (vpn_connections)       Schreiben)            Schreiben)
+  radacct                 wie BASE-000_010      -               zusaetzlich
+                                                                Schliessen
+                                                                von Geistern
+
+  Der DB-User radius erhaelt durch dieses Modul KEIN neues Recht. Der
+  DB-User webpanel schreibt keine Tabelle dieses Moduls; Verwaltungs-
+  handlungen laufen ueber den privilegierten Auftragsweg als system
+  (BASE-110). Nachzug der Registry und der Rechte: ANF-SC-02.
+
+================================================================================
+5) STATUSDATEIEN
+================================================================================
+
+  Je Schreiber eine Datei /run/retrotunnel/session/status-<komponente>.json
+  (0644, atomar ersetzt). KEINE personenbezogenen Daten, keine Adressen
+  von Kunden, keine Anmeldenamen.
+
+    status-sessiond.json   generated_at, anfragen_gesamt, ergebnis_live,
+                           ergebnis_not_live, ergebnis_unknown,
+                           begrenzt_abgewiesen, geister_geschlossen
+    status-l2tp.json       generated_at, sonde_ok, laufzeit_sitzungen,
+                           offene_protokollzeilen, geister_geschlossen,
+                           drift: {L2TP_UNACCOUNTED, L2TP_ACCT_STALLED,
+                           L2TP_ORPHAN_SESSION,
+                           L2TP_ACCT_COUNTER_REGRESSION},
+                           letzter_lauf_ok_at
+    status-janitor.json    generated_at, sperren_gueltig je Zweck,
+                           sperren_entfernt, hinweise_bereinigt,
+                           spiegel_entfernt, connections_geloescht,
+                           quarantaene_beendet, pool: je Rolle {nutzbar,
+                           reserve, belegt, quarantaene, frei, stufe},
+                           letzter_lauf_ok_at
+    status-quota.json      generated_at, faellige_perioden,
+                           gewechselt_gesamt, letzter_lauf_ok_at
+
+  Eine Statusdatei, die aelter ist als das Dreifache des Takts ihres
+  Schreibers, gilt im Panel als "Komponente antwortet nicht".
+
+================================================================================
+6) EREIGNISSE UND ZAEHLER
+================================================================================
+
+  Meldeweg, Aufbewahrung und Zustellung: MOD-007. Stufen: INFO, WARN,
+  ALERT, CRITICAL.
+
+  Ereignis                       Stufe     Ausloeser
+  ------------------------------ --------- --------------------------------
+  SESSION_PROBE_UNAVAILABLE      ALERT     Adapter antwortet in drei
+                                           aufeinanderfolgenden Laeufen
+                                           nicht
+  SESSION_CORE_NOT_READY         ALERT     Socket von vpn-sessiond
+                                           antwortet nicht
+  SESSION_GHOST_CLOSED           INFO      Geist geschlossen (Zaehler)
+  L2TP_UNACCOUNTED               WARN,     lebende Sitzung ohne
+                                 ab Schwelle Protokollzeile
+                                 ALERT
+  L2TP_ACCT_STALLED              WARN      Meldeverzug einer lebenden
+                                           Sitzung
+  L2TP_ORPHAN_SESSION            ALERT     lebende Sitzung ohne
+                                           Berechtigung; wurde beendet
+  L2TP_ACCT_COUNTER_REGRESSION   WARN      gemeldeter Zaehler kleiner als
+                                           gebuchter Stand
+  RT_ADDRESS_MISMATCH            ALERT     Laufzeitadresse ungleich
+                                           fixed_ip / fixed_ipv6
+  RT_ACTIVITY_NOT_ALLOWED        ALERT     Aktivitaet einer gesperrten
+                                           Connection
+  RT_CLOCK_ANOMALY               WARN      Zeitwert in der Zukunft
+                                           begrenzt
+  HARDCUT_FAIL_KILL              CRITICAL  Laufzeit liess sich nicht
+                                           beenden
+  POOL_WARN / POOL_CRITICAL /    WARN /    Stufenwechsel der Ampel
+  POOL_EXHAUSTED /               ALERT /
+  POOL_RECOVERED                 CRITICAL
+                                 / INFO
+  POOL_ALLOC_COLLISION           WARN      UNIQUE-Verletzung trotz
+                                           Pool-Sperre
+  POOL_RESERVE_USED              INFO      Reservefreigabe benutzt (mit
+                                           Akteur)
+  POOL_CONFIG_INVALID            CRITICAL  Gueltigkeitsregel verletzt
+  QUOTA_PERIOD_OVERDUE           ALERT     faellige Periode aelter als
+                                           vpn_quota_overdue_alert_seconds
+  SESSION_JANITOR_OVERDUE        ALERT     session_janitor_last_ok_at
+                                           aelter als drei Takte
+
+  Ereignisse, die eine Connection betreffen, tragen connection_ref, nie
+  Anmeldenamen oder oeffentliche Adressen. Ist die Datenbank nicht
+  erreichbar, gehen Ereignisse ins Journal und in den datenbank-
+  unabhaengigen Alarmweg (BASE-040_060 Abschnitt 6, MOD-007).
+
+================================================================================
+7) VERHALTEN BEI STOERUNGEN (UEBERBLICK)
+================================================================================
+
+  Stoerung                  Anmeldung L2TP     Bestand       Dieses Modul
+  ------------------------- ------------------ ------------- ---------------
+  Datenbank nicht           abgelehnt          L2TP bleibt;  Laeufe ohne
+  erreichbar                (AAA-03)           WG nach Grace Wirkung; Hard-
+                                               gestoppt      Cut L2TP ueber
+                                               (BASE-040_060) den Spiegel
+  vpn-sessiond steht        streng nach        unberuehrt    Alarm
+                            Protokoll
+  Adapter L2TP gestoert     streng nach        unberuehrt    nichts wird
+                            Protokoll;                       geschlossen;
+                            Geister sperren                  Alarm
+  accel-ppp neu gestartet   moeglich, sobald   beendet       Neustart-Regel
+                            Daemon bereit                    L3 schliesst
+                                                             alle alten
+                                                             Zeilen
+  Systemstart               wie oben           -             BASE-070_040
+                                                             Abschnitt 5
+  Bereinigungslauf faellt   unberuehrt         unberuehrt    Sperren laufen
+  aus                                                        selbst ab;
+                                                             Rueckgabe von
+                                                             Adressen
+                                                             verzoegert;
+                                                             Alarm
+  Periodenwechsel faellt    unberuehrt         alte Periode  wird nachgeholt;
+  aus                                          gilt weiter   Alarm
+
+================================================================================
+8) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  - Betriebsseite "Sitzungskern": Inhalte der Statusdateien, Marken mit
+    Alter, offene Alarme dieses Moduls.
+  - Settings dieses Moduls ueber die Settings-Verwaltung (BASE-090) mit
+    Anzeige der Konsistenzregeln K-a bis K-e.
+  - Keine Bearbeitung von Marken, Sperren, Buchungsstaenden oder
+    Hinweisfeldern.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
