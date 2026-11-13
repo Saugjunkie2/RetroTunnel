@@ -1,0 +1,120 @@
+SQL-FIRST v1 — Reason-Class → Panel Text Mapping v1.txt
+================================================================================
+TITLE: Reason-Class Katalog + Panel-Text Mapping (kurz, deterministisch)
+DOC-ID: SQLF-REASONMAP-01
+STATUS: ENTWURF (Phase 3) — Mapping Contract für /diag + Panel
+VERSION: v0.1
+DATUM: 2026-01-28 (Europe/Zurich)
+
+ZWECK:
+- /diag liefert reasons[] als reason_class Codes (kurz, stabil).
+- Panel übersetzt reason_class deterministisch in:
+  • Kurztext (1 Zeile)
+  • Detail-Hinweis (max 2 Zeilen, optional)
+  • Severity (INFO/WARN/FAIL)
+  • Operator-Hinweis (“was tun?”) ohne Unsafe/Leaks
+
+REFERENZEN:
+- SQLF-DIAG-TRACE-01 (settings.trace.reasons[])
+- Reason-Code Klassen + Mapping (DB_UNKNOWN vs Registry) (Owner-Analyse-Stand)
+
+DESIGN-REGELN:
+- Codes sind stabil (SemVer): nie umbenennen ohne Alias.
+- Kein PII/Secrets in Texten.
+- Keine internen Pfade/IPs in Default-Texten (nur wenn Admin “Details” aufklappt).
+
+================================================================================
+A) Severity Norm
+================================================================================
+INFO: normaler Zustand / nur Kontext
+WARN: Degraded / tighten-only aktiv / auto fallback, aber funktional
+FAIL: Gate relevant / expected-fail / Admin Action nötig / Risiko
+
+================================================================================
+B) Mapping Tabelle (v1 Minimal)
+================================================================================
+Format pro Code:
+CODE | Severity | Panel Kurztext | Panel Detail (optional) | Operator-Hinweis
+
+1) SETTINGS_MISSING | WARN
+- Kurztext: “Wert fehlt – es wird ein sicherer Fallback genutzt.”
+- Detail: “Der Key ist nicht in der Datenbank gesetzt oder nicht auffindbar.”
+- Hinweis: “Im Panel prüfen: Key existiert + Scope korrekt. Danach erneut Validierung anstoßen.”
+
+2) SETTINGS_INVALID | WARN
+- Kurztext: “Wert ungültig – es wird ein sicherer Ersatz genutzt.”
+- Detail: “Der Wert verletzt Typ/Bounds des Catalogs.”
+- Hinweis: “Bounds/Typ prüfen, Wert korrigieren. (CI: erwartet tighten-only)”
+
+3) SETTINGS_RELATION | WARN
+- Kurztext: “Werte zueinander unplausibel – Relation wird korrigiert.”
+- Detail: “Eine Relation-Regel (z.B. min<=max) ist verletzt.”
+- Hinweis: “Peer-Keys gemeinsam prüfen (Relation-Gruppe).”
+
+4) SETTINGS_CAPPED | WARN
+- Kurztext: “Wert wurde begrenzt (Cap aktiv).”
+- Detail: “Host-Budget oder Safety-Cap reduziert den effektiven Wert.”
+- Hinweis: “Cap-Budget prüfen (Host/Plan). Wenn unerwartet: Cap-Quelle klären.”
+
+5) SETTINGS_FALLBACK | WARN
+- Kurztext: “Fallback aktiv – Quelle ist nicht SQL.”
+- Detail: “DB- oder Resolverzustand verhindert SQL-Nutzung.”
+- Hinweis: “Backend Status prüfen (/diag backend.*).”
+
+6) DB_DOWN | FAIL
+- Kurztext: “Datenbank nicht erreichbar.”
+- Detail: “SQL-Reads/Writes sind gestört; System läuft in Degraded Mode.”
+- Hinweis: “DB Health prüfen (Service/Conn-Limits). Danach Reconcile.”
+
+7) DB_UNKNOWN | FAIL
+- Kurztext: “Datenbankstatus unklar – Schutzmodus aktiv.”
+- Detail: “Integritäts-/Drift-/Backend-Reason verhindert Vertrauen in SQL.”
+- Hinweis: “/diag backend.reasons lesen. Registry/Doc-Set Drift prüfen.”
+
+8) REGISTRY_MISMATCH | FAIL
+- Kurztext: “Soll/Ist driftet – Registry weicht ab.”
+- Detail: “Doc-Set/Registry erwartet andere Werte/Keys als SQL liefert.”
+- Hinweis: “Registry View öffnen, Abweichungen prüfen, Auto-Repair (falls aktiv) oder FixApply.”
+
+9) ALIAS_COLLISION | FAIL
+- Kurztext: “Alias-Konflikt – Key-Auflösung nicht eindeutig.”
+- Detail: “Mehrere Aliase zeigen auf widersprüchliche Canonical Keys.”
+- Hinweis: “Alias-Tabelle prüfen, Kollision lösen (B310 Alias Gate).”
+
+10) REQUIRED_SET_MISSING | FAIL
+- Kurztext: “Pflicht-Key-Set unvollständig.”
+- Detail: “Mindestens ein Required Key fehlt/invalid/unknown.”
+- Hinweis: “Completeness-View öffnen, fehlende Keys schließen.”
+
+11) TRACE_SCHEMA_VIOLATION | FAIL
+- Kurztext: “/diag Contract verletzt – Trace unvollständig.”
+- Detail: “Minimalfelder fehlen oder sind inkonsistent.”
+- Hinweis: “Diag Generator prüfen; Contract SemVer beachten.”
+
+12) EXPECTED_FAIL_ACTIVE | WARN
+- Kurztext: “Expected-Fail aktiv – Verhalten ist bewusst ‘degraded’.”
+- Detail: “Dieses Verhalten ist in Expected-Fails dokumentiert.”
+- Hinweis: “Wenn unerwünscht: Expected-Fail Lock prüfen oder FixPack anwenden.”
+
+================================================================================
+C) Code-Namespaces (optional v2)
+================================================================================
+Optional kann später nach Namespace getrennt werden:
+- SETTINGS_* (Key-Level)
+- DB_* (Backend)
+- REGISTRY_* (Doc-Set/Registry)
+- ALIAS_* (Resolver)
+- TRACE_* (Diag Contract)
+- CI_* (Gate/Proof)
+
+================================================================================
+D) Validierung (B310)
+================================================================================
+- Test: jeder reason_class Code hat Mapping-Eintrag (kein Unknown in Panel).
+- Test: Codes sind <= 32 chars, A-Z0-9_ (kein freier Text).
+- Test: Severity-Norm eingehalten (FAIL vs WARN).
+
+================================================================================
+CHANGELOG
+================================================================================
+2026-01-28: v0.1 initial: Minimal Reason-Class Mapping für Panel/Diag/CI.

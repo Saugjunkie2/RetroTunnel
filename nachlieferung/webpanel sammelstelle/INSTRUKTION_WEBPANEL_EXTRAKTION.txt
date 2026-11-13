@@ -1,0 +1,447 @@
+════════════════════════════════════════════════════════════════════
+ INSTRUKTION: EXTRAKTION WEBPANEL-MATERIAL AUS ZENTRALE-ORDNER
+ Erstellt: 19.04.2026
+ Zweck: Arbeitsanweisung fuer Claude ueber mehrere Chatfenster
+════════════════════════════════════════════════════════════════════
+
+KONTEXT
+═══════
+Marco baut ein VPN-Webpanel ("die Zentrale") fuer sein Projekt
+"RetroTunnel" — eine Admin- und Benutzeroberflaeche fuer einen
+Dual-Tunnel-VPN-Stack (L2TP/IPsec + AmneziaWireGuard) auf
+Debian 13 mit MariaDB, FreeRADIUS und nftables.
+
+Im Ordner "zentrale/" liegen umfangreiche Konzeptdateien aus
+4 halbfertigen Versionen von "Retrowork" — einer Hobby-Website
+fuer Retro-Hardware. Vieles davon ist fuer das VPN-Panel
+brauchbar, vieles nicht.
+
+ZIEL: Alles brauchbare Material aus 130+ Textdateien (~1.5 MB)
+in eine Sammelstelle kopieren. Spaeter (Phase 2+3) wird ein
+anderes Chatfenster MIT vollem VPN-Konzept-Kontext die
+Konsolidierung und Anpassung uebernehmen.
+
+WAS DAS VPN-PANEL KONKRET BRAUCHT
+══════════════════════════════════
+Das Panel hat zwei Seiten: ADMIN und USER. Beide teilen sich
+eine Codebasis. Beim Lesen der Retrowork-Dateien sollst du
+Material sammeln das fuer EINE ODER MEHRERE dieser Funktionen
+brauchbar sein koennte:
+
+  ADMIN-SEITE:
+  - Dashboard (Uebersicht: aktive Sessions, Connection-Status,
+    System-Health, offene Alerts)
+  - Connection-Verwaltung (erstellen, claimen, disablen, restricten,
+    Rollenwechsel, Credential-Anzeige, QR-Code-Generierung)
+  - Kundenverwaltung (Kunden anlegen, Rollen zuweisen, Plaene zuweisen)
+  - Session-Monitoring (aktive VPN-Sessions, wer ist online)
+  - Settings-Management (Systemeinstellungen, Timeouts, Limits)
+  - Audit-Log / Changelog (wer hat wann was geaendert)
+  - Wartungsmodus (System temporaer in Maintenance setzen)
+
+  USER-SEITE (Self-Service):
+  - Eigene Connections sehen (Status, IPs, Credentials)
+  - WireGuard Config / QR-Code herunterladen
+  - Display-Name aendern
+  - Passwort aendern
+  - FAQ-Bereich (haeufige Fragen, Anleitungen, Hilfe)
+
+  OEFFENTLICHE SEITE (eigener Server, fuer jeden erreichbar):
+  - News / Changelog (mit public/private Toggle pro Eintrag —
+    manche News sind nur fuer eingeloggte User sichtbar)
+  - Projekt-Info / Landing Page
+  - Bestellprozess (Formular → E-Mail an Marco, mit E-Mail-
+    Verifizierung damit die Adresse stimmt bevor Marco
+    Credentials und Anleitungen per Mail verschickt)
+  - FAQ (oeffentlich, Vor-Kauf-Fragen: "Welche Geraete?",
+    "Funktioniert das mit Windows XP?", "Was kostet es?")
+  - Impressum / Datenschutz (rechtlich Pflicht DE)
+  - Login-Link (leitet zum internen VPN-Panel weiter, KEIN eigenes
+    Login auf der externen Seite — Authentifizierung findet nur
+    im internen Panel statt)
+
+  WICHTIG — ZWEI KOMPLETT GETRENNTE SYSTEME:
+  Die externe Seite und das interne VPN-Panel sind UNABHAENGIG
+  voneinander. Sie laufen auf verschiedenen Servern, koennen NICHT
+  miteinander kommunizieren und sind NICHT verbunden. Das ist
+  Absicht — die Sicherheit des VPN-Panels darf nicht durch eine
+  Verbindung zur oeffentlichen Seite gefaehrdet werden.
+  Konsequenz fuer die Extraktion: Material ueber API-Verbindungen
+  zwischen "oeffentlich" und "intern", Shared Sessions, gemeinsame
+  Datenbanken oder Cross-Server-Kommunikation ist UNSINN fuer
+  dieses Projekt. Die einzige Verbindung ist ein simpler
+  Login-Link der auf die interne URL zeigt.
+
+  TECHNISCHE BASIS:
+  - PHP + MariaDB (kein Framework, eigene Architektur)
+  - Modularer Aufbau / Plugin-System
+  - Light/Dark Theme
+  - Responsive Design (Mobile + Desktop)
+  - Tooltip-System, Fehlermeldungen-Architektur
+  - Re-Auth fuer destruktive Admin-Aktionen
+
+  MARCOS ANSPRUCH (HOECHSTE PRIORITAET!):
+  Das Panel soll KEIN seelenloses Admin-Tool werden.
+  Die Retrowork-Philosophie ist nicht nur fuer retrowork.de —
+  sie soll sich im gesamten VPN-Panel wiederspiegeln.
+
+  Bildliche Philosophie:
+    Frontend = Schaf — weich, freundlich, einladend
+    Backend  = Wolf — maechtig, effizient, kompromisslos
+
+  Das heisst konkret fuer das VPN-Panel:
+  - Fehlermeldungen sind warm, nicht technisch kalt
+    ("Ein kleiner Umweg — lass uns den Weg finden"
+     statt "Error: Connection failed 0x8007")
+  - Status-Anzeigen sind einladend, nicht bedrohlich
+    ("Deine Verbindung ruht gerade" statt "DISABLED")
+  - Der Benutzer ist ein Gast, kein Ticket-Nummer-Traeger
+  - Jede Interaktion ist eine Einladung, kein Befehl
+  - Technik mit Herz — nicht Technik mit Handbuch
+
+  Die Elara-Persona, emotionale Sprache, Sprachprofil,
+  Feelgood-Konzept und Markenidentitaet sind IMMER BRAUCHBAR.
+  Sie sind KEIN "Vielleicht" und KEIN Unsinn. Sie sind der KERN
+  dessen was Retrowork ausmacht. JEDER Text der diese Philosophie
+  traegt wird mitkopiert — ohne Ausnahme, ohne Diskussion.
+
+AUFTRAG
+═══════
+Jede Datei und jeden Ordner in "zentrale/" einzeln durcharbeiten.
+Brauchbare Textbloecke 1:1 rauskopieren in den Ordner:
+
+  C:\Backup\Backup_fujitsu\retrowork hauptseite\vpn server\konzept\zentrale\webpanel sammelstelle\
+
+Pro abgearbeiteter Quelldatei entsteht EINE Zieldatei in der
+Sammelstelle. Der Inhalt muss fuer sich alleine stehen — keine
+Verweise auf die Originaldatei, keine Zusammenfassungen, keine
+Umschreibungen. Originaltext wird kopiert.
+
+Nach Abarbeitung loescht Marco die Originaldatei. Deshalb darf
+NICHTS in der Zieldatei auf die Originaldatei verweisen.
+
+
+KLASSIFIKATION: WAS IST BRAUCHBAR?
+═══════════════════════════════════
+
+BRAUCHBAR — wird 1:1 kopiert:
+──────────────────────────────
+- Elara-Persona, emotionale Sprache, Philosophie-Texte,
+  Feelgood-Konzept, Sprachprofil, Markenidentitaet, Wortwahl-
+  Regeln, Seelenstruktur, Haltung gegenueber dem Besucher
+  (IMMER kopieren — das ist der KERN von Retrowork)
+- Admin-Oberflaeche (Dashboard, Verwaltung, Uebersichten)
+- Monitoring, Diagnose, Health-Checks, Wartungsmodus
+- Benutzer-/Rollenverwaltung, Rechtesystem, Login/Auth
+- Self-Service-Portal (Benutzer verwaltet eigene Daten)
+- Backup, Logging, Audit-Trail, Changelog
+- API-Konzepte, Export/Import
+- Tooltip-System, Fehlermeldungen-Architektur
+- Modularer Aufbau, Plugin-System-Architektur
+- Technische Systemlogik (DB-Struktur, Includes, Config)
+- Light/Dark Theme, Responsive Design
+- News-System / Changelog-System (oeffentlich)
+- FAQ-System (Fragen und Antworten, Hilfe, Anleitungen)
+- Oeffentliches Frontend / Besucherseite / Landing Page
+- UX-Patterns (Navigation, Breadcrumbs, Notifications, Modals)
+
+VIELLEICHT BRAUCHBAR — wird kopiert aber markiert:
+───────────────────────────────────────────────────
+- Architektur-Entscheidungen die noch bewertet werden muessen
+- Gaestebuch-Konzept (unklar ob relevant)
+- Community-Interaktionskonzepte (kein Forum, aber vielleicht
+  Feedback-Funktionen oder Kontaktformular)
+- Content-Block-Systeme (koennten fuer News/FAQ adaptiert werden)
+- Seitentypen-Konzepte (koennten fuer Panel-Seiten relevant sein)
+- SEO-Konzepte und -Ideen (es gibt einen oeffentlichen Teil mit
+  Landing Page, FAQ, News, Bestellprozess — ob und welche SEO-
+  Massnahmen relevant sind, wird in Phase 2/3 entschieden)
+
+VIELLEICHT-Bloecke markieren mit:
+  [VIELLEICHT BRAUCHBAR — GRUND: kurze Begruendung]
+
+
+UNSINN (fuer VPN-Panel) — wird NICHT kopiert:
+────────────────────────────────────────────────
+- Hardware-Geraeteverwaltung
+  (Submit/Edit/Archive von Laptops, Konsolen, Zubehoer)
+- Hardware-Galerie, Lightbox, Drag&Drop-Bilderverwaltung
+- Hardware-Belegverwaltung (Einkaufspreise, Rechnungen)
+- Forum-System (keine Forum-Funktionalitaet im Panel)
+- Saisonale Features
+  (Weihnachtstheme, Schneefall, Konfetti, Easter Eggs,
+   Retrokatze, saisonale Gruesse)
+- E-Commerce (Shop, Warenkorb, Bezahlung)
+- Social-Media-Integration (Sharing, Embeds, Feeds)
+- Multi-User-CMS (Artikelredaktion, Blog-Posts, Autorensystem)
+  AUSNAHME: News/Changelog-System IST brauchbar — nur
+  das Redaktions-/Mehrautoren-System ist Unsinn.
+- PHP-Quellcode der spezifisch Hardware-Features implementiert
+  (Geraete-CRUD, Galerie-Rendering, Hardware-Suche)
+- Cross-Server-Kommunikation, Shared Sessions, gemeinsame
+  Datenbanken zwischen oeffentlicher Seite und internem Panel
+  (die beiden Systeme sind komplett getrennt, siehe oben)
+
+REIHENFOLGE DER ABARBEITUNG
+════════════════════════════
+1. 01_konzept_retrowork_core_3.0.txt  (Einzeldatei im Root)
+2. 01_RETROWORK_ENTWICKLUNG/          (3 Dateien)
+3. 02_RETROWORK_3_0_IDEE_KERN/        (5 Dateien)
+4. 03_RETROWORK_PHILOSOPHIE_UND_GEFUEHL/ (7 Dateien)
+5. retrowork 2.0/                     (aeltere Konzeptversion)
+6. retrowork 3.0/                     (aeltere Konzeptversion)
+
+Jeder Punkt wird komplett abgeschlossen bevor der naechste beginnt.
+Doppelungen zwischen Ordnern sind in dieser Phase EGAL — die werden
+erst in Phase 2 behandelt.
+
+
+ARBEITSSCHRITTE PRO DATEI
+═════════════════════════
+1. Dateigroesse pruefen (list_directory_with_sizes oder aehnlich)
+2. Datei lesen — CHUNK-STRATEGIE:
+   - Dateien unter ~200 Zeilen: komplett in einem Stueck lesen
+   - Dateien ueber ~200 Zeilen: in Chunks von 200-300 Zeilen lesen
+
+   KRITISCH — LESEN UND SOFORT KOPIEREN (1-Pass-Regel):
+   ─────────────────────────────────────────────────────
+   Jeder Chunk wird GENAU EINMAL gelesen. Sofort nach dem Lesen
+   eines Chunks werden die brauchbaren Bloecke in die Zieldatei
+   geschrieben (append-Modus). ERST DANN wird der naechste Chunk
+   gelesen.
+
+   VERBOTEN: Erst die ganze Datei lesen, dann nochmal lesen um
+   zu kopieren. Das ist doppelte Arbeit und fuellt den Kontext.
+
+   WORKFLOW PRO CHUNK:
+     1. Chunk lesen (z.B. Zeilen 1-250)
+     2. Brauchbare Bloecke identifizieren
+     3. SOFORT in Zieldatei schreiben (append)
+     4. Naechsten Chunk lesen (Zeilen 248-500, mit 3 Zeilen Overlap)
+     5. Wiederholen bis Datei komplett
+
+   OVERLAP-REGEL: Jeder Chunk ueberllappt mit dem vorherigen um
+   3 Zeilen. Beispiel: Chunk 1 = Zeilen 1-250, Chunk 2 = Zeilen
+   248-500, Chunk 3 = Zeilen 498-750. So geht kein Thema verloren
+   das an einer Chunk-Grenze liegt. Falls der brauchbare Block
+   am Ende eines Chunks nicht abgeschlossen ist, lies den naechsten
+   Chunk bevor du kopierst (maximal 2 Chunks fuer einen Block).
+
+   KEINE VERIFIKATIONS-READS: Nach dem Schreiben NICHT die
+   Quelldatei nochmal lesen um zu pruefen ob du richtig kopiert
+   hast. Du hast den Text gerade gelesen — du weisst was drinsteht.
+   Verifikation der Zieldatei (kurzer Blick auf Anfang/Ende) ist OK,
+   aber die Quelldatei wird pro Chunk NUR EINMAL gelesen.
+
+3. Jeden Abschnitt klassifizieren: BRAUCHBAR / VIELLEICHT / UNSINN
+4. Alles was BRAUCHBAR oder VIELLEICHT ist: 1:1 kopieren
+5. VIELLEICHT-Bloecke markieren mit:
+   [VIELLEICHT BRAUCHBAR — GRUND: kurze Begruendung]
+6. Am Ende der Zieldatei eine kurze Liste: was wurde NICHT
+   uebernommen und warum (damit Marco nachvollziehen kann,
+   was weggefallen ist)
+
+
+WICHTIGE REGELN
+═══════════════
+
+0. MARCOS QUALITAETSSTANDARD (NICHT VERHANDELBAR)
+   Diese Regeln kommen aus Marcos allgemeiner Arbeitsweise mit Claude.
+   Sie gelten auch fuer die Extraktion — ohne Ausnahme:
+
+   a) Ehrlichkeit: Wenn du dir bei einer Klassifikation unsicher bist,
+      sag es. Markiere den Block als VIELLEICHT und erklaere warum.
+      Tu nicht so als haettest du alles verstanden wenn du es nicht hast.
+
+   b) Keine Verkuerzung: Lies JEDE Datei KOMPLETT durch. Nicht die
+      ersten 50 Zeilen ueberfliegen und den Rest raten. Marcos Dateien
+      haben oft die wichtigsten Inhalte in der Mitte oder am Ende.
+      Grosse Dateien (400+ KB) in Chunks von 200-300 Zeilen lesen —
+      aber JEDEN Chunk lesen, nicht mittendrin aufhoeren.
+      Siehe ARBEITSSCHRITTE PRO DATEI fuer die Chunk-Strategie.
+
+   c) Keine Neuinterpretation: Du kopierst Marcos Texte 1:1. Du
+      "verbesserst" sie nicht, du "modernisierst" sie nicht, du
+      "fasst sie zusammen" nicht. Der Originaltext IST der Wert.
+      Marcos Wortwahl ist bewusst — aendere kein einziges Wort.
+
+   d) Marco entscheidet: Wenn du nicht sicher bist ob ein Abschnitt
+      BRAUCHBAR oder UNSINN ist, kopiere ihn als VIELLEICHT.
+      Du wirfst NICHTS eigenmaechtg weg. Im Zweifel mitkopieren.
+      Du ueberspringst KEINE Dateien. Du markierst NICHTS als
+      "Duplikat" ohne es gelesen und extrahiert zu haben.
+      Deduplizierung ist Marcos Job in Phase 2, nicht deiner.
+
+   e) Umfang-Regel: Wenn eine Datei lang ist, brich nicht mitten-
+      drin ab. Arbeite sie komplett durch, auch wenn es mehrere
+      Nachrichten braucht. Sag "ich mache weiter" statt zu stoppen.
+
+   f) Keine oberflaeliche Arbeit: Marco erkennt sofort wenn du
+      eine Datei nur ueberflogen hast. Er wird es dir sagen und
+      du musst nochmal von vorne anfangen. Spar dir die Nacharbeit
+      und mach es gleich gruendlich.
+
+1. KEINE VERWEISE AUF ORIGINALDATEIEN
+   Die Zieldatei muss ohne die Quelldatei lesbar sein.
+   Marco loescht die Originale nach Abarbeitung.
+
+2. DOPPELUNGEN SIND OK — KEINE DATEIEN UEBERSPRINGEN
+   Wenn Ordner 2 dasselbe enthaelt wie Ordner 1, wird es
+   trotzdem nochmal kopiert. Konsolidierung kommt in Phase 2.
+
+   VERBOTEN: Dateien ueberspringen weil sie "inhaltlich identisch"
+   zu einer bereits verarbeiteten Datei erscheinen. Die Instanz
+   kann NICHT beurteilen ob zwei Dateien wirklich identisch sind —
+   subtile Unterschiede (ein Absatz mehr, ein Satz umformuliert,
+   eine Idee weiterentwickelt) gehen sonst verloren. Selbst wenn
+   zwei Dateien denselben Namen haben und aehnlich gross sind,
+   koennen sie verschiedene Versionen sein.
+   JEDE Datei in der Reihenfolge wird gelesen und extrahiert.
+   Marco entscheidet spaeter was Duplikate sind, nicht die Instanz.
+
+   VERBOTEN: Eine Datei als "Duplikat" markieren ohne sie gelesen
+   und extrahiert zu haben. AUCH NICHT wenn du dir "sicher" bist
+   dass sie identisch ist. Du bist es nicht.
+
+   VERBOTEN: Einen Ordner als "100% UNSINN" ueberspringen ohne
+   JEDE Datei darin einzeln gelesen zu haben. Auch ein Ordner der
+   "Hardware-Felddesign" heisst koennte eine Datei enthalten die
+   Plugin-Architektur oder UX-Patterns beschreibt.
+
+   KONSEQUENZ: Wenn Marco feststellt dass du Dateien uebersprungen
+   hast, muss die gesamte Extraktion wiederholt werden. Das kostet
+   Zeit die vermeidbar gewesen waere.
+
+3. VIELLEICHT-BLOECKE KLAR MARKIEREN
+   Mit [VIELLEICHT BRAUCHBAR — GRUND: ...] vor dem Block.
+   Marco entscheidet spaeter, was davon bleibt.
+
+4. WEGGELASSENES DOKUMENTIEREN
+   Am Ende jeder Zieldatei steht eine Liste: welche
+   Abschnitte wurden NICHT uebernommen und warum (kurz).
+
+5. IM ZWEIFEL MITKOPIEREN
+   Wenn unklar ist ob etwas brauchbar ist: mitkopieren und
+   als VIELLEICHT markieren. Lieber zu viel als zu wenig.
+   Wegwerfen ist leichter als Verlorenes wiederfinden.
+
+6. ORIGINALE NICHT LOESCHEN
+   Marco loescht die Originale SELBST nach Pruefung der
+   Extrakte. Die neue Instanz loescht NIEMALS Quelldateien.
+
+7. 100% UNSINN-DATEIEN
+   Wenn eine Datei NICHTS Brauchbares enthaelt: Trotzdem eine
+   EXTRAKT-Datei erstellen die NUR die NICHT-UEBERNOMMEN-Liste
+   enthaelt. So weiss Marco dass die Datei gelesen wurde und
+   bewusst nichts kopiert wurde — nicht etwa vergessen.
+
+8. HTML-MARKUP IN QUELLDATEIEN
+   Falls Quelldateien HTML-Code enthalten (<div>, <p>, etc.):
+   Den HTML-Code MIT kopieren, nicht herausfiltern. Besonders
+   bei Philosophie/Persona-Material zeigt die HTML-Struktur
+   wie der Text auf der Seite lebt. Phase 2 entscheidet spaeter
+   ob der HTML-Code behalten oder entfernt wird.
+
+9. DIESE DATEI IST KEINE QUELLDATEI
+   INSTRUKTION_WEBPANEL_EXTRAKTION.txt wird NICHT extrahiert.
+   Sie ist die Arbeitsanweisung, nicht das Rohmaterial.
+
+10. KEINE HILFS-SCRIPTS ERSTELLEN
+   Arbeite mit den vorhandenen Tools (read_file, write_file, etc.).
+   Erstelle KEINE Python-, PowerShell- oder Bash-Scripts als
+   Workaround. Wenn der Workflow mit der 1-Pass-Regel (Arbeits-
+   schritte Punkt 2) befolgt wird, sind Scripts nicht noetig.
+
+11. DIREKT AUF MARCOS RECHNER SCHREIBEN
+   EXTRAKT-Dateien werden DIREKT auf Marcos Rechner geschrieben
+   ueber Desktop Commander:write_file oder Filesystem:write_file.
+   Zielordner: C:\Backup\Backup_fujitsu\retrowork hauptseite\vpn server\konzept\zentrale\webpanel sammelstelle\
+
+   VERBOTEN: Dateien auf Claudes internem Computer erstellen
+   (/mnt/user-data/outputs/, /home/claude/, etc.) und Marco
+   bitten sie manuell zu kopieren. Die Tools koennen DIREKT
+   auf Marcos Dateisystem schreiben — nutze sie.
+
+
+PHASENPLAN
+══════════
+Phase 1: SAMMELN (diese Phase — NUR diese Phase)
+  → Ordner fuer Ordner durchgehen
+  → Brauchbares + Vielleicht rauskopieren
+  → Ergebnis: "webpanel sammelstelle/" voll mit Rohmaterial
+  → Doppelungen sind OK, Sortierung ist NICHT das Ziel
+
+Phase 2: KONSOLIDIEREN (spaeter, anderes Chatfenster MIT Konzept)
+  → Doppelungen identifizieren und zusammenfuehren
+  → Widersprueche zwischen Quellen aufloesen
+  → Ergebnis: bereinigte Sammlung ohne Redundanz
+
+Phase 3: VERFEINERN (noch spaeter, anderes Chatfenster MIT Konzept)
+  → Retrowork-Kontext durch VPN-Panel-Kontext ersetzen
+  → Fehlende VPN-spezifische Features ergaenzen
+  → Ergebnis: fertiges Webpanel-Konzept
+
+WIR SIND IN PHASE 1. NICHT VORGREIFEN.
+Nicht konsolidieren. Nicht umschreiben. Nicht an VPN anpassen.
+Nur sammeln.
+
+FORTSCHRITT (wird nach jedem Durchgang aktualisiert)
+════════════════════════════════════════════════════
+[ ] 01_konzept_retrowork_core_3.0.txt
+[ ] 01_RETROWORK_ENTWICKLUNG/01_retrowork_verinnerlichung_v0.3.6.txt
+[ ] 01_RETROWORK_ENTWICKLUNG/02_retrowork_verinnerlichung_v2.0.txt
+[ ] 01_RETROWORK_ENTWICKLUNG/03_retrowork_kombiniert_v2.0_und_v3.0.txt
+[ ] 02_RETROWORK_3_0_IDEE_KERN/01_konzept_retrowork_3.0.txt
+[ ] 02_RETROWORK_3_0_IDEE_KERN/02_ideen.txt
+[ ] 02_RETROWORK_3_0_IDEE_KERN/03_vollstaendige_plugin_liste.txt
+[ ] 02_RETROWORK_3_0_IDEE_KERN/04_doppelungen_retrowork.txt
+[ ] 02_RETROWORK_3_0_IDEE_KERN/05_verbeserungsvorschlaege.txt
+[ ] 03_RETROWORK_PHILOSOPHIE_UND_GEFUEHL/01_retrowork_feelgood.txt
+[ ] 03_RETROWORK_PHILOSOPHIE_UND_GEFUEHL/02_retrowork_herzgedanken.txt
+[ ] 03_RETROWORK_PHILOSOPHIE_UND_GEFUEHL/03_retrowork_sprachprofil.txt
+[ ] 03_RETROWORK_PHILOSOPHIE_UND_GEFUEHL/04_philosophie.txt
+[ ] 03_RETROWORK_PHILOSOPHIE_UND_GEFUEHL/05_retrowork_uebersicht.txt
+[ ] 03_RETROWORK_PHILOSOPHIE_UND_GEFUEHL/06_readme.txt
+[ ] 03_RETROWORK_PHILOSOPHIE_UND_GEFUEHL/07_changelog.txt
+[ ] retrowork 2.0/ (Gesamtordner)
+[ ] retrowork 3.0/ (Gesamtordner)
+
+Namenskonvention Zieldateien:
+  EXTRAKT_[Quelldateiname].txt
+  Beispiel: EXTRAKT_01_konzept_retrowork_core_3.0.txt
+  Zielordner (VOLLER PFAD, direkt auf Marcos Rechner):
+  C:\Backup\Backup_fujitsu\retrowork hauptseite\vpn server\konzept\zentrale\webpanel sammelstelle\
+
+
+HINTERGRUND FUER NEUE CHATFENSTER
+═════════════════════════════════
+Dieses Projekt wird in einem neuen Chatfenster fortgesetzt:
+
+0. MARCOS_ARBEITSWEISE.txt im selben Ordner lesen und verinnerlichen.
+   Diese Datei enthaelt 13 Muster aus der Zusammenarbeit mit Marco
+   und einen SELBSTCHECK den du vor jeder Antwort durchgehen musst.
+   Besonders relevant fuer die Extraktion:
+   - "Bin ich gerade generisch?" (Muster 2 / Selbstcheck)
+   - "Habe ich wirklich ALLES gelesen?" (Muster 1 / Selbstcheck)
+   - "Keine Dateien ueberspringen" (Muster 6 / eigene Regeln)
+   - "Fehlendes sofort melden" (Muster 12)
+1. Diese Datei (INSTRUKTION_WEBPANEL_EXTRAKTION.txt) lesen
+2. Fortschritt pruefen — welche Dateien sind schon abgehakt?
+3. Bei der naechsten offenen Datei weitermachen
+4. Die Klassifikationsregeln oben gelten unveraendert
+5. Zieldateien kommen in (VOLLER PFAD, direkt auf Marcos Rechner):
+   C:\Backup\Backup_fujitsu\retrowork hauptseite\vpn server\konzept\zentrale\webpanel sammelstelle\
+
+Das VPN-Webpanel soll KEIN seelenloses Admin-Tool werden.
+Die Retrowork-Philosophie ist der KERN des Projekts. Alles was
+Elara, Sprachprofil, Feelgood, Persona oder emotionale Sprache
+betrifft wird IMMER kopiert — das ist kein Nice-to-have sondern
+die Seele des Panels. Ohne das ist es nur ein weiteres graues
+Admin-Interface von dem es tausende gibt.
+
+Referenz: https://retrowork.de/ — die aktuelle Live-Seite
+zeigt den Stil und die Haltung die Marco auch im Panel will.
+
+════════════════════════════════════════════════════════════════════
+ ENDE DER INSTRUKTION
+════════════════════════════════════════════════════════════════════

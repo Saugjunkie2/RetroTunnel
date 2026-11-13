@@ -1,0 +1,283 @@
+===============================
+PEAK MODE v2 — BR-10 (ENTWURF / Phase 3)
+TITLE: Episode Controller (State-Machine) — Trigger→ENTER/HOLD/EXIT + Sliding Windows + Manual Overrides + Safety Caps
+BR-ID: BR-10
+STATUS: ENTWURF (Phase 3) — keine Patch-/Copy-Blöcke, keine tc/SQL Snippets
+ZIEL: Peak-Mode als “geschlossenes System”: klare States/Transitions/Windows/Reset/Not-Aus — ohne Raten.
+
+================================================================================
+0) SCOPE (MUST)
+================================================================================
+Dieses BR definiert ausschließlich:
+- die Peak-Episode-State-Machine (States + Transitions)
+- Gate-Regeln (ENTER nur nach Persist; EXIT nach Recovery; HOLD sliding)
+- Timing/TTL/Grace/Reset: Persist-Window, Hold-Window, Extend-Regeln, Cooldown
+- Manual Overrides (Admin): Force Enter / Force Exit / Disable Peak / Clear Episode
+- Safety Caps (bounded behaviour, keine Flapping-Schleife)
+- “Was passiert bei Fehlern?” (Degrade/Abort/Fail-safe)
+- Output-Erwartung: welche BRs werden wann aufgerufen (BR-02/05/07/08/09)
+
+Anti-Scope:
+- Messung/Detector Details (SoftIRQ calc, /proc parsing) (BR-03)
+- Apply-Orchestrator intern (Lock, batch, exit-codes) (BR-09)
+- DB Schema/Mapping (BR-08)
+- CAKE specifics (BR-01/BR-06)
+- Attribution Details (Top-N/MULTI) (BR-07)
+
+================================================================================
+1) KANON-ABGLEICH (MUST, drift-sicher)
+================================================================================
+
+1.1 Imports (KANON-QUELLEN)
+- K-IMP-01: Peak-Mode_Was es ist, wie es funktioniert.txt
+  -> Episode-Idee: Enter nach Persist, Hold sliding, Exit nach Recovery; Täter/MULTI Snapshot; “Peak darf nicht flappen”
+- K-IMP-02: Peak-Mode_TEIL2_BUILD_READY_CHECKLISTE.txt
+  -> BR-10: Episode lifecycle, timepoints, state machine completeness (Gates geschlossen)
+- K-IMP-03: Peak-Mode_Teil1_Fakten.txt
+  -> “Peak-Mode ist CPU-Overload Schutz; Ziel: Bandwidth per session drosseln”
+- K-IMP-04: PEAK MODE v2 BR-03 (Trigger Gate)
+  -> Overload-Persist-Entscheid: CPU/SoftIRQ aggregated; Persist Enter Sec (default 180 im v1)
+- K-IMP-05: PEAK MODE v2 BR-02 / BR-05
+  -> Peak-BW Zielwert und Profil-BW Zielwert (Controller nutzt diese Werte)
+- K-IMP-06: PEAK MODE v2 BR-07
+  -> Attribution Snapshots: MULTI threshold 30%, TopN dynamic latched per episode, USER-only
+- K-IMP-07: PEAK MODE v2 BR-08
+  -> episode + snapshot + apply_audit tables (Controller schreibt Episode/State/hold_until)
+- K-IMP-08: PEAK MODE v2 BR-09
+  -> Apply bounded; exit_code semantics; /run SoT; USER-only; lock.
+
+1.2 Kanon-Anker (Begriffe)
+- “Persist Enter”: Overload muss X Sekunden anhalten, bevor ENTER erlaubt ist.
+- “Hold sliding”: Nach ENTER wird hold_until nach jeder bestätigten Overload-Messung nach vorne geschoben.
+- “Recovery Exit”: EXIT erst wenn Overload über Y Zeit weg ist (oder hold_window ausläuft).
+- “No Flap”: Kein ENTER/EXIT Pingpong.
+
+1.3 Konfliktcheck (MUST)
+- K-CONF-01: Exakte Zeitwerte (persist_enter_sec, hold_window_sec, recovery_exit_sec, cooldown_sec)
+  -> Status: RISK (Owner-Fix nötig; sonst drift)
+- K-CONF-02: Admin-Exclude ist intendiert (USER-only); manual overrides dürfen das nicht brechen.
+  -> Status: NONE (Overrides dürfen nur Peak-state togglen, nicht Admin shaping)
+- K-CONF-03: Was passiert bei Apply-Fehlern?
+  -> Status: RISK (muss deterministisch: abort vs degraded hold)
+
+================================================================================
+2) OWNER-FIXPUNKTE (MUST)
+================================================================================
+
+FIX (bereits fest/aus v2 Dialog + v1 Intention)
+- FP-BR10-01 SOFTIRQ_AGGREGATION = aggregated
+- FP-BR10-02 MULTI_THRESHOLD_PCT = 30%
+- FP-BR10-03 TOPN_DYNAMIC_LATCH (<=20→3; 21..100→5; >100→10; latch pro episode)
+- FP-BR10-04 TARGET_SCOPE = USER-only apply (Admin excluded) (über BR-09)
+- FP-BR10-05 CAKE_ONLY = true (über BR-06)
+
+OPEN (Owner-Fix nötig, sonst drift)
+- FP-BR10-06 PERSIST_ENTER_SEC (v1 typisch: 180)
+- FP-BR10-07 SAMPLE_INTERVAL_SEC (v1 typisch: 10)
+- FP-BR10-08 HOLD_WINDOW_SEC (v1 typisch: 900 / 15min)  [oder anderer Wert]
+- FP-BR10-09 RECOVERY_EXIT_SEC (z.B. 60..180)  // “Overload muss weg bleiben”
+- FP-BR10-10 COOLDOWN_SEC (z.B. 120..600)      // verhindert Flap
+- FP-BR10-11 APPLY_FAILURE_POLICY:
+  - Option A: ENTER nur wenn Apply OK; bei Apply fail -> Episode bleibt INACTIVE + audit fail
+  - Option B: ENTER state setzt sich, aber markiert DEGRADED (risk)
+  - Option C: Fail-safe Exit-Restore bei Apply fail
+  -> MUSS fixiert werden.
+- FP-BR10-12 MANUAL_OVERRIDE_PERMISSIONS:
+  - Wer darf Force Enter/Exit/Disable? (Admin-role im Panel) — muss zur AuthZ passen.
+
+================================================================================
+3) STATE MACHINE (MUST, geschlossen)
+================================================================================
+
+3.1 States (MUST)
+S0 INACTIVE
+  - Kein Peak aktiv; Profil-BW gilt (oder “current” ist Profil).
+S1 ENTER_PENDING (Persist-Check läuft)
+  - Overload erkannt, aber Persist noch nicht erfüllt.
+S2 PEAK_ACTIVE (HOLD)
+  - Peak aktiv; hold_until läuft/slidet.
+S3 EXIT_PENDING (Recovery-Check läuft)
+  - Overload weg; Recovery-Zeitfenster prüfen bevor Exit-Restore.
+S4 COOLDOWN
+  - Nach Exit: für COOLDOWN_SEC kein neuer Enter (anti-flap).
+S5 DISABLED (Admin Disabled)
+  - Peak-Mode global disabled; Controller ignoriert Trigger (aber kann status auditieren).
+
+3.2 Events (MUST)
+E-OVR_ON        (Detector: overload_bool=true)
+E-OVR_OFF       (Detector: overload_bool=false)
+E-TICK          (Sample tick; alle SAMPLE_INTERVAL_SEC)
+E-MAN_ENTER     (Manual Force Enter)
+E-MAN_EXIT      (Manual Force Exit)
+E-MAN_DISABLE   (Manual Disable Peak)
+E-MAN_ENABLE    (Manual Enable Peak)
+E-APPLY_OK      (BR-09 apply exit_code 0/1 je nach policy)
+E-APPLY_FAIL    (BR-09 apply exit_code != {0,1} oder policy-defined fail)
+E-DB_FAIL/AUDIT_FAIL (optional, wenn BR-08 logging failt; controller muss deterministisch reagieren)
+
+3.3 Transition Rules (MUST)
+
+S0 INACTIVE
+- on E-OVR_ON:
+    -> S1 ENTER_PENDING (start persist timer; record enter_candidate_at)
+- on E-MAN_ENTER:
+    -> S2 PEAK_ACTIVE (bypass persist) [aber Apply must succeed nach APPLY_FAILURE_POLICY]
+- on E-MAN_DISABLE:
+    -> S5 DISABLED
+
+S1 ENTER_PENDING
+- on E-OVR_OFF:
+    -> S0 INACTIVE (reset persist timer)
+- on E-TICK + overload still ON:
+    - if overload_on_duration >= PERSIST_ENTER_SEC:
+        -> attempt ENTER_APPLY via BR-09 with intended_mode=PEAK and target_bw=BR-02
+        -> attribution snapshot (BR-07) at enter_timepoint
+        -> if apply result satisfies APPLY_FAILURE_POLICY:
+              -> S2 PEAK_ACTIVE (set hold_until = now + HOLD_WINDOW_SEC; latch topN)
+           else:
+              -> S0 INACTIVE or S5 DISABLED (per APPLY_FAILURE_POLICY) + audit reason
+- on E-MAN_EXIT:
+    -> S0 INACTIVE (noop; nothing active)
+- on E-MAN_DISABLE:
+    -> S5 DISABLED
+
+S2 PEAK_ACTIVE
+- on E-TICK:
+    - Write episode_snapshot (BR-08) each tick (softirq/vpn_bps/active_ppp/hold_until)
+    - if E-OVR_ON:
+        - extend hold_until = now + HOLD_WINDOW_SEC (sliding)
+        - (optional) throttle changes: do not re-apply tc if already at peak_bw (idempotent)
+    - if E-OVR_OFF:
+        -> S3 EXIT_PENDING (start recovery timer)
+- on E-MAN_EXIT:
+    -> attempt EXIT_RESTORE via BR-09 (intended_mode=PROFILE, target_bw=BR-05)
+    -> on success: -> S4 COOLDOWN
+       on fail: apply failure policy (either remain S2 DEGRADED, or force disable, etc.) [OPEN FP-BR10-11]
+- on E-MAN_DISABLE:
+    -> same as MAN_EXIT then DISABLED (best-effort restore) [OPEN policy; must be fixed]
+
+S3 EXIT_PENDING
+- on E-OVR_ON:
+    -> S2 PEAK_ACTIVE (cancel recovery, extend hold)
+- on E-TICK + overload still OFF:
+    - if overload_off_duration >= RECOVERY_EXIT_SEC:
+        -> attempt EXIT_RESTORE via BR-09
+        -> if apply ok: -> S4 COOLDOWN
+           else: apply failure policy [OPEN FP-BR10-11]
+- on E-MAN_ENTER:
+    -> S2 PEAK_ACTIVE (force re-enter; may re-apply peak)
+- on E-MAN_DISABLE:
+    -> same as exit then disabled (policy)
+
+S4 COOLDOWN
+- on E-TICK:
+    - if cooldown_elapsed >= COOLDOWN_SEC:
+        -> S0 INACTIVE
+- on E-OVR_ON:
+    - ignore enters until cooldown over (anti-flap), but optionally record “overload during cooldown” metric
+- on E-MAN_ENTER:
+    - optional override to bypass cooldown (Owner decision; default: allow only if explicit)
+- on E-MAN_DISABLE:
+    -> S5 DISABLED
+
+S5 DISABLED
+- on E-MAN_ENABLE:
+    -> S0 INACTIVE (fresh start; persist timer reset)
+- on E-OVR_ON/OFF:
+    - ignore state transitions, but can still record metrics as “disabled_observed_overload” (optional)
+
+3.4 Invariants (MUST)
+- INV-01: Max 1 active episode at a time (DB or logic enforced).
+- INV-02: Peak apply targets USER-only (via BR-09 filter).
+- INV-03: No tc topology changes (CAKE-only; BR-06).
+- INV-04: Controller never loops faster als SAMPLE_INTERVAL_SEC; no busy-loop.
+- INV-05: All transitions write audit reasons (episode enter/exit reason codes).
+
+================================================================================
+4) APPLY FAILURE POLICY (OPEN, muss fixiert werden)
+================================================================================
+
+FP-BR10-11 APPLY_FAILURE_POLICY (Owner muss wählen):
+- Option A (Strict, empfohlen für Sicherheit & Kanon-Klarheit):
+  - ENTER nur wenn Apply OK; sonst Episode nicht aktivieren (back to INACTIVE).
+  - EXIT/RESTORE failures: verbleibe in PEAK_ACTIVE, aber markiere “DEGRADED” und retry nur über Controller tick bounded (oder manual).
+- Option B (Degraded Enter):
+  - Episode wird PEAK_ACTIVE auch wenn Apply teilweise failt (risk: drift; harder to reason).
+- Option C (Fail-safe disable):
+  - Bei Apply fail: Peak disabled (S5) + alert; admin muss eingreifen.
+
+Hinweis: Ohne Owner-Fix entsteht Drift, weil Implementation “irgendwie” reagiert.
+
+================================================================================
+5) ERROR / EDGE CASE HANDLING (MUST)
+================================================================================
+
+E5.1 /run snapshot empty
+- Wenn keine valid USER sessions: ENTER/EXTEND apply ist NOOP; Episode kann trotzdem als “overload observed” geloggt werden,
+  aber Bandwidth-Drossel macht keinen Sinn.
+- Muss auditieren: result_code=NO_TARGETS.
+
+E5.2 High churn (pppX kommt/geht)
+- Controller bleibt robust: apply ist bounded, items_fail kann steigen, aber state machine darf nicht kippen.
+
+E5.3 Disk-full / DB audit fail
+- Controller darf nicht “blind” weiterlaufen ohne minimal audit (Policy):
+  - Option: wenn Audit write fail wiederholt -> disable peak (S5) (OPEN).
+  - Muss fixiert werden, sonst drift.
+
+E5.4 Counter resets / denom zero in Attribution
+- Attribution darf Controller nicht blockieren; liefert Flags (BR-07) und Controller speichert sie.
+
+================================================================================
+6) DoD / TESTS / VALIDATION (MUST)
+================================================================================
+
+T-10-01 Enter Gate (Persist)
+- Overload ON < PERSIST_ENTER_SEC: bleibt ENTER_PENDING, kein Apply.
+- Overload ON >= PERSIST_ENTER_SEC: genau 1 ENTER_APPLY, dann PEAK_ACTIVE.
+
+T-10-02 Sliding Hold
+- Während PEAK_ACTIVE bei wiederholtem OVR_ON: hold_until wird stets nach vorne geschoben.
+
+T-10-03 Exit Gate (Recovery)
+- OVR_OFF kurz: EXIT_PENDING, aber kehrt zurück zu PEAK_ACTIVE wenn OVR_ON wiederkommt.
+- OVR_OFF >= RECOVERY_EXIT_SEC: EXIT_RESTORE wird versucht.
+
+T-10-04 Cooldown Anti-Flap
+- Nach Exit: Enter wird während COOLDOWN ignoriert (außer manual override falls erlaubt).
+
+T-10-05 Manual Overrides
+- Force Enter: setzt Peak ohne Persist (audit reason MANUAL_ENTER).
+- Force Exit: stellt Profil-BW wieder her (audit reason MANUAL_EXIT).
+
+T-10-06 Apply failure handling
+- Simuliere BR-09 exit_code=2/4/5:
+  - Verhalten folgt APPLY_FAILURE_POLICY deterministisch (kein loop, kein flap).
+
+T-10-07 USER-only enforcement
+- Admin Session present: niemals shaped; audit shows skipped.
+
+T-10-08 Boundedness under overload
+- Unter CPU 100%: controller tick bleibt periodisch; keine busy loops; BR-09 bounded apply.
+
+================================================================================
+7) OPEN ITEMS (MUST)
+================================================================================
+O-10-01 Zeitwerte: PERSIST_ENTER_SEC / SAMPLE_INTERVAL_SEC / HOLD_WINDOW_SEC / RECOVERY_EXIT_SEC / COOLDOWN_SEC
+O-10-02 APPLY_FAILURE_POLICY (Strict vs Degraded vs Disable)
+O-10-03 Manual override permissions (AuthZ)
+O-10-04 Audit-fail policy (DB write fail → disable? degrade?)
+O-10-05 “Cooldown bypass via manual enter” ja/nein (Owner)
+
+================================================================================
+8) DRIFT-AMPel (nur Status)
+================================================================================
+DRIFT: RISK
+- Grund: Zeitwerte + Apply-Failure-Policy sind noch nicht owner-gefixt; ohne diese ist die State-Machine nicht vollständig deterministisch.
+- Kernelemente sind konsistent: Persist Gate, sliding hold, recovery exit, cooldown anti-flap, USER-only apply, CAKE-only.
+
+================================================================================
+9) CHANGELOG (ENTWURF-intern)
+================================================================================
+- v2.0-ENTWURF (heute): BR-10 definiert geschlossene Peak Episode State Machine (INACTIVE→ENTER_PENDING→PEAK_ACTIVE→EXIT_PENDING→COOLDOWN),
+  inklusive manual overrides, boundedness invariants, apply-orchestrator integration via BR-09, audit integration via BR-08.

@@ -1,0 +1,152 @@
+SQL-FIRST v1 — Catalog Entry Template (KH Keys) v1.txt
+================================================================================
+TITLE: Settings Catalog Entry Template (KH-first) — Schema + Panel-Docstrings
+DOC-ID: SQLF-CATALOG-TPL-01
+STATUS: ENTWURF (Phase 3) — Template/Norm für settings_catalog
+VERSION: v0.2
+DATUM: 2026-01-28 (Europe/Zurich)
+
+ZWECK:
+- Einheitliches Feldschema für settings_catalog (SQL-first).
+- Stellt sicher, dass:
+  • Typ/Unit/Bounds konsistent sind
+  • Panel “Bedeutung” + “Was ändert das?” + “Risiko” anzeigen kann
+  • /diag.trace (SQLF-DIAG-TRACE-01) deterministisch erzeugt werden kann
+  • CI (B310) die Vollständigkeit/Validität prüfen kann
+
+REFERENZEN:
+- SQLF-DIAG-TRACE-01 (TraceEntry Minimal/Extended)
+- SQLF-REASONMAP-01 (reason_class Mapping)
+- SQLF-KH-SB-NORM-01 (SB Model) + SQLF-KH-B310-GATE-01 (KH Gates)
+
+================================================================================
+A) Catalog Entry — Feldschema (Norm v1)
+================================================================================
+A1) Identity
+- canonical_key (string) [PK]
+- domain (string)         : z.B. "web", "vpn", "radius", "peak", "tc"
+- key_family (string)     : z.B. "LOG_BUDGET", "SPOOL_BUDGET", "TTL"
+- description_short (string, <=120 chars)   : Panel 1-liner
+- description_long (string, <=600 chars)    : Panel detail (max ~3–5 Sätze)
+- owner_note (string, optional)             : Owner-only (Admin) Hinweis
+
+A2) Typ / Unit
+- value_type (enum) : INT | BOOL | STRING | ENUM | JSON | BYTES | SECONDS | DAYS | MONTHS
+- unit (string|null): "bytes"|"seconds"|"days"|"months"|null
+- default_value (scalar/json)  : Default (MODEL_1 SB nutzt das als DEFAULT_SAFE für tighten-only)
+- example_value (scalar/json|null)
+- display_format (string|null) : z.B. "bytes_human", "seconds_human"
+
+A3) Bounds / Validation
+- min_value (scalar|null)
+- max_value (scalar|null)
+- allowed_values (json array|null) : für ENUM
+- regex (string|null)             : für STRING, falls nötig
+- relation_group (string|null)    : für Relation Checks (optional)
+- relation_role (string|null)     : z.B. "MIN"|"MAX" (optional)
+- validation_rules (json|null)    : reserviert für v2, nicht Pflicht
+
+A4) Scope / Anwendung
+- scope (enum): GLOBAL | CUSTOMER | CONNECTION | DEVICE
+- applies_to (string|null): freie Tag-Liste (z.B. "panel", "diag", "ci", "runtime")
+- mutability (enum): IMMUTABLE | ADMIN_MUTABLE | PLAN_MUTABLE
+  Hinweis:
+  - PLAN_MUTABLE = darf durch Planprofil überschrieben werden (alias/override whitelist)
+- override_whitelist (json array|null):
+  • wer darf override setzen (z.B. ["plan_profile", "customer_override", "manual_admin"])
+- precedence (enum): SQL_ONLY | SQL_THEN_DEFAULT | DEFAULT_ONLY
+  • SQL_ONLY: ohne SQL kein Wert (führt zu degraded/unknown)
+  • SQL_THEN_DEFAULT: missing/invalid -> tighten-only Default (MODEL_1)
+  • DEFAULT_ONLY: niemals SQL (selten, eher Meta-Keys)
+
+A5) Fail-Class / Safety
+- fail_class (enum): FAIL_CLOSED | FALLBACK_ALLOWED | TIGHTEN_ONLY
+  • FAIL_CLOSED: Funktion wird deaktiviert/abgebrochen, wenn key missing/invalid
+  • FALLBACK_ALLOWED: es gibt sicheren Ersatz, ohne dass Funktion ausfällt
+  • TIGHTEN_ONLY: missing/invalid darf NIE “looser” machen (EV <= SB)
+- safe_baseline_model (enum|null): MODEL_1|MODEL_2|MODEL_3|null
+  • falls null: SB gilt nicht (Gate nicht relevant)
+- cap_group (string|null): z.B. "HOST_LOG_BUDGET" (für CAPPED)
+- cap_priority (int|null): wenn mehrere Caps (optional)
+
+A6) Observability / Panel / CI
+- reason_codes (json array): welche reason_class Codes sind relevant (z.B. ["SETTINGS_MISSING","SETTINGS_INVALID","SETTINGS_CAPPED"])
+- severity_default (enum): INFO | WARN | FAIL
+- panel_category (string): z.B. "Logging", "QoS", "Security"
+- panel_visible (bool): Default true, manche nur admin
+- panel_risk_hint (string|null): “Erhöht Logs/IO”, “Kann Verbindung destabilisieren”, etc.
+- ci_required_sets (json array|null): z.B. ["PH2_REQUIRED_KEYS_MIN"]
+- diag_emit (enum): ALWAYS | ON_DEMAND | NEVER
+- trace_extended_fields (json|null): z.B. ["cap_value","bounds","alias_chain"]
+
+================================================================================
+B) TraceEntry Ableitung (Determinismus)
+================================================================================
+Aus Catalog entsteht in /diag.trace:
+- value_type, scope, default_value (optional), bounds (extended), policy_intent (= key_family), etc.
+- SB unter MODEL_1:
+  • safe_baseline_value = default_value
+  • sb_model = MODEL_1
+
+================================================================================
+C) Panel-Docstrings (Minimal-Standard)
+================================================================================
+C1) description_short:
+- Muss die Wirkung benennen, nicht die Implementation.
+
+C2) description_long:
+- Muss enthalten:
+  • Wirkung/Tradeoff
+  • “Wenn erhöht/verringert” (Richtung)
+  • typische Symptome bei zu hoch/zu niedrig
+  • Verweis auf related keys (optional)
+
+C3) panel_risk_hint:
+- 1 Satz, klar, keine Panik.
+
+================================================================================
+D) Beispiel-Template (ausgefüllt) — NICHT Kanon, nur Muster
+================================================================================
+canonical_key: web_log_detailed_max_total_bytes
+domain: web
+key_family: LOG_BUDGET
+description_short: “Maximales Gesamtbudget für detaillierte Logs.”
+description_long: “Begrenzt die Menge detaillierter Logs. Höher = mehr Diagnose, aber mehr Disk/IO. Zu niedrig kann Fehlersuche erschweren.”
+value_type: BYTES
+unit: bytes
+default_value: 104857600
+min_value: 10485760
+max_value: 1073741824
+scope: GLOBAL
+mutability: ADMIN_MUTABLE
+fail_class: TIGHTEN_ONLY
+safe_baseline_model: MODEL_1
+cap_group: HOST_LOG_BUDGET
+reason_codes: ["SETTINGS_MISSING","SETTINGS_INVALID","SETTINGS_CAPPED"]
+
+================================================================================
+E) DoD / Validierung (B310)
+================================================================================
+E1) Catalog Completeness:
+- Jeder Canonical Key im Required-Key-Set existiert im Catalog.
+
+E2) Catalog Validity:
+- value_type/unit/bounds konsistent (BYTES => unit=bytes, etc.)
+- default_value innerhalb bounds (wenn bounds gesetzt)
+
+E3) Trace Contract:
+- /diag.trace enthält Minimalfelder für alle Required Keys.
+
+================================================================================
+CHANGELOG
+================================================================================
+2026-01-28: v0.1 initial: Catalog Entry Template (KH-first) + Panel/CI/Trace Ableitung.
+
+
+================================================================================
+F) KH-first Fill (Arbeitsstand)
+================================================================================
+- Draft-Fill für die 8 Key-Harvest Keys:
+  • SQLF-KH-CATFILL-01 “KH Catalog Fill v1 (8 Keys) — Draft Entries”
+
+2026-01-28: v0.2 ergänzt: Referenz auf SQLF-KH-CATFILL-01 (Draft-Fill).

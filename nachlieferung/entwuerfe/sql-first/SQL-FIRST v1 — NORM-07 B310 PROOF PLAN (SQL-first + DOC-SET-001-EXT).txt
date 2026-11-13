@@ -1,0 +1,302 @@
+xp-vpn-stack/entwuerfe/sql-first/SQL-FIRST v1 — NORM-07 B310 PROOF PLAN (SQL-first + DOC-SET-001-EXT).txt
+================================================================================
+TITLE: NORM-07 — B310 Proof Plan für SQL-first: DOC-SET-001-EXT + Key-Set Completeness + Drift/Diag Proofs
+DOC-ID: SQLF-NORM-07
+STATUS: ENTWURF (Phase 3) — NORMATIV (innerhalb Entwurf)
+VERSION: v1.6
+DATUM: 2026-01-29 (Europe/Zurich)
+
+SCOPE:
+- Definiert, welche B310 Tests SQL-first “beweisen” müssen, und welche Erweiterungen am bestehenden
+  B310 DOC-SET-001 Gate nötig sind.
+- Kein fertiger Command-Block zum Copy&Paste; nur Test-Intention + Delta-Beschreibung + Expected Outcome.
+
+REFERENZEN:
+- blocks/B310_TESTS_ACCEPTANCE_CATALOG.txt (Kanon)
+- DOC-SET-001 (bereits vorhanden in B310)
+- NORM-01..NORM-06
+
+================================================================================
+N-07.1 Ausgangslage: DOC-SET-001 existiert, aber muss erweitert werden
+================================================================================
+DOC-SET-001 (B310) beweist bereits:
+- No Magic Numbers für Timer/TTL/Grace (grep Gate)
+- Key References sollen im settings_catalog vorhanden sein (Ansatz)
+
+Problem (Gap):
+- DOC-SET-001 ist “Timer-fokussiert”. SQL-first braucht zusätzlich:
+  a) Non-Time Keys Harvest (Bandbreite, Quota, Ports, toggles, limits)
+  b) Alias/Prefix Cross-Check
+  c) Key-Set Completeness pro PH
+
+================================================================================
+N-07.2 DOC-SET-001-EXT (Delta-Beschreibung)
+================================================================================
+Ziel:
+- Dokumentenweit beweisen: “Alle policy keys sind im catalog”, nicht nur Timer.
+
+Delta (in B310, Abschnitt DOC-SET-001):
+- Ergänze Search-Gate um:
+  (1) Non-Time Key Harvest:
+      - Suchmuster für “*_bps”, “*_bytes”, “*_pct”, “*_limit”, “*_quota”, “*_concurrency”, “*_port”
+      - Expected: Treffer nur als settings_* key references, niemals als Hardcoded Zahlen.
+  (2) Prefix/Alias Cross-Check:
+      - Jede Key-Referenz muss einem erlaubten Prefix entsprechen (NORM-02)
+      - Deprecated aliases dürfen nur in alias table vorkommen, nicht in Consumers.
+  (3) Required-Key-Set Cross-Check:
+      - Für jede Phase: Required-Key-Set (NORM-06) muss vollständig im catalog sein.
+      - Jede Consumer-Key-Referenz muss in mindestens einem Key-Set auftauchen (oder als optional_key gelistet sein).
+
+Validierung:
+- Test schlägt fehl, wenn:
+  - Consumer referenziert key, der nicht im catalog existiert,
+  - Consumer referenziert key ohne erlaubten prefix,
+  - Consumer enthält deprecated alias reference,
+  - Consumer enthält Hardcoded “policy numbers”.
+
+================================================================================
+N-07.3 Neue B310 Proofs (SQL-first Kern)
+================================================================================
+Diese Proofs ergänzen B310 (als neue Test-IDs oder Untertests):
+
+B310-SQLF-CAT-001 (Completeness):
+- Ziel: Alle required keys existieren im settings_catalog.
+- Delta: Erzeuge Liste “required keys” aus NORM-06 Entries (pro Phase).
+- Expected: 0 missing.
+
+B310-SQLF-CAT-002 (Validation):
+- Ziel: Typ/Range/enum validations greifen, invalid -> INVALID state.
+- Expected: invalid values erzeugen reason_code (NORM-04) + /diag drift flag.
+
+B310-SQLF-ALIAS-001 (Alias determinism):
+- Ziel: alias resolves deterministically to canonical; removed rejects.
+- Expected: alias_used flagged, deprecated triggers drift flag.
+
+B310-SQLF-ALIAS-002 (Deprecated/Removed alias behavior):
+- Ziel: Deprecated aliases sind nur noch als Alias zulässig; Removed aliases werden deterministisch rejected.
+- Expected: Deprecated alias -> drift flag + reason_code (NORM-04); Removed alias -> reject + reason_code (NORM-04).
+
+B310-SQLF-RES-001 (Resolution precedence):
+- Ziel: Effective precedence ist deterministisch: CONNECTION > CUSTOMER > GLOBAL.
+- Expected: effective_source korrekt (NORM-05 trace), kein “silent fallback” gegen die Precedence.
+
+B310-SQLF-RES-002 (Key-state correctness):
+- Ziel: key_state korrekt: MISSING/INVALID/OK (NORM-05) anhand catalog + validations.
+- Expected: state + reason_code konsistent (NORM-04), drift_flags konsistent (NORM-03/07).
+
+B310-SQLF-DRIFT-001 (Settings Drift flags):
+- Ziel: Drift-Flags korrekt gesetzt (catalog/value/alias/reference mismatch).
+- Expected: /diag shows DRIFT_* and reason_code.
+
+B310-DIAG-SQLF-001 (Diag exposure):
+- Ziel: /diag exposes db_state + settings health + (admin) settings_trace.
+- Expected: scope-limited, size-limited, no PII.
+
+B310-DIAG-SQLF-002 (Trace scope + size limits):
+- Ziel: settings_trace ist admin-only, scope-limited und size-limited (kein “full dump”, keine PII).
+- Expected: Trace liefert nur Contract-Felder aus NORM-05; Überschreitungen werden verhindert/abgeschnitten (ohne Sensitive Leaks).
+
+B310-DIAG-SQLF-003 (drift_flags correctness):
+- Ziel: drift_flags korrekt für Missing/Invalid/Alias/Reference-Mismatch Szenarien.
+- Expected: drift_flags + reason_code konsistent (NORM-03 + NORM-04) und im /diag nachvollziehbar.
+
+B310-DIAG-SQLF-004 (B270 non-breaking / additive-only):
+- Ziel: /diag Erweiterung bleibt strikt additiv; keine Umbenennung/Entfernung bestehender B270 Felder.
+- Expected: Bestehende /diag Felder bleiben stabil; SQL-first ergänzt nur backend.* Subobjekte (NORM-05).
+
+================================================================================
+N-07.4 Phase-Mapping (PH1–PH10) (Framework)
+================================================================================
+Für jede Phase muss es mindestens geben:
+- Key-Set completeness proof (B310-PHx-KEYSET-COMPLETE)
+- Expected-Fails map proof (B310-PHx-EXPECTED-FAILS)
+- Apply/Reconcile drift proof (wenn Phase Enforcer hat: nft/tc/AAA)
+
+Dieses Mapping ist OPEN, bis NORM-06 Entries konkretisiert sind.
+
+================================================================================
+SQLF-KH PROOF-GRUPPE (Key-Harvest v1: 8 Keys) — Ableitung
+================================================================================
+ZIEL:
+- Beweist, dass die 8 Harvest-Keys contract-geschlossen sind: presence + validation + alias + expected-fail + diag-trace.
+
+INPUT:
+- SQLF-HARVEST-01 (Key-Harvest v1)
+- SQLF-CATADD-01 (Katalog-Aufnahme-Spezifikation v1)
+- NORM-01/02/04/05
+
+PROOF-IDS (ENTWURF, B310):
+- B310-SQLF-KH-001: Catalog Presence
+  • Ziel: alle 8 Canonical Keys existieren in settings_catalog.
+  • Validierung: DOC-SET-001-EXT Cross-Check meldet 0× missing catalog keys.
+  • Expected Fail: KEY_MISSING → reason_code=R_CONFIG_CATALOG_MISSING (NORM-04 EXT-SQLF-001); /diag summary: backend.settings.completeness=false; admin trace: backend.settings_trace[*].key_state=MISSING (NORM-05).
+
+- B310-SQLF-KH-002: Value Validation + Constraints
+  • Ziel: Constraints werden erzwungen (Range, Relation red<green, bytes>=min).
+  • Validierung: negative tests → Expected Fail.
+  • Expected Fail: VALUE_INVALID → reason_code=R_CONFIG_KEY_INVALID (NORM-04 EXT-SQLF-003); /diag zeigt Expected-Fail über key_state=INVALID (NORM-05 trace) + drift_flags (NORM-03).
+
+- B310-SQLF-KH-003: Alias Resolution (Legacy → Canonical)
+  • Ziel: Legacy Keys funktionieren nur als Alias, Canonical bleibt Truth.
+  • Validierung: Alias gesetzt → trace source=alias, alias_used=true.
+  • Expected Fail: Alias-Map fehlt → reason_code=R_CONFIG_ALIAS_MAP_MISSING (EXT REQUIRED in NORM-04); Gate CI-003.
+
+- B310-SQLF-KH-004: Tighten-only Fallback (Disk-Safety)
+  • Ziel: Bei missing/invalid darf fallback niemals loosening sein.
+  • Validierung: forced-missing/invalid → effective_value <= default_cap/retention.
+  • Expected Fail: Violation → reason_code=R_CONFIG_FAILCLASS_VIOLATION (EXT REQUIRED in NORM-04); Gate CI-005.
+
+- B310-SQLF-KH-005: /diag Trace Completeness
+  • Ziel: /diag liefert für jeden dieser 8 Keys: effective_value + source + reasons + last_refresh_age.
+  • Validierung: Schema-Check in DOC-SET-001-EXT.
+  • Expected Fail: Feld fehlt → reason_code=R_DIAG_CONTRACT_BREACH (EXT REQUIRED in NORM-04); Gate CI-001.
+
+CI/GATE ZUORDNUNG (ENTWURF):
+- CI-001: Contract/Schema (diag + catalog mandatory fields) → KH-001, KH-005
+- CI-003: Alias/Mapping Completeness → KH-003
+- CI-004: Range Validation Gate → KH-002 (optional, wenn CI-004 existiert)
+- CI-005: Safety/Tighten-only Enforcement → KH-004
+
+
+================================================================================
+CHANGELOG
+================================================================================
+v1.6 (2026-01-29): DIAG-SQLF-004 ergänzt (B270 non-breaking / additive-only) zur Konsistenz mit NORM-05 Hook-Liste.
+v0.3 (2026-01-29): Norm-Closure: Proof-Index ergänzt (ALIAS-002, RES-001/002, DIAG-SQLF-002/003), KH-Namespace konsolidiert, diag.settings.*-Referenzen auf NORM-05 Contract umgestellt, Artefakt-ID als Nicht-Proof markiert.
+v0.2 (2026-01-28): SQLF-KH Proof-Gruppe ergänzt (KH-001..005) + Verweis auf SQLF-CATADD-01.
+v0.1 (2026-01-28): Proof Plan v0.1: DOC-SET-001-EXT Delta + SQL-first Kernproofs + Phase-Mapping Framework.
+================================================================================
+ADDENDUM: KH-006..008 (Bounds/Relation/Cap) — Key-Harvest Defaults
+================================================================================
+B310-SQLF-KH-006 — Bounds Validation (Type/Unit/Range)
+- Ziel: INT days/seconds/slots; BIGINT bytes werden range-validiert.
+- Expected Fail: invalid_value -> key_state=INVALID + reason_code=R_CONFIG_KEY_INVALID (NORM-04 EXT-SQLF-003); admin trace: backend.settings_trace[*].key_state=INVALID (NORM-05).
+- Gate: CI-003 + CI-005
+
+B310-SQLF-KH-007 — Cross-Key Relation (red < green)
+- Ziel: Relation enforced; niemals silent.
+- Expected: strict-fail mit reason ODER auto-adjust mit warning+reason.
+- Gate: CI-001 + CI-005
+
+B310-SQLF-KH-008 — Physik-Ceiling Behaviour (falls Cap-Modell aktiv)
+- Ziel: sql>cap -> effective=min(sql,cap) + diag.cap_applied=true + reason=settings.cap_applied
+- Gate: CI-004 + CI-005
+
+
+================================================================================
+KH Expected-Fails + /diag Assertions (Phase-3 ENTWURF Support)
+================================================================================
+Artefakt:
+- SQLF-KH-EXFAIL-01 “KH EXPECTED-FAILS v1 + DIAG ASSERTIONS v1”
+Scope:
+- Konkretisiert KH-001/002/006/007/008 als Expected-Fail Contract (ohne Code).
+Hinweis:
+- Reason-Codes aktuell als REASON_CLASS (EXT REQUIRED in NORM-04).
+
+2026-01-28: v0.4 ergänzt: Verweis auf SQLF-KH-EXFAIL-01 (Expected-Fails + /diag Assertions).
+
+
+================================================================================
+KH Determinism Closure (Owner Decision Pack)
+================================================================================
+Artefakt:
+- SQLF-KH-DET-DEC-01 “KH DETERMINISM CLOSURE (Decision Pack v1)”
+Zweck:
+- Schließt die 3 OPENs (clamp/strict, cap-model, state-map) und macht KH Expected-Fails deterministisch.
+Impact:
+- Erst danach können B310-SQLF-KH-006/007/008 als harte CI-Gates fungieren.
+
+2026-01-28: v0.5 ergänzt: Verweis auf SQLF-KH-DET-DEC-01 (Determinism Closure).
+
+
+================================================================================
+KH Expected-Fails Determinismus (unter DET-REC-01)
+================================================================================
+- SQLF-KH-EXFAIL-01 wurde um einen “DET-REC-01 Expected-Fails Lock” ergänzt.
+- Bedeutung: Sobald Owner das Recommended Determinism Pack DET-REC-01 FIX setzt,
+  sind KH-006/007/008 als CI-Gates deterministisch formulierbar.
+
+2026-01-28: v0.6 ergänzt: Hinweis DET-REC-01 macht KH Expected-Fails deterministisch.
+
+
+================================================================================
+KH CI-Gate Wording (B310-SQLF-KH-006/007/008)
+================================================================================
+Artefakt:
+- SQLF-KH-B310-GATE-01 (Artefakt-ID, kein B310-Proof) “KH B310 GATE WORDING v1 + CI-MAP”
+Scope:
+- Formuliert KH-006/007/008 als CI-Gates (CI-001/003/004/005 Mapping) auf Basis von /diag trace.
+Abhängigkeit:
+- Determinismus unter DET-REC-01 (SQLF-KH-EXFAIL-01 Abschnitt F).
+
+2026-01-28: v0.7 ergänzt: Verweis auf SQLF-KH-B310-GATE-01 (CI-ready Gate Wording).
+
+
+================================================================================
+KH-008 Looser Definition (CI determinism)
+================================================================================
+Artefakt:
+- SQLF-KH-LOOSER-DEF-01 “KH-008 LOOSER DEF v1”
+Impact:
+- Präzisiert KH-008 Gate (tighten-only) mit formaler Monotonie + Minimalvergleichsregeln.
+
+2026-01-28: v0.8 ergänzt: Verweis auf SQLF-KH-LOOSER-DEF-01 (KH-008 looser Regeln).
+
+
+================================================================================
+KH-008 SB Source Norm (Gate Determinismus)
+================================================================================
+Artefakt:
+- SQLF-KH-SB-NORM-01 “KH SAFE BASELINE (SB) SOURCE NORM v1”
+Owner-FIX:
+- DEC-SQLF-KH-SB-001 (MODEL_1/2/3)
+Impact:
+- Ergänzt /diag trace um safe_baseline_value + sb_model als CI Input Contract.
+
+2026-01-28: v0.9 ergänzt: SB Source Norm als Voraussetzung für KH-008 Gate Determinismus.
+
+
+================================================================================
+SB FixApply (MODEL_1) — Owner Closure Shortcut
+================================================================================
+Artefakt:
+- SQLF-KH-SB-FIXAPPLY-01 “KH SB FIX APPLY (MODEL_1 DEFAULT_SAFE)”
+Nutzen:
+- Ermöglicht deterministisches Schließen von DEC-SQLF-KH-SB-001 ohne Pingpong.
+
+2026-01-28: v1.0 ergänzt: Verweis SB FixApply (SQLF-KH-SB-FIXAPPLY-01).
+
+2026-01-28: v1.1 ergänzt: KH B310 Gate Wording v0.4 (SB-aware Assertions / /diag Minimum).
+
+
+================================================================================
+/diag settings.trace Schema (Contract)
+================================================================================
+Artefakt:
+- SQLF-DIAG-TRACE-01 “KH /diag TRACE SCHEMA v1”
+Nutzen:
+- Standardisiert die Felder/Typen für CI-Gates + Panel (Minimal/Extended Contract).
+
+2026-01-28: v1.2 ergänzt: Trace Schema (SQLF-DIAG-TRACE-01) als Contract-Baustein.
+
+
+================================================================================
+Reason-Class Mapping (Panel deterministisch)
+================================================================================
+Artefakt:
+- SQLF-REASONMAP-01 “Reason-Class → Panel Text Mapping v1”
+Proof:
+- B310: reason_class coverage (kein unmapped code im Panel).
+
+2026-01-28: v1.3 ergänzt: Reason-Class Mapping als Proof-Baustein.
+
+
+================================================================================
+Catalog Entry Template (Norm)
+================================================================================
+Artefakt:
+- SQLF-CATALOG-TPL-01 “Catalog Entry Template (KH Keys) v1”
+Nutzen:
+- Standardisiert Catalog-Felder für Trace/Panel/CI-Ableitung (DoD: Completeness/Validity/Trace Contract).
+
+2026-01-28: v1.4 ergänzt: Catalog Template als Norm-Baustein für B310 Proofs.

@@ -1,0 +1,138 @@
+===============================
+PEAK MODE v2 — BR-06 CAKE-only / No-Mix Policy (HTB-Verbot + Konsistenz-Garantie)
+===============================
+Status: ENTWURF (Phase 3)
+Ziel: self-contained Spezifikation (ohne Alt-Peak-Dateien als Pflicht)
+Regeln: kein Patch, kein Copy-Code, kein tc/SQL Snippet; nur Contract + Delta-Intention + Validierung.
+
+
+0) Scope (MUST)
+- Dieses BR definiert die “No-Mix”-Doktrin: Peak-Mode und Normalbetrieb bleiben konsistent im selben Shaping-Modell (CAKE).
+- Es legt fest, welche Alternativen explizit ausgeschlossen sind (z.B. HTB/ceil/class-based Shaping im Peak) und warum (Ops-Stabilität, Drift-Vermeidung, Debugbarkeit).
+- Anti-Scope: Keine Peak-Triggerlogik, keine Täter-Selektion, keine Werte/Keys; keine Batch-Apply-Details (BR-09).
+
+
+1) Kanon-Abgleich (MUST, drift-sicher)
+
+1.1 Imports (KANON-QUELLEN)
+- K-IMP-01: peak-mode_OWNER-FIXPUNKTE (CAKE Edition).txt → “CAKE Edition: Peak bleibt bei CAKE; kein Mischmasch; Peak ändert nur bandwidth; kein HTB/ceil”
+- K-IMP-02: Peak-Mode_entscheidung.txt → “CAKE bleibt; CPU overload wird auch via CAKE behandelt; kein HTB/ceiling”
+- K-IMP-03: PEAK MODE v2 BR-01 → “CAKE root auf pppX; Peak ändert nur CAKE.bandwidth; change-not-replace; no topology change”
+- K-IMP-04: blocks/B160_TC_QOS_PER_PPP.txt → “TC QoS pro PPP; CAKE oder fq_codel möglich” (nur als Konfliktanker)
+- K-IMP-05: blocks/B057_SETTINGS_PARAMETER_CANON_SQLFIRST_MAGIC_GUARD.txt → “keine Magic Defaults; Policy als DB-Keys; Debugbarkeit”
+
+1.2 Kanon-Anker (Wortlaut/Begriff)
+- “No-Mix”: Ein Shaping-Modell bleibt durchgängig konsistent; Peak ist ein Delta im selben Modell, kein Modellwechsel.
+- “HTB/ceil/class-based”: classful shaping mit rate/ceil, das bei dir explizit nicht eingeführt werden soll.
+
+1.3 Konfliktcheck (MUST)
+- K-CONF-01: B160 “CAKE oder fq_codel” vs Peak “CAKE-only” → Status: RISK
+  - Peak-Mode v2 ist CAKE Edition; fq_codel ist nicht kompatibel zu “Peak ändert CAKE.bandwidth”.
+  - Lösung muss kanonisch: entweder “Baseline muss CAKE sein” oder “Peak deaktiviert bei fq_codel”.
+- K-CONF-02: “Server CPU Overload” könnte nach “HTB ceiling” schreien → Status: NONE
+  - Owner-Entscheid + Fixpunkte sagen explizit: kein HTB; Peak bleibt CAKE-only.
+
+
+2) Owner-Fixpunkte (MUST)
+- FP-BR06-01 (CAKE_ONLY): Peak-Mode arbeitet ausschließlich mit CAKE (CAKE Edition).
+- FP-BR06-02 (NO_HTB): HTB / Klassen / rate/ceil / classid / handles sind im Peak-Mode verboten.
+- FP-BR06-03 (NO_MODEL_SWITCH): Peak-Mode darf nie zwischen Shaping-Modellen wechseln (kein “im Peak HTB, sonst CAKE”).
+- FP-BR06-04 (NO_INGRESS): Peak-Mode bleibt egress-only (kein IFB/Ingress-Shaping im Peak-Modul).
+- FP-BR06-05 (LIMITED_DELTA): Peak-Mode darf nur CAKE.bandwidth ändern (kein “diffserv/wash/autorate” etc. ohne Owner-Fix).
+- FP-BR06-06 (CONSISTENCY_GOAL): Ziel ist Drift-Minimierung + Debugbarkeit + stabile Ops unter Overload (keine “cleveren” Spezialpfade).
+
+(Optional, aber kanon-kompatibel)
+- FP-BR06-07 (BASELINE_PRECONDITION): Peak-Mode Feature setzt Baseline-CAKE voraus; sonst Peak disabled (siehe BR-01 O-01).
+
+
+3) Contract (MUST, implementierbar ohne Raten)
+
+3.1 Inputs (MUST)
+- Input-01: tc root qdisc auf pppX ist CAKE (Baseline-Voraussetzung, siehe BR-01).
+- Input-02: Peak-Bandwidth-Wert ist verfügbar (BR-02) und Profil-Bandwidth-Wert ist verfügbar (BR-05).
+
+Constraints:
+- Keine Erfindung eines zweiten Shaping-Stacks (keine Klassenhierarchie parallel zu CAKE).
+- Keine “Doppel-Regeln”: Peak ist ein Parameter-Delta.
+
+3.2 Outputs (MUST)
+- Output-01: Peak-Mode setzt ausschließlich CAKE.bandwidth auf Zielwert (Enter) bzw Profilwert (Exit).
+- Output-02: Systemverhalten bleibt in allen Modi innerhalb CAKE interpretierbar (Debugbarkeit: nur 1 Modell).
+
+3.3 States / Transitions
+- BR-06 hat keine eigenen States; es ist eine Policy-Doktrin.
+- Peak-State-Machine ist BR-10.
+
+3.4 Enforcement-Punkte (MUST)
+- E-01: Precondition Check: Peak-Apply darf nur laufen, wenn root-qdisc CAKE ist (BR-01).
+- E-02: “No-Op statt Umbau”: Wenn Precondition nicht erfüllt, wird Peak nicht “repariert”, sondern deaktiviert/FAIL mit klarer Reason (BR-09/BR-10).
+- E-03: Policy-Guard: Jede Operation, die classful shaping erfordern würde, ist verboten (kein HTB path).
+
+3.5 Fehlerklassen / Resultcodes (BR-06-relevant)
+- ERR-BR06-NO_CAKE_BASELINE: Baseline ist nicht CAKE → Peak disabled/FAIL.
+- ERR-BR06-MODEL_MIX_ATTEMPT: eine Operation versucht classful shaping / nicht-CAKE Pfad → FAIL + Audit.
+- ERR-BR06-UNAUTHORIZED_DELTA: versucht mehr als bandwidth zu ändern → FAIL + Audit.
+
+3.6 Idempotenz / Concurrency (MUST)
+- Idempotenz: “CAKE.bandwidth = X” wiederholt ist stabil.
+- Concurrency: Single-Writer Lock für tc-writes gilt (B166).
+
+3.7 Resource/Retention
+- Keine Retention; Audit/Diag siehe BR-08/BR-10.
+
+
+4) Fix-Intention + Delta-Beschreibung (MUST)
+- Ziel: Kein Modell-Mischmasch (CAKE vs HTB) — Peak bleibt im gleichen Paradigma wie Normalbetrieb, damit Overload nicht durch “Sonderpfade” noch schlimmer wird.
+- Delta:
+  - Kanonisch festschreiben: Peak ist CAKE-only, no-htb, egress-only, limited-delta (= bandwidth).
+  - Precondition/Guard definieren: bei fq_codel oder anderer Baseline → Peak wird nicht angewendet, sondern klar als disabled/fail markiert.
+- Grenzen/Constraints:
+  - Keine neue Architektur (kein zweites Shaping-Subsystem).
+  - Kein “smart fallback” auf HTB (Owner explizit dagegen).
+- Validierung: siehe DoD/Tests.
+
+
+5) DoD / Tests / Validierung (MUST)
+
+T-01 No-Mix Guarantee (Normal + Peak)
+- Setup: Baseline CAKE aktiv.
+- Aktion: Peak Enter/Exit mehrfach.
+- Erwartung: keine zusätzlichen qdiscs/classes; nur bandwidth geändert.
+- Nachweis: tc-Inspection zeigt nur CAKE-root; Audit zeigt delta-only.
+
+T-02 Negative: Baseline nicht CAKE
+- Setup: Baseline fq_codel oder anderes.
+- Aktion: Peak Attempt.
+- Erwartung: Peak nicht angewendet; ERR-BR06-NO_CAKE_BASELINE; kein Umbau/Replace.
+- Nachweis: Audit/Diag Reason + unveränderte Topologie.
+
+T-03 Negative: Attempt classful shaping
+- Setup: (simuliert) Implementation versucht HTB oder ceil.
+- Aktion: Guard greift.
+- Erwartung: FAIL ERR-BR06-MODEL_MIX_ATTEMPT; kein partial apply.
+- Nachweis: Audit zeigt Guard-Block; System bleibt stabil.
+
+T-04 Overload-Szenario
+- Setup: CPU near 100%, Peak aktiv.
+- Aktion: Wiederholte Peak cycles.
+- Erwartung: keine zusätzlichen CPU-Kosten durch classful scheduling; apply bounded.
+- Nachweis: Apply-Frequenz bounded (BR-09), CPU stabilisiert sich (BR-10 Impact DoD).
+
+T-05 Debugbarkeit
+- Setup: Support/Diag.
+- Aktion: Show current mode.
+- Erwartung: Admin kann erklären: “CAKE bandwidth = X; Peak/Normal nur Wert anders”.
+- Nachweis: Panel/Diag zeigt klare Source/Reason; keine zweite Logik.
+
+
+6) OPEN Items (MUST)
+- O-01: Kanonische Entscheidung zu B160 “CAKE oder fq_codel”:
+  - Option A: Baseline wird kanonisch auf CAKE festgelegt (ändert B160/Kanon)
+  - Option B: Peak-Mode Feature setzt CAKE voraus; bei fq_codel ist Peak dauerhaft disabled (ohne Umbau)
+  (Owner muss entscheiden, um Drift zu vermeiden; BR-01/BR-06 markieren RISK.)
+- O-02: Ob “CAKE params außer bandwidth” jemals erlaubt sein sollen (z.B. diffserv mode) — aktuell verboten (FP-BR06-05). Wenn du später willst, muss Owner-Fix erweitert werden.
+
+
+7) Änderungsprotokoll (v2-Entwurfsintern)
+- CHG-01: BR-06 v2 hebt die Owner-Fixpunkte “CAKE-only/no-HTB/no-model-switch” als bindende Policy-Doktrin in den BR-Satz.
+- CHG-02: Konfliktanker zu B160 (“fq_codel möglich”) wird explizit als OPEN Entscheidung markiert, statt stillschweigend zu driften.

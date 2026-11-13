@@ -1,0 +1,209 @@
+===============================
+PEAK MODE v2 — BR-07 Attribution (A1+A4) — MULTI-Logik + Top-N Täter (dynamic, latched)
+===============================
+Status: ENTWURF (Phase 3)
+Ziel: self-contained Spezifikation (ohne Alt-Peak-Dateien als Pflicht)
+Regeln: kein Patch, kein Copy-Code, kein tc/SQL Snippet; nur Contract + Delta-Intention + Validierung.
+
+
+0) Scope (MUST)
+- Dieses BR definiert ausschließlich die Attribution-Logik: “welcher Client hat den Peak (Traffic-Last) dominiert?” inklusive:
+  - A1+A4 Modell (Single Täter vs MULTI)
+  - MULTI-Schwelle (Share-Threshold)
+  - Top-N Täterliste (Speicherung intern, Peak-Logs/Snapshots)
+  - Latch-Regel für Top-N (N bleibt pro Episode fix)
+  - Randfälle (Mapping fehlt, Δbytes negativ, denom=0, Interface churn)
+- Anti-Scope:
+  - Keine Peak-Trigger-Regeln (SoftIRQ/CPU Gate) (BR-10/BR-03)
+  - Keine tc-Apply/Batches (BR-09/BR-01)
+  - Keine DB-Schemata (BR-08/BR-08A)
+  - Keine UI/Notifications (PM-01 separat)
+
+
+1) Kanon-Abgleich (MUST, drift-sicher)
+
+1.1 Imports (KANON-QUELLEN)
+- K-IMP-01: Peak-Mode_Was es ist, wie es funktioniert.txt → Abschnitt “7) Mapping & Attribution” / “7.2 Attribution A1+A4”
+  - Importiert: A1+A4 Grundidee + technisches Verfahren:
+    • Δbytes pro pppX im Fenster
+    • Top-N Liste
+    • Decision: max_share >= share_threshold -> Täter=max_client sonst Täter=MULTI
+    • Speichere top list + selected_taeter
+- K-IMP-02: Peak-Mode_entscheidung.txt → FP-PEAK-01 & FP-PEAK-02
+  - Importiert: Owner-Fixpunkte (Share-Schwelle & Top-N) müssen als Zahl/Regel festgelegt werden.
+- K-IMP-03: peak-mode_OWNER-FIXPUNKTE (CAKE Edition).txt
+  - Importiert: Peak ist CAKE Edition; Attribution ist “ehrlich”, kein random blame.
+- K-IMP-04: PEAK MODE v2 BR-09 (v2) → Listenquelle /run/vpn-sessions/*.env ist VALID (SoT für Sessionliste+Mapping)
+  - Importiert: Candidate-Set kann USER/Admin via conn_group bestimmen; ppp_ifname<->connection_id mapping ist /run-basiert.
+- K-IMP-05: PEAK MODE v2 BR-04 → vpn_bps global existiert (aber Attribution nutzt per-ppp Δbytes; BR-04 ist nicht der per-ppp Counter-SoT).
+
+1.2 Kanon-Anker (Wortlaut/Begriff)
+- “Täter (selected_taeter)”: entweder ein einzelner Client (via vpn_connection_id/sub_account_id) oder der Sammelbegriff MULTI.
+- “Top-N Täterliste”: Liste der N größten Talker (pro Fenster/Snapshot), mit bytes/bps + share.
+
+1.3 Konfliktcheck (MUST)
+- K-CONF-01: BR-Nummern drift in v1 CHECKLISTE vs Build-Ready Liste
+  - Beobachtung: In Peak-Mode_TEIL2_BUILD_READY_CHECKLISTE ist BR-07 = MULTI/Top-N; in Peak-Mode_CHECKLISTE taucht “BR-07 Session Lifecycle & Timepoints” auf.
+  - Status: RISK (nur Nummerierung/Benennung), kein inhaltlicher Widerspruch.
+  - Contract-Regel für v2: “BR-07” bezeichnet in v2 explizit Attribution (A1+A4). Der Session-Lifecycle-Block muss in v2 als eigenes BR geführt werden (Nummer offen), damit keine Vermischung entsteht.
+- K-CONF-02: Attribution window (60s vs 180s vs 1/min Snapshot)
+  - v1 nennt “z.B. 60s oder 180s je nach Design” und fordert “genau eins festlegen”.
+  - Status: RISK (Owner-Entscheid fehlt; ohne Fix entsteht Implementations-Raten).
+- K-CONF-03: USER-only vs ALL ppp*
+  - v1 Peak-Apply ist USER-only (ADMIN exclude); Attribution soll “nicht random blame” für Peak-intern sein.
+  - Status: NONE, wenn Candidate-Set = USER-only (siehe Fixpunkte).
+
+
+2) Owner-Fixpunkte (MUST)
+
+FIX (bereits entschieden)
+- FP-PEAK-01 (MULTI_SHARE_THRESHOLD_PCT): 30%
+  - Bedeutung: wenn max_share >= 30% → Single Täter (max_client), sonst Täter=MULTI.
+- FP-PEAK-02 (TOP_N_DYNAMIC_LATCHED): Option B (dynamic nach active_ppp) + Latch pro Episode:
+  - wenn active_ppp <= 20  → N = 3
+  - wenn 21..100           → N = 5
+  - wenn > 100             → N = 10
+  - LATCH: N wird beim Episode-Start (oder beim ersten Snapshot der Episode) festgelegt und bleibt bis Episode-End konstant.
+
+FIX (kanonisch aus v1/v2 Kontext)
+- FP-BR07-03 (CANDIDATE_SET): Attribution berechnet Top-N und share nur über USER-Sessions (conn_group=USER). ADMIN ist ausgeschlossen.
+
+OPEN (Owner-Fix nötig, sonst Drift)
+- FP-BR07-04 (ATTR_WINDOW_SECONDS): Exaktes Zeitfenster für Δbytes/share:
+  - Option A: 60s rolling window
+  - Option B: 180s window (entspricht peak_trigger_window_seconds default 180)
+  - Option C: “Snapshot-Minute” (1/min bucket)
+  -> MUSS genau eins werden, sonst drift.
+- FP-BR07-05 (DENOM_RULE): Was ist der Nenner für share?
+  - Option A (empfohlen, aber Owner muss fixen): denom = Σ Δbytes (USER-only, mapped)
+  - Option B: denom = global vpn bytes (inkl. unmapped/ADMIN) (macht shares kleiner; kann MULTI forcieren)
+  -> MUSS eindeutig fixiert werden, sonst drift.
+- FP-BR07-06 (UNMAPPED_RULE): Umgang mit USER-pppX ohne gültiges Mapping (fehlende *.env / fehlende connection_id):
+  - Option A: exclude from Top-N + denom, set flag ATTR_INCOMPLETE
+  - Option B: include as “UNKNOWN” entry (share möglich, aber Täter-ID nicht auflösbar)
+  -> MUSS fixiert werden, sonst drift.
+
+
+3) Contract (MUST, implementierbar ohne Raten)
+
+3.1 Inputs (MUST)
+- Input-01: Liste aktiver Sessions aus /run/vpn-sessions/*.env (BR-09 SoT), je Eintrag:
+  - ppp_ifname
+  - conn_group (USER/ADMIN)
+  - vpn_connection_id (oder sub_account_id)
+- Input-02: Pro ppp_ifname: rx_bytes + tx_bytes Counter (sysfs), plus vorheriger Stand (runtime), um Δbytes zu bilden.
+- Input-03: Δt bzw. Fenster-Definition (ATTR_WINDOW_SECONDS) (Owner-Fix).
+- Input-04: active_ppp = Anzahl aktiver USER Sessions (conn_group=USER) zum Zeitpunkt der N-Festlegung.
+
+Constraints:
+- Attribution ist read-only (keine tc writes).
+- Determinismus: gleiche Eingänge → gleiche Top-N + selected_taeter.
+
+3.2 Outputs (MUST)
+- Output-01: top_talkers[1..N] pro Fenster/Snapshot:
+  - vpn_connection_id (oder “UNKNOWN” je UNMAPPED_RULE)
+  - delta_bytes (oder delta_bps, wenn du bps persistieren willst — muss konsistent sein)
+  - share_pct
+- Output-02: selected_taeter:
+  - entweder vpn_connection_id (Single Täter)
+  - oder “MULTI”
+- Output-03: flags/anomalies (mindestens):
+  - ATTR_INCOMPLETE (wenn unmapped USER traffic existiert und UNMAPPED_RULE es nicht vollständig abbildet)
+  - COUNTER_RESET (wenn per-ppp Δbytes negativ korrigiert wurde)
+  - DENOM_ZERO (wenn denom == 0 → shares nicht definierbar; selected_taeter muss dann deterministisch sein, siehe Randfall)
+
+3.3 Decision Rule (MUST)
+- Berechne für das definierte Fenster:
+  - Δbytes_pppX für alle USER Kandidaten (nach UNMAPPED_RULE)
+  - denom nach DENOM_RULE
+  - share_pppX = Δbytes_pppX / denom
+- Sortiere nach Δbytes (absteigend), Top-N = N (aus FP-PEAK-02, latched)
+- max_share = share des #1 Talkers
+- Entscheidung:
+  - wenn denom == 0: selected_taeter = MULTI + Flag DENOM_ZERO (oder anderer fixer Fallback; muss im v2 contract fest definiert sein)
+  - sonst:
+    • wenn max_share >= MULTI_SHARE_THRESHOLD_PCT → selected_taeter = top1.connection_id
+    • sonst → selected_taeter = MULTI
+
+3.4 Enforcement-Punkte (MUST)
+- E-01: Candidate-Set Enforcement: nur USER (ADMIN exclude).
+- E-02: Top-N Determinismus: N ist pro Episode gelatched; Snapshot-Berechnung nutzt immer denselben N.
+- E-03: Share Threshold ist fix 30% (keine hidden defaults).
+- E-04: Missing Mapping wird nicht “still” ignoriert: es muss über UNMAPPED_RULE + Flag sichtbar werden.
+
+3.5 Fehlerklassen / Resultcodes (BR-07-relevant)
+- ERR-BR07-RUN_SESSIONS_MISSING: /run/vpn-sessions nicht verfügbar → Attribution DEGRADED (kein blame).
+- ERR-BR07-SYSFS_UNREADABLE: per-ppp counters nicht lesbar → Attribution DEGRADED.
+- ERR-BR07-WINDOW_UNDEFINED: ATTR_WINDOW_SECONDS ist nicht gefixt → HARD FAIL (damit niemand rät).
+
+3.6 Idempotenz / Concurrency (MUST)
+- Read-only; keine Locks wie tc-write.
+- Idempotenz: bei gleichem Fensterzustand identische Outputs.
+
+3.7 Resource/Retention
+- Speicherung (Snapshots/Episode Summary) ist BR-08/BR-10; BR-07 liefert nur das Datenformat + Entscheidungsregel.
+
+
+4) Fix-Intention + Delta-Beschreibung (MUST)
+- Ziel: Attribution ist “ehrlich” (A1+A4), reproduzierbar und ops-debugbar (kein random blame), und sie erzeugt keine Drift, weil die 2 Owner-Zahlen + window/denom/mapping-Regeln eindeutig sind.
+- Delta:
+  - Fix: MULTI threshold = 30%.
+  - Fix: Top-N dynamic nach active_ppp, aber gelatched pro Episode.
+  - Fix: Candidate-Set USER-only.
+  - Offen: window/denom/unmapped Regeln müssen als Owner-Fix geschlossen werden, sonst implementiert man “irgendwie”.
+- Grenzen/Constraints:
+  - Kein Einfluss auf Security/Enforcement selbst; Attribution ist Audit/Diagnose.
+  - Keine DB-SoT Verschiebung: Mapping kommt aus /run (BR-09).
+- Validierung: siehe DoD/Tests.
+
+
+5) DoD / Tests / Validierung (MUST)
+
+T-01 Single Täter Fall (>=30%)
+- Setup: 1 USER erzeugt >=30% des Traffic im Fenster, andere weniger.
+- Aktion: Attribution compute.
+- Erwartung: selected_taeter = dieser USER (connection_id), Top-N enthält ihn auf #1, share>=30%.
+- Nachweis: Snapshot zeigt share und Entscheidung.
+
+T-02 MULTI Fall (<30%)
+- Setup: mehrere USER teilen Traffic so, dass #1 < 30%.
+- Erwartung: selected_taeter = MULTI.
+- Nachweis: Snapshot zeigt max_share < 30%.
+
+T-03 Top-N dynamic + Latch
+- Setup: Episode startet mit active_ppp=15 → N=3; später wachsen Sessions auf 60.
+- Erwartung: N bleibt 3 während der Episode (Latch).
+- Nachweis: Snapshots persistieren exakt 3 Einträge (sofern verfügbar).
+
+T-04 active_ppp Schwellen
+- Setup: active_ppp=20 → N=3; 21 → N=5; 101 → N=10.
+- Erwartung: N entspricht Tabelle.
+- Nachweis: Episode Meta zeigt latched N.
+
+T-05 Mapping fehlt (UNMAPPED_RULE)
+- Setup: ein USER-pppX hat keine env/keine connection_id.
+- Erwartung: deterministisches Verhalten nach UNMAPPED_RULE + ATTR_INCOMPLETE Flag.
+- Nachweis: Snapshot zeigt Flag; kein stilles Verschlucken.
+
+T-06 denom == 0
+- Setup: Fenster ohne Traffic oder Δbytes alles 0.
+- Erwartung: deterministischer Fallback (z.B. MULTI) + DENOM_ZERO Flag; keine division-by-zero.
+- Nachweis: Snapshot Flag + stabiler Betrieb.
+
+T-07 Counter reset
+- Setup: negative Δbytes bei einem pppX (reset/wrap).
+- Erwartung: Δbytes korrigiert (0) + COUNTER_RESET Flag; Entscheidung bleibt deterministisch.
+- Nachweis: Flag sichtbar; keine Phantom-Spikes.
+
+
+6) OPEN Items (MUST)
+- O-01 FP-BR07-04 ATTR_WINDOW_SECONDS (60s vs 180s vs 1/min) → Owner muss fixen (Checkliste fordert “genau eins”).
+- O-02 FP-BR07-05 DENOM_RULE → Owner muss fixen (sonst drift in share).
+- O-03 FP-BR07-06 UNMAPPED_RULE → Owner muss fixen (sonst drift in blame/flags).
+- O-04 denom==0 Fallback ist noch nicht als Fakt fixiert (muss im v2 Contract eine Zeile bekommen: z.B. selected_taeter=MULTI).
+
+
+7) Änderungsprotokoll (v2-Entwurfsintern)
+- CHG-01: BR-07 v2 übernimmt A1+A4 1:1 aus v1 (“max_share vs threshold => Single vs MULTI”).
+- CHG-02: Owner-Fixpunkte sind geschlossen für MULTI=30% + Top-N dynamic + Latch-Regel.
+- CHG-03: Die drei Driftstellen (window/denom/unmapped) werden explizit als OPEN markiert, statt stillschweigend zu raten.

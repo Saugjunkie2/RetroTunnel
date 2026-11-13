@@ -1,0 +1,164 @@
+SQL-FIRST v1 — KH DETERMINISM CLOSURE (clamp/strict + cap + state-map) — Decision Pack v1.txt
+================================================================================
+TITLE: SQL-first — KH Determinism Closure (Decision Pack)
+DOC-ID: SQLF-KH-DET-DEC-01
+STATUS: ENTWURF (Phase 3) — Owner Decision Pack (für deterministische Expected-Fails)
+VERSION: v0.1
+DATUM: 2026-01-28 (Europe/Zurich)
+
+ZWECK (NORMATIVE INTENT):
+Die Datei SQLF-KH-EXFAIL-01 definiert Expected-Fails + /diag Assertions.
+Damit diese Tests deterministisch sind (kein Interpretationsspielraum), müssen 3 OPENs geschlossen werden:
+
+1) Clamp vs Strict bei INVALID
+2) Cap-Modell Semantik (aktiv/Scope/Quelle)
+3) State-Mapping: DB_STATE vs SETTINGS_STATE (wann DB_UNKNOWN, wann DEGRADED)
+
+WICHTIG:
+- Dieses Pack nimmt dir die Entscheidung NICHT ab, aber du wolltest “durchziehen”.
+- Daher: pro Punkt exakt 2–3 saubere Optionen + klare Auswirkungen + Empfehlung.
+- Sobald du eine Option pro Punkt FIX setzt, kann SQLF-KH-EXFAIL-01 zu “deterministic” erklärt werden.
+
+================================================================================
+A) DEC 1 — INVALID Handling: CLAMP vs STRICT
+================================================================================
+OPEN REF:
+- SQLF-OPEN-KH-CLAMP-VS-STRICT
+- SQLF-KH-EXFAIL-01 Abschnitt E1
+
+Begriff:
+- INVALID = Value vorhanden, aber verletzt Typ/Range/Relation.
+
+Option A (Empfehlung): STRICT-FAIL + SAFE FALLBACK (tighten-only für Disk-Safety)
+- Verhalten:
+  • invalid → validation_state=INVALID
+  • effective_value wird NICHT aus dem invaliden Wert übernommen
+  • effective_value kommt aus SAFE FALLBACK:
+    - DEFAULT (Owner-FIX) oder MIN (falls Default selbst invalid wäre)
+  • clamp wird NICHT verwendet (kein stilles “zurechtbiegen”)
+- Vorteile:
+  • maximale Transparenz; keine “magischen” Werte
+  • Expected-Fails werden einfach (INVALID → fallback)
+- Nachteile:
+  • mehr “INVALID noise” bei marginalen Off-by-one
+- /diag:
+  • source=DEFAULT (oder SAFE_FALLBACK)
+  • reasons: SETTINGS_INVALID (+ optional SETTINGS_FALLBACK)
+- B310 Impact:
+  • KH-EXFAIL-010/011/020/021/030 werden eindeutig.
+
+Option B: CLAMP-TO-BOUND + WARN (bei INVALID)
+- Verhalten:
+  • invalid → effective_value = clamp(value, min, max)
+  • validation_state=INVALID oder DEGRADED (muss mit DEC 3 passen)
+- Vorteile:
+  • System bleibt “sanft” lauffähig
+- Nachteile:
+  • Gefahr “Owner denkt er hat X gesetzt, System nutzt Y”
+  • Tests müssen clamp cases unterscheiden
+- /diag:
+  • source=CAPPED/CLAMPED
+  • reasons: SETTINGS_INVALID + SETTINGS_CAPPED
+- B310 Impact:
+  • KH-EXFAIL braucht eigene clamp assertions.
+
+Owner-FIX Feld:
+- DEC-SQLF-KH-DET-001 = A / B
+
+================================================================================
+B) DEC 2 — Cap-Modell (Bytes/TTL): Aktiv? Scope? Semantik?
+================================================================================
+OPEN REF:
+- SQLF-OPEN-KH-CAP-MODEL
+- SQLF-KH-EXFAIL-01 Abschnitt E2
+
+Definition:
+- Cap = “physischer” Deckel gegen Disk-Overflow/Abuse, unabhängig von Policy.
+- In deinem korrigierten Option-C Modell gilt: Cap ist NICHT “hard in config für Gültigkeit”,
+  sondern eine Drift-/Safety-Schicht, die im Panel sichtbar ist.
+
+Option A (Empfehlung): Cap aktiv, GLOBAL, nur für “Budget/TTL”-Keys
+- Betroffene Keys:
+  • web_log_detailed_max_total_bytes
+  • web_spool_max_total_bytes
+  • web_settings_cache_ttl_seconds (optional, falls du DoS vermeiden willst)
+- Semantik:
+  • wenn SQL value > cap → effective_value=cap_value
+  • validation_state bleibt OK oder wird DEGRADED (muss DEC 3 entscheiden)
+  • /diag source=CAPPED + reason SETTINGS_CAPPED
+- Vorteil:
+  • schützt den Host, ohne dass Policy kaputt wird
+  • Panel kann Drift klar zeigen (“Policy wollte 20GB, Cap 10GB greift”)
+- Nachteil:
+  • es existiert eine zweite “Wahrheitsebene” (Policy vs Physik), muss sauber kommuniziert werden
+
+Option B: Cap aus (nur Policy Bounds)
+- Semantik:
+  • keine cap; nur catalog bounds/validation
+- Vorteil:
+  • einfachstes Modell
+- Nachteil:
+  • Disk-Full Risiko steigt, wenn Bounds zu liberal oder falsch gesetzt werden
+
+Owner-FIX Feld:
+- DEC-SQLF-KH-DET-002 = A / B
+- Wenn A: Cap-Quelle (nur als INTENT, keine config):
+  • “Service Facts / host_profile” (z.B. host_disk_budget)  → muss später als Domain definiert werden.
+
+================================================================================
+C) DEC 3 — State-Mapping: DB_STATE vs SETTINGS_STATE
+================================================================================
+OPEN REF:
+- SQLF-OPEN-KH-SETTINGSSTATE-MAP
+- SQLF-KH-EXFAIL-01 Abschnitt E3
+- B052/B342 (DB_STATE Modelle)
+
+Ziel:
+- Du willst Drift/Invalid sichtbar im Panel, aber nicht jede Policy-Anomalie als DB_DOWN/UNKNOWN eskalieren.
+
+Option A (Empfehlung): DB_STATE bleibt DB_OK; SETTINGS_STATE separiert (DEGRADED/INVALID)
+- Regeln:
+  • DB_OK solange SQL erreichbar, Schema ok, Queries ok.
+  • SETTINGS_STATE:
+    - OK: alle required keys valid
+    - DEGRADED: keys invalid / capped / alias-used (nach Policy)
+    - UNKNOWN nur wenn “Truth-Source unklar” (z.B. mixed sources, missing required with no default)
+- Vorteil:
+  • DB_UNKNOWN bleibt “echtes Backend-Problem”
+  • Panel zeigt präzise: “DB ok, aber Settings degradiert”
+- B310:
+  • KH Expected-Fails prüfen SETTINGS_STATE, nicht DB_STATE.
+
+Option B: invalid/missing required → DB_UNKNOWN (hart)
+- Vorteil:
+  • extrem strenge Gate-Logik
+- Nachteil:
+  • DB_UNKNOWN wird überladen, Debug schwerer
+  • einzelne Key-Anomalie kann ganze Plattform “unknown” machen
+
+Owner-FIX Feld:
+- DEC-SQLF-KH-DET-003 = A / B
+
+================================================================================
+D) Empfohlene Kombination (für “durchziehen”)
+================================================================================
+Empfehlung als Paket:
+- DEC-001 = Option A (STRICT-FAIL + safe fallback)
+- DEC-002 = Option A (Cap aktiv GLOBAL nur Budget/TTL)
+- DEC-003 = Option A (DB_OK bleibt DB_OK; SETTINGS_STATE separat)
+
+Begründung (kurz):
+- maximal deterministische Tests, maximale Panel-Transparenz, DB_UNKNOWN bleibt sauber.
+
+================================================================================
+E) Was danach “geschlossen” ist
+================================================================================
+Wenn DEC-001..003 FIX sind:
+- SQLF-KH-EXFAIL-01 wird deterministisch (keine Interpretationslücken mehr).
+- B310-KH-006/007/008 können als CI-Gates definiert werden (Expected-Fails + /diag assertions).
+- Peak-Integration-Blocker können diese Proofs als harte Preconditions referenzieren.
+
+================================================================================
+CHANGELOG
+================================================================================
+2026-01-28: v0.1 initial: Determinism Decision Pack für KH (clamp/strict + cap + state-map).

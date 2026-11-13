@@ -1,0 +1,377 @@
+================================================================================
+PLANS — KONZEPTSTAND BEREINIGT (v2)
+Stand: 2026-03-20
+Status: ENTWURF (Grundlage fuer weitere Ausarbeitung)
+Erstellt von: Claude
+Geprueft von: ChatGPT (Konsistenzreview, 8 Korrekturen eingearbeitet)
+================================================================================
+
+ZWECK DIESER DATEI:
+Bereinigte Fassung des Plan-Konzeptstands. Basiert auf:
+  - Konzept-Bloecke: B030, B055, B058, B150, B160, B165, B166, B167, B210, B290
+  - Tatsaechliche PH1-Implementierung (Server-Dateien + DB-Backup + freeradius -X)
+  - Memory-Regel (DNS-ZWANG/DNAT53 fuer alle inkl. ADMIN)
+  - Marcos Angaben zu Server-Specs (muendlich, nicht aus Config verifiziert)
+
+Annahmen und Ableitungen sind als solche markiert.
+Statusklassen werden strikt getrennt:
+  AKTIV     = laeuft in PH1, verifiziert durch Tests
+  VORBEREITET = Felder/Strukturen existieren, aber nicht verdrahtet
+  KONZIPIERT  = in Konzept-Bloecken beschrieben, nicht implementiert
+  OFFEN     = noch nicht entschieden oder nicht adressiert
+
+
+================================================================================
+1) SERVER-RAHMENDATEN
+================================================================================
+
+--- 1a) Rohdaten (Quelle: Marcos Angaben, nicht aus Config verifiziert) ---
+
+Standort:           Schweiz
+FQDN:               vpnxp001.v6.army
+IPv4:               185.150.28.184
+IPv6:               2a07:6d80:1e01:145d::1
+OS:                 Debian 13 (Trixie), MariaDB 11.8.6
+WAN-Interface:      ens18
+Bandbreite:         1 Gbit/s
+Monatliches Volume: 40 TB (danach Drosselung auf 100 Mbit/s)
+
+--- 1b) Kapazitaetsableitungen (berechnet, nicht verifiziert) ---
+
+Rechenbeispiele fuer Plan-Dimensionierung:
+- 40 TB / 50 Kunden  = 800 GB pro Kunde/Monat
+- 40 TB / 100 Kunden = 400 GB pro Kunde/Monat
+- 40 TB / 200 Kunden = 200 GB pro Kunde/Monat
+- 1 Gbit/s / 20 gleichzeitige Verbindungen = 50 Mbit/s Obergrenze
+- 1 Gbit/s / 50 gleichzeitige Verbindungen = 20 Mbit/s Obergrenze
+- Nach 40 TB Drosselung betrifft ALLE Kunden gleichzeitig
+
+HINWEIS: Diese Werte sind grobe Orientierung. Reale Kapazitaet haengt
+von Nutzungsmuster, Gleichzeitigkeit und Overhead ab.
+
+
+================================================================================
+2) KANON-REGELN FUER PLANS
+================================================================================
+
+Quelle: B030 (Principles), B058 (Policy-Key), B150 (Restricted Mode),
+        B210 (DNS-Enforcement), Memory-Regel (DNS-ZWANG/DNAT53)
+Status: VERBINDLICH (aus Konzept-Bloecken verifiziert)
+
+VERBINDLICHE DIFFERENZIERUNGSREGEL (KANON):
+
+Plans DUERFEN sich unterscheiden ueber:
+  - QoS (Bandbreite / Geschwindigkeit pro Verbindung)
+  - Concurrency (Anzahl gleichzeitiger Verbindungen / Subaccounts)
+  - Quota (Datenvolumen pro Zeitraum)
+  - Laufzeit (monatlich, jaehrlich, etc.)
+  - Preis
+
+Plans DUERFEN SICH NICHT unterscheiden ueber:
+  - DNS-Zwang (DNAT53 gilt fuer ALLE, auch ADMIN, keine Ausnahmen)
+  - DNS-Filterung (gleiche Blocklisten fuer alle)
+  - Abuse-Blocks (Outbound-Sperren gelten fuer alle)
+  - Peer-Isolation (gilt fuer alle)
+  - Sicherheitsfeatures generell (kein "Premium darf DNS frei waehlen")
+
+BEGRUENDUNG:
+Sicherheits- und Missbrauchsbarrieren gehoeren zum Systemkern, nicht zum
+Tarifmodell. Ein Plan ist ein Leistungs- und Steuerungsprodukt, kein
+Sicherheitsprodukt.
+
+
+================================================================================
+3) PLAN-RELEVANTE ENFORCEMENT-MECHANISMEN
+================================================================================
+
+Dieser Abschnitt trennt strikt nach Statusklasse:
+  3a-3b = AKTIV in PH1
+  3c-3d = VORBEREITET (Strukturen da, nicht verdrahtet)
+  3e-3f = KONZIPIERT (in Bloecken beschrieben, nicht implementiert)
+  3g    = OFFEN (nicht geloest)
+
+
+--- 3a) Concurrency (SimUse) [AKTIV] ---
+
+Status: AKTIV in PH1, verifiziert durch freeradius -X und radacct
+Mechanismus: FreeRADIUS Simultaneous-Use = 1 (Check-Attribut aus authorize_check_query)
+  Pruefung: session { sql } gegen radacct (acctstoptime IS NULL)
+  Wirkung: Zweite Session desselben Users wird per RADIUS REJECT abgelehnt
+  Gilt fuer: LEGACY (accel-ppp) UND MODERN/ADMIN (strongSwan eap-radius)
+  Verifiziert: strongSwan accounting = yes schreibt Acct-Start/Stop in radacct
+Erweiterung fuer Plans: SimUse-Wert koennte pro Plan unterschiedlich sein
+  (z.B. Plan Basic = 1, Plan Family = 3). Dazu muesste der Wert aus einer
+  Plan-Tabelle kommen statt hardcoded "1". Schema-Aenderung noetig.
+
+
+--- 3b) Traffic-Accounting [AKTIV] ---
+
+Status: AKTIV in PH1, verifiziert durch freeradius -X und radacct
+Mechanismus: RADIUS Accounting (Start/Interim/Stop) via FreeRADIUS -> radacct
+  radacct zaehlt acctinputoctets + acctoutputoctets pro Session
+  Gilt fuer: LEGACY (accel-ppp sendet Accounting) UND MODERN/ADMIN
+  (strongSwan eap-radius mit accounting = yes sendet Accounting)
+  Verifiziert: DB-Backup zeigt korrekte Traffic-Zaehler in allen 9 Sessions
+  Interim-Intervall: accel-ppp 300s (konfiguriert), strongSwan automatisch
+Bedeutung fuer Plans: Quota-Berechnung ist fuer BEIDE Tunnel-Typen
+  ueber radacct moeglich. Kein Unterschied zwischen LEGACY und IKEv2.
+
+
+--- 3c) Quota-Enforcement [VORBEREITET] ---
+
+Status: VORBEREITET (Felder in DB + radacct-Daten vorhanden, Enforcement nicht verdrahtet)
+DB-Felder: vpn_connections.restricted_effective, vpn_connections.restricted_reason
+  (ENUM: QUOTA, EXPIRY, MANUAL, UNCLAIMED_OVERDUE) — existieren, alle auf Default
+nftables-Sets: restricted_v4, restricted_v6 — existieren (leer), IP-basiert
+Wirkung wenn verdrahtet (PH7/PH8): Periodischer Job aggregiert radacct-Traffic,
+  vergleicht gegen Quota-Limit. Bei Ueberschreitung: restricted_effective = 1,
+  restricted_reason = 'QUOTA', Client-IP in restricted-Set -> Walled Garden.
+Offene Fragen: Quota pro Connection oder pro Customer? Echtzeit oder periodisch?
+
+
+--- 3d) Restricted Mode / Walled Garden [VORBEREITET] ---
+
+Status: VORBEREITET (nftables-Sets + DB-Felder existieren, nicht aktiv verdrahtet)
+Konzept-Block: B150 (Walled Garden / Restricted Mode)
+Enforcement-Design: nftables Sets (restricted_v4, restricted_v6) in Forward-Chain.
+  Wenn Client-IP im Set: nur SERVICE_* erlaubt (DNS, Web/Portal, NTP),
+  kein Internet. Hard Cut (bestehende Flows sofort beendet via Conntrack-Flush).
+Trigger: QUOTA, EXPIRY, MANUAL, UNCLAIMED_OVERDUE
+Wirkung ab: PH8 (Restricted Mode aktiv verdrahtet)
+ADMIN-Exemption (KLARSTELLUNG): Die Exemption betrifft NUR die Restriction-
+  Gruende QUOTA/EXPIRY/UNCLAIMED_OVERDUE. ADMIN ist NICHT vom Netz-/Sicherheits-
+  kern ausgenommen: DNS-Zwang, Peer-Isolation, Abuse-Blocks gelten fuer ADMIN
+  identisch. MANUAL (Not-Aus) gilt ebenfalls fuer alle inkl. ADMIN.
+Gilt fuer: Beide Tunnel-Typen (LEGACY + IKEv2), weil nftables-Sets IP-basiert
+  arbeiten, nicht Interface-basiert. Konzeptionell identisch modelliert.
+
+
+--- 3e) Session-Mapping fuer IKEv2 (VICI-Listener) [KONZIPIERT] ---
+
+Status: KONZIPIERT in B167 Abschnitt 3a, nicht implementiert
+Mechanismus-Design: Ein systemd-Service lauscht via VICI auf strongSwan Events.
+  Bei IKEv2-Connect:
+  1) Client-IP in connect_pending_v4/v6 Set (Forward-Block)
+  2) Pending-Mapping: /run/vpn-sessions/ikev2/pending/<IKE_SA_ID>.env
+  3) vpn-policy-apply --connection-id=X --tunnel-type=IKEV2
+  4) Bei Erfolg: pending -> active (atomar)
+  5) Client-IP aus connect_pending entfernen (OPEN)
+  Bei Fail: Session wird terminiert (Kill via IKE_SA_ID), Fail-Closed.
+Paritaet: Exakte Paritaet zum PPP ip-up Hook, nur mit VICI statt pppd.
+  Inkl. Rekey-Storm-Schutz (Debounce/Dedupe).
+Bedeutung fuer Plans: Ohne Session-Mapping kein Connect-Gating, kein
+  Policy-Apply, kein Restricted-Enforcement fuer IKEv2. Muss vor PH7/PH8
+  implementiert werden.
+
+
+--- 3f) Policy-Apply/Reconcile fuer IKEv2 [KONZIPIERT] ---
+
+Status: KONZIPIERT in B166, nicht implementiert
+Mechanismus-Design: Zentrales Tool vpn-policy-apply kennt beide Tunnel-Typen.
+  nftables-Sets (restricted_v4/v6, connect_pending_v4/v6) arbeiten IP-basiert,
+  nicht Interface-basiert. Deshalb ist Restricted Mode, Connect-Gating und
+  Peer-Isolation fuer IKEv2 konzeptionell identisch modelliert wie fuer PPP.
+  Reconcile laeuft periodisch und gleicht SQL-Truth mit Kernel-State ab.
+Bedeutung fuer Plans: Wenn implementiert, funktionieren Restricted Mode,
+  Connect-Gating und Quota-Enforcement fuer IKEv2 identisch. Bis dahin
+  sind diese Mechanismen nur fuer LEGACY (PPP) nutzbar.
+
+
+--- 3g) QoS / Speed-Limiting [OFFEN fuer IKEv2] ---
+
+Status LEGACY: VORBEREITET (accel-ppp Shaper-Modul auskommentiert in accel-ppp.conf)
+Status IKEv2: OFFEN (kein Mechanismus vorhanden oder konzipiert)
+
+LEGACY (L2TP/PPP via accel-ppp):
+  KORREKTUR: Die Implementierung nutzt accel-ppp, nicht xl2tpd/pppd.
+  accel-ppp erstellt pppX-Interfaces und hat einen eingebauten Shaper
+  (Modul "shaper", aktuell auskommentiert). Der Shaper kann ueber
+  RADIUS-Attribute gesteuert werden (z.B. Accel-Rate-Limit oder Filter-Id).
+  Alternativ: tc direkt auf pppX (wie in B160 beschrieben).
+  Entscheidung offen: accel-ppp-interner Shaper ODER tc extern?
+
+MODERN/ADMIN (IKEv2 via strongSwan):
+  Es gibt KEINE pppX-Interfaces. Traffic laeuft ueber XFRM/IPsec.
+  tc auf pppX ist daher NICHT anwendbar.
+  B290/PH2 sagt explizit: "QoS fuer IKEv2 ist nicht Teil von PH2"
+  Das ist die einzige offene technische IMPLEMENTIERUNGS-Luecke fuer
+  per-Client Speed-Limiting bei IKEv2. (Hinweis: Alle anderen Plan-
+  Mechanismen — Quota, Restricted, Concurrency, Accounting — sind fuer
+  IKEv2 konzipiert oder bereits aktiv. Nur Speed-Limiting fehlt.)
+  Moegliche Loesungen (noch nicht entschieden):
+    a) tc auf XFRM-Interface (wenn strongSwan route-based VPN nutzt)
+    b) nftables-basiertes Policing (begrenzt, kein echtes Shaping)
+    c) strongSwan XFRM-Interface + tc auf diesem Interface
+    d) Akzeptanz dass IKEv2-Clients kein per-Client QoS haben
+
+
+================================================================================
+4) DB-SCHEMA: WAS EXISTIERT, WAS FEHLT
+================================================================================
+
+EXISTIERT (PH1, verifiziert aus DB-Backup 2026-03-19):
+  - vpn_connections.restricted_effective (TINYINT, 0/1)
+  - vpn_connections.restricted_reason (ENUM: QUOTA, EXPIRY, MANUAL, UNCLAIMED_OVERDUE)
+  - vpn_connections.conn_group (ENUM: LEGACY, MODERN, ADMIN)
+  - vpn_connections.status (ENUM: PREPROVISIONED, CLAIMED, DISABLED)
+  - vpn_connections.ip_slot, fixed_ip, fixed_ipv6 (feste IP-Zuweisung)
+  - radacct (Session-Accounting mit Traffic-Zaehlung)
+  - vpn_session_locks (SimUse Mutex, vorbereitet fuer PH7)
+
+FEHLT (fuer Plan-System noetig):
+  - Keine "plans" Tabelle (Plan-ID, Name, Limits, Preis, Laufzeit)
+  - Kein Feld "plan_id" an vpn_connections oder web_customers
+  - Keine Quota-Felder (quota_bytes, quota_used, quota_reset_date)
+  - Keine Laufzeit-Felder (plan_start, plan_end)
+  - Keine Concurrency-Konfiguration pro Plan (SimUse ist hardcoded "1")
+  - Keine QoS-Profil-Zuordnung pro Plan (speed_down, speed_up)
+
+KERN-DESIGNENTSCHEIDUNG (offen, muss vor Plan-Finalisierung geloest werden):
+  Plan an Customer (web_customers.plan_id) oder an Connection (vpn_connections.plan_id)?
+  Das ist keine Nebenfrage, sondern bestimmt:
+    - wo plan_id haengt
+    - wo quota_used aggregiert wird
+    - wie Concurrency technisch durchgesetzt wird
+    - was ein "Family-Plan" fachlich ist:
+      a) ein Kunde mit 3 Connections (jede SimUse=1)?
+      b) oder 1 Connection mit SimUse=3?
+  Wahrscheinlich: Plan an Customer, Concurrency ueber Anzahl erlaubter
+  Connections, QoS-Profil pro Connection (alle erben vom Plan).
+  Aber: NICHT ENTSCHIEDEN.
+
+
+================================================================================
+5) LIVE-STAND (verifiziert am 2026-03-20)
+================================================================================
+
+IKEv2 (Windows 11, ADMIN-Testuser):
+  - IPv4 10.77.2.1 aus DB zugewiesen [AKTIV, verifiziert]
+  - IPv6 fd77:0:0:2::1 aus DB zugewiesen [AKTIV, verifiziert]
+  - Full-Tunnel IPv4 funktioniert [AKTIV, verifiziert]
+  - Full-Tunnel IPv6 funktioniert MIT manuellen Routen [AKTIV, mit Einschraenkung]
+    Windows installiert bei IKEv2 keine IPv6-Default-Route automatisch.
+    Workaround: netsh-Routen (::/1 + 8000::/1) manuell nach Connect setzen.
+    Add-VpnConnectionRoute mit 2000::/3 speichert, installiert aber nicht.
+    Fuer Kunden muss das automatisiert werden (Setup-Script/Task Scheduler).
+
+IKEv2 (Android 16, strongSwan-App, ADMIN-Testuser):
+  - IPv4 10.77.2.1 aus DB zugewiesen [AKTIV, verifiziert]
+  - IPv6 fd77:0:0:2::1 zugewiesen [AKTIV, verifiziert via swanctl --list-sas]
+  - Full-Tunnel funktioniert [AKTIV, verifiziert nach MSS-Clamping-Fix]
+  - Eingebauter Android-VPN-Client: nur IPv4, kein IPv6 (Android-Limitation)
+  - Empfehlung: strongSwan-App fuer Android-Kunden
+
+
+================================================================================
+6) PHASEN-ABHAENGIGKEITEN (wann welcher Plan-Aspekt produktiv wird)
+================================================================================
+
+PH1 (aktuell): VPN-Baseline
+  - SimUse=1 ist AKTIV (haerteste Concurrency-Grenze)
+  - radacct zaehlt Traffic (Grundlage fuer spaetere Quota) — AKTIV
+  - restricted_effective/restricted_reason Felder existieren — VORBEREITET
+  - nftables restricted-Sets existieren (leer) — VORBEREITET
+  - Kein QoS, kein Quota-Enforcement, kein Plan-System
+
+PH2: QoS / Bandbreitenkontrolle
+  - Per-Client Speed-Limits fuer LEGACY (accel-ppp Shaper oder tc)
+  - IKEv2-QoS ist explizit NICHT Teil von PH2 (B290)
+  - Noch kein Plan-System, aber QoS-Profile sind die technische Basis
+
+PH5: Webpanel Core
+  - Kunden sehen ihren Status/Zugangsdaten
+  - Admin kann Verbindungen verwalten
+  - Hier koennte die Plan-Anzeige integriert werden
+
+PH7: Accounting / Session-Mapping — SCHLUESSELPHASE FUER PLANS
+  - Saubere Session-Zuordnung (wer hat wann wie viel Traffic)
+  - VICI-Listener fuer IKEv2 Session-Mapping (B167 3a)
+  - Reconcile-Mechanik (Drift-Reparatur)
+  - GRUNDLAGE fuer Quota-Berechnung und Abrechnung
+  - Ohne PH7 ist Quota-Enforcement nicht zuverlaessig moeglich
+
+PH8: Restricted Mode — SCHLUESSELPHASE FUER PLANS
+  - Hier werden Plans erstmals ECHT enforced
+  - Quota aufgebraucht -> Walled Garden (Hard Cut)
+  - Laufzeit abgelaufen -> Walled Garden
+  - Manual Restrict -> Not-Aus (gilt fuer alle inkl. ADMIN)
+
+FAZIT: Ein echtes Plan-System wird erst ab PH7/PH8 produktiv.
+Schema-Design (Plan-Tabelle, Felder) kann frueher passieren,
+Enforcement nicht.
+
+
+================================================================================
+7) OFFENE TECHNISCHE FRAGEN
+================================================================================
+
+FRAGE 1: QoS/Speed-Limiting fuer IKEv2-Clients (MODERN/ADMIN)
+  B160 beschreibt nur tc auf pppX. IKEv2 hat keine pppX-Interfaces.
+  Ohne Loesung gibt es kein per-Client Speed-Limit fuer MODERN/ADMIN.
+  Das betrifft die Mehrheit der Kunden (nur XP nutzt L2TP/PPP).
+  HINWEIS: Alle ANDEREN Plan-Mechanismen (Quota, Restricted, Concurrency,
+  Accounting) sind fuer IKEv2 konzipiert oder bereits aktiv.
+  NUR Speed-Limiting ist als Implementierung offen.
+  -> Muss geloest werden, FALLS Plans sich ueber Speed differenzieren sollen.
+
+FRAGE 2: Quota-Scope (Customer vs Connection)
+  Wird Datenvolumen pro Kunde oder pro Verbindung gezaehlt?
+  -> Bestimmt wo quota_used gespeichert wird.
+
+FRAGE 3: SimUse-Wert pro Plan
+  Aktuell hardcoded "1". Fuer Family-Plan muesste der Wert variabel sein.
+  -> Wird Concurrency ueber SimUse-Wert oder ueber Anzahl Connections geloest?
+
+FRAGE 4: Quota-Echtzeit vs. Periodisch
+  radacct Interim-Updates alle 5 Minuten. Quota kann bis zu 5 Min hinterherhinken.
+  -> Akzeptabel oder Echtzeit noetig?
+
+FRAGE 5: Laufzeit-Modell
+  Monatlich? Jaehrlich? Prepaid? Postpaid?
+
+FRAGE 6: Plan-Wechsel waehrend Laufzeit
+  Upgrade/Downgrade mid-term? Was passiert mit Quota/Laufzeit?
+
+FRAGE 7: Customer- vs Connection-Scope fuer plan_id
+  Zentrale Architekturentscheidung, siehe Abschnitt 4.
+  Ohne diese Entscheidung kein sauberes DB-Schema fuer Plans moeglich.
+
+
+================================================================================
+8) ZUSAMMENFASSUNG: WAS CHATGPT ALS NAECHSTES BRAUCHT
+================================================================================
+
+Gesichert (kann als Grundlage genutzt werden):
+  - Die Kanon-Regeln (Abschnitt 2) sind verbindlich und aus Bloecken verifiziert
+  - Die Server-Rahmendaten (Abschnitt 1a) stammen von Marco (nicht aus Config)
+  - SimUse und Traffic-Accounting sind AKTIV und verifiziert (Abschnitt 3a, 3b)
+
+Verloren (muss neu erarbeitet werden):
+  - Konkrete Plan-Matrix (Namen, Anzahl, Limits, Preise)
+  - Konkrete Quota-Werte pro Plan
+  - Konkrete Speed-Profile pro Plan
+  - Konkrete Concurrency-Werte pro Plan
+  - Laufzeit-/Billing-Modell
+
+Korrigiert gegenueber ChatGPTs frueherer Erinnerung:
+  - LEGACY nutzt accel-ppp (mit eingebautem Shaper), nicht xl2tpd/pppd
+  - QoS "tc pro pppX" gilt nur fuer LEGACY, nicht fuer IKEv2
+  - IKEv2-QoS (Speed-Limiting) ist die einzige offene Implementierungs-Luecke
+  - Traffic-Accounting fuer IKEv2 ist AKTIV (nicht offen)
+  - SimUse/Concurrency fuer IKEv2 ist AKTIV (nicht offen)
+
+Konzipiert aber noch nicht implementiert (nicht mit "funktioniert" verwechseln):
+  - Session-Mapping fuer IKEv2 via VICI-Listener (B167 3a) — KONZIPIERT
+  - Policy-Apply/Reconcile fuer IKEv2 (B166) — KONZIPIERT
+  - Restricted Mode / Walled Garden (B150) — VORBEREITET, nicht verdrahtet
+  - Quota-Enforcement (PH7/PH8) — VORBEREITET, nicht verdrahtet
+
+Muss Marco entscheiden:
+  - Die 7 offenen Fragen in Abschnitt 7
+  - Konkrete Plan-Inhalte (Anzahl, Namen, Limits, Preise)
+  - Ob IKEv2-QoS ein Blocker fuer Plans ist oder akzeptabel ohne
+
+
+================================================================================
+ENDE
+================================================================================

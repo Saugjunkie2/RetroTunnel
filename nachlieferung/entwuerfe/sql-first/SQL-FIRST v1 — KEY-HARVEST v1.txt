@@ -1,0 +1,177 @@
+xp-vpn-stack/entwuerfe/sql-first/SQL-FIRST v1 — KEY-HARVEST v1.txt
+================================================================================
+TITLE: SQL-first — Key-Harvest v1 (Non-Time Keys) + Cross-Check gegen B057
+DOC-ID: SQLF-HARVEST-01
+STATUS: ENTWURF (Phase 3)
+VERSION: v0.1
+DATUM: 2026-01-28 (Europe/Zurich)
+
+ZIEL (was dieses Dokument leistet):
+- Harveste Settings-Keys, die in Kanon-Blöcken als SQL-first/policy-relevant referenziert werden,
+  aber NICHT im B057-Startset (Katalog-SoT) als kanonische Keys geführt werden.
+- Ergebnis ist KEIN Patch, sondern eine präzise Liste: Legacy-Key → Canonical-Key (mit Präfix-Norm) + Consumer-Anker.
+
+INPUT-SCOPE / QUELLEN:
+- NUR Kanon (nicht aus entwuerfe/*): blocks/* + root SoT-Dateien.
+- Primär: B061 (Panel/Stats Pool-Ampel), B330 (Logging/Retention/Cache), B165 (Accounting Spool).
+
+OUTPUT-NORM (aus euren Owner-Entscheiden, bereits FIX):
+- Canonical Key Naming nutzt Präfixe (web_/vpn_/peak_/radius_).
+- Unpräfixierte Legacy-Keys gelten als ALIAS-Notation und müssen in NORM-02 abgebildet werden.
+
+================================================================================
+HARVEST-LISTE (Non-Time, policy-relevant) — v1
+================================================================================
+H-01) ip_pool_green_threshold  →  web_ip_pool_green_threshold
+  Domain: WEBPANEL_STATS (Pool-Ampel / B061)
+  Scope(default): GLOBAL
+  Typ/Range (Draft): INT (>=0)
+  Consumer (Anker):
+    - blocks/B061_DUALSTACK_SLOT_MAPPING_PANEL_STATS.txt (Thresholds/Pool-Ampel)
+  Quelle (Kanon-Anchor):
+    - blocks/B061_DUALSTACK_SLOT_MAPPING_PANEL_STATS.txt L131-L136
+  Notes/Constraints: Nur UI/Stats; kein Enforcement. Missing/Invalid muss Panel auf 'UNKNOWN' + Warnflag schalten.
+  Fix-Intention (Delta-Beschreibung, ohne Patch):
+    - Delta A: In B057 (Key Catalog) web_ip_pool_green_threshold als Key aufnehmen (inkl. Typ/Range/Fail-Class/Scope).
+    - Delta B: In NORM-02 Alias-Resolver ip_pool_green_threshold → web_ip_pool_green_threshold als Alias definieren.
+    - Delta C: Consumer-Referenzen in Kanon werden später auf Canonical-Key umgestellt (Phase 4),
+             bis dahin bleibt Alias-Resolver Pflicht, um Drift/Alttext zu tolerieren.
+  Validierung (B310-Ebene, Entwurf):
+    - B310-SQLF-CAT: key present + type/range valid + alias maps + consumer sees canonical.
+
+H-02) ip_pool_red_threshold  →  web_ip_pool_red_threshold
+  Domain: WEBPANEL_STATS (Pool-Ampel / B061)
+  Scope(default): GLOBAL
+  Typ/Range (Draft): INT (>=0)
+  Consumer (Anker):
+    - blocks/B061_DUALSTACK_SLOT_MAPPING_PANEL_STATS.txt (Thresholds/Pool-Ampel)
+  Quelle (Kanon-Anchor):
+    - blocks/B061_DUALSTACK_SLOT_MAPPING_PANEL_STATS.txt L131-L136
+  Notes/Constraints: Nur UI/Stats; kein Enforcement. Relation: red_threshold <= green_threshold (Contract).
+  Fix-Intention (Delta-Beschreibung, ohne Patch):
+    - Delta A: In B057 (Key Catalog) web_ip_pool_red_threshold als Key aufnehmen (inkl. Typ/Range/Fail-Class/Scope).
+    - Delta B: In NORM-02 Alias-Resolver ip_pool_red_threshold → web_ip_pool_red_threshold als Alias definieren.
+    - Delta C: Consumer-Referenzen in Kanon werden später auf Canonical-Key umgestellt (Phase 4),
+             bis dahin bleibt Alias-Resolver Pflicht, um Drift/Alttext zu tolerieren.
+  Validierung (B310-Ebene, Entwurf):
+    - B310-SQLF-CAT: key present + type/range valid + alias maps + consumer sees canonical.
+
+H-03) log_detailed_retention_days  →  web_log_detailed_retention_days
+  Domain: LOGGING_RETENTION (B330)
+  Scope(default): GLOBAL
+  Typ/Range (Draft): INT (>=0)
+  Consumer (Anker):
+    - blocks/B330_LOGGING_MONITORING_RETENTION_ALERTS.txt (Logging/Retention Targets)
+  Quelle (Kanon-Anchor):
+    - blocks/B330_LOGGING_MONITORING_RETENTION_ALERTS.txt L51-L57
+  Notes/Constraints: Policy-Zielwert (Control-Plane). Physik-Ceiling bleibt separat (Disk-Schutz).
+  Fix-Intention (Delta-Beschreibung, ohne Patch):
+    - Delta A: In B057 (Key Catalog) web_log_detailed_retention_days als Key aufnehmen (inkl. Typ/Range/Fail-Class/Scope).
+    - Delta B: In NORM-02 Alias-Resolver log_detailed_retention_days → web_log_detailed_retention_days als Alias definieren.
+    - Delta C: Consumer-Referenzen in Kanon werden später auf Canonical-Key umgestellt (Phase 4),
+             bis dahin bleibt Alias-Resolver Pflicht, um Drift/Alttext zu tolerieren.
+  Validierung (B310-Ebene, Entwurf):
+    - B310-SQLF-CAT: key present + type/range valid + alias maps + consumer sees canonical.
+
+H-04) log_detailed_max_total_bytes  →  web_log_detailed_max_total_bytes
+  Domain: LOGGING_RETENTION (B330)
+  Scope(default): GLOBAL
+  Typ/Range (Draft): INT (>=0)
+  Consumer (Anker):
+    - blocks/B330_LOGGING_MONITORING_RETENTION_ALERTS.txt (Logging/Retention Targets, effective_max_bytes rule)
+  Quelle (Kanon-Anchor):
+    - blocks/B330_LOGGING_MONITORING_RETENTION_ALERTS.txt L51-L88
+  Notes/Constraints: Policy-Zielwert. effective_max_bytes = min(sql_value, LOG_HARD_MAX_BYTES) laut B330.
+  Fix-Intention (Delta-Beschreibung, ohne Patch):
+    - Delta A: In B057 (Key Catalog) web_log_detailed_max_total_bytes als Key aufnehmen (inkl. Typ/Range/Fail-Class/Scope).
+    - Delta B: In NORM-02 Alias-Resolver log_detailed_max_total_bytes → web_log_detailed_max_total_bytes als Alias definieren.
+    - Delta C: Consumer-Referenzen in Kanon werden später auf Canonical-Key umgestellt (Phase 4),
+             bis dahin bleibt Alias-Resolver Pflicht, um Drift/Alttext zu tolerieren.
+  Validierung (B310-Ebene, Entwurf):
+    - B310-SQLF-CAT: key present + type/range valid + alias maps + consumer sees canonical.
+
+H-05) log_aggregate_retention_months  →  web_log_aggregate_retention_months
+  Domain: LOGGING_RETENTION (B330)
+  Scope(default): GLOBAL
+  Typ/Range (Draft): INT (>=0)
+  Consumer (Anker):
+    - blocks/B330_LOGGING_MONITORING_RETENTION_ALERTS.txt (Aggregate retention)
+  Quelle (Kanon-Anchor):
+    - blocks/B330_LOGGING_MONITORING_RETENTION_ALERTS.txt L51-L80
+  Notes/Constraints: Für Heavy-User Stats / Long-term Aggregates (PH9-lean).
+  Fix-Intention (Delta-Beschreibung, ohne Patch):
+    - Delta A: In B057 (Key Catalog) web_log_aggregate_retention_months als Key aufnehmen (inkl. Typ/Range/Fail-Class/Scope).
+    - Delta B: In NORM-02 Alias-Resolver log_aggregate_retention_months → web_log_aggregate_retention_months als Alias definieren.
+    - Delta C: Consumer-Referenzen in Kanon werden später auf Canonical-Key umgestellt (Phase 4),
+             bis dahin bleibt Alias-Resolver Pflicht, um Drift/Alttext zu tolerieren.
+  Validierung (B310-Ebene, Entwurf):
+    - B310-SQLF-CAT: key present + type/range valid + alias maps + consumer sees canonical.
+
+H-06) spool_retention_days  →  web_spool_retention_days
+  Domain: ACCOUNTING_SPOOL_RETENTION (B330/B165)
+  Scope(default): GLOBAL
+  Typ/Range (Draft): INT (>=0)
+  Consumer (Anker):
+    - blocks/B330_LOGGING_MONITORING_RETENTION_ALERTS.txt (Spool Targets)
+    - blocks/B165_ACCOUNTING_COLLECTOR_SESSION_MAPPING.txt (Spool Ceilings + Alerts)
+  Quelle (Kanon-Anchor):
+    - blocks/B330_LOGGING_MONITORING_RETENTION_ALERTS.txt L55-L57
+  Notes/Constraints: Policy-Zielwert; zusätzlich Physik-Ceilings im Spool-Subsystem.
+  Fix-Intention (Delta-Beschreibung, ohne Patch):
+    - Delta A: In B057 (Key Catalog) web_spool_retention_days als Key aufnehmen (inkl. Typ/Range/Fail-Class/Scope).
+    - Delta B: In NORM-02 Alias-Resolver spool_retention_days → web_spool_retention_days als Alias definieren.
+    - Delta C: Consumer-Referenzen in Kanon werden später auf Canonical-Key umgestellt (Phase 4),
+             bis dahin bleibt Alias-Resolver Pflicht, um Drift/Alttext zu tolerieren.
+  Validierung (B310-Ebene, Entwurf):
+    - B310-SQLF-CAT: key present + type/range valid + alias maps + consumer sees canonical.
+
+H-07) spool_max_total_bytes  →  web_spool_max_total_bytes
+  Domain: ACCOUNTING_SPOOL_RETENTION (B330/B165)
+  Scope(default): GLOBAL
+  Typ/Range (Draft): INT (>=0)
+  Consumer (Anker):
+    - blocks/B330_LOGGING_MONITORING_RETENTION_ALERTS.txt (Spool Targets, effective_spool_max_bytes)
+    - blocks/B165_ACCOUNTING_COLLECTOR_SESSION_MAPPING.txt (SPOOL_HARD_MAX_BYTES)
+  Quelle (Kanon-Anchor):
+    - blocks/B330_LOGGING_MONITORING_RETENTION_ALERTS.txt L55-L90
+  Notes/Constraints: Policy-Zielwert. effective_spool_max_bytes = min(sql_value, SPOOL_HARD_MAX_BYTES) laut B330.
+  Fix-Intention (Delta-Beschreibung, ohne Patch):
+    - Delta A: In B057 (Key Catalog) web_spool_max_total_bytes als Key aufnehmen (inkl. Typ/Range/Fail-Class/Scope).
+    - Delta B: In NORM-02 Alias-Resolver spool_max_total_bytes → web_spool_max_total_bytes als Alias definieren.
+    - Delta C: Consumer-Referenzen in Kanon werden später auf Canonical-Key umgestellt (Phase 4),
+             bis dahin bleibt Alias-Resolver Pflicht, um Drift/Alttext zu tolerieren.
+  Validierung (B310-Ebene, Entwurf):
+    - B310-SQLF-CAT: key present + type/range valid + alias maps + consumer sees canonical.
+
+H-08) settings_cache_ttl_seconds  →  web_settings_cache_ttl_seconds
+  Domain: SETTINGS_CACHE (B330)
+  Scope(default): GLOBAL
+  Typ/Range (Draft): INT (>=0)
+  Consumer (Anker):
+    - blocks/B330_LOGGING_MONITORING_RETENTION_ALERTS.txt (Cache TTL)
+  Quelle (Kanon-Anchor):
+    - blocks/B330_LOGGING_MONITORING_RETENTION_ALERTS.txt L27-L45
+  Notes/Constraints: Control-Plane Cache TTL; MUSS lokal gecappt sein (Physik > Policy) laut B330.
+  Fix-Intention (Delta-Beschreibung, ohne Patch):
+    - Delta A: In B057 (Key Catalog) web_settings_cache_ttl_seconds als Key aufnehmen (inkl. Typ/Range/Fail-Class/Scope).
+    - Delta B: In NORM-02 Alias-Resolver settings_cache_ttl_seconds → web_settings_cache_ttl_seconds als Alias definieren.
+    - Delta C: Consumer-Referenzen in Kanon werden später auf Canonical-Key umgestellt (Phase 4),
+             bis dahin bleibt Alias-Resolver Pflicht, um Drift/Alttext zu tolerieren.
+  Validierung (B310-Ebene, Entwurf):
+    - B310-SQLF-CAT: key present + type/range valid + alias maps + consumer sees canonical.
+
+================================================================================
+CROSS-CHECK RESULTAT
+================================================================================
+- Diese 8 Keys sind in Kanontexten als SQL-first/policy-relevant genannt, aber im B057-Startset aktuell NICHT als Canonical-Key geführt.
+- Konsequenz: SQL-first bleibt an diesen Stellen “SQL-Sand”, weil Consumer entweder implizite Defaults brauchen oder undefiniert bleiben.
+
+COLLATERAL FINDINGS (nicht Key-Liste, aber relevant für Drift-Modell):
+- B330/B165 nennen lokale HARD Ceilings (LOG_HARD_MAX_BYTES / SPOOL_HARD_MAX_BYTES / SPOOL_HARD_MAX_AGE_SECONDS) als MUST-Enforcement.
+  Das kollidiert potenziell mit eurer korrigierten Option C, wenn C so verstanden wird, dass 'Hard Config' nur Drift-Hinweis ist.
+  -> Im SQL-first Entwurf wird das als OPEN geführt (siehe OPEN REGISTER: SQLF-OPEN-DRIFT-01).
+
+================================================================================
+CHANGELOG
+================================================================================
+v0.1 (2026-01-28): Initialer Non-Time Key Harvest (8 policy-relevante Keys) + Canonical-Prefix Mapping + Alias-Pflicht.

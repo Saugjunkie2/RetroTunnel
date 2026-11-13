@@ -1,0 +1,532 @@
+# SQL-FIRST v1 — DOC-SET-KEYCAT v1 — Key Catalog (Canonical Registry Inventory)
+# Version: v1.7
+# Status: ENTWURF (Doc-Set Container)
+# Zweck: Single Inventory Source für alle canonical keys + alias/rename/meta, inkl. Keyset-Membership (PH1/PH2) und Fail-Policy Meta.
+
+----------------------------------------------------------------------
+0) Scope / Regeln (Doc-Set-Container)
+----------------------------------------------------------------------
+
+- Dieses Dokument ist ein DOC-SET (Inventar-/Katalog-Datei).
+- Es enthält keine Chatverlauf-Referenzen als Abhängigkeit. Inhalte werden aus HARVEST-Dateien konsolidiert.
+- NORM-Dateien bleiben normativ/kurz und verweisen auf dieses DOC-SET für konkrete Listen/Inventare.
+- In dieser Patch-Runde (Runde 2) wird Section 4 aus HARVEST konsolidiert (PH1/PH2 + Alias/Rename Registry) — keine neuen Owner-Entscheide jenseits der Harvest-Fakten.
+
+----------------------------------------------------------------------
+1) Input-Sources (nur innerhalb Entwurf; keine Chatverlauf-Abhängigkeit)
+----------------------------------------------------------------------
+
+- HARVEST-Index v1 (Key-Rename/Prefix/Alias)
+- HARVEST-Index v2 (Fließtext Canonical/Alias/Rename)
+- HARVEST: PH1 Key-Metadaten + Fail-Policy (K01..K11)
+- HARVEST: Keyset Membership v1 (PH1/PH2)
+
+(Hinweis: Diese Quellen liegen als Dateien im Entwurf/Arbeitsordner vor und werden in Runde 2 in diesen Katalog überführt.)
+
+----------------------------------------------------------------------
+2) Begriffe / Normalformen
+----------------------------------------------------------------------
+
+- canonical_key:
+  - Der einzige “Soll”-Name eines Keys (lower_snake_case, prefix allowlist).
+- alias_key:
+  - Legacy-/Übergangsnamen, die gelesen werden dürfen (Write verboten), inkl. dot-keys (nur MIGRATION_REQUIRED).
+- rename:
+  - Soll-Migration: alias/alt → canonical (vNext).
+- keyset:
+  - Gruppierung von keys als Minimum Contract pro Phase (PH1/PH2 etc.).
+
+----------------------------------------------------------------------
+3) Datensatz-Schema (pro Key) — Normiertes Inventarformat
+----------------------------------------------------------------------
+
+Jeder Key-Eintrag muss dieses Schema tragen (auch wenn einzelne Felder leer bleiben dürfen):
+
+KEY:
+  canonical_key: <string>
+  alias_keys: [<string>, ...]
+  deprecated_alias_keys: [<string>, ...]          # optional; falls klar getrennt
+  datatype: <enum>                                # z.B. INT|BOOL|STRING|JSON|IPV4|CIDR|...
+  unit: <string|null>                             # z.B. seconds|days|bps|count|...
+  # Hinweis: datatype/unit dürfen in frühen PH-Ständen "derived" sein (aus Key-Name/Contract),
+  # müssen aber später durch kanonische Meta (Harvest/Norm) bestätigt werden; ansonsten REG_DRIFT.
+  constraints:
+    range: <min..max|null>
+    regex: <pattern|null>
+    enum: [<v>, ...]                              # optional
+  default_policy:
+    value: <literal|null>                         # nur wenn im Harvest explizit
+    source: <HARVEST-ID|null>                     # optional
+  fail_policy:
+    class: <enum|null>                            # FAIL_CLOSED|SAFE_DEFAULT|WARN_ONLY|TIGHTEN_ONLY|MIGRATION_REQUIRED|CONFLICT
+    reason_tokens: [<REG_REASON_*>, ...]          # optional, wenn bereits normiert
+  consumer_domains: [<PHx|module>, ...]           # z.B. PH1, PH2, peak, radius, webpanel, daemon
+  writer_policy_ref:
+    doc: DOC-SET-WRITEPATH
+    rule: <id|null>                               # optional pointer
+  keysets: [<KSET-ID>, ...]                       # z.B. PH1-K01.., PH1-REQ-SET-01 etc.
+  notes: <string|null>                            # nur technisch/normativ, keine Story
+
+----------------------------------------------------------------------
+4) Katalog-Struktur (befüllt aus Harvest; ohne Chatverlauf-Abhängigkeit)
+----------------------------------------------------------------------
+
+4) Katalog-Struktur (befüllt aus Harvest; ohne Chatverlauf-Abhängigkeit)
+
+Diese Datei ist ein **Inventar** der kanonischen SQL-Settings-Keys (inkl. Legacy-Alias/Rename).
+Ziel: **Drift-freie, eindeutige Benennung** + nachvollziehbare Konsolidation.
+
+Pro Key-Eintrag werden (mindestens) geführt:
+- canonical_key_id: stabiler Identifier (z.B. PH1-Kxx oder KEY_<UPPER>)
+- canonical_key: der kanonische Key-Name
+- allow_prefix: Prefix-Regel (PR-PFX Allowlist)
+- alias_keys: bekannte Legacy-/Alias-Keys (falls vorhanden)
+- keysets: Zugehörigkeit zu KSETs (falls bekannt)
+- notes: Freitext (z.B. Quelle/Status)
+
+Hinweis:
+- Dieses Inventar darf **Stub-Einträge** enthalten (nur Namen/Beziehungen), wenn Metadaten (Typ/Unit/Range/Default/Fail-Policy) noch nicht explizit kanonisiert wurden.
+- Alias/Rename-Beziehungen stammen aus HARVEST-Indices (v1/v2) bzw. kanonischen Extrakten.
+
+
+### PH1-K01 — vpn_claim_deadline_days
+- canonical_key_id: PH1-K01
+  canonical_key: vpn_claim_deadline_days
+  allow_prefix: vpn_
+  alias_keys: [claim_deadline_days, web_claim_deadline_days]
+  keysets: [KSET-VPN-LIFECYCLE, KSET-CORE-VPN]
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### PH1-K02 — vpn_unclaimed_grace_days
+- canonical_key_id: PH1-K02
+  canonical_key: vpn_unclaimed_grace_days
+  allow_prefix: vpn_
+  alias_keys: [unclaimed_grace_days, web_unclaimed_grace_days]
+  keysets: [KSET-VPN-LIFECYCLE, KSET-CORE-VPN]
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### PH1-K03 — vpn_online_window_seconds
+- canonical_key_id: PH1-K03
+  canonical_key: vpn_online_window_seconds
+  allow_prefix: vpn_
+  alias_keys: [online_window_seconds, web_online_window_seconds]
+  keysets: [KSET-CORE-VPN]
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### PH1-K04 — vpn_pending_ttl_seconds
+- canonical_key_id: PH1-K04
+  canonical_key: vpn_pending_ttl_seconds
+  allow_prefix: vpn_
+  alias_keys: [pending_ttl_seconds]
+  keysets: [KSET-CORE-VPN]
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### PH1-K05 — vpn_active_session_lock_ttl_seconds
+- canonical_key_id: PH1-K05
+  canonical_key: vpn_active_session_lock_ttl_seconds
+  allow_prefix: vpn_
+  alias_keys: [active_session_lock_ttl_seconds]
+  keysets: [KSET-CORE-VPN]
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### PH1-K06 — vpn_cleanup_timeout_seconds
+- canonical_key_id: PH1-K06
+  canonical_key: vpn_cleanup_timeout_seconds
+  allow_prefix: vpn_
+  alias_keys: [cleanup_timeout_seconds]
+  keysets: [KSET-CORE-VPN]
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### PH1-K07 — vpn_cleanup_ratelimit_window_seconds
+- canonical_key_id: PH1-K07
+  canonical_key: vpn_cleanup_ratelimit_window_seconds
+  allow_prefix: vpn_
+  alias_keys: [cleanup_ratelimit_window_seconds]
+  keysets: [KSET-CORE-VPN]
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### KEY_VPN_RECONCILE_INTERVAL_SECONDS — vpn_reconcile_interval_seconds
+- canonical_key_id: KEY_VPN_RECONCILE_INTERVAL_SECONDS
+  canonical_key: vpn_reconcile_interval_seconds
+  allow_prefix: vpn_
+  alias_keys: [reconcile_interval_seconds]
+  keysets: [KSET-CORE-VPN]
+  notes: "PH1-baseline: SQL→Kernel reconcile tick interval (Apply/Reconcile wiring). Metadata (datatype/unit/default/fail_policy) TBD via Harvest."
+
+### PH1-K11 — radius_acct_interim_seconds
+- canonical_key_id: PH1-K11
+  canonical_key: radius_acct_interim_seconds
+  allow_prefix: radius_
+  alias_keys: []
+  keysets: [KSET-CORE-VPN]
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+
+### KEY_VPN_STALE_THRESHOLD_SECONDS — vpn_stale_threshold_seconds
+- canonical_key_id: KEY_VPN_STALE_THRESHOLD_SECONDS
+  canonical_key: vpn_stale_threshold_seconds
+  allow_prefix: vpn_
+  alias_keys: [stale_threshold_seconds]
+  keysets: [KSET-CORE-VPN]
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### KEY_VPN_TAIL_RESERVE_SLOTS — vpn_tail_reserve_slots
+- canonical_key_id: KEY_VPN_TAIL_RESERVE_SLOTS
+  canonical_key: vpn_tail_reserve_slots
+  allow_prefix: vpn_
+  alias_keys: [tail_reserve_slots]
+  keysets: [KSET-CORE-VPN]
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### KEY_VPN_QUARANTINE_DAYS — vpn_quarantine_days
+- canonical_key_id: KEY_VPN_QUARANTINE_DAYS
+  canonical_key: vpn_quarantine_days
+  allow_prefix: vpn_
+  alias_keys: []
+  keysets: [KSET-CORE-VPN]
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### KEY_VPN_CLEANUP_RATELIMIT_RATE_PER_SEC — vpn_cleanup_ratelimit_rate_per_sec
+- canonical_key_id: KEY_VPN_CLEANUP_RATELIMIT_RATE_PER_SEC
+  canonical_key: vpn_cleanup_ratelimit_rate_per_sec
+  allow_prefix: vpn_
+  alias_keys: [cleanup_ratelimit_rate_per_sec]
+  keysets: [KSET-CORE-VPN]
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### KEY_VPN_CLEANUP_RATELIMIT_BURST — vpn_cleanup_ratelimit_burst
+- canonical_key_id: KEY_VPN_CLEANUP_RATELIMIT_BURST
+  canonical_key: vpn_cleanup_ratelimit_burst
+  allow_prefix: vpn_
+  alias_keys: [cleanup_ratelimit_burst]
+  keysets: [KSET-CORE-VPN]
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### KEY_VPN_JANITOR_INTERVAL_SECONDS — vpn_janitor_interval_seconds
+- canonical_key_id: KEY_VPN_JANITOR_INTERVAL_SECONDS
+  canonical_key: vpn_janitor_interval_seconds
+  allow_prefix: vpn_
+  alias_keys: [janitor_interval_seconds]
+  keysets: [KSET-CORE-VPN]
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### KEY_VPN_BOOT_JANITOR_DELAY_SECONDS — vpn_boot_janitor_delay_seconds
+- canonical_key_id: KEY_VPN_BOOT_JANITOR_DELAY_SECONDS
+  canonical_key: vpn_boot_janitor_delay_seconds
+  allow_prefix: vpn_
+  alias_keys: [boot_janitor_delay_seconds]
+  keysets: [KSET-CORE-VPN]
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### KEY_VPN_CLEANUP_TIME_BUDGET_MS — vpn_cleanup_time_budget_ms
+- canonical_key_id: KEY_VPN_CLEANUP_TIME_BUDGET_MS
+  canonical_key: vpn_cleanup_time_budget_ms
+  allow_prefix: vpn_
+  alias_keys: []
+  keysets: [KSET-CORE-VPN]
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### KEY_VPN_CLEANUP_RESULT_TTL_SECONDS — vpn_cleanup_result_ttl_seconds
+- canonical_key_id: KEY_VPN_CLEANUP_RESULT_TTL_SECONDS
+  canonical_key: vpn_cleanup_result_ttl_seconds
+  allow_prefix: vpn_
+  alias_keys: [cleanup_result_ttl_seconds]
+  keysets: [KSET-CORE-VPN]
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### KEY_VPN_CLEANUP_TIME_BUDGET_SCOPE — vpn_cleanup_time_budget_scope
+- canonical_key_id: KEY_VPN_CLEANUP_TIME_BUDGET_SCOPE
+  canonical_key: vpn_cleanup_time_budget_scope
+  allow_prefix: vpn_
+  alias_keys: []
+  keysets: []
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### KEY_VPN_CLEANUP_TIME_BUDGET_SOFT_MS — vpn_cleanup_time_budget_soft_ms
+- canonical_key_id: KEY_VPN_CLEANUP_TIME_BUDGET_SOFT_MS
+  canonical_key: vpn_cleanup_time_budget_soft_ms
+  allow_prefix: vpn_
+  alias_keys: []
+  keysets: []
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### KEY_VPN_CLEANUP_TIME_BUDGET_HARD_MS — vpn_cleanup_time_budget_hard_ms
+- canonical_key_id: KEY_VPN_CLEANUP_TIME_BUDGET_HARD_MS
+  canonical_key: vpn_cleanup_time_budget_hard_ms
+  allow_prefix: vpn_
+  alias_keys: []
+  keysets: []
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### KEY_VPN_TC_PROFILE_TC_LEGACY_BANDWIDTH_BPS — vpn_tc_profile_tc_legacy_bandwidth_bps
+- canonical_key_id: KEY_VPN_TC_PROFILE_TC_LEGACY_BANDWIDTH_BPS
+  canonical_key: vpn_tc_profile_tc_legacy_bandwidth_bps
+  allow_prefix: vpn_
+  alias_keys: []
+  keysets: []
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### KEY_VPN_TC_PROFILE_TCP_PEAK_BANDWIDTH_BPS — vpn_tc_profile_tcp_peak_bandwidth_bps
+- canonical_key_id: KEY_VPN_TC_PROFILE_TCP_PEAK_BANDWIDTH_BPS
+  canonical_key: vpn_tc_profile_tcp_peak_bandwidth_bps
+  allow_prefix: vpn_
+  alias_keys: []
+  keysets: []
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### KEY_WEB_SETTINGS_CACHE_TTL_SECONDS — web_settings_cache_ttl_seconds
+- canonical_key_id: KEY_WEB_SETTINGS_CACHE_TTL_SECONDS
+  canonical_key: web_settings_cache_ttl_seconds
+  allow_prefix: web_
+  alias_keys: []
+  keysets: []
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### KEY_WEB_SETTINGS_SQL_READ_TIMEOUT_MS — web_settings_sql_read_timeout_ms
+- canonical_key_id: KEY_WEB_SETTINGS_SQL_READ_TIMEOUT_MS
+  canonical_key: web_settings_sql_read_timeout_ms
+  allow_prefix: web_
+  alias_keys: []
+  keysets: []
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### KEY_WEB_USER_STATUS_CACHE_TTL_SECONDS — web_user_status_cache_ttl_seconds
+- canonical_key_id: KEY_WEB_USER_STATUS_CACHE_TTL_SECONDS
+  canonical_key: web_user_status_cache_ttl_seconds
+  allow_prefix: web_
+  alias_keys: []
+  keysets: []
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### KEY_WEB_SPOOL_RETENTION_DAYS — web_spool_retention_days
+- canonical_key_id: KEY_WEB_SPOOL_RETENTION_DAYS
+  canonical_key: web_spool_retention_days
+  allow_prefix: web_
+  alias_keys: []
+  keysets: []
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### KEY_WEB_SPOOL_MAX_TOTAL_BYTES — web_spool_max_total_bytes
+- canonical_key_id: KEY_WEB_SPOOL_MAX_TOTAL_BYTES
+  canonical_key: web_spool_max_total_bytes
+  allow_prefix: web_
+  alias_keys: []
+  keysets: []
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### KEY_WEB_LOG_DETAILED_RETENTION_DAYS — web_log_detailed_retention_days
+- canonical_key_id: KEY_WEB_LOG_DETAILED_RETENTION_DAYS
+  canonical_key: web_log_detailed_retention_days
+  allow_prefix: web_
+  alias_keys: []
+  keysets: []
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### KEY_WEB_LOG_DETAILED_MAX_TOTAL_BYTES — web_log_detailed_max_total_bytes
+- canonical_key_id: KEY_WEB_LOG_DETAILED_MAX_TOTAL_BYTES
+  canonical_key: web_log_detailed_max_total_bytes
+  allow_prefix: web_
+  alias_keys: []
+  keysets: []
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+### KEY_WEB_LOG_AGGREGATE_RETENTION_MONTHS — web_log_aggregate_retention_months
+- canonical_key_id: KEY_WEB_LOG_AGGREGATE_RETENTION_MONTHS
+  canonical_key: web_log_aggregate_retention_months
+  allow_prefix: web_
+  alias_keys: []
+  keysets: []
+  notes: "Inventory entry. Metadata TBD unless defined elsewhere."
+
+4.2) PH2 Keys — Minimum Contract (Harvest-konsolidiert)
+- Quelle: Keyset Membership v1 (PH1/PH2). Meta (datatype/fail/defaults) ist hier noch nicht vollständig harvested; unit/datatype sind aus Key-Namen/Contract 'bandwidth_bps' abgeleitet und müssen später gegen kanonische Meta validiert werden.
+
+### KSET-PEAK-BASELINE-PROFILE — vpn_profile_bandwidth_bps
+
+KEY:
+  canonical_key: vpn_profile_bandwidth_bps
+  alias_keys: [profile_bandwidth_bps]
+  deprecated_alias_keys: []
+  datatype: INT
+  unit: bps
+  constraints:
+    range: null
+    regex: null
+    enum: []
+  default_policy:
+    value: null
+    source: null
+  fail_policy:
+    class: null
+    reason_tokens: []
+  consumer_domains: []
+  writer_policy_ref:
+    doc: DOC-SET-WRITEPATH
+    rule: null
+  keysets: [KSET-PEAK-BASELINE-PROFILE]
+  sources: [HARVEST-INDEX v1 H-015, Keyset Membership v1]
+  notes: >
+    Keyset Membership v1 listet vpn_profile_bandwidth_bps als einziges Member von KSET-PEAK-BASELINE-PROFILE.
+    datatype/unit sind hier über das Suffix *_bps (Konvention) gesetzt; falls du dafür eine explizite NORM willst,
+    muss das später in NORM-02/NORM-06 formalisiert werden.
+
+### PH2-REQ-SET-01-A — vpn_tc_profile_tc_admin_bandwidth_bps
+KEY:
+  canonical_key: vpn_tc_profile_tc_admin_bandwidth_bps
+  alias_keys: [tc_admin]
+  deprecated_alias_keys: []
+  datatype: INT
+  unit: bps
+  constraints:
+    range: null
+    regex: null
+    enum: []
+  default_policy:
+    value: null
+    source: null
+  fail_policy:
+    class: null
+    reason_tokens: []
+  consumer_domains: []
+  writer_policy_ref:
+    doc: DOC-SET-WRITEPATH
+    rule: null
+  keysets: [PH2-REQ-SET-01-A]
+  notes: PH2 Minimum Contract: tc_profile ⇒ bandwidth_bps. Detailed fail-policy/defaults not yet harvested.
+
+### PH2-REQ-SET-01-B — vpn_tc_profile_tc_legacy_bandwidth_bps
+KEY:
+  canonical_key: vpn_tc_profile_tc_legacy_bandwidth_bps
+  alias_keys: [tc_legacy]
+  deprecated_alias_keys: []
+  datatype: INT
+  unit: bps
+  constraints:
+    range: null
+    regex: null
+    enum: []
+  default_policy:
+    value: null
+    source: null
+  fail_policy:
+    class: null
+    reason_tokens: []
+  consumer_domains: []
+  writer_policy_ref:
+    doc: DOC-SET-WRITEPATH
+    rule: null
+  keysets: [PH2-REQ-SET-01-B]
+  notes: PH2 Minimum Contract: tc_profile ⇒ bandwidth_bps. Detailed fail-policy/defaults not yet harvested.
+
+### PH2-REQ-SET-01-C — vpn_tc_profile_tc_modern_bandwidth_bps
+KEY:
+  canonical_key: vpn_tc_profile_tc_modern_bandwidth_bps
+  alias_keys: [tc_modern]
+  deprecated_alias_keys: []
+  datatype: INT
+  unit: bps
+  constraints:
+    range: null
+    regex: null
+    enum: []
+  default_policy:
+    value: null
+    source: null
+  fail_policy:
+    class: null
+    reason_tokens: []
+  consumer_domains: []
+  writer_policy_ref:
+    doc: DOC-SET-WRITEPATH
+    rule: null
+  keysets: [PH2-REQ-SET-01-C]
+  notes: PH2 Minimum Contract: tc_profile ⇒ bandwidth_bps. Detailed fail-policy/defaults not yet harvested.
+
+4.3) Alias/Rename Mapping Registry (Harvest-Index v1/v2, dedupliziert)
+- vpn_active_session_lock_ttl_seconds: aliases/legacy → active_session_lock_ttl_seconds   [source: HARVEST-INDEX v1 H-003]
+- vpn_claim_deadline_days: aliases/legacy → claim_deadline_days   [source: HARVEST-INDEX v1 H-004]
+- vpn_cleanup_ratelimit_window_seconds: aliases/legacy → cleanup_ratelimit_window_seconds   [source: HARVEST-INDEX v1 H-006]
+- vpn_cleanup_result_ttl_seconds: aliases/legacy → cleanup_result_ttl_seconds   [source: HARVEST-INDEX v1 H-007]
+- vpn_cleanup_timeout_seconds: aliases/legacy → cleanup_timeout_seconds   [source: HARVEST-INDEX v1 H-008]
+- vpn_janitor_interval_seconds: aliases/legacy → janitor_interval_seconds   [source: HARVEST-INDEX v1 H-012]
+- vpn_online_window_seconds: aliases/legacy → online_window_seconds, web_online_window_seconds   [source: HARVEST-INDEX v1 H-013]
+- vpn_pending_ttl_seconds: aliases/legacy → pending_ttl_seconds   [source: HARVEST-INDEX v1 H-014]
+- vpn_stale_threshold_seconds: aliases/legacy → stale_threshold_seconds   [source: HARVEST-INDEX v1 H-017]
+- vpn_tc_profile_tc_admin_bandwidth_bps: aliases/legacy → tc_admin   [source: HARVEST-INDEX v2 (PH2)]
+- vpn_tc_profile_tc_legacy_bandwidth_bps: aliases/legacy → tc_legacy   [source: HARVEST-INDEX v2 (PH2)]
+- vpn_tc_profile_tc_modern_bandwidth_bps: aliases/legacy → tc_modern   [source: HARVEST-INDEX v2 (PH2)]
+- vpn_unclaimed_grace_days: aliases/legacy → unclaimed_grace_days   [source: HARVEST-INDEX v1 H-019]
+- tc_legacy → vpn_tc_profile_tc_legacy_bandwidth_bps   [source: HARVEST-INDEX v2 H2-B03]
+- tc_modern → vpn_tc_profile_tc_modern_bandwidth_bps   [source: HARVEST-INDEX v2 H2-B04]
+- tc_admin → vpn_tc_profile_tc_admin_bandwidth_bps   [source: HARVEST-INDEX v2 H2-B05]
+- log_detailed_retention_days: aliases/legacy → log_detailed_retention_days   [source: HARVEST-INDEX v1 H-001]
+- log_summary_retention_days: aliases/legacy → log_summary_retention_days   [source: HARVEST-INDEX v1 H-002]
+- web_log_detailed_retention_days: aliases/legacy → log_detailed_retention_days   [source: HARVEST-INDEX v1 H-003]
+- web_log_summary_retention_days: aliases/legacy → log_summary_retention_days   [source: HARVEST-INDEX v1 H-004]
+- vpn_cleanup_ratelimit_window_seconds: aliases/legacy → cleanup_rate_window_seconds   [source: HARVEST-INDEX v1 H-005]
+- vpn_cleanup_ratelimit_rate_per_sec: aliases/legacy → cleanup_rate_per_sec   [source: HARVEST-INDEX v1 H-006]
+- vpn_cleanup_ratelimit_burst: aliases/legacy → cleanup_burst   [source: HARVEST-INDEX v1 H-007]
+- vpn_cleanup_result_ttl_seconds: aliases/legacy → cleanup_result_ttl_seconds   [source: HARVEST-INDEX v1 H-008]
+- vpn_cleanup_timeout_seconds: aliases/legacy → cleanup_timeout_seconds   [source: HARVEST-INDEX v1 H-009]
+- vpn_janitor_interval_seconds: aliases/legacy → janitor_interval_seconds   [source: HARVEST-INDEX v1 H-010]
+- vpn_janitor_deadline_grace_seconds: aliases/legacy → janitor_deadline_grace_seconds   [source: HARVEST-INDEX v1 H-011]
+- vpn_janitor_max_batch: aliases/legacy → janitor_max_batch   [source: HARVEST-INDEX v1 H-012]
+- vpn_janitor_timeout_seconds: aliases/legacy → janitor_timeout_seconds   [source: HARVEST-INDEX v1 H-013]
+- vpn_janitor_claim_window_seconds: aliases/legacy → janitor_claim_window_seconds   [source: HARVEST-INDEX v1 H-014]
+- vpn_profile_bandwidth_bps: aliases/legacy → profile_bandwidth_bps   [source: HARVEST-INDEX v1 H-015]
+- vpn_profile_peak_pct: aliases/legacy → peak_profile_pct   [source: HARVEST-INDEX v1 H-016]
+- vpn_profile_min_floor_pct: aliases/legacy → min_floor_pct   [source: HARVEST-INDEX v1 H-017]
+- vpn_profile_single_threshold_pct: aliases/legacy → single_threshold_pct   [source: HARVEST-INDEX v1 H-018]
+- vpn_profile_multi_threshold_pct: aliases/legacy → multi_threshold_pct   [source: HARVEST-INDEX v1 H-019]
+- vpn_profile_top_n: aliases/legacy → top_n   [source: HARVEST-INDEX v1 H-020]
+- vpn_tail_reserve_count: aliases/legacy → tail_reserve_count   [source: HARVEST-INDEX v1 H-021]
+- vpn_tail_reserve_policy: aliases/legacy → tail_reserve_policy   [source: HARVEST-INDEX v1 H-022]
+- web_settings_cache_ttl_seconds: aliases/legacy → settings_cache_ttl_seconds   [source: HARVEST-INDEX v1 H-023]
+- web_diag_cache_ttl_seconds: aliases/legacy → diag_cache_ttl_seconds   [source: HARVEST-INDEX v1 H-024]
+- web_db_health_cache_ttl_seconds: aliases/legacy → db_health_cache_ttl_seconds   [source: HARVEST-INDEX v1 H-025]
+- web_session_cache_ttl_seconds: aliases/legacy → session_cache_ttl_seconds   [source: HARVEST-INDEX v1 H-026]
+- web_janitor_status_cache_ttl_seconds: aliases/legacy → janitor_status_cache_ttl_seconds   [source: HARVEST-INDEX v1 H-027]
+- vpn_claim_deadline_days: aliases/legacy → claim_deadline_days   [source: HARVEST-INDEX v1 H-028]
+- vpn_online_window_seconds: aliases/legacy → online_window_seconds, web_online_window_seconds   [source: HARVEST-INDEX v1 H-029]
+- vpn_last_seen_window_seconds: aliases/legacy → last_seen_window_seconds   [source: HARVEST-INDEX v1 H-030]
+- web_maintenance_enabled: aliases/legacy → maintenance_enabled   [source: HARVEST-INDEX v1 H-031]
+- web_maintenance_message: aliases/legacy → maintenance_message   [source: HARVEST-INDEX v1 H-032]
+- web_maintenance_allow_admin_net: aliases/legacy → maintenance_allow_admin_net   [source: HARVEST-INDEX v1 H-033]
+- web_maintenance_allow_ips: aliases/legacy → maintenance_allow_ips   [source: HARVEST-INDEX v1 H-034]
+- web_maintenance_allow_tokens: aliases/legacy → maintenance_allow_tokens   [source: HARVEST-INDEX v1 H-035]
+- web_maintenance_bypass_header: aliases/legacy → maintenance_bypass_header   [source: HARVEST-INDEX v1 H-036]
+- web_ui_rate_limit_window_seconds: aliases/legacy → ui_rate_limit_window_seconds   [source: HARVEST-INDEX v1 H-037]
+- web_ui_rate_limit_requests: aliases/legacy → ui_rate_limit_requests   [source: HARVEST-INDEX v1 H-038]
+- web_ui_rate_limit_burst: aliases/legacy → ui_rate_limit_burst   [source: HARVEST-INDEX v1 H-039]
+- web_ip_rate_limit_window_seconds: aliases/legacy → ip_rate_limit_window_seconds   [source: HARVEST-INDEX v1 H-040]
+- web_ip_rate_limit_requests: aliases/legacy → ip_rate_limit_requests   [source: HARVEST-INDEX v1 H-041]
+- web_ip_rate_limit_burst: aliases/legacy → ip_rate_limit_burst   [source: HARVEST-INDEX v1 H-042]
+- web_rate_limit_per_ip_window_seconds: aliases/legacy → rate_limit_per_ip_window_seconds   [source: HARVEST-INDEX v2 H2-A01]
+- web_rate_limit_per_ip_requests: aliases/legacy → rate_limit_per_ip_requests   [source: HARVEST-INDEX v2 H2-A02]
+- web_rate_limit_per_ip_burst: aliases/legacy → rate_limit_per_ip_burst   [source: HARVEST-INDEX v2 H2-A03]
+- web_rate_limit_global_window_seconds: aliases/legacy → rate_limit_global_window_seconds   [source: HARVEST-INDEX v2 H2-A04]
+- web_rate_limit_global_requests: aliases/legacy → rate_limit_global_requests   [source: HARVEST-INDEX v2 H2-A05]
+- web_rate_limit_global_burst: aliases/legacy → rate_limit_global_burst   [source: HARVEST-INDEX v2 H2-A06]
+- web_janitor_status_cache_ttl_seconds: aliases/legacy → janitor_status_cache_ttl_seconds   [source: HARVEST-INDEX v2 H2-A07]
+
+4.4) Open TODO (nur Harvest-getrieben)
+- TODO: PH1-K03 Domain-Entscheid (vpn_ vs web_) final in NORM-02 schließen und dann hier canonical/alias eindeutig setzen.
+- TODO: PH1-K06 / PH1-K07 Fail-Class Owner-Decision schließen (FAIL_CLOSED vs SAFE_DEFAULT / WARN_ONLY) und hier fail_policy.class nachziehen.
+- TODO: Cleanup-Keys: ranges/defaults fehlen im Extract (nur Typ/Unit + Fail-Class erfasst) → bei nächstem Harvest ergänzen.
+- TODO: PH1-ADD Keys (vpn_reconcile_interval_seconds, vpn_tail_reserve_slots): Meta fehlt (datatype/unit/fail/defaults) → Harvest/Inventar ergänzen.
+- TODO: PH2 tc_profile Keys: Meta (datatype, defaults, fail_policy, constraints) noch unvollständig → PH2-Harvest ergänzen.
+- TODO: consumer_domains / writer_policy_ref.rule nur eintragen, wenn im Harvest explizit genannt oder durch DOC-SET-WRITEPATH kanonisiert.
+
+----------------------------------------------------------------------
+5) Version / Changelog
+----------------------------------------------------------------------
+
+Changelog:
+- 2026-01-29: v1.7 — Batch 3 PH1 Completeness: new canonical key vpn_reconcile_interval_seconds (alias reconcile_interval_seconds) added to KSET-CORE-VPN.
+- 2026-01-29: v1.6 — Batch 2 Konsistenzfix: alias_keys ergänzt (cleanup_result_ttl_seconds → vpn_cleanup_result_ttl_seconds) + keysets membership ergänzt (vpn_boot_janitor_delay_seconds → KSET-CORE-VPN) für PH1 Canonicalization.
+- v1.5: HARVEST-INDEX v1/v2 vollständig in Mapping Registry übernommen + Catalog-Block für vpn_profile_bandwidth_bps (KSET-PEAK-BASELINE-PROFILE).
+- 2026-01-29: v1.4 — Redaktion/Konsistenz: Alias/Rename Registry Source-Notation vereinheitlicht ([sources:] → [source:], H-00x als HARVEST-INDEX v1 referenziert).
+- 2026-01-29: v1.3 — Fix: PH2 KEYCAT Einrückung korrigiert (keysets wieder auf KEY-Level, nicht unter writer_policy_ref), damit Schema/Parser konsistent bleibt.
+- 2026-01-29: v1.2 — Sanity-Fix: PH2 Contract-Items eindeutig gemacht (PH2-REQ-SET-01-A/B/C) damit Keyset-Membership referenzierbar bleibt; Alias/Rename Source-Notation vereinheitlicht; optional Schema-Hinweis zu derived datatype/unit ergänzt.
+- 2026-01-29: v1.1 — Harvest-Konsolidierung: Section 4 befüllt (PH1 Inventory K01..K11 inkl. Cleanup-Keys + PH1-ADD aus KSET-CORE-VPN; PH2 tc_profile Minimum-Contract; Alias/Rename Registry dedupliziert); offene Drift/Owner-Decisions explizit als TODO markiert (kein Erfinden).
+- 2026-01-29: v1.0 — NEW FILE: Doc-Set Skeleton angelegt (KEYCAT Container, Schema + Sections; noch ohne Befüllung).

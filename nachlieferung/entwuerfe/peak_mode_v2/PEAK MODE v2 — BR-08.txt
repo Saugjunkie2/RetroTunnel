@@ -1,0 +1,463 @@
+PEAK MODE v2 — BR-08 (NEUFASSUNG, ENTWURF / Phase 3)
+TITLE: DB-Extension-Schema + Runtime→DB Mapping-Contract
+BR-ID: BR-08
+STATUS: ENTWURF (keine Patch-/Copy-Blöcke, keine SQL-Snippets)
+SCOPE: Persistenz/Audit/History für Peak-Episodes + Snapshots + Apply-Audit + Feld-Mapping aus /run/vpn-sessions/*.env
+
+================================================================================
+0) FAKTEN (Kanon-/Konzept-Imports, auf die sich dieses BR stützt)
+================================================================================
+
+K0.1) SQL-Core bleibt klein; neue Features sollen als eigene Tabellenpakete kommen (kein “Core aufblasen”).
+      - Quelle: blocks/B055_DB_SCHEMA_CORE.txt (Core-Schema-Note)
+
+K0.2) Runtime-SoT für “Session aktiv” ist /run/vpn-sessions/<ppp_if>.env (VALID).
+      - Quelle: blocks/B165_ACCOUNTING_COLLECTOR_SESSION_MAPPING.txt
+      - Mindest-Keys laut Kanon (B165):
+        PPP_IF, CLIENT_IP, CONNECTION_ID, START_TS, PPPD_PID (SESSION_ID optional)
+      - Konsequenz: DB ist Audit/History/Identity/Policy, nicht “Live-Truth”.
+
+K0.3) Apply/Reconcile Exit-Codes (STANDARD 0..7) existieren kanonisch und sollen als semantische Referenz dienen.
+      - Quelle: blocks/B166_POLICY_APPLY_RECONCILE.txt (EXIT-CODES)
+
+K0.4) Peak-Mode Owner-Fixpunkte (bereits fixiert in unserem v2-Dialog):
+      - FP-PEAK-01 MULTI-Schwelle = 30%
+      - FP-PEAK-02 Top-N dynamisch nach active_ppp (USER only), N ist pro Episode “gelatcht”:
+        active_ppp <= 20  → N=3
+        21..100           → N=5
+        > 100             → N=10
+      - SoftIRQ% Triggerbasis = aggregated (nicht max-per-CPU)
+
+K0.5) Peak-Mode arbeitet mit CAKE (kein HTB-Mix); Ziel ist CPU-Overload zu entschärfen durch Bandwidth-Drossel
+      pro pppX (USER), ohne Misch-Masch im QoS-Stack.
+      - Quelle: Peak-Mode_entscheidung + Owner-Fixpunkte (CAKE Edition) (v1 Material)
+
+K0.6) Admin-Exclude (Peak wirkt nur auf USER) ist im Peak-v1 Material als intendiert beschrieben.
+      - Quelle: Peak-Mode_Was es ist, wie es funktioniert (Enforcer: USER-pppX, ADMIN exclude)
+      - Kanonisch durchsetzbar über DB-Lookup (CONNECTION_ID → conn_group).
+
+================================================================================
+1) ANNAHMEN (explizit, damit nichts “heimlich geraten” wird)
+================================================================================
+
+A1) “CONNECTION_ID” in /run/vpn-sessions/*.env entspricht dem SQL-PK vpn_connections.id aus B055.
+    - Begründung: B165 verwendet CONNECTION_ID als runtime mapping zur “vpn_connection_id”.
+
+A2) Peak benötigt DB-Lookups auf vpn_connections (mindestens: conn_group).
+    - Detailspalten außer conn_group (z.B. “Profil-Bandwidth”) sind NICHT als fix angenommen,
+      sondern werden hier nur als OPTION geführt, bis die exakten Kanon-Keys/Spalten feststehen.
+
+A3) Peak speichert keine PII (Username/E-Mail/Pass/PSK/Tokens).
+    - IP-Adressen werden als technisch sensibel behandelt und daher default: NICHT persistiert
+      (nur OPTIONAL/Debug, wenn du es später explizit willst).
+
+================================================================================
+2) SCHLUSSFOLGERUNG (Ziel dieses BR / Design-Contract)
+================================================================================
+
+S2.1) BR-08 definiert ein eigenständiges Extension-Tabellenpaket (prefix peak_*),
+      das an B055 “andockt”, ohne B055-Core zu verändern.
+
+S2.2) BR-08 enthält zusätzlich (integriert) den Mapping-Contract (ehem. BR-08A):
+      Wie Daten aus /run/vpn-sessions/*.env in Peak-Audit/Apply-Tabellen einfließen.
+
+S2.3) Peak-Tables sind rein:
+      - Auditierbarkeit (Was ist passiert? Warum? Mit welchen Parametern?)
+      - Debugbarkeit (Warum wurde gedrosselt? Welche Fehlerklasse? Welche Batch-Läufe?)
+      - Reconcile-fähige Historie (Episode/Snapshot/Apply-Verlauf)
+      NICHT:
+      - Runtime-Truth (aktiv/inaktiv) ersetzen
+      - Policy-SoT sein (Policy bleibt SQL-first über settings_catalog/settings_* + vpn_connections)
+
+================================================================================
+3) OWNER-FIXWERTE (in diesem BR fest eingebettet, damit es self-contained ist)
+================================================================================
+
+FP-PEAK-01  MULTI_THRESHOLD_PCT = 30.00
+FP-PEAK-02  TOP_N_DYNAMIC_LATCH (USER only, per Episode fix):
+            <=20 → 3 ; 21..100 → 5 ; >100 → 10
+FP-PEAK-03  SOFTIRQ_AGGREGATION = aggregated (Sum/gesamt, nicht max-core)
+
+================================================================================
+4) OFFENE PUNKTE (OPEN, weil Kanon nicht eindeutig oder Owner noch nicht fixiert)
+================================================================================
+
+D-PEAK-DB-01 Retention/Downsampling:
+  - Wie lange werden peak_episode_snapshot Reihen gespeichert?
+  - Downsampling (z.B. ab 24h nur 60s-Mittelwerte) ja/nein?
+  -> BR-08 macht dafür schema-seitig Platz, aber Werte bleiben OPEN.
+
+D-PEAK-DB-02 “Detail-Level” Apply-Audit:
+  - peak_apply_item (per pppX) ist OPTIONAL: aktivieren nur wenn du diese Granularität willst.
+  - Sonst reicht peak_apply_run (Summary).
+  -> Default-Empfehlung (nicht Pflicht): peak_apply_item ON, aber retention kurz (z.B. 7 Tage) (OPEN).
+
+D-PEAK-DB-03 Persistenz von CLIENT_IP:
+  - Default: NICHT speichern (privacy-first).
+  - Optional: speichern nur intern (10.77.*) oder gehasht.
+  -> bleibt OPEN bis Owner-Fix.
+
+D-PEAK-DB-04 Bezug auf “Profilbandwidth”:
+  - EXIT_RESTORE braucht “Soll-Bandwidth” (Profilwert).
+  - Woher exakt? (Policy-Keys/Settings vs Spalte in vpn_connections)
+  -> bleibt OPEN: BR-08 definiert nur “profile_bw_bps_resolved” als audit field, Quelle wird später kanonisiert.
+
+================================================================================
+5) SCHEMA-CONTRACT (peak_* Extension-Paket)
+================================================================================
+
+NAMING (kanon-kompatibel):
+- snake_case
+- *_id als PK/FK
+- created_at/updated_at audit (wo sinnvoll)
+- FK auf vpn_connections.id heißt vpn_connection_id (nicht “connection_id”), um B055 Terminologie zu halten
+
+----------------------------------------------------------------
+T-PEAK_EPISODE: peak_episode
+----------------------------------------------------------------
+Zweck:
+- Eine Peak-Episode als “Latch-Container”: ENTER (nach Persist-Window) → HOLD (sliding) → EXIT
+
+Spalten (Contract):
+- episode_id                (PK, bigint autoinc)
+- episode_uuid              (OPTIONAL, uuid/binary16; nur für Log-Korrelation)
+- entered_at                (datetime, not null)
+- exited_at                 (datetime, null solange aktiv)
+- hold_until                (datetime, not null; sliding window Ende)
+- last_extend_at            (datetime, null/optional)
+- enter_reason_code         (varchar; z.B. OVERLOAD_PERSISTED_180S)
+- exit_reason_code          (varchar; z.B. HOLD_TIMEOUT_RECOVERED | MANUAL_ABORT | ERROR_ABORT)
+
+Episode-“Parameter-Latch” (damit Audit ohne Drift möglich ist):
+- multi_threshold_pct       (decimal(5,2), not null)  // FP-PEAK-01 = 30.00
+- active_ppp_enter          (int, not null)           // USER-only Snapshot beim ENTER
+- topn_latched              (int, not null)           // FP-PEAK-02 Ergebnis (3/5/10)
+- softirq_aggregation_mode  (varchar, not null)       // FP-PEAK-03 = aggregated
+
+Detektor-Info (audit, nicht Gate-SoT):
+- sample_interval_sec       (int, not null; default 10)
+- persist_enter_sec         (int, not null; default 180)
+- hold_window_sec           (int, not null; default 900)
+- detector_id               (varchar; optional)
+- detector_version          (varchar/int; optional)
+
+Statistik / Summaries (optional, aber hilfreich fürs Panel):
+- max_softirq_pct           (decimal(5,2), optional)
+- max_vpn_bps_total         (bigint, optional)
+- episodes_notes            (text/varchar, optional)
+
+Indizes (Contract):
+- IDX_peak_episode_entered_at   (entered_at)
+- IDX_peak_episode_exited_at    (exited_at)
+- IDX_peak_episode_active       (exited_at IS NULL)  // wenn DB partial-index kann; sonst via (exited_at)
+
+Constraints:
+- Es darf maximal 1 aktive Episode geben (OPTIONAL HARD CONSTRAINT):
+  - UNIQUE(active_flag) ist DB-spezifisch.
+  - Alternativ: enforce in Logic; DB nur index/exited_at.
+
+----------------------------------------------------------------
+T-PEAK_EPISODE_SNAPSHOT: peak_episode_snapshot
+----------------------------------------------------------------
+Zweck:
+- Zeitreihe während Episode: SoftIRQ aggregated + VPN total + active_ppp_now + “expected mode”
+- Grundlage für “Multi”-Attribution und forensische Nachvollziehbarkeit
+
+Spalten (Contract):
+- snapshot_id               (PK, bigint autoinc)
+- episode_id                (FK → peak_episode.episode_id, not null)
+- ts                        (datetime, not null)
+
+Messwerte (minimal):
+- softirq_pct_agg           (decimal(5,2), not null)   // aggregated
+- vpn_bps_total             (bigint, not null)         // gemessene total VPN throughput
+- overload_bool             (bool/tinyint, not null)   // Detector Entscheidung
+
+Kontext:
+- active_ppp_now            (int, not null)            // USER-only live count
+- topn_used                 (int, not null)            // sollte = peak_episode.topn_latched (sanity check)
+- hold_until_snapshot       (datetime, not null)       // aktuelle hold_until (für Debug)
+
+OPTIONAL (nur wenn du Driftchecks willst):
+- apply_expected_mode       (varchar)                  // PROFILE | PEAK
+- apply_expected_bw_bps     (bigint)                   // Sollwert (Peak oder Profil)
+- drift_flag_sysfs_vs_db    (bool)                     // wenn Sampler Drift erkennt
+- diag_notes                (text/varchar)
+
+Indizes:
+- IDX_peak_snap_episode_ts  (episode_id, ts)
+- IDX_peak_snap_ts          (ts)
+
+Retention-Hinweis (OPEN):
+- Snapshot-Menge kann groß sein (10s sampling).
+- Schema soll Retention ermöglichen (z.B. Partitionierung nach ts) – konkrete Policy D-PEAK-DB-01.
+
+----------------------------------------------------------------
+T-PEAK_APPLY_RUN: peak_apply_run
+----------------------------------------------------------------
+Zweck:
+- Ein “Batch Apply” als Run (Episode ENTER/EXTEND/EXIT oder MANUAL), summary-level audit
+- Muss “fehlerklassifiziert” sein, ohne dass man Logs parsen muss.
+
+Spalten (Contract):
+- run_id                    (PK, bigint autoinc)
+- episode_id                (FK → peak_episode.episode_id, nullable)
+  (nullable, weil auch “manual test apply” denkbar ist)
+
+Run-Meta:
+- action                    (enum/varchar: ENTER_APPLY | EXTEND_APPLY | EXIT_RESTORE | MANUAL_APPLY | NOOP)
+- trigger_source            (varchar: DETECTOR | TIMER | MANUAL | RECOVER)  (audit)
+- started_at                (datetime, not null)
+- ended_at                  (datetime, not null)
+- duration_ms               (int/bigint, optional)
+
+Zielpopulation (audit):
+- target_scope              (varchar: USER_ONLY)   // falls später mehr, jetzt fix USER_ONLY (K0.6)
+- active_ppp_snapshot       (int, not null)        // wie viele USER-pppX im Snapshot
+- topn_latched              (int, not null)        // Wiederholung für Self-Containment
+
+Ergebnis summary:
+- exit_code                 (int, not null)        // semantisch kompatibel zu B166 (0..7)
+- result_code               (varchar, not null)    // peak-intern (z.B. OK | PARTIAL_OK | TEMPFAIL_SQL | TEMPFAIL_LOCKED | MAPPING_INVALID | INTERNAL_ERROR)
+- error_class               (varchar, nullable)    // z.B. DB_DOWN | LOCKED | TC_ERROR | INVALID_MAPPING
+- error_detail              (varchar/text, nullable) // kurz; keine PII
+- hardcut_fallback_used     (bool, not null default false) // wenn Restore/Apply per ppp kill etc. (nur falls Peak das überhaupt tut; sonst bleibt false)
+
+Zähler:
+- items_total               (int, not null)
+- items_ok                  (int, not null)
+- items_fail                (int, not null)
+- items_skipped_admin        (int, not null default 0)  // sollte 0 sein, da USER-only; aber für Diagnose
+
+Indizes:
+- IDX_peak_apply_ts         (started_at)
+- IDX_peak_apply_episode_ts (episode_id, started_at)
+- IDX_peak_apply_action     (action)
+
+----------------------------------------------------------------
+T-PEAK_APPLY_ITEM: peak_apply_item  (OPTIONAL DETAIL-TABLE)
+----------------------------------------------------------------
+Zweck:
+- Pro ppp_if (und optional pro vpn_connection_id) der Apply-Outcome.
+- Nur nötig, wenn du “welches Interface hat nicht applied und warum?” ohne Log willst.
+
+Spalten (Contract):
+- item_id                   (PK, bigint autoinc)
+- run_id                    (FK → peak_apply_run.run_id, not null)
+- ppp_ifname                (varchar, not null)        // aus PPP_IF
+
+Identity (optional, weil DB lookup failen kann):
+- vpn_connection_id         (bigint, nullable)         // aus CONNECTION_ID, falls resolvable
+- conn_group_resolved       (varchar, nullable)        // USER|ADMIN (soll USER sein), aus DB lookup
+
+Apply-Target:
+- intended_mode             (varchar, not null)        // PEAK | PROFILE
+- intended_bw_bps           (bigint, not null)         // Zielwert
+
+Outcome:
+- item_result               (varchar, not null)        // OK | FAIL | SKIP | NOOP
+- item_error_code           (varchar, nullable)        // DB_LOOKUP_FAILED | TC_APPLY_FAILED | MAPPING_INVALID | PERMISSION_DENIED ...
+- item_error_detail          (varchar/text, nullable)  // kurz; keine PII
+
+OPTIONAL Debug-Felder (default OFF / nur wenn Owner später will):
+- pppd_pid                  (int, nullable)            // aus PPPD_PID (B165)
+- session_start_ts          (datetime/epoch, nullable) // aus START_TS (B165)
+- client_ip                 (varchar, nullable)        // aus CLIENT_IP (B165) — OPEN (privacy)
+
+Indizes:
+- IDX_peak_item_run_ppp      (run_id, ppp_ifname)
+- IDX_peak_item_vpnconn      (vpn_connection_id)   // nur wenn häufig panel-query
+- IDX_peak_item_result       (item_result)
+
+================================================================================
+6) MAPPING-CONTRACT (Runtime → Peak-DB)  [integriert ehem. BR-08A]
+================================================================================
+
+Grundsatz (kanonisch):
+- “Aktiv” wird NICHT aus DB abgeleitet, sondern aus VALID /run/vpn-sessions/*.env (B165).
+- Peak schreibt DB-Audit auf Basis eines Snapshots dieser VALID Dateien.
+
+----------------------------------------------------------------
+6.1 Snapshot-Quelle (REQUIRED)
+----------------------------------------------------------------
+SOURCE:
+- Dateien: /run/vpn-sessions/*.env
+- VALID-Kriterien: (aus B165 ableitbar)
+  - file existiert
+  - enthält mindestens: PPP_IF + CONNECTION_ID + START_TS (+ PPPD_PID) (CLIENT_IP vorhanden laut B165-Minimum)
+  - (weitere Validierung wie Permissions/Owner ist in B165 DoD beschrieben)
+
+----------------------------------------------------------------
+6.2 Mapping: REQUIRED Keys → peak_apply_item (wenn Table aktiv)
+----------------------------------------------------------------
+SOURCE (.env):
+- PPP_IF
+TARGET (DB):
+- peak_apply_item.ppp_ifname = PPP_IF
+
+SOURCE (.env):
+- CONNECTION_ID
+TARGET (DB):
+- peak_apply_item.vpn_connection_id = CONNECTION_ID
+NOTES:
+- Wenn DB-Lookup (CONNECTION_ID → vpn_connections) fehlschlägt:
+  - vpn_connection_id darf trotzdem als Zahl gespeichert werden (weil aus env),
+  - conn_group_resolved bleibt NULL,
+  - item_result=FAIL, item_error_code=DB_LOOKUP_FAILED (Details siehe BR-09 Fehlerklassen; hier nur Contract)
+
+----------------------------------------------------------------
+6.3 Mapping: OPTIONAL Keys → peak_apply_item (Debug-only, default OFF)
+----------------------------------------------------------------
+SOURCE (.env) (Kanon):
+- PPPD_PID
+TARGET:
+- peak_apply_item.pppd_pid = PPPD_PID
+REGEL:
+- rein diagnostisch; niemals Gate/Filter.
+
+SOURCE (.env) (Kanon):
+- START_TS
+TARGET:
+- peak_apply_item.session_start_ts = START_TS
+REGEL:
+- rein diagnostisch; niemals Gate/Filter.
+
+SOURCE (.env) (Kanon):
+- CLIENT_IP
+TARGET:
+- peak_apply_item.client_ip = CLIENT_IP
+REGEL:
+- OPEN (privacy): Default OFF; wenn aktiviert, dann nur kurz retention oder masked/hashed (Owner-Entscheid D-PEAK-DB-03).
+
+SOURCE (.env) (Kanon OPTIONAL):
+- SESSION_ID (optional laut B165)
+TARGET:
+- (OPTION) peak_apply_item.session_id = SESSION_ID
+REGEL:
+- nur wenn du es wirklich brauchst; sonst weglassen (Minimization).
+
+----------------------------------------------------------------
+6.4 Mapping: REQUIRED Run-Summary → peak_apply_run
+----------------------------------------------------------------
+SOURCE (Peak-Innenzustand / Enforcer):
+- action / trigger_source / started_at / ended_at
+- active_ppp_snapshot (count VALID USER sessions im Snapshot)
+- topn_latched (aus Episode-Latch)
+- exit_code / result_code / error_class / error_detail
+TARGET:
+- peak_apply_run.* Felder entsprechend.
+
+Exit-Code Semantik:
+- exit_code soll kompatibel zu B166 sein (0..7) — Peak nutzt dieselben “Klassen”:
+  0 OK
+  1 PARTIAL_OK
+  2 TEMPFAIL_SQL
+  4 RUNTIME_APPLY_ERROR (tc/cake)
+  5 TEMPFAIL_LOCKED (wenn Peak eigenen Lock nutzt)
+  6 STATE_MAPPING_ERROR (wenn /run mapping invalid)
+  7 INTERNAL_ERROR
+(3 INVALID_ARGS ist eher CLI, kann aber für MANUAL_APPLY relevant sein)
+
+----------------------------------------------------------------
+6.5 Mapping: Runtime metrics → peak_episode_snapshot / peak_episode
+----------------------------------------------------------------
+SOURCE (Detector/Sampler):
+- ts
+- softirq_pct_agg
+- vpn_bps_total
+- overload_bool
+- active_ppp_now (USER only)
+- hold_until_current
+TARGET:
+- peak_episode_snapshot.* entsprechend
+
+SOURCE (Episode-Controller):
+- entered_at/exited_at/hold_until/topn_latched/multi_threshold_pct/aggregation_mode
+TARGET:
+- peak_episode.* entsprechend
+
+----------------------------------------------------------------
+6.6 DB-Lookup Contract (CONNECTION_ID → conn_group / Policy)
+----------------------------------------------------------------
+INPUT:
+- vpn_connection_id (= CONNECTION_ID aus env)
+
+LOOKUP (minimum required):
+- vpn_connections.conn_group  (USER|ADMIN|...)
+OUTPUT (minimum):
+- conn_group_resolved
+
+Regel (K0.6):
+- Peak-Apply wirkt USER-only:
+  - wenn conn_group_resolved != USER → item_result=SKIP, item_error_code=ADMIN_EXCLUDED (oder SKIP_NONUSER)
+  - Dies ist Audit, nicht “Policy-Truth”.
+
+OPTIONAL Lookups (OPEN, abhängig von Kanon-Spalten/Keys):
+- “Profil-Bandwidth” (für EXIT_RESTORE Zielwert)
+  -> wenn nicht eindeutig im DB-Kanon, dann wird der Wert im Enforcer aus Policy-Keys/Settings abgeleitet;
+     Peak speichert nur den resolved Wert als intended_bw_bps (Audit).
+
+================================================================================
+7) PRIVACY / DATA MINIMIZATION (MUST)
+================================================================================
+
+P7.1) Peak-Extension speichert NICHT:
+- Username/E-Mail/Passwort/PSK/Token/Verify-Codes
+- Client-Fingerprint im Klartext
+- Freitext aus Panel-Kommentaren
+
+P7.2) Peak-Extension speichert standardmäßig NUR:
+- technische IDs: vpn_connection_id, ppp_ifname
+- Episode/Snapshot/Apply Result-Stats
+- Systemmetriken: softirq_pct_agg, vpn_bps_total
+
+P7.3) IP-Adresse (CLIENT_IP) ist default OFF (OPEN D-PEAK-DB-03).
+- Wenn du es später willst: nur kurz retention / mask / hash.
+
+================================================================================
+8) VALIDIERUNG / TESTS (DoD für BR-08)
+================================================================================
+
+T8.1 Schema-Integrität:
+- FK-Test: peak_episode_snapshot.episode_id referenziert existierende episode_id.
+- Apply-FK-Test: peak_apply_item.run_id referenziert existierende run_id.
+
+T8.2 Runtime→DB Mapping (Kanon-Minimum aus B165):
+- Für eine aktive USER-Session existiert VALID .env mit PPP_IF + CONNECTION_ID + START_TS + PPPD_PID (+ CLIENT_IP).
+- Peak Snapshot nimmt nur VALID .env auf (invalid wird gezählt + dokumentiert).
+
+T8.3 Admin-Exclude Enforcement (K0.6):
+- Simuliere 1 ADMIN-Session + 1 USER-Session aktiv:
+  - Apply-Run items_total zählt beide Snapshot-Kandidaten,
+  - aber ADMIN wird SKIP (audit), USER wird applied.
+
+T8.4 Exit-Code Konsistenz:
+- Simuliere DB down:
+  - peak_apply_run.exit_code = 2 (TEMPFAIL_SQL)
+  - Items werden nicht “halb applied” (STRICT für apply-run, analog B166 single target).
+- Simuliere tc/cake apply error:
+  - exit_code = 4 (RUNTIME_APPLY_ERROR)
+  - item_error_code = TC_APPLY_FAILED (für betroffene Interfaces)
+
+T8.5 Performance / Hot-Path Verträglichkeit:
+- 1 Tag Snapshotdaten schreiben ohne Lock-Contention (Index ok) (Lasttest).
+- peak_episode_snapshot Insert-Rate bei 10s sampling * active_ppp realistisch.
+
+T8.6 Retention (OPEN bis D-PEAK-DB-01 fix):
+- Sobald Retention fest ist: Test, dass Purge/Partition nicht FK bricht und Panel-Queries weiter funktionieren.
+
+================================================================================
+9) DRIFT-AMPel (nur Status)
+================================================================================
+
+DRIFT: RISK
+- Grund: Einige “optional lookups” (Profilbandwidth Quelle, CLIENT_IP Persistenz, Retention) sind bewusst OPEN,
+         weil Kanon/Owner noch nicht fixiert ist.
+- Kanon-Kerne (B055/B165/B166 + Owner-Fixwerte) sind konsistent eingebettet.
+
+================================================================================
+10) CHANGELOG (ENTWURF-intern)
+================================================================================
+- v2.0-ENTWURF (heute): BR-08 komplett neu gefasst im neuen Standard; integriert Mapping-Contract (ehem. BR-08A Themen),
+  canonicalisiert env-Keys auf B165 (PPP_IF/CLIENT_IP/CONNECTION_ID/START_TS/PPPD_PID), benennt FK als vpn_connection_id,
+  markiert Retention/IP/Profilquelle als OPEN, übernimmt Owner-Fixwerte (30% + dynamic TopN latched + aggregated SoftIRQ).

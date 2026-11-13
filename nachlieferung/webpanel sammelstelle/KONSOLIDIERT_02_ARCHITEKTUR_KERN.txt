@@ -1,0 +1,212 @@
+================================================================================
+KONSOLIDIERT_02 — ARCHITEKTUR-KERN
+================================================================================
+Phase: 2 (Konsolidierung)
+Quellen: EXTRAKT_01_core_3.0, EXTRAKT_03_kombiniert, EXTRAKT_05_uebersicht,
+         EXTRAKT_03_plugin_liste
+================================================================================
+
+1. GRUNDPRINZIPIEN
+===================
+
+a) PLANUNG STATT PARALLELBAU
+   "Erst das Rezept schreiben, dann kochen."
+   - Kein Flickenteppich, kein "bauen wir spaeter ein"
+   - Vollstaendige Vorausplanung jedes Features
+   - Hookpoints fuer spaetere Erweiterungen vorbereiten
+   - Jede Entscheidung ist bewusst, nichts ist Zufall
+
+b) MODULAR STATT MONOLITHISCH
+   - Nur das technische Grundgeruest wird initial gebaut
+   - Alle weiteren Funktionen kommen als Plugins
+   - Seite kann so klein oder gross sein wie gewuenscht
+
+c) SQL-FIRST (aus RetroTunnel uebernommen)
+   - Datenbank ist die einzige Wahrheit
+   - Keine Flat-Files als Konfigurationsquelle
+
+
+2. PLUGIN-SYSTEM
+=================
+
+2.1 GRUNDARCHITEKTUR
+  - Jede neue Funktion ist ein eigenstaendiges Plugin
+  - So klein wie noetig, so eigenstaendig wie moeglich
+  - Upload als ZIP ueber Adminpanel
+  - Installation prueft Versionskompatibilitaet und Abhaengigkeiten
+  - Plugins koennen Felder, Menuepunkte, Routinen und API-Endpunkte
+    hinzufuegen
+  - Aktivierung/Deaktivierung ueber das Backend
+  - Updates per ZIP moeglich (z.B. Timeline v1 → v2)
+
+2.2 PLUGIN_META.JSON (Pflicht pro Plugin)
+  {
+    "name": "Forum",
+    "version": "1.3",
+    "author": "...",
+    "description": "...",
+    "requires": {
+      "retrowork_min": "3.0",
+      "retrowork_max": "3.9",
+      "plugins": { "usermanagement": ">=1.0" }
+    },
+    "conflicts": ["old_comments"],
+    "hookpoints": ["after_post_save", "on_new_user", "before_render"]
+  }
+
+2.3 ABHAENGIGKEITS-SICHERUNG
+  - Beim Upload UND beim Start werden alle Abhaengigkeiten geprueft
+  - Warnungen bei kleinen Konflikten (Admin kann Override waehlen)
+  - Automatische Blockade bei kritischen Problemen
+  - Jede Blockade/Warnung enthaelt verstaendlichen Hinweis + Loesung
+  - Override nur durch Admin, wird im Protokoll dokumentiert
+  - Beim Deaktivieren eines Plugins: Warnung wenn andere Plugins
+    davon abhaengen ("Forum braucht User — auch deaktivieren?")
+
+2.4 PLUGIN-VERWALTUNG IM ADMINPANEL
+  - Tabellenansicht (Standard) + Kachel-Modus (umschaltbar)
+  - Gruppierung: Inhaltlich / Systemisch / Persoenlich
+  - Details bei Klick: Name, Version, Abhaengigkeiten, Config
+  - Protokoll-Seite: alle Overrides, Blockaden, Warnungen mit
+    Zeitstempel, Aktion, Begruendung
+
+2.5 PLUGIN-KATEGORIEN
+  - Inhaltlich: Gaestebuch, FAQ, Forum, Timeline, Downloads, News
+  - Systemisch: Uploads, Statistiken, Theme-Manager, User-System
+  - Persoenlich: Finanzen, Notizen (alles darf Platz haben)
+
+2.6 MODULSTRUKTUR AUF DEM SERVER
+  /install/modules/
+    core/     → Setup-Grundfunktionen (DB, Encoding, Adminanlage)
+    plugin/   → Plugin-Installationen aus ZIP-Dateien
+    theme/    → Theme-spezifische Module
+    tools/    → Wartung, Reparatur, Diagnose, Migration
+
+
+3. BLOCK-SYSTEM
+================
+
+3.1 GRUNDPRINZIP
+  Jede Seite besteht aus Bloecken — frei oder fest, klein oder gross.
+  Auch Funktionsseiten (index.php, device.php etc.) folgen dem
+  Blockprinzip: technischer Kern bleibt, visuelle Darstellung
+  wird vollstaendig ueber Bloecke gesteuert.
+  Kein fest verdrahteter HTML-Content mehr im PHP-Code.
+
+3.2 BLOCKTYPEN (17+)
+  - Text (TinyMCE), Zitat, Bild, Galerie (Lightbox)
+  - Tabelle manuell, Tabelle CSV-Upload
+  - YouTube-Video, Audio-Player, Video-Embed extern
+  - Codeblock (Syntax-Highlighting), HTML-Rohblock
+  - Trennlinie, Button (Call-to-Action)
+  - Zitat-Rotation (rotierender Satz aus DB)
+  - Text-Bild-Kombi (links/rechts)
+  - Spotify-Embed
+  - Neue Blocktypen per Plugin hinzufuegbar
+
+3.3 VERWALTUNG IM ADMINPANEL
+  - Reiter "Bloecke verwalten" pro Seite
+  - Drag & Drop fuer Reihenfolge
+  - Aktivierung / Deaktivierung einzelner Bloecke
+  - Vorschau-Funktion
+  - Block-Duplikat moeglich
+  - Kein Block ist Pflicht
+
+3.4 SPALTENLOGIK
+  - Theme bestimmt: 2 Spalten oder 3 Spalten
+  - Jeder Block gehoert einer bevorzugten Spalte
+  - Admin: Block fixiert oder flexibel
+  - User: Bloecke verschieben/ein-ausblenden (wenn erlaubt)
+  - User-Portalansicht pro Benutzer speicherbar
+  - Reset auf Standard jederzeit moeglich
+
+
+4. THEME-ENGINE
+================
+
+4.1 GRUNDPRINZIP
+  Theme bestimmt NICHT nur Farben. Theme bestimmt:
+  - Seitenlayout (1-/2-/3-spaltig)
+  - Sidebar (links/rechts/keine)
+  - Header- & Footer-Position und -Aufbau
+  - Navigationsposition und -stil
+  - Blockverhalten und -darstellung
+  - Tonalitaet der Systemtexte
+  - Die PERSOENLICHKEIT der Seite
+
+4.2 STANDARD-THEMES
+  - Light: Klassische Textnavigation oben, freundlich hell
+  - Dark: Oben Kacheln + Icons, sanft dunkel
+  - Retro: Linke Sidebar mit Icons, warme Nostalgiefarben
+
+4.3 THEME-BEISPIELE (Marcos Konzept)
+  ELARA-THEME:
+    - Warm, einladend, sanft
+    - Eher zweispaltig mit viel Luft
+    - Fehlermeldungen: "Ein kleiner Umweg..."
+    - Gesamteindruck: "Willkommen, schau dich in Ruhe um."
+
+  HULK-THEME:
+    - Direkt, grob, auf den Punkt ("Migranten-Deutsch")
+    - Dreispaltig, kompakt, alles auf einen Blick
+    - Fehlermeldungen: kurz und knapp
+    - Gesamteindruck: "Hier. Laptop. Laeuft."
+
+4.4 LAYOUTMODI (unabhaengig vom Theme)
+  - Full: alle moeglichen Bloecke aktiv
+  - Light: reduziert, Fokus auf Wesentliches
+  - Clean: minimalistisch, nur Kernelemente
+  - Optional: Theme-spezifischer Spezialmodus
+
+4.5 BENUTZER-PRESETS PRO THEME
+  - Jeder User kann pro Theme ein eigenes Layout-Preset speichern
+  - Wechsel des Themes → laedt automatisch das gespeicherte Preset
+  - Gaeste: Auswahl per LocalStorage bis Seitenende
+
+4.6 THEME-VERWALTUNG
+  - Upload als ZIP (wie Plugins)
+  - theme.json mit Metadaten
+  - Live-Vorschau im Adminpanel
+  - Zeitgesteuerte Themes (automatische Aktivierung/Deaktivierung)
+  - Fallback auf Standard bei Fehler/Inkompatibilitaet
+
+4.7 RESPONSIVE
+  - Jede Theme-Vorlage enthaelt Desktop + Mobile Ansicht
+  - Umschaltung automatisch via CSS Breakpoints
+  - Einheitlicher Look ohne doppelte Pflege
+
+
+5. SEITENSTRUKTUR & NAVIGATION
+================================
+
+5.1 ZWEI SEITENTYPEN
+  a) FUNKTIONSSEITEN (physisch auf dem Server)
+     - index.php, device.php, contact.php, themes.php
+     - Fester technischer Kern + Blockzonen
+     - Koennen nicht geloescht oder dupliziert werden
+
+  b) FREIE SEITEN (nur in der Datenbank)
+     - Erstellt im Adminpanel
+     - Inhalt per TinyMCE oder HTML-Editor
+     - Individueller Slug, Sichtbarkeit, Theme waehlbar
+     - Beliebig erstellbar, bearbeitbar, duplizierbar
+
+5.2 SICHTBARKEITSSTEUERUNG (pro Seite)
+  - status: sichtbar / deaktiviert
+  - mode: oeffentlich / nur per Direktlink
+  - slug: URL-Endung
+  - zeitgesteuert: aktiv von — bis
+  - token: eindeutiger Zugriffscode fuer private Freigabe
+  - Geplante Aktivierung/Deaktivierung
+  - Optional: Erinnerungsfunktion "Diese Seite laeuft bald ab..."
+
+5.3 NAVIGATION
+  - Themeabhaengig (oben/links/unten, Text/Icons/Kacheln)
+  - Desktop und Mobile getrennt optimiert
+  - Pro Menuepunkt: Icon auswaehlbar
+  - Verwaltung komplett im Adminpanel
+
+
+================================================================================
+ENDE KONSOLIDIERT_02
+================================================================================

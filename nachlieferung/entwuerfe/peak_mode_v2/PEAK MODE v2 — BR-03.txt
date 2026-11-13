@@ -1,0 +1,153 @@
+===============================
+PEAK MODE v2 — BR-03 CPU/SoftIRQ% — exakte Definition (procstat), Aggregation, total_ticks, Glättung
+===============================
+Status: ENTWURF (Phase 3)
+Ziel: self-contained Spezifikation (ohne Alt-Peak-Dateien als Pflicht)
+Regeln: kein Patch, kein Copy-Code, kein tc/SQL Snippet; nur Contract + Delta-Intention + Validierung.
+
+
+0) Scope (MUST)
+- Dieses BR definiert ausschließlich: Wie softirq_pct aus /proc/stat berechnet wird (Aggregation, Δtotal, Randfälle, Glättung).
+- Anti-Scope: Keine Trigger-Entscheidung (overload yes/no), keine Threshold-Werte, keine Täter-Selektion, keine Batch-Apply-Mechanik, keine DB-Tabellen.
+
+
+1) Kanon-Abgleich (MUST, drift-sicher)
+
+1.1 Imports (KANON-QUELLEN)
+- K-IMP-01: Peak-Mode_Was es ist, wie es funktioniert.txt → Abschnitt “4.1 SoftIRQ% aus /proc/stat (procstat)”
+  - Importiert: Quelle = /proc/stat; SoftIRQ Feld = “softirq”; Delta-Formel; softirq_pct = (Δsoftirq/Δtotal)*100; Hinweis “multi-core sauber behandeln”.
+- K-IMP-02: Peak-Mode_CHECKLISTE.txt → BR-03
+  - Importiert: offene Muss-Fakten A) Aggregation, B) total ticks Definition, C) Glättung/Stabilität.
+- K-IMP-03: Peak-Mode_entscheidung.txt → PM-06 “CPU-Quelle = procstat (/proc/stat)” + PM-09 “Sampling = 10 Sekunden”
+  - Importiert: die Quelle ist fix; Sampling-Cadence Default = 10s (als Kontext, nicht als Berechnungszwang).
+
+1.2 Kanon-Anker (Wortlaut/Begriff)
+- “procstat”: /proc/stat (kumulierte CPU-Ticks pro CPU-State).
+- “softirq_pct”: Anteil SoftIRQ-Ticks am gesamten Tick-Delta im Sampling-Fenster.
+
+1.3 Konfliktcheck (MUST)
+- K-CONF-01: Aggregation über alle CPUs vs per-CPU max/avg → Status: NONE
+  - Du hast Owner-Entscheid “aggregated” getroffen (siehe Fixpunkte unten); das schließt die Ambiguität.
+- K-CONF-02: total ticks Definition (inkl. idle/iowait/guest) im Kanon nicht festgenagelt → Status: RISK
+  - Ohne Owner-Fix kann ein Implementierer Δtotal anders berechnen als du → Drift-Risiko.
+- K-CONF-03: Glättung (raw vs median/rolling) im Kanon offen → Status: RISK
+  - Ohne Owner-Fix kann Implementierung “zu nervös” oder “zu träge” werden → Drift-Risiko.
+
+
+2) Owner-Fixpunkte (MUST)
+- FP-BR03-01 (SOURCE): CPU/SoftIRQ Quelle = /proc/stat (procstat) (PM-06).
+- FP-BR03-02 (AGGREGATION): Aggregation = aggregated über alle CPUs (nicht max-per-CPU, nicht avg-per-CPU).
+  - Norm: bevorzugt “aggregated cpu-line” (erste Zeile “cpu …”), semantisch Summe aller Kerne.
+- FP-BR03-03 (SAMPLING_DEFAULT): Default Sampling-Cadence = 10s (PM-09) — nur Kontext; Berechnung nutzt gemessenes Δt.
+- FP-BR03-04 (FORMULA): softirq_pct = (Δsoftirq / Δtotal) * 100, Δ berechnet zwischen zwei Samples.
+
+OFFEN (Owner-Fix nötig, sonst Drift):
+- FP-BR03-05 (TOTAL_TICKS_DEF): Exakte Definition, welche CPU-States in Δtotal enthalten sind (inkl. idle+iowait? Umgang mit guest/guest_nice?).
+- FP-BR03-06 (SMOOTHING): Glättung ja/nein; falls ja: welche Regel (z.B. Median über N Samples) — falls nein: “raw 10s Sample”.
+- FP-BR03-07 (NEG_DELTA_RULE): Handling, falls Δsoftirq<0 oder Δtotal<=0 (reset/clock/overflow) — muss als Fakt fixiert werden.
+
+
+3) Contract (MUST, implementierbar ohne Raten)
+
+3.1 Inputs (MUST)
+- Input-01: /proc/stat Snapshot at t_prev, t_now.
+- Input-02: softirq_now, softirq_prev (aus procstat “softirq”).
+- Input-03: total_now, total_prev (aus TOTAL_TICKS_DEF; siehe FP-BR03-05).
+- Input-04: Δt_seconds = t_now - t_prev (gemessen; Sampling-Default 10s ist nur Erwartung, nicht Berechnungsannahme).
+
+Constraints:
+- Keine externen Tools/Dependencies (kein sysstat), nur procstat (PM-06).
+- Aggregation ist fix “aggregated” (FP-BR03-02); keine per-CPU max/avg Triggerbasis.
+
+3.2 Outputs (MUST)
+- Output-01: softirq_pct (0..100, ggf. >100 nur bei Fehler → dann anomaly; soll durch Regeln verhindert werden).
+- Output-02: flags/anomalies (mindestens):
+  - PROCSTAT_RESET (wenn negative Δ auftreten)
+  - PROCSTAT_INVALID (wenn Δtotal<=0 oder Δt_seconds<=0)
+
+3.3 States / Transitions
+- BR-03 hat keine eigenen States; es liefert Messwerte + Anomalie-Flags.
+
+3.4 Enforcement-Punkte (MUST)
+- E-01: Aggregation ist normativ: Implementierung MUSS aggregated Messung liefern (sonst Drift).
+- E-02: TOTAL_TICKS_DEF ist normativ: Implementierung MUSS exakt diese total-Definition nutzen (sonst Drift).
+- E-03: Glättungsregel ist normativ (wenn aktiviert): gleiche Eingänge → gleiche outputs.
+
+3.5 Fehlerklassen / Resultcodes (BR-03-relevant)
+- ERR-BR03-PROCSTAT_UNREADABLE: /proc/stat nicht lesbar → Messung ungültig (DEGRADED/FAILED wird in BR-10 normiert).
+- ERR-BR03-DELTA_T_ZERO: Δt_seconds <= 0 → Messung ungültig (kein Divide/Crash).
+- ERR-BR03-DELTA_TOTAL_INVALID: Δtotal <= 0 → Messung ungültig; setze Flag PROCSTAT_INVALID.
+- ERR-BR03-NEGATIVE_DELTA: Δsoftirq<0 oder total_now<total_prev → Flag PROCSTAT_RESET + definierte Korrektur (siehe FP-BR03-07 OPEN).
+
+3.6 Idempotenz / Concurrency (MUST)
+- Read-only; keine Locks nötig (Lock nur für tc-write in BR-09/BR-01).
+- Idempotenz: gleiche procstat-Werte + gleiche Δt → gleiche softirq_pct.
+
+3.7 Resource/Retention
+- BR-03 definiert keine Retention; Speicherung/Audit gehört BR-08/BR-10.
+
+
+4) Fix-Intention + Delta-Beschreibung (MUST)
+- Ziel: Jeder Außenstehende misst softirq_pct exakt so wie du (keine Multi-Core Drift, keine “total” Drift, keine Glättungs-Diff).
+- Delta:
+  - Aggregation fix “aggregated” (cpu-line) — bereits owner-gefixt.
+  - TOTAL_TICKS_DEF und SMOOTHING als explizite Owner-Fixpunkte festzurren (sonst bleibt BR-03 offen).
+  - Negative/invalid deltas sauber definieren (Flags + Korrektur), damit keine Phantom-Spikes entstehen.
+- Grenzen/Constraints:
+  - Keine externen Dependencies.
+  - Kein “Raten” bei total/Glättung; Missing-Fix bleibt OPEN.
+- Validierung: siehe DoD/Tests.
+
+
+5) DoD / Tests / Validierung (MUST)
+
+T-01 Normalfall (stabile Last, stabile Zeitbasis)
+- Setup: /proc/stat lesbar, Δt_seconds>0, total steigt, softirq steigt.
+- Aktion: 2 Samples, compute.
+- Erwartung: softirq_pct plausibel (0..100), keine Flags.
+- Nachweis: Messlog/Audit: softirq_pct + raw deltas.
+
+T-02 Multi-Core Konsistenz (aggregation)
+- Setup: Multi-Core System, per-core softirq verteilt.
+- Aktion: Messung aggregated.
+- Erwartung: Ergebnis entspricht “Summe aller Kerne” (nicht max-per-CPU).
+- Nachweis: Vergleich gegen kontrollierte Lastverteilung; keine Abweichung durch per-core max.
+
+T-03 /proc/stat unlesbar
+- Setup: simulate read fail.
+- Aktion: sample.
+- Erwartung: ERR-BR03-PROCSTAT_UNREADABLE, Sample ungültig, System bleibt stabil.
+- Nachweis: Failure-Reason sichtbar; kein Crash.
+
+T-04 Δt_seconds <= 0
+- Setup: Zeitbasisfehler.
+- Aktion: sample.
+- Erwartung: PROCSTAT_INVALID / ERR-BR03-DELTA_T_ZERO; keine Division.
+- Nachweis: Flag + stabiler Loop.
+
+T-05 Negative Δ (Reset/Wrap/Reboot)
+- Setup: total_now<total_prev oder softirq_now<softirq_prev.
+- Aktion: sample.
+- Erwartung: PROCSTAT_RESET Flag + definierte Korrektur (OPEN bis Owner-Fix).
+- Nachweis: keine negativen Prozentwerte, kein Spike.
+
+T-06 Glättung (falls aktiviert)
+- Setup: spiky softirq.
+- Aktion: N Samples.
+- Erwartung: Output folgt exakt definierter Glättungsregel (Median/rolling/raw).
+- Nachweis: reproduzierbar, deterministisch.
+
+
+6) OPEN Items (MUST)
+- O-01 (TOTAL_TICKS_DEF): Exakt festlegen, was “total” ist.
+  - Muss klar sagen: sind idle+iowait drin (meist ja), und wie mit guest/guest_nice umgegangen wird.
+  - Ohne diese Festlegung ist BR-03 nicht “geschlossen”.
+- O-02 (SMOOTHING): Glättung ja/nein.
+  - Ohne Festlegung ist Verhalten bei “flatternder SoftIRQ%” implementierungsabhängig.
+- O-03 (NEG/INVALID DELTA RULE): konkrete Korrekturregel bei Δsoftirq<0 / Δtotal<=0 (setze Δ=0? verwirf Sample?).
+  - Muss fix sein, damit kein Phantom-Impact entsteht.
+
+
+7) Änderungsprotokoll (v2-Entwurfsintern)
+- CHG-01: BR-03 v2 zieht die drei fehlenden Muss-Fakten (Aggregation/total/glättung) explizit als Owner-Fixpunkte hoch.
+- CHG-02: Aggregation = aggregated ist als FIX eingetragen (auf deinen Entscheid).

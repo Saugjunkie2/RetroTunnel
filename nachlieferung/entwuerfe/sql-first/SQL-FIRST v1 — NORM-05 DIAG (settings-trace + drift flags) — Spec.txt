@@ -1,0 +1,99 @@
+xp-vpn-stack/entwuerfe/sql-first/SQL-FIRST v1 — NORM-05 DIAG (settings-trace + drift flags) — Spec.txt
+================================================================================
+TITLE: NORM-05 — /diag Erweiterungs-Contract für SQL-first: settings-trace + drift flags + DB_STATE Gründe
+DOC-ID: SQLF-NORM-05
+STATUS: ENTWURF (Phase 3) — NORMATIV (innerhalb Entwurf)
+VERSION: v0.4
+DATUM: 2026-01-29 (Europe/Zurich)
+
+SCOPE:
+- Definiert, welche /diag Felder nötig sind, um SQL-first deterministisch zu debuggen
+  (Settings resolution, Drift, DB_STATE reasons), ohne Secrets/PII zu leaken.
+- Kein JSON Copy-Block; nur Feldnamen + Semantik.
+- Achtung: B052 Drift-Guard: /diag darf B270 nicht brechen (keine Umbenennung; nur Sub-Objekte).
+
+REFERENZEN:
+- blocks/B270_DIAG_ENDPOINT.txt (kanonisch)
+- blocks/B052_DB_OUTAGE_CONTRACT.txt (DB_STATE Semantik)
+- blocks/B342_POLICY_OUTCOME_REASON_CODES_MATRIX.txt (Reason codes)
+- NORM-01..NORM-04
+
+================================================================================
+N-05.1 Grundsatz: /diag ist Support/CI Input, scope-gebunden
+================================================================================
+MUST:
+- /diag nur über VPN erreichbar (B270).
+- /diag Ausgabe scope-abhängig (restricted/user/admin):
+  • USER/RESTRICT: keine sensiblen Detailwerte (keine kompletten settings dumps)
+  • ADMIN: erweiterte Trace-Infos
+
+(OPEN: Feinheitsgrad, siehe DEC-SQLF-012 OPEN)
+
+================================================================================
+N-05.2 Neues Sub-Objekt (Additive, B270-kompatibel)
+================================================================================
+Additiv (unter /diag root) — keine breaking changes:
+
+A) backend.db_state (oder vorhandenes Feld erweitern)
+- db_state: OK | DOWN | UNKNOWN
+- reason_code: (B342 kompatibel; z.B. R_AUTH_BACKEND_SQL_DOWN/FAIL)
+- observed_at
+
+B) backend.settings (health summary)
+- catalog_version / schema_version (falls vorhanden)
+- required_keyset_id (welches Key-Set gilt für diese Phase/Domain)
+- completeness: true/false
+- drift_flags: array of DRIFT_* (NORM-03)
+- last_resolve_ms / timeout_flag (Meta)
+
+C) backend.settings_trace (ADMIN-only)
+- Für eine kleine, begrenzte Menge Keys (Key-Set, nicht “alles”) liefert /diag pro key:
+  • canonical_key
+  • effective_value (redacted wenn nötig)
+  • effective_source (GLOBAL/CUSTOMER/CONNECTION/FALLBACK_*)
+  • key_state (OK/MISSING/INVALID/FALLBACK_ACTIVE/DB_UNKNOWN)
+  • reason_code
+  • alias_used (optional)
+
+MUST:
+- Trace muss size-limited sein (Disk/Net/DoS).
+- Kein PII, keine Secrets (B270).
+
+================================================================================
+N-05.3 Failure-Map Exposure (Expected Fails)
+================================================================================
+SQL-first verlangt: Wenn ein Key fehlt/invalid ist, darf das nicht “mystisch” sein.
+Daher /diag muss für die Phase ein “expected_fail_map_id” referenzieren können:
+- expected_fail_map_id (z.B. PH2_EXPECT_FAILS_v3)
+- mismatches_count
+
+(Details in NORM-07 B310 Proof Plan)
+
+================================================================================
+N-05.4 Validierung / Proof (B310)
+================================================================================
+- B310-DIAG-SQLF-001: /diag enthält db_state + reason_code (B342) ohne PII.
+- B310-DIAG-SQLF-002: settings_trace ist size-limited und scope-limited.
+- B310-DIAG-SQLF-003: drift_flags korrekt für key missing/invalid/alias/reference mismatch.
+- B310-DIAG-SQLF-004: No breaking change to existing B270 fields.
+
+Hinweis:
+- Das “Proof Wiring” (welche Tests/Gates PH-gebunden gelten und wie DOC-SET-001 → DOC-SET-001-EXT erweitert wird)
+  ist normativ in NORM-07 definiert.
+
+================================================================================
+CHANGELOG
+================================================================================
+v0.4 (2026-01-29): NORM-07 Referenz für Proof-Wiring in N-05.4 ergänzt (rein dokumentarisch, keine Contract-Änderung).
+v0.2 (2026-01-28): KH Trace Assertions ergänzt (Verweis auf SQLF-KH-EXFAIL-01).
+v0.3 (2026-01-29): Norm-Closure: KH Trace Assertions auf NORM-05 Contract normalisiert (backend.settings_trace + effective_source/key_state/reason_code); entfernt settings.trace/source/validation_state/reasons[] Drift.
+v0.1 (2026-01-28): NORM-05 initial: additive /diag fields für SQL-first (db_state, settings health, admin trace, drift flags).
+================================================================================
+KH Trace Assertions (Phase 3 ENTWURF)
+================================================================================
+Für die 8 KH canonical Keys gilt ein Minimal-Trace-Contract (siehe SQLF-KH-EXFAIL-01):
+- backend.settings_trace[*] entry für canonical_key MUST exist
+- Felder (NORM-05 Contract):
+  canonical_key, effective_value, effective_source, key_state, reason_code, alias_used (optional) (+ alias_key optional)
+
+2026-01-28: v0.2 ergänzt: KH Trace Assertions (Verweis auf SQLF-KH-EXFAIL-01).

@@ -1,0 +1,177 @@
+===============================
+PEAK MODE v2 — BR-00A (ADDENDUM / Parity-Shim zu v1)
+TITLE: v1→v2 Parity Addendum (One-Pager + Build-Ready Checklist + Lifecycle/Audit Mapping)
+DOC-ID: BR-00A
+STATUS: ENTWURF (Phase 3) — keine Patch-/Copy-Blöcke, keine tc/SQL Snippets
+ZIEL: v2 kann ohne v1-Dateien verstanden, geprüft und implementiert werden, ohne BR-01..BR-12 zu verändern.
+
+PRINZIP (MUST, Drift-Schutz)
+- Dieses Addendum ist “Non-Normative Binding”: Es ergänzt fehlende Artefakte.
+- Normativ sind weiterhin BR-01..BR-12 + DECISION MATRIX + OWNER-FIX VALUE SHEET.
+- Wo v1 Fakten/Entscheidungen existieren, aber v2 noch OPEN ist: bleibt es OPEN, bis Owner es fixiert.
+- Dieses Dokument setzt keine neuen Zahlen, außer bereits owner-fixiert in v2 (FP-PEAK-01=30%, FP-PEAK-02 dynamisch 3/5/10 latched, SoftIRQ aggregated).
+
+================================================================================
+1) ONE-PAGER (v2 Kurzdefinition, v1-ähnlich, aber v2-gebunden)
+================================================================================
+
+1.1 Was Peak Mode ist (Zielbild)
+- Peak Mode ist ein “CPU-Overload Schutzmodus”, der bei sustained overload auf dem VPN-Server aktiviert wird,
+  und während der Episode pro aktiver USER-PPP-Session die Bandbreite reduziert (CAKE Edition, kein Mischmasch).
+- Ziel ist Stabilität: SoftIRQ-Last senken / CPU entlasten, nicht maximaler Durchsatz.
+
+1.2 Wie Peak Mode arbeitet (v2 Referenzpfade)
+- Detection/Trigger: BR-03 (SoftIRQ aggregated) + BR-04/05/06 (Gates/Kombinationslogik)
+- Täterermittlung: BR-07 (Top-N Täter) inkl. Owner fix: dynamisch 3/5/10, N pro Episode gelatched
+- Episode/State: BR-10 (State machine, persist/hold/recovery/cooldown)
+- Apply/Restore: BR-09 (bounded apply, exit_code Klassen), USER-only Zielscope
+- Audit/Schema: BR-08 (peak_episode / peak_apply_run / peak_apply_item optional)
+- Operability/Panel: BR-11 (sichtbare Gründe, Status, History)
+- Hardening: BR-12 (rate-limits, circuit breaker, authz, anti-thrash)
+
+1.3 Owner-Fixpunkte, die in v2 bereits hart sind
+- FP-PEAK-01 MULTI-Schwelle = 30% (v2 DECISION MATRIX)
+- FP-PEAK-02 Top-N dynamisch nach active_ppp, N pro Episode fix (v2 DECISION MATRIX)
+- SoftIRQ% Aggregation = aggregated (v2 DECISION MATRIX)
+- CAKE bleibt das QoS Modell (kein HTB-Mix), auch im Overload-Fall (v2 BR-06 / Entscheidung)
+
+================================================================================
+2) BUILD-READY CHECKLISTE (v1-Artefakt als v2-Abhakliste, ohne neue Semantik)
+================================================================================
+
+Definition Build-Ready (für Peak v2):
+- “Build-Ready” bedeutet: Alle Contracts sind geschlossen ODER die OPEN Owner-Fixpunkte sind explizit akzeptiert
+  (mit Default/Policy) und die DoD-Tests sind als Nachweise ausführbar.
+
+CHECKLISTE (Abhaken nur wenn erfüllt):
+BR-CHECK-01 Detection-Spezifikation vorhanden
+- Nachweis: BR-03 (SoftIRQ aggregated) + klare Messdefinition + Sample-Interval definiert oder OPEN.
+- DoD: T-03-* (aus BR-03)
+
+BR-CHECK-02 Gates/Trigger vollständig und nicht umgehbar
+- Nachweis: BR-04/05/06 definieren Triggerbedingungen ohne “implizite Defaults”.
+- DoD: T-04-*, T-05-*, T-06-*
+
+BR-CHECK-03 Täterermittlung deterministisch und gelatched
+- Nachweis: BR-07 Top-N dynamic (3/5/10) + Latch pro Episode.
+- DoD: T-07-* (Top-N Stabilität, keine Mitwander-Drift)
+
+BR-CHECK-04 Episode/State geschlossen (Enter/Hold/Exit/Recovery/Cooldown)
+- Nachweis: BR-10 vollständig; Zeitwerte fix oder OPEN mit Owner-Entscheid.
+- DoD: T-10-* (flap tests, persist/exit tests)
+
+BR-CHECK-05 Apply/Restore bounded (kein apply-storm)
+- Nachweis: BR-09 bounded apply + Fehlerklassen.
+- DoD: T-09-* (partial/fail/locked/dbdown Klassifikation)
+
+BR-CHECK-06 Audit/Schema ist ausreichend zur Debugbarkeit
+- Nachweis: BR-08 (peak_episode + peak_apply_run mandatory; peak_apply_item optional + policy)
+- DoD: T-08-* (Audit ohne Log-Parsing; per-run reason sichtbar)
+
+BR-CHECK-07 Operability/Panel: Failure Reasons ohne Dead Ends
+- Nachweis: BR-11 zeigt: state, last apply, error_class, circuit flags, suppressed reasons.
+- DoD: T-11-* (admin kann Ursache identifizieren)
+
+BR-CHECK-08 Hardening: Anti-Thrash + Circuit + AuthZ + Rate-Limits
+- Nachweis: BR-12 existiert; Caps/Policies fix oder OPEN mit Owner-Entscheid.
+- DoD: T-12-* (storm, flapping, dbdown, lock contention, manual rate limit)
+
+BR-CHECK-09 Owner-Fixpunkte zentral festgezurrt oder bewusst OPEN
+- Nachweis: OWNER-FIX VALUE SHEET: FP-BR09-*, FP-BR10-*, FP-BR11-*, FP-BR12-* sind FIX oder “OPEN akzeptiert”.
+- DoD: “Owner-Fix Review” abgeschlossen (keine stillen Defaults in Implementierung erlaubt).
+
+================================================================================
+3) v1→v2 Lifecycle/Audit Feld-Parität (Naming-Mapping, ohne BR-08 zu überschreiben)
+================================================================================
+
+v1-Fakt (aus v1 “Entscheidung/Fakten”):
+- Peak Session Lifecycle Felder: started_at, ended_at, recovered_at, admin_note, apply_source, action_id
+- Begründung: Audit/Support/Erklärbarkeit
+
+v2-Status:
+- started_at / ended_at: existieren als Contract in BR-08 (peak_apply_run)
+- recovered_at / admin_note / apply_source / action_id: sind in BR-08 aktuell NICHT als Pflichtfelder benannt.
+
+Parity-Regel (MUST, driftfrei formuliert):
+- BR-00A führt diese v1-Felder als “Audit Concepts” weiter,
+  aber setzt sie NICHT als BR-08 Pflichtspalten, solange BR-08 nicht entsprechend erweitert wird.
+- Implementations dürfen diese Konzepte abbilden über:
+  a) bereits vorhandene v2 Felder (trigger_source, action, error_detail) ODER
+  b) ein explizites “meta/audit” Feld, falls BR-08 das später vorsieht (OPEN) ODER
+  c) eine separate audit table (nur wenn später als BR-08 Erweiterung entschieden).
+
+Konkretes Mapping (Contract-level, ohne Schema-Patch):
+- v1.started_at  -> v2.peak_apply_run.started_at
+- v1.ended_at    -> v2.peak_apply_run.ended_at
+- v1.apply_source -> v2.peak_apply_run.trigger_source (DETECTOR|TIMER|MANUAL|RECOVER) (semantische Nähe)
+- v1.action_id    -> v2.peak_apply_run.action (ENTER_APPLY|EXTEND_APPLY|EXIT_RESTORE|MANUAL_APPLY|NOOP) (semantische Nähe)
+- v1.admin_note   -> v2.peak_apply_run.error_detail (nur wenn es wirklich “detail” ist) ODER eigenes Feld (OPEN)
+- v1.recovered_at -> v2: derzeit nur implizit über trigger_source=RECOVER + timestamps;
+                     explizites recovered_at bleibt OPEN, wenn Owner 1:1 Parität will.
+
+OPEN Parity Items (nur Markierung, keine Zahl/Schema-Festlegung):
+- P-00A-01: Willst du recovered_at als echtes Feld? (ja/nein)
+- P-00A-02: Willst du admin_note als echtes Feld (max length 512 wie v1) (ja/nein)
+- P-00A-03: Willst du apply_source/action_id als separate Felder, oder reicht trigger_source/action? (Owner)
+
+================================================================================
+4) Begriff “PPS” (v1) vs SoftIRQ% (v2) — Drift-Schutz
+================================================================================
+
+v1-Fakt:
+- v1 erwähnt PPS zusammen mit SoftIRQ (Ziel: Stabilität, SoftIRQ senken).
+
+v2-Status:
+- v2 ist “softirq-only” als Impact-Fokus.
+- PPS ist als Begriff/Contract in v2 nicht definiert.
+
+Driftfreie Parity-Regel:
+- PPS darf als “diagnostischer Kontext” genutzt werden (observability),
+  aber normativer Trigger/Impact bleibt SoftIRQ aggregated (BR-03), solange Owner nichts anderes fixiert.
+
+OPEN:
+- P-00A-04: Willst du PPS als zusätzliches observability Feld im Panel/Audit (ja/nein),
+            ohne dass Triggerlogik davon abhängt?
+
+================================================================================
+5) Parity-Konflikte (v1-Entscheidungen vs v2 OPEN/Empfehlungen)
+================================================================================
+
+WICHTIG: BR-00A entscheidet hier nichts neu. Es markiert nur, wo v1 bereits “FIX” hatte,
+während v2 noch OPEN oder abweichende Empfehlungen enthält.
+
+K-00A-01 Snapshot-Rate
+- v1 hatte eine Entscheidung (z.B. 1/min Snapshot).
+- v2 hat SNAPSHOT_MAX_RATE als OPEN (und es existieren Empfehlungen in Owner-Fix Sheet).
+-> Owner muss entscheiden: v1 parity (1/min) vs v2 Empfehlung (z.B. 6/min).
+-> Nach Owner-Fix wird FP-BR12-10 entsprechend FIX.
+
+K-00A-02 recovered_at / admin_note / action_id
+- v1: explizit.
+- v2: derzeit nicht als Pflichtfelder.
+-> Owner entscheidet: “Parität exakt” (dann BR-08 muss erweitert werden) oder “Semantik reicht via existing fields”.
+
+================================================================================
+6) DoD für BR-00A (Beweis: Addendum erzeugt keinen Drift)
+================================================================================
+T-00A-01 Non-Normative Guard
+- Prüfe: BR-00A setzt keine neuen Zahlen/Thresholds außer bereits owner-fixiert.
+- Ergebnis: OK wenn keine FP-IDs neu fixiert werden.
+
+T-00A-02 Mapping Consistency
+- Prüfe: Mapping der v1 Felder zeigt nur “nearest equivalents” oder OPEN, keine stillen Überschreibungen.
+
+T-00A-03 Conflict Marking
+- Prüfe: Jeder v1→v2 Konflikt ist als OPEN/Owner Entscheidung markiert, nicht als “neuer Default”.
+
+================================================================================
+7) DRIFT-AMPel (nur Status)
+================================================================================
+DRIFT: NONE
+- Grund: BR-00A überschreibt keine BR Contracts; ergänzt fehlende Artefakte und markiert Parity-Open-Items.
+
+================================================================================
+8) CHANGELOG (ENTWURF-intern)
+================================================================================
+- v2.0-ENTWURF (heute): BR-00A ergänzt v2 um v1-Parity-Artefakte (One-Pager, Build-Ready Checklist, Lifecycle Mapping, PPS-Begriff),
+  ohne BR-01..BR-12 zu überschreiben; Konflikte als OPEN markiert.

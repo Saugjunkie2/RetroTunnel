@@ -1,0 +1,112 @@
+SQL-FIRST v1 — KH SAFE BASELINE (SB) SOURCE NORM v1.txt
+================================================================================
+TITLE: SQL-first — Safe Baseline (SB) Source Norm (für KH-008 tighten-only)
+DOC-ID: SQLF-KH-SB-NORM-01
+STATUS: ENTWURF (Phase 3) — Norm-Entscheidungsrahmen + Default-Empfehlung
+VERSION: v0.1
+DATUM: 2026-01-28 (Europe/Zurich)
+
+ZWECK:
+- Präzisiert die in SQLF-KH-LOOSER-DEF-01 bewusst offene Frage: “SB final”.
+- Liefert eine Norm, wie SB gebildet wird, damit KH-008 CI-Gate vollständig deterministisch ist.
+
+GRENZEN / KEINE NEUINTERPRETATION:
+- SB ist ein reiner “Safety-Comparator” für tighten-only.
+- SB ist NICHT gleichbedeutend mit “Policy Default”.
+- SB muss im Panel erklärbar sein (du willst sehen, was du änderst).
+
+================================================================================
+A) Definition: Was ist SB exakt?
+================================================================================
+SB (Safe Baseline) ist der Referenzwert, gegen den geprüft wird, ob EV “looser” wird,
+wenn Validation/Capping/Fallback aktiv ist.
+
+Normative Rolle:
+- SB ist die Obergrenze, die EV bei INVALID/MISSING niemals überschreiten darf
+  (für Keys aus B1–B3 in SQLF-KH-LOOSER-DEF-01).
+
+================================================================================
+B) SB-Quelle — 3 zulässige Modelle (Owner-FIX nötig)
+================================================================================
+SB-MODEL muss für KH-Keys einheitlich festgelegt werden.
+
+SB-Model 1 (Empfehlung): SB = DEFAULT_SAFE
+- SB wird identisch zum Owner-FIX Default gesetzt, aber explizit als “SAFE DEFAULT”.
+- Regel:
+  • SB = key.default_value (aus settings_catalog)
+  • Optional: wenn default_value zu “loose” wäre, wird default_value selbst konservativ gewählt.
+- Vorteil:
+  • Panel-UX am saubersten: “Default ist gleichzeitig Safety-Baseline”
+  • Gate kann einfach prüfen: EV <= DEFAULT
+- Nachteil:
+  • verlangt, dass Default-Wahl wirklich konservativ ist (Owner-FIX Qualität)
+
+SB-Model 2: SB = MIN_SAFE (strenger als Default)
+- Regel:
+  • SB = key.safe_min_value (zusätzliches Feld/Metadatum)
+  • DEFAULT kann darüber liegen, SB bleibt strenger
+- Vorteil:
+  • Safety kann strenger sein als “komfort” Default
+- Nachteil:
+  • Mehr Metadaten/Komplexität im Catalog + Panel muss SB separat erklären.
+
+SB-Model 3: SB = min(DEFAULT_SAFE, CAP_VALUE) (Cap-dominiert)
+- Regel:
+  • SB wird aus Default und Cap abgeleitet (falls Cap existiert).
+- Vorteil:
+  • Safety passt sich Host-Budget automatisch an.
+- Nachteil:
+  • SB wird dynamisch → Panel-Erklärbarkeit schwerer; Risiko “drift by environment”
+
+Owner-FIX Feld:
+- DEC-SQLF-KH-SB-001 = MODEL_1 / MODEL_2 / MODEL_3
+
+================================================================================
+C) Konkrete Norm-Regeln (Gate-tauglich)
+================================================================================
+C1) Für Budget/Retention/TTL Keys gilt:
+- Wenn validation_state != OK:
+  • EV <= SB muss gelten (tighten-only)
+- Wenn source=CAPPED:
+  • EV == CAP_VALUE (oder EV <= CAP_VALUE)
+  • zusätzlich: CAP_VALUE <= SB ODER (wenn MODEL_3) SB wird entsprechend berechnet
+
+C2) SB muss für CI in /diag sichtbar sein (nur Readout):
+- /diag Feld:
+  • settings.trace[key].safe_baseline_value (SB)
+  • settings.trace[key].sb_model (MODEL_1/2/3)
+  • optional: sb_source (DEFAULT_SAFE / SAFE_MIN / DERIVED)
+
+Begründung:
+- Du willst im Panel verstehen, was passiert; CI braucht maschinenlesbare Deterministik.
+
+================================================================================
+D) Recommended Default (wenn du “durchziehst” ohne neue Runde)
+================================================================================
+Empfehlung:
+- DEC-SQLF-KH-SB-001 = MODEL_1 (SB = DEFAULT_SAFE)
+
+Warum:
+- Minimaler Metadaten-Fußabdruck, maximaler Panel-UX, maximal deterministische CI.
+
+================================================================================
+E) Validierung (B310 / CI)
+================================================================================
+Wenn MODEL_1:
+- KH-008 Gate prüft für Keys aus B1–B3:
+  • (validation_state != OK) ⇒ EV <= DEFAULT
+  • trace enthält safe_baseline_value == DEFAULT
+- Testfälle:
+  • KH-EXFAIL-011/040/041 (Budget/Cap/Invalid)
+
+Wenn MODEL_2:
+- Gate prüft EV <= SAFE_MIN; zusätzlich trace enthält SAFE_MIN.
+- Erfordert Catalog-Erweiterung safe_min_value.
+
+Wenn MODEL_3:
+- Gate prüft EV <= derived_SB; erfordert Cap-Value als Gate-Input.
+
+================================================================================
+CHANGELOG
+================================================================================
+2026-01-28: v0.1 initial: SB Source Norm (Model 1/2/3) + /diag Readout Contract.

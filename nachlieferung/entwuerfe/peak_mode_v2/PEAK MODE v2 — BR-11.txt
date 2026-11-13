@@ -1,0 +1,250 @@
+===============================
+PEAK MODE v2 — BR-11 (ENTWURF / Phase 3)
+TITLE: Operability / Observability Contract — Status, Telemetrie, Panel-Views, Failure-Reasons, Runbook-Minimum
+BR-ID: BR-11
+STATUS: ENTWURF (Phase 3) — keine Patch-/Copy-Blöcke, keine SQL/HTTP Snippets
+ZIEL: Peak-Mode ist für Admin debugbar & bedienbar, ohne Dead Ends, ohne Log-Parsen, ohne PII-Leaks.
+
+================================================================================
+0) SCOPE (MUST)
+================================================================================
+Dieses BR definiert ausschließlich:
+- Welche Observability-Daten Peak liefert (Status/State, Zeitpunkte, Counters, Reasons)
+- Welche Views/Pages im Webpanel existieren (read-only + actions UI nur als Contract)
+- Welche Failure-Reasons/Fehlerklassen sichtbar sind und wie sie “übersetzt” werden (human readable)
+- Minimal-Runbook: “Wenn X passiert, tue Y” (nur Contract)
+- Minimal Logging/Retention/Rotation (ohne Implementation)
+- Non-Goals: keine “nice dashboards”, keine Export-Features (wenn nicht explizit im Kanon)
+
+Anti-Scope:
+- Trigger-Detection (BR-03)
+- State-Machine (BR-10)
+- Apply-Mechanik/Lock/Exit-codes intern (BR-09)
+- DB Schema (BR-08)
+- tc/cake topologie (BR-01/BR-06)
+
+================================================================================
+1) KANON-ABGLEICH (MUST, drift-sicher)
+================================================================================
+
+1.1 Imports (KANON-QUELLEN)
+- K-IMP-01: PEAK MODE v2 BR-10 (State-Machine)
+  -> States/Transitions müssen 1:1 sichtbar gemacht werden.
+- K-IMP-02: PEAK MODE v2 BR-09 (Apply exit_code + error_class + bounded apply)
+  -> Failure-Reasons kommen aus peak_apply_run (exit_code/result_code/error_class/error_detail).
+- K-IMP-03: PEAK MODE v2 BR-08 (Episode/Snapshot/Apply-Audit tables contract)
+  -> Panel liest Episode/Snapshots/Apply-Runs/Items, kein /run parsing im Panel.
+- K-IMP-04: blocks/B166_POLICY_APPLY_RECONCILE.txt
+  -> Exit-Codes 0..7 sind semantisch kanonisch.
+- K-IMP-05: Peak-Mode v1 Build-Ready / Checklist (falls vorhanden)
+  -> “Build-ready” erwartet typischerweise: klare Statusanzeige, Diagnose, “was tun bei Fehlern”.
+
+1.2 Konfliktcheck (MUST)
+- K-CONF-01: “Panel darf keine SoT ersetzen”
+  -> Status: NONE (Panel ist read-only aus DB/Audit; runtime SoT bleibt /run für Apply, nicht fürs Panel).
+- K-CONF-02: PII/Secrets leakage
+  -> Status: RISK wenn error_detail oder logs unkontrolliert Inhalte spiegeln.
+  -> BR-11 setzt hier Contract: keine PII, keine Secrets, kurze error_details.
+
+================================================================================
+2) OWNER-FIXPUNKTE (MUST)
+================================================================================
+
+FIX (aus v2-Kanon ableitbar)
+- FP-BR11-01 SOURCE_OF_PANEL_TRUTH = DB Audit (peak_episode, peak_apply_run, peak_apply_item, snapshots)
+- FP-BR11-02 NO_PII = true (kein username/email/pass/psk/token; IP default OFF, wenn überhaupt)
+- FP-BR11-03 STATES_VISIBLE = alle BR-10 states müssen sichtbar sein
+
+OPEN (Owner-Fix nötig)
+- FP-BR11-04 SNAPSHOT_RETENTION_DAYS:
+  - Wie viele Tage Snapshots/Apply Items werden im Panel sichtbar gehalten?
+- FP-BR11-05 ITEM_DETAIL_LEVEL:
+  - Panel zeigt per default apply_item Liste (pro pppX) oder nur apply_run summary?
+  - (privacy/perf tradeoff; auch abhängig von D-PEAK-DB-01 in BR-08)
+- FP-BR11-06 ALERTING_STYLE:
+  - Nur “Banner im Panel” vs zusätzlich “Email/Push” (letzteres vermutlich außerhalb scope)
+  - Default in diesem BR: Panel Banner only; alles andere OPEN.
+
+================================================================================
+3) OBSERVABILITY CONTRACT (MUST)
+================================================================================
+
+3.1 “Peak Global Status” (MUST)
+Panel muss als 1 Screen (“Peak Status”) ausgeben:
+
+A) Current State (aus BR-10)
+- state: INACTIVE | ENTER_PENDING | PEAK_ACTIVE | EXIT_PENDING | COOLDOWN | DISABLED
+- since_ts: Zeitpunkt seit wann dieser State gilt
+- next_expected_event: (nur informativ) z.B. “persist remaining”, “hold_until”, “cooldown remaining”
+
+B) Episode (wenn aktiv oder last episode)
+- episode_id (oder episode_uuid, wenn vorhanden)
+- entered_at, exited_at (wenn beendet), hold_until
+- enter_reason_code, exit_reason_code
+- latched params: multi_threshold_pct, topn_latched, active_ppp_enter
+
+C) Last Apply Run (MUST)
+- action: ENTER_APPLY / EXTEND_APPLY / EXIT_RESTORE / MANUAL_APPLY / NOOP
+- started_at, duration_ms
+- exit_code (0..7) + human explanation (siehe 4)
+- result_code + error_class + short error_detail
+- items_total/items_ok/items_fail/items_skipped
+- “boundedness info”: CAP_REACHED flag (wenn vorhanden) / lock_waited_ms (optional)
+
+D) Last N Applies (MUST)
+- Tabelle: time, action, exit_code, items_fail, error_class, link “details”
+
+3.2 “Apply Details View” (MUST)
+Wenn Item Detail aktiviert (FP-BR11-05):
+- pro apply_run: Liste der apply_items:
+  - ppp_ifname
+  - intended_mode (PEAK/PROFILE)
+  - intended_bw_bps
+  - item_result (OK/FAIL/SKIP/NOOP)
+  - item_error_code (wenn fail/skip)
+  - conn_group_resolved (USER/ADMIN) (soll meist USER)
+- Keine Anzeige von CLIENT_IP (default OFF), keine PII.
+
+Wenn Item Detail deaktiviert:
+- nur summary + “Top failure reasons” aggregated:
+  - z.B. TC_APPLY_FAILED: 3 ; IFACE_GONE: 7 ; DB_LOOKUP_FAILED: 1
+
+3.3 “Timeseries / Snapshot View” (OPTIONAL)
+Wenn retention/volume es zulässt:
+- pro Episode: Graph/Tabellenliste (ts, softirq_pct_agg, vpn_bps_total, active_ppp_now, overload_bool, hold_until)
+- Wenn zu heavy: nur Downsampled/Top-level metrics (OPEN).
+
+================================================================================
+4) FAILURE REASON MODEL (MUST)
+================================================================================
+
+4.1 Exit-Code Übersetzung (MUST) (B166 kompatibel, human readable)
+- 0 OK:
+  “Anwendung erfolgreich — alle Ziel-Interfaces aktualisiert.”
+- 1 PARTIAL_OK:
+  “Teilweise erfolgreich — einige Interfaces konnten nicht aktualisiert werden. Details anzeigen.”
+- 2 TEMPFAIL_SQL:
+  “Datenbankproblem — Peak konnte nicht sicher planen/auditieren. Kein Retry-Sturm; später erneut.”
+- 4 RUNTIME_APPLY_ERROR:
+  “Traffic-Control Fehler — tc/cake konnte auf einigen/allen Interfaces nicht gesetzt werden.”
+- 5 TEMPFAIL_LOCKED:
+  “Peak ist gerade beschäftigt — Apply-Lock nicht bekommen.”
+- 6 STATE_MAPPING_ERROR:
+  “Runtime-Mapping ungültig — /run Snapshot oder DB Mapping inkonsistent.”
+- 7 INTERNAL_ERROR:
+  “Interner Fehler — bitte Log-ID prüfen und manuell eingreifen.”
+
+4.2 Error-Class Übersetzung (MUST)
+Mapping von error_class/result_code zu “Action Hint”:
+- LOCK_TIMEOUT / TEMPFAIL_LOCKED:
+  Hint: “Warte 30s; wenn wiederholt, prüfe ob stuck apply läuft; ggf. manual abort (BR-10 action).”
+- DB_DOWN / DB_TIMEOUT / TEMPFAIL_SQL:
+  Hint: “DB health prüfen; wenn DB stabil, Peak wiederholen; keine Änderungen am tc notwendig.”
+- NO_CAKE_BASELINE / APPLY_ERROR:
+  Hint: “QoS baseline prüfen (PH2/BR-01/BR-06); CAKE root muss existieren.”
+- ENV_INVALID / MAPPING_INVALID:
+  Hint: “/run/vpn-sessions validity prüfen (B165).”
+- IFACE_GONE:
+  Hint: “Hoher churn; normal bei disconnect; wenn massiv: Rate-limit / hardening (BR-12).”
+
+4.3 “No PII / No Secrets” (MUST)
+- error_detail darf niemals Secrets enthalten (PSK/Password/Token/Email/Usernames).
+- Wenn raw exception strings existieren: sanitize/shorten to code + correlation_id.
+
+================================================================================
+5) RUNBOOK MINIMUM (MUST)
+================================================================================
+
+RB-11-01 “Peak stuck in PEAK_ACTIVE”
+- Symptom: State=PEAK_ACTIVE, hold_until sehr weit in Zukunft oder nie sinkend.
+- Action:
+  1) Prüfe Snapshot: overload_bool immer true?
+  2) Prüfe SoftIRQ aggregated plausibel?
+  3) Wenn false positives: adjust trigger thresholds (BR-03) (Owner fix).
+  4) Manual Force Exit (BR-10) falls safe.
+
+RB-11-02 “Apply fails with LOCKED”
+- Action:
+  1) Check last apply_run duration_ms
+  2) Wenn Apply lange läuft: warte; wenn wiederholt: manual abort/disable peak (BR-10 policy)
+  3) Prüfe Lock timeout param (FP-BR09-08)
+
+RB-11-03 “Apply fails with TEMPFAIL_SQL”
+- Action:
+  1) DB health prüfen
+  2) Wenn DB wieder ok: controller retry via next tick (bounded)
+  3) Keine tc changes manuell nötig (Peak ist policy-level)
+
+RB-11-04 “Apply fails with RUNTIME_APPLY_ERROR”
+- Action:
+  1) Prüfe ob CAKE baseline existiert (BR-01/BR-06)
+  2) Prüfe ifnames (pppX) und permissions
+  3) Wenn einzelnes interface: ok, PARTIAL_OK tolerierbar je threshold (FP-BR09-07)
+  4) Bei systematisch: PH2 fix nötig
+
+RB-11-05 “STATE_MAPPING_ERROR / ENV_INVALID”
+- Action:
+  1) Prüfe /run/vpn-sessions validity (B165)
+  2) Prüfe DB mapping vpn_connection_id exists
+  3) Bei churn: akzeptabel; bei dauerhaft: investigate collector pipeline
+
+================================================================================
+6) LOGGING / RETENTION (Minimal Contract) (MUST)
+================================================================================
+
+6.1 DB Retention (OPEN)
+- Peak-Audit Tabellen retention werden in BR-08 als OPEN geführt; BR-11 verlangt:
+  - Mindestens last 24h snapshot oder downsampled summary
+  - Mindestens last 100 apply_runs
+- Owner fix required via FP-BR11-04.
+
+6.2 System Logs (MUST, ohne Details)
+- Log-Level:
+  - INFO: state transitions, apply start/end, exit_code summary
+  - WARN: degraded/partial ok, mapping invalid
+  - ERROR: internal errors, repeated apply fails
+- Rotation/Retention muss Disk-Full vermeiden (Ops).
+- Keine PII/Secrets.
+
+================================================================================
+7) DoD / TESTS / VALIDATION (MUST)
+================================================================================
+
+T-11-01 “Single Screen Debug”
+- Admin kann aus Peak Status Screen erklären:
+  - Warum Peak aktiv ist (enter_reason, last metrics)
+  - Wie lange noch (hold_until/cooldown)
+  - Ob Apply erfolgreich war (exit_code + counters)
+
+T-11-02 “Failure Reason without Logs”
+- Für exit_code 2/4/5/6/7 sieht Admin:
+  - error_class + action hint (runbook mapping)
+
+T-11-03 “No PII”
+- Audit/Panel zeigt keine Secrets, keine usernames/emails/passwords/psk.
+- Review test: grep panel output sample.
+
+T-11-04 “Scales under load”
+- Panel queries sind bounded:
+  - default list: last N apply runs, last episode, summary only
+  - details only on click; heavy snapshot view optional.
+
+================================================================================
+8) OPEN ITEMS (MUST)
+================================================================================
+O-11-01 Snapshot retention days (FP-BR11-04)
+O-11-02 Default detail level (apply_item vs aggregated reasons) (FP-BR11-05)
+O-11-03 Alerting beyond panel (FP-BR11-06)
+
+================================================================================
+9) DRIFT-AMPel (nur Status)
+================================================================================
+DRIFT: RISK
+- Grund: Retention + Detail-Level + Alerting sind Owner-Fixpunkte; ohne sie ist Operability-Umfang nicht “geschlossen”.
+- Kernelemente sind konsistent: Panel liest DB audit, zeigt BR-10 states, interpretiert B166 exit codes, keine PII.
+
+================================================================================
+10) CHANGELOG (ENTWURF-intern)
+================================================================================
+- v2.0-ENTWURF (heute): BR-11 erstellt: Operability/Observability Contract (Peak Status View, Apply Views, Failure-Reasons,
+  Minimal Runbook, Logging/Retention constraints, DoD).

@@ -1,0 +1,289 @@
+===============================
+PEAK MODE v2 — BR-12 (ENTWURF / Phase 3)
+TITLE: Hardening / Caps / Circuit-Breakers — Anti-Thrash, Rate-Limits, Storm-Schutz, Manual-Override AuthZ
+BR-ID: BR-12
+STATUS: ENTWURF (Phase 3) — keine Patch-/Copy-Blöcke, keine tc/SQL Snippets
+ZIEL: Peak verschlimmert Overload niemals durch Apply-Stürme, Flapping, DB-Spam oder Admin-Misuse; alles bounded & auditierbar.
+
+================================================================================
+0) SCOPE (MUST)
+================================================================================
+Dieses BR definiert ausschließlich:
+- Hardening Contracts (Caps/Rate-Limits) für:
+  a) Apply-Invocation Rate (BR-09)
+  b) State-Transition Rate (BR-10)
+  c) Snapshot/Audit Volume (BR-08)
+  d) Manual Overrides (BR-10/Panel)
+- Circuit-Breaker Regeln (when to pause/disable) bei wiederholten Fehlern
+- Lock contention policy (wie mit wiederholtem LOCKED umgehen)
+- DB down policy (keine Eskalation, kein spam)
+- AuthZ Contract: wer darf welche Manual Actions ausführen + optional rate-limit pro admin
+
+Anti-Scope:
+- Trigger Messlogik (BR-03)
+- State machine selbst (BR-10), außer “caps über transitions”
+- Apply intern (BR-09) außer “caps über invocations”
+- DB Schema (BR-08) außer “retention/volume constraints”
+- Panel-Views (BR-11) außer “Welche Buttons existieren + permissions”
+
+================================================================================
+1) KANON-ABGLEICH (MUST, drift-sicher)
+================================================================================
+
+1.1 Imports (KANON-QUELLEN)
+- K-IMP-01: PEAK MODE v2 BR-09 (bounded apply + lock + exit codes)
+  -> BR-12 ergänzt “wann darf BR-09 aufgerufen werden” und “was tun bei wiederholten fails/locked”.
+- K-IMP-02: PEAK MODE v2 BR-10 (state machine, cooldown, manual actions)
+  -> BR-12 setzt caps: anti-flap, max transitions pro window, manual action rate-limits.
+- K-IMP-03: PEAK MODE v2 BR-08 (audit tables)
+  -> BR-12 setzt volume constraints und retention requirement (kein DB spam).
+- K-IMP-04: PEAK MODE v2 BR-11 (operability)
+  -> BR-12 definiert, welche Hardening-Flags sichtbar sind (z.B. CIRCUIT_OPEN).
+- K-IMP-05: blocks/B166_POLICY_APPLY_RECONCILE.txt
+  -> exit_code Klassen; BR-12 bezieht sich auf diese, um Circuit-Regeln deterministisch zu machen.
+- K-IMP-06: “SQL-first / No Magic” Grundsatz (global)
+  -> Caps/Thresholds sind Owner-Fixwerte oder DB-Policy, nicht in Code versteckt.
+
+1.2 Konfliktcheck (MUST)
+- K-CONF-01: Caps vs Controller tick
+  -> Wenn SAMPLE_INTERVAL (BR-10) zu klein und apply caps zu streng, kann Peak ineffektiv werden.
+  -> Status: RISK (Owner muss Zeitwerte konsistent wählen).
+- K-CONF-02: Circuit Breaker darf Admin nicht “ausperren”
+  -> Admin muss disable/force-exit weiterhin können (Not-Aus).
+  -> Status: NONE (BR-12 stellt das als invariant fest).
+
+================================================================================
+2) OWNER-FIXPUNKTE (MUST)
+================================================================================
+
+FIX (aus Designziel ableitbar, aber Zahlen sind Owner)
+- FP-BR12-01 HARDENING_ENABLED = true
+- FP-BR12-02 NO_RETRY_STORM = true (bounded; retries nur wenn explizit fixiert)
+- FP-BR12-03 ADMIN_NOT_OUT = true (Not-Aus bleibt möglich)
+
+OPEN (Owner-Fix: harte Zahlen/Policies, sonst drift)
+Apply Invocation Caps:
+- FP-BR12-04 APPLY_MIN_GAP_SEC:
+  - Minimum Zeit zwischen zwei BR-09 Apply-Runs (global)
+- FP-BR12-05 APPLY_MAX_PER_10MIN:
+  - Max Apply-Runs in 10 Minuten (global)
+- FP-BR12-06 APPLY_MAX_CONSEC_FAIL:
+  - Nach wie vielen Apply-Fails (exit_code in {2,4,6,7}) öffnet Circuit?
+
+Transition/State Caps:
+- FP-BR12-07 ENTER_MAX_PER_HOUR:
+  - Max ENTERs pro Stunde (anti-flap)
+- FP-BR12-08 EXIT_MAX_PER_HOUR:
+  - Max EXITS pro Stunde
+- FP-BR12-09 COOLDOWN_BYPASS_POLICY:
+  - Darf MANUAL_ENTER cooldown bypassen? ja/nein + rate-limit
+
+Snapshot/Audit Volume:
+- FP-BR12-10 SNAPSHOT_MAX_RATE:
+  - Max snapshots pro Minute (oder “one per tick” bounded) + downsample policy
+- FP-BR12-11 APPLY_ITEM_LOGGING_POLICY:
+  - Always per item vs only on failure vs only when debug enabled (privacy/perf)
+
+Manual Override AuthZ + Rate:
+- FP-BR12-12 AUTHZ_ROLES_FOR_ACTIONS:
+  - Which role can: FORCE_ENTER, FORCE_EXIT, DISABLE_PEAK, ENABLE_PEAK, CLEAR_EPISODE
+- FP-BR12-13 MANUAL_MAX_ACTIONS_PER_5MIN:
+  - Rate limit manual actions per admin identity/session
+
+Circuit Breaker Policies:
+- FP-BR12-14 CIRCUIT_OPEN_MIN_SEC:
+  - Wie lange bleibt circuit offen (apply suppressed) bevor retry allowed
+- FP-BR12-15 CIRCUIT_OPEN_ON_LOCKED:
+  - wiederholtes LOCKED öffnet circuit? ja/nein + threshold
+- FP-BR12-16 DB_DOWN_POLICY:
+  - Bei TEMPFAIL_SQL: apply suppressed bis DB ok (ja/nein) + recheck interval
+
+================================================================================
+3) HARDENING CONTRACT (MUST)
+================================================================================
+
+3.1 Global Guard Rails (MUST)
+GR-12-01 Single-Writer bleibt Pflicht (BR-09 Lock). BR-12 darf nicht parallel “work around”.
+GR-12-02 Apply darf nie schneller laufen als Controller-Tick, aber zusätzlich gilt APPLY_MIN_GAP_SEC.
+GR-12-03 Jeder “suppressed” Apply-Versuch wird auditierbar gemacht (reason: RATE_LIMIT/CIRCUIT_OPEN/etc.)
+GR-12-04 Circuit Breaker darf niemals Manual FORCE_EXIT blockieren (Not-Aus).
+
+3.2 Apply Rate-Limits (MUST)
+RL-APPLY-01 Minimum Gap
+- Wenn (now - last_apply_started_at) < APPLY_MIN_GAP_SEC:
+  - Controller darf BR-09 nicht aufrufen.
+  - Stattdessen: record “APPLY_SUPPRESSED: MIN_GAP” (in episode or run meta).
+  - State machine bleibt stabil: PEAK_ACTIVE bleibt aktiv; hold_until kann weiter sliden, aber apply ist suppressed.
+
+RL-APPLY-02 Window Cap
+- Wenn apply_count_10min >= APPLY_MAX_PER_10MIN:
+  - suppress apply (reason WINDOW_CAP)
+  - set hardening_flag=RATE_LIMIT_ACTIVE sichtbar in BR-11.
+
+RL-APPLY-03 Failure Backoff (bounded)
+- Wenn Apply fails wiederholt:
+  - increment consecutive_fail_count
+  - wenn consecutive_fail_count >= APPLY_MAX_CONSEC_FAIL:
+      open circuit (CIRCUIT_OPEN)
+      suppress further applies (außer Manual FORCE_EXIT)
+
+3.3 Transition Caps (anti-flap) (MUST)
+RL-STATE-01 Enter/Exit Caps
+- ENTER transitions pro Stunde <= ENTER_MAX_PER_HOUR
+- EXIT transitions pro Stunde <= EXIT_MAX_PER_HOUR
+- Bei Überschreitung:
+  - Force COOLDOWN extension oder Force DISABLED (Owner policy) — OPEN
+  - audit reason: FLAP_GUARD
+
+RL-STATE-02 Cooldown Bypass Policy
+- MANUAL_ENTER cooldown bypass nur wenn COOLDOWN_BYPASS_POLICY=ALLOW
+- zusätzlich MANUAL_MAX_ACTIONS_PER_5MIN beachten.
+
+3.4 Snapshot/Audit Volume Caps (MUST)
+RL-AUDIT-01 Snapshot Rate
+- snapshots werden maximal SNAPSHOT_MAX_RATE geschrieben (z.B. 6/min).
+- Wenn tick schneller: downsample (keep last in window).
+- audit: “SNAPSHOT_DOWNSAMPLED”
+
+RL-AUDIT-02 apply_item policy
+- apply_item rows können bei sehr großen N teuer sein.
+- Policy bestimmt:
+  - ALWAYS: jedes item loggen
+  - FAIL_ONLY: nur failures + aggregated ok
+  - DEBUG_ONLY: only when debug flag enabled (admin)
+- Muss in BR-11 sichtbar sein (“detail level”).
+
+3.5 Manual Overrides Hardening (MUST)
+AUTHZ-12-01 Actions
+- FORCE_ENTER: allowed roles = AUTHZ_ROLES_FOR_ACTIONS.force_enter
+- FORCE_EXIT: allowed roles = ...force_exit
+- DISABLE_PEAK/ENABLE_PEAK/CLEAR_EPISODE: allowed roles = …
+- Jede Manual Action erzeugt audit event (who-role, when, action, reason string) ohne PII.
+
+RL-MAN-01 Manual Rate Limit
+- pro admin identity/session <= MANUAL_MAX_ACTIONS_PER_5MIN
+- bei überschreitung: action rejected (reason MANUAL_RATE_LIMIT) + audit
+
+Invariant:
+- FORCE_EXIT ist Not-Aus: darf durch circuit/rate-limit nicht blockiert werden,
+  aber AuthZ muss erfüllt sein.
+
+================================================================================
+4) CIRCUIT BREAKER CONTRACT (MUST)
+================================================================================
+
+4.1 Circuit States (MUST)
+C0 CLOSED (normal)
+C1 OPEN (apply suppressed)
+C2 HALF_OPEN (limited trial apply allowed)
+
+4.2 Circuit Open Conditions (MUST)
+- OPEN on:
+  - consecutive_fail_count >= APPLY_MAX_CONSEC_FAIL (exit_code in {2,4,6,7})
+- Optional OPEN on LOCKED storm:
+  - wenn CIRCUIT_OPEN_ON_LOCKED = true und locked_count_window >= threshold
+- Optional OPEN on DB down:
+  - wenn DB_DOWN_POLICY = “suppress until ok”
+
+4.3 Open Behaviour (MUST)
+- Während OPEN:
+  - Controller darf BR-09 nicht aufrufen (außer FORCE_EXIT)
+  - State machine kann trotzdem PEAK_ACTIVE bleiben; hold_until kann sliden
+  - Panel zeigt CIRCUIT_OPEN + remaining time (open_until)
+
+4.4 Half-Open Trial (MUST)
+- Nach CIRCUIT_OPEN_MIN_SEC:
+  - switch to HALF_OPEN: allow max 1 apply attempt
+  - if success (exit_code 0/1): close circuit, reset counters
+  - if fail: reopen for another CIRCUIT_OPEN_MIN_SEC (bounded)
+
+================================================================================
+5) EDGE CASES / FAILURE MODES (MUST)
+================================================================================
+
+E-12-01 LOCK contention storm
+- Repeated exit_code=5:
+  - treat as “system busy”; optional circuit open on locked if configured.
+  - Do not spin.
+
+E-12-02 DB audit fails (disk full / DB down)
+- If cannot write audits, system must avoid infinite attempts.
+- Policy OPEN:
+  - Option A: disable peak (S5) after X audit failures
+  - Option B: keep running but minimal in-memory counters (risk)
+  -> Owner should fix.
+
+E-12-03 High active_ppp (100+)
+- apply_item logging may explode.
+- enforce APPLY_ITEM_LOGGING_POLICY (FAIL_ONLY or DEBUG_ONLY recommended at scale).
+
+E-12-04 Manual misuse / panic clicking
+- manual rate limit protects system
+- panel shows “manual rate limited”.
+
+================================================================================
+6) DoD / TESTS / VALIDATION (MUST)
+================================================================================
+
+T-12-01 Apply min gap
+- Trigger frequent ticks/overload:
+  - ensure apply calls are suppressed inside gap; audit reason MIN_GAP present.
+
+T-12-02 Window cap
+- Force > APPLY_MAX_PER_10MIN attempts:
+  - ensure cap triggers; circuit not necessarily open; panel shows RATE_LIMIT_ACTIVE.
+
+T-12-03 Circuit open on fails
+- Simulate BR-09 exit_code=4 for N times:
+  - after APPLY_MAX_CONSEC_FAIL: circuit opens; no more applies except FORCE_EXIT.
+
+T-12-04 Half-open trial
+- After open duration:
+  - exactly 1 trial apply; success closes circuit; failure reopens.
+
+T-12-05 Lock storm behaviour
+- Simulate repeated exit_code=5:
+  - ensure no busy loop; optionally circuit opens if configured.
+
+T-12-06 Manual action authz
+- Unauthorized role:
+  - action rejected + audit.
+- Authorized role:
+  - action executes + audit.
+
+T-12-07 Manual rate limit
+- Spam manual actions:
+  - rejects after limit; audit reason MANUAL_RATE_LIMIT.
+
+T-12-08 Scale audit volume
+- active_ppp=200:
+  - apply_item policy prevents DB blow-up (FAIL_ONLY or DEBUG_ONLY), downsample snapshots.
+
+================================================================================
+7) OPEN ITEMS (MUST)
+================================================================================
+O-12-01 APPLY_MIN_GAP_SEC (FP-BR12-04)
+O-12-02 APPLY_MAX_PER_10MIN (FP-BR12-05)
+O-12-03 APPLY_MAX_CONSEC_FAIL (FP-BR12-06)
+O-12-04 ENTER_MAX_PER_HOUR / EXIT_MAX_PER_HOUR (FP-BR12-07/08)
+O-12-05 SNAPSHOT_MAX_RATE (FP-BR12-10)
+O-12-06 APPLY_ITEM_LOGGING_POLICY (FP-BR12-11)
+O-12-07 AUTHZ_ROLES_FOR_ACTIONS (FP-BR12-12)
+O-12-08 MANUAL_MAX_ACTIONS_PER_5MIN (FP-BR12-13)
+O-12-09 CIRCUIT_OPEN_MIN_SEC (FP-BR12-14)
+O-12-10 CIRCUIT_OPEN_ON_LOCKED + threshold (FP-BR12-15)
+O-12-11 DB_DOWN_POLICY (FP-BR12-16)
+O-12-12 Audit-write-fail policy (disable vs degrade)
+
+================================================================================
+8) DRIFT-AMPel (nur Status)
+================================================================================
+DRIFT: RISK
+- Grund: Hardening braucht Owner-Zahlen/Policies (Caps, windows, thresholds, authz).
+- Kern-Contract ist dennoch konsistent: bounded apply, no storm, circuit breaker, manual not-aus, auditability.
+
+================================================================================
+9) CHANGELOG (ENTWURF-intern)
+================================================================================
+- v2.0-ENTWURF (heute): BR-12 erstellt: Hardening/Caps/Circuit-Breaker/Rate-Limits + Manual Override AuthZ,
+  inklusive DoD Tests gegen apply-storm, flapping, db down, lock contention.

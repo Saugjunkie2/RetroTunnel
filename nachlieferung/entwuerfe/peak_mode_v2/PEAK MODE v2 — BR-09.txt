@@ -1,0 +1,300 @@
+===============================
+PEAK MODE v2 — BR-09 (NEUFASSUNG, ENTWURF / Phase 3)
+TITLE: Apply-Orchestrator Contract — Listenquelle /run (VALID) + USER/Admin Filter + Batch-Mechanik + Failure-Reporting
+BR-ID: BR-09
+STATUS: ENTWURF (Phase 3) — keine Patch-/Copy-Blöcke, keine tc/SQL Snippets
+ZIEL: Drift-freier, implementierbarer Contract für “Wie Peak Änderungen angewendet werden”, ohne Raten.
+
+================================================================================
+0) SCOPE (MUST)
+================================================================================
+Dieses BR definiert ausschließlich:
+- die normative Listenquelle für “welche Sessions/Interfaces sind Kandidaten”: /run/vpn-sessions/*.env (VALID)
+- Filterlogik USER vs ADMIN über DB-Lookup (CONNECTION_ID → conn_group)
+- Batch/Apply-Orchestrierung (bounded, kein Fork-Storm, kein Retry-Sturm)
+- Fehlerklassen/Exit-Codes/Reporting (auditbar ohne Log-Parsen)
+- Concurrency/Locking Contract (nur 1 Writer)
+- DoD/Tests, inkl. Race/Partial states/Recovery
+
+Anti-Scope:
+- Trigger/Detector (SoftIRQ/CPU persist) (BR-03/BR-10)
+- Täter-Selektion (Top-N/MULTI) (BR-07)
+- tc-Topologie (CAKE root) (BR-01/BR-06)
+- Zielwerte (Peak-BW / Profil-BW) (BR-02/BR-05)
+- DB-Schema (Audit Tables) (BR-08)
+
+
+================================================================================
+1) KANON-ABGLEICH (MUST, drift-sicher)
+================================================================================
+
+1.1 Imports (KANON-QUELLEN)
+- K-IMP-01: blocks/B165_ACCOUNTING_COLLECTOR_SESSION_MAPPING.txt
+  -> /run/vpn-sessions/<ppp_if>.env ist VALID-Quelle; Mindest-Keys: PPP_IF, CLIENT_IP, CONNECTION_ID, START_TS, PPPD_PID
+- K-IMP-02: blocks/B055_DB_SCHEMA_CORE.txt
+  -> vpn_connections existiert; conn_group (USER/ADMIN) ist in DB verfügbar; SQL-first bleibt SoT für Gruppen/Policy.
+- K-IMP-03: blocks/B166_POLICY_APPLY_RECONCILE.txt
+  -> Exit-Codes 0..7 + Apply/Reconcile Denkmodell (bounded, auditbar, kein Chaos bei Partial Fail)
+- K-IMP-04: blocks/B167_LOCKING_AND_IDEMPOTENCY.txt (falls vorhanden im Kanon)
+  -> Single-Writer Locking / No concurrent apply; Wiederholungen dürfen nicht eskalieren
+- K-IMP-05: Peak-Mode v2 BR-08 (neu)
+  -> peak_apply_run / peak_apply_item Audit-Contract + Exit-Code Semantik kompatibel zu B166
+- K-IMP-06: Peak-Mode v2 BR-06
+  -> CAKE-only / no model switch: Apply darf keine Topologie umbauen.
+
+1.2 Kanon-Anker (Begriffe)
+- “VALID .env”: Datei, die Mindestfelder enthält und syntaktisch/semantisch konsistent ist (B165)
+- “Sessionliste SoT”: /run, nicht DB “active_sessions”
+- “conn_group”: USER/ADMIN (DB SoT)
+- “Apply”: ausführen, protokollieren, bounded; bei Failure klar klassifizieren (B166)
+
+1.3 Konfliktcheck (MUST)
+- K-CONF-01: “VALID definiert” — B165 definiert Mindest-Keys, aber Detailvalidierung (z.B. Permissions/Owner/Format) kann dort tiefer sein.
+  -> Status: RISK (BR-09 muss VALID-Regeln präzise benennen oder auf B165 verweisen; keine eigene Erfindung)
+- K-CONF-02: Exit-Code Mappings — B166 ist generisch, Peak ist spezialisiert (tc/cake).
+  -> Status: NONE, wenn Peak Exit-Code Semantik 1:1 auf B166-Klassen abbildet (BR-08 regelt Auditfelder).
+- K-CONF-03: USER-only vs “alles” — Peak v1/v2 fordert USER-only apply; ADMIN exclude.
+  -> Status: NONE (Filter ist hier normativ)
+
+
+================================================================================
+2) OWNER-FIXPUNKTE (MUST)
+================================================================================
+Diese Owner-Fixwerte sind für BR-09 erforderlich, um bounded behaviour zu garantieren.
+Wenn du sie nicht fixierst, bleiben sie OPEN (keine impliziten Defaults).
+
+FIX (bereits kanonisch/aus unseren v2-Entscheiden)
+- FP-BR09-01 LIST_SOURCE = /run/vpn-sessions/*.env (VALID)
+- FP-BR09-02 TARGET_SCOPE = USER-only (ADMIN excluded)
+- FP-BR09-03 NO_FORK_STORM = TRUE (Apply ist bounded; kein unendliches Retry)
+
+OPEN (Owner-Fix nötig, sonst drift/Implementation rät)
+- FP-BR09-04 APPLY_BATCH_SIZE:
+  - Wie viele USER-Interfaces pro Apply-Run maximal verarbeitet werden?
+  - Optionen: “ALL (single batch)”, oder “chunked N=25/50/100”.
+- FP-BR09-05 APPLY_MAX_RUNTIME_MS:
+  - Harte Obergrenze pro Apply-Run (wall clock), danach ABORT/DEGRADED.
+- FP-BR09-06 APPLY_RETRY_POLICY:
+  - Keine Retries (strict) vs wenige Retries mit Backoff (bounded).
+  - Wenn ja: max_attempts + backoff schedule.
+- FP-BR09-07 DEGRADED_THRESHOLD:
+  - Ab welcher Fehlerquote wird Run als DEGRADED klassifiziert? (z.B. items_fail/items_total > X)
+- FP-BR09-08 LOCK_TIMEOUT_MS:
+  - Wie lange wartet Apply auf den Single-Writer Lock, bevor exit_code=5 (LOCKED)?
+- FP-BR09-09 VALID_STRICTNESS:
+  - “Strict VALID” (fehlende Keys => exclude + error) vs “Lenient” (unknown handling).
+  - Muss mit BR-07 UNMAPPED_RULE kompatibel sein.
+
+
+================================================================================
+3) CONTRACT (MUST, implementierbar ohne Raten)
+================================================================================
+
+3.1 Inputs (MUST)
+- Input-01: Action-Intent (vom Controller):
+  - ENTER_APPLY | EXTEND_APPLY | EXIT_RESTORE | MANUAL_APPLY | NOOP
+- Input-02: Desired Mode + Target Bandwidth pro Interface:
+  - intended_mode: PEAK oder PROFILE
+  - intended_bw_bps: Wert aus BR-02 (Peak) oder BR-05 (Profil)
+- Input-03: /run Snapshot:
+  - Menge von .env Dateien; Bewertung VALID/INVALID
+- Input-04: DB Lookup:
+  - vpn_connections by vpn_connection_id (= CONNECTION_ID aus env)
+  - resolve conn_group (USER/ADMIN)
+- Input-05: Single-Writer Lock (globaler Apply-Lock)
+
+Constraints:
+- Keine Annahmen über “active_sessions DB View”.
+- Kein Umbau des tc-Modells (BR-06); nur “set bandwidth” innerhalb CAKE (BR-01).
+
+3.2 Outputs (MUST)
+- Output-01: peak_apply_run Summary (BR-08 Contract)
+- Output-02: (optional) peak_apply_item pro ppp_ifname (BR-08 Contract)
+- Output-03: Exit-Code 0..7 (B166 kompatibel) + result_code + error_class
+- Output-04: Failure-Reason muss ohne Log-Parsen erkennbar sein (audit fields)
+
+3.3 Normative Ablaufkette (MUST)
+STEP-0 LOCK
+- Acquire global Apply-Lock.
+- Wenn Lock nicht erhältlich innerhalb LOCK_TIMEOUT_MS:
+  - exit_code = 5 (TEMPFAIL_LOCKED)
+  - result_code = LOCKED
+  - keine Items bearbeitet
+
+STEP-1 SNAPSHOT /run (VALID)
+- Liste alle /run/vpn-sessions/*.env
+- Für jede Datei:
+  - Parse keys
+  - VALID check gemäß B165 Mindest-Keys
+- Ergebnis:
+  - candidates_valid = Liste (ppp_ifname, vpn_connection_id, …)
+  - invalid_count + invalid_reasons (aggregiert, kein PII)
+
+STEP-2 DB LOOKUP + FILTER
+- Für jedes valid candidate:
+  - DB lookup vpn_connections WHERE id = vpn_connection_id
+  - Resolve conn_group
+- Filter:
+  - wenn conn_group != USER → SKIP (ADMIN excluded)
+  - wenn lookup fails → FAIL (DB_LOOKUP_FAILED) (Policy: nicht raten)
+
+STEP-3 APPLY PLAN (bounded)
+- Erzeuge Apply-Plan für USER-only Targets:
+  - pro ppp_ifname: intended_bw_bps, intended_mode
+- Enforce bounded behaviour:
+  - Batch chunking nach APPLY_BATCH_SIZE (oder single batch, wenn Owner so fixiert)
+  - Hard runtime cap APPLY_MAX_RUNTIME_MS
+  - Retry policy nach APPLY_RETRY_POLICY (wenn OPEN: keine Retries)
+
+STEP-4 APPLY EXECUTION
+- Für jedes Target (oder Chunk):
+  - Apply “CAKE.bandwidth = intended_bw_bps” (kein model switch)
+  - Ergebnis je item: OK/FAIL/NOOP
+  - Klassifiziere Fehlerklassen:
+    TC_APPLY_FAILED, NO_CAKE_BASELINE, PERMISSION, IFACE_GONE (Race), …
+- Sammle counters:
+  items_total, items_ok, items_fail, items_skip
+
+STEP-5 RUN RESULT CLASSIFICATION
+- exit_code Semantik (B166 kompatibel) (normativ):
+  - 0 OK: items_fail == 0 AND keine hard-fail classes
+  - 1 PARTIAL_OK: items_fail > 0 aber unter DEGRADED_THRESHOLD und keine hard-fail class
+  - 2 TEMPFAIL_SQL: DB down/timeout/transaction fail, sodass Plan nicht zuverlässig erstellt werden konnte
+  - 4 RUNTIME_APPLY_ERROR: tc/cake apply errors dominieren (oder no-cake-baseline)
+  - 5 TEMPFAIL_LOCKED: Lock nicht bekommen
+  - 6 STATE_MAPPING_ERROR: /run snapshot invalid / mapping inkonsistent (VALID_STRICTNESS relevant)
+  - 7 INTERNAL_ERROR: unerwartete exceptions / invariants broken
+  (3 INVALID_ARGS bleibt für MANUAL_APPLY CLI-Validierung reserviert, optional.)
+
+- result_code (peak-intern, normativ minimal):
+  OK | PARTIAL_OK | TEMPFAIL_SQL | TEMPFAIL_LOCKED | MAPPING_INVALID | APPLY_ERROR | INTERNAL_ERROR
+
+STEP-6 REPORTING
+- Schreibe peak_apply_run (immer, auch bei Lock fail)
+- Schreibe peak_apply_item (wenn aktiviert) für jede candidate, inkl. SKIP/FAIL reasons
+- Release Apply-Lock
+
+3.4 Gate-Umgehbarkeit (Hard Check)
+- Peak-Apply darf nicht “ohne /run VALID” arbeiten.
+  - Wenn /run leer oder invalid: exit_code=6 (STATE_MAPPING_ERROR) oder DEGRADED (Owner über VALID_STRICTNESS)
+- Peak-Apply darf nicht “ADMIN” anfassen (enforced via DB conn_group).
+- Peak-Apply darf nicht “parallel” laufen (Lock).
+
+3.5 Idempotenz / Wiederholung (MUST)
+- Re-run desselben intended_bw_bps ist NOOP/OK; darf nicht eskalieren.
+- Wiederholung bei Fail:
+  - wenn Owner keine Retries fixiert: Controller entscheidet später (BR-10), BR-09 macht nicht “busy loop”.
+
+3.6 Recovery / Exit aus kaputten Zuständen
+- IFACE_GONE (Race: disconnect während apply):
+  - item_result=FAIL oder NOOP (Owner via VALID_STRICTNESS)
+  - Run bleibt bounded; kein retry-sturm
+- DB down:
+  - exit_code=2; keine “half policy”
+
+3.7 Resource Exhaustion Verhalten (MUST)
+- Disk-full (Audit):
+  - Falls DB inserts failen: exit_code=2 oder 7 je nach failure class; aber Apply darf nicht in endlosen Loop gehen.
+- Very high active_ppp:
+  - Apply bounded durch batch_size/runtime; kann PARTIAL_OK liefern, aber muss reason “CAP_REACHED” auditen.
+
+
+================================================================================
+4) ERROR-CLASS / FAILURE-REPORTING (MUST)
+================================================================================
+
+Fehlerklassen (normativ minimal; detail codes optional)
+- DB_DOWN / DB_TIMEOUT / DB_TX_FAIL        -> TEMPFAIL_SQL (2)
+- LOCK_TIMEOUT                             -> TEMPFAIL_LOCKED (5)
+- RUN_SNAPSHOT_MISSING / ENV_INVALID        -> STATE_MAPPING_ERROR (6)
+- DB_LOOKUP_FAILED (connection not found)   -> STATE_MAPPING_ERROR (6) oder APPLY_ERROR (4) (OPEN: Owner muss fixen)
+- NO_CAKE_BASELINE / TC_APPLY_FAILED        -> RUNTIME_APPLY_ERROR (4)
+- INTERNAL_EXCEPTION                        -> INTERNAL_ERROR (7)
+
+OPEN: Klassifikation “DB_LOOKUP_FAILED”:
+- Option A: mapping error (6) weil state inkonsistent
+- Option B: apply error (4) weil es einzelne items betrifft
+-> Owner muss entscheiden, sonst drift.
+
+Reporting-Minimum (ohne PII):
+- counts: valid_env_count, invalid_env_count, user_count, admin_skipped_count
+- items_ok/items_fail/items_skip
+- top failure reasons (aggregiert)
+- exit_code + result_code + error_class
+
+
+================================================================================
+5) DoD / TESTS / VALIDATION (MUST)
+================================================================================
+
+T-09-01 Lock exclusivity
+- Simuliere 2 parallele apply requests:
+  - 1 gewinnt Lock, 2 bekommt exit_code=5 innerhalb LOCK_TIMEOUT_MS.
+- Nachweis: peak_apply_run records.
+
+T-09-02 /run VALID strictness
+- Missing keys in env:
+  - Strict: candidate excluded, invalid_env_count++, exit_code=6 wenn keine valid candidates.
+- Nachweis: run summary + invalid reason class.
+
+T-09-03 USER-only filter enforcement
+- 1 ADMIN env + 1 USER env:
+  - ADMIN => SKIP, USER => applied
+- Nachweis: item audit zeigt SKIP_NONUSER.
+
+T-09-04 Race: IFACE_GONE
+- Entferne pppX während apply:
+  - item_result=FAIL/NOOP mit IFACE_GONE
+  - run bleibt bounded (duration <= APPLY_MAX_RUNTIME_MS).
+- Nachweis: no retry storm.
+
+T-09-05 DB down
+- DB nicht erreichbar:
+  - exit_code=2 TEMPFAIL_SQL
+  - keine tc writes (wenn Plan nicht sauber erstellt werden kann)
+- Nachweis: audit run zeigt DB_DOWN.
+
+T-09-06 Partial tc errors
+- Ein pppX tc apply failt, andere ok:
+  - exit_code=1 PARTIAL_OK (wenn unter threshold)
+  - oder exit_code=4 wenn apply errors dominieren (Owner via DEGRADED_THRESHOLD)
+- Nachweis: run classification consistent.
+
+T-09-07 Boundedness under overload
+- CPU am Limit + viele sessions:
+  - Apply darf nicht unbounded dauern (APPLY_MAX_RUNTIME_MS)
+  - Keine Fork-storm, keine unbounded retries
+- Nachweis: run duration cap + CAP_REACHED reason.
+
+T-09-08 Audit reliability
+- Stelle sicher: peak_apply_run wird auch bei Lock fail geschrieben.
+- Nachweis: run records existieren.
+
+
+================================================================================
+6) OPEN ITEMS (MUST)
+================================================================================
+O-09-01 APPLY_BATCH_SIZE (FP-BR09-04)
+O-09-02 APPLY_MAX_RUNTIME_MS (FP-BR09-05)
+O-09-03 APPLY_RETRY_POLICY (FP-BR09-06)
+O-09-04 DEGRADED_THRESHOLD (FP-BR09-07)
+O-09-05 LOCK_TIMEOUT_MS (FP-BR09-08)
+O-09-06 VALID_STRICTNESS (FP-BR09-09)
+O-09-07 Classification DB_LOOKUP_FAILED (mapping error vs apply error)
+O-09-08 “No tc writes if DB down” rule: strikt vs best-effort (hier strikt; Owner kann anders fixen)
+
+
+================================================================================
+7) DRIFT-AMPel (nur Status)
+================================================================================
+DRIFT: RISK
+- Grund: Mehrere boundedness-Parameter sind Owner-Fix nötig (batch_size/runtime/retry/threshold/lock_timeout/valid_strictness).
+- Kanonische Kernaussagen sind sauber: Listenquelle=/run VALID (B165), Filter USER-only via DB conn_group (B055),
+  Exit-Code Semantik kompatibel zu B166, no fork-storm.
+
+================================================================================
+8) CHANGELOG (ENTWURF-intern)
+================================================================================
+- v2.0-ENTWURF (heute): BR-09 neu gefasst im neuen Standard; normiert /run als Listen-SoT (VALID),
+  DB conn_group Filter USER-only, Single-Writer Lock, bounded Apply-Mechanik,
+  Fehlerklassen+Exit-Codes B166-kompatibel, DoD-Tests inkl. Race/DB down/Overload.

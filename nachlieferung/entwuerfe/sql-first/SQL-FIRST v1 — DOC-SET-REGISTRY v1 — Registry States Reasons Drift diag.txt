@@ -1,0 +1,189 @@
+# SQL-FIRST v1 — DOC-SET-REGISTRY v1 — Registry States / Reasons / Drift / diag
+# Version: v1.4
+# Status: ENTWURF (Doc-Set Container)
+# Zweck: SoT-Inventar für Settings-Registry State-Machine + Reason Taxonomie + Drift Flags + Trigger-Regeln + /diag Schema.
+
+----------------------------------------------------------------------
+0) Scope / Regeln (Doc-Set-Container)
+----------------------------------------------------------------------
+
+- Dieses DOC-SET ist der einzige Inventar-Ort für:
+  - Registry States (REG_*)
+  - Reason-Classes / Tokens (REG_REASON_*)
+  - Drift-Flags + Trigger-Regeln (D1..D6 / Bridge zu DB_UNKNOWN)
+  - /diag Felder (Naming-Norm + Summary/Top-Listen Regeln)
+- NORM-04/NORM-05 bleiben normativ/kurz und verweisen auf dieses DOC-SET.
+- Patch-Runde 2: HARVEST-Befüllung (States/Reasons/Drift/diag) eingepflegt; keine Chatverlauf-Abhängigkeit.
+
+----------------------------------------------------------------------
+1) Input-Sources (nur innerhalb Entwurf; keine Chatverlauf-Abhängigkeit)
+----------------------------------------------------------------------
+
+- HARVEST: Settings-Registry States + Reason-Classes (REG_REASON_) + Bridge-Regeln zu DB_UNKNOWN
+- HARVEST: Reason Registry + Drift-Flags + Trigger-Regeln
+- HARVEST: diag Settings Registry Felder (Naming-Norm)
+
+----------------------------------------------------------------------
+2) Registry States (REG_*) — Sections
+----------------------------------------------------------------------
+
+Registry States (kanonische Liste, Harvest):
+
+- REG_OK
+- REG_DRIFT
+- REG_MIGRATION_REQUIRED
+- REG_CONFLICT
+
+2.1) REG_OK
+- Bedeutung: (im HARVEST nur als State-Name geliefert; Detaildefinition folgt, falls/ sobald ein Harvest-Block dafür existiert)
+- Erwartung: Keine Drift-/Migration-/Konfliktindikatoren aktiv.
+
+2.2) REG_DRIFT
+- Bedeutung: (Harvest liefert Drift-Bindings D1..D6 als Auslöser-Logik; siehe Section 4)
+
+2.3) REG_MIGRATION_REQUIRED
+- Bedeutung: (Harvest nennt “Dot-Key Detection ⇒ Migration Required” / Keyform-Probleme als Migration-Trigger; siehe D-Bindings + PR-PFX)
+
+2.4) REG_CONFLICT
+- Bedeutung: Alias/Canonical Divergence (Konflikt-Paare; siehe /diag.top_conflicts + PR-PFX-006 Bridge Case)
+
+2.5) (Optional: weitere Zustände)
+- Regel: Nur ergänzen, wenn ein Harvest-Output explizit neue REG_* States liefert.
+
+- R-DB-00: DB_OK ist der implizite Normalzustand (DB erreichbar + Schema/Integrity trustable); wird hier nicht als eigener Abschnitt ausformuliert.
+
+- R-DB-01: DB_DOWN wenn DB nicht erreichbar/auth/timeout/pool exhausted
+- R-DB-02: DB_UNKNOWN nur wenn DB zwar erreichbar aber Schema/Integrity/Reconcile “untrustworthy”
+- R-REG-01: Key/Resolver/Alias Problem ⇒ Registry-State; DB bleibt DB_OK solange DB an sich trustable
+- R-REG-02: Registry → DB_UNKNOWN nur wenn Datenhoheit/Reconcile bricht
+
+----------------------------------------------------------------------
+3) Reason Taxonomy (REG_REASON_*) — Sections
+----------------------------------------------------------------------
+
+Reason-Class Gruppen (Harvest):
+
+A) Naming/Policy
+- REG_REASON_FORBIDDEN_KEYFORM
+- REG_REASON_PREFIX_VIOLATION
+- REG_REASON_PREFIX_DISALLOWED
+- REG_REASON_RESERVED_KEY_PATTERN
+- REG_REASON_FAILCLASS_UNSATISFIED
+
+
+B) Migration/Alias
+- REG_REASON_CANONICAL_MISSING_ALIAS_PRESENT
+- REG_REASON_ALIAS_USED_FALLBACK
+- REG_REASON_DEPRECATED_KEY_PRESENT
+- REG_REASON_CANONICAL_ALIAS_MISMATCH
+- REG_REASON_CANONICAL_ALIAS_VALUE_DIVERGE
+- REG_REASON_ALIAS_IN_CANONICAL_SPACE
+- REG_REASON_CANONICAL_CHANGED
+
+C) Conflict / Split-Brain
+- REG_REASON_MULTI_CANONICAL_COLLISION
+- REG_REASON_ALIAS_WRITE_ATTEMPT
+- REG_REASON_WRITE_OUTSIDE_ALLOWED_WRITER
+- REG_REASON_RESOLVER_VIOLATION
+
+D) Write-Path Violations
+- REG_REASON_ALIAS_WRITE_ATTEMPT
+
+E) Completeness/Contract
+- REG_REASON_REQUIRED_KEY_MISSING
+- REG_REASON_VALUE_INVALID
+- REG_REASON_SCOPE_MISMATCH
+- REG_REASON_FAILCLASS_UNSATISFIED
+- REG_REASON_REQUIRED_KEY_MISSING
+
+Bridge-Regeln zu DB_UNKNOWN (aus Harvest, normativ):
+R-DB-01) Wenn DB nicht erreichbar/timeout => db_state = DB_DOWN / reason = REG_REASON_DB_DOWN
+R-DB-02) Wenn Resolver (Alias/Rename) keine eindeutige Canonical-Auflösung liefern kann => db_state = DB_UNKNOWN / reason = REG_REASON_RESOLVER_VIOLATION
+R-REG-01) Wenn required field(s) im Catalog fehlen => db_state = DB_UNKNOWN / reason = REG_REASON_REQUIRED_KEY_MISSING
+R-REG-02) Wenn Canonical fehlt, aber Alias vorhanden => db_state = DB_UNKNOWN / reason = REG_REASON_CANONICAL_MISSING_ALIAS_PRESENT
+
+----------------------------------------------------------------------
+4) Drift Flags + Trigger-Regeln — Sections
+----------------------------------------------------------------------
+
+D-Binding-Tabelle: Drift-Flags (D1..D6) beschreiben **Diagnose-Kategorien** für Abweichungen zwischen
+Catalog/Contract/DB. Sie sind orthogonal zu REG_REASON_* (Reasons) und werden im /diag als Drift-Set geführt.
+
+D1) FEHLT_CATALOG (Blocker)
+- Token: SETTINGS_DRIFT
+- Trigger: Canonical-Key (oder required alias-chain) wird im Catalog erwartet, fehlt aber.
+- db_state: DB_UNKNOWN
+- Panel: rot + missing_keys + consumer pointers
+- Systemreaktion: fail-closed pro Consumer-Domäne (z.B. Peak deaktiviert / QoS nicht anwenden)
+
+D2) INVALID_CONTRACT (Blocker/Major)
+- Token: SETTINGS_DRIFT
+- Trigger: Contract/Metadaten unvollständig oder inkonsistent (z.B. required_fields fehlen, invalid type/unit/range binding).
+- db_state: DB_UNKNOWN wenn required fields fehlen; sonst DB_OK + warning
+- Panel: rot/gelb abhängig vom fehlenden Feld
+
+D3) PREFIX_RULE_VIOLATION (Major)
+- Token: SETTINGS_DRIFT
+- Trigger: Key verletzt PR-PFX Prefix-Allowlist (z.B. kein erlaubter Prefix oder falscher Prefix für Domain).
+- db_state: DB_OK + warning (solange Canonical eindeutig), sonst DB_UNKNOWN
+- Panel: gelb/rot „Prefix verletzt“
+
+D4) SUFFIX_RULE_VIOLATION (Major)
+- Token: SETTINGS_DRIFT
+- Trigger: Key verletzt Suffix/Unit-Konvention (z.B. *_seconds/_ms/_days/_bps etc) oder widerspricht deklarierter Unit.
+- db_state: DB_OK + warning (solange semantisch eindeutig), sonst DB_UNKNOWN
+- Panel: gelb/rot „Suffix/Unit verletzt“
+
+D5) EXTRA_CATALOG (Minor)
+- Token: SETTINGS_DRIFT
+- Trigger: Catalog enthält Keys/Entries, die in keinem Keyset/Consumer referenziert werden.
+- db_state: DB_OK
+- Panel: gelb „extra catalog entries“
+
+D6) UNRESOLVED_ALIAS (Major/Blocker)
+- Token: SETTINGS_DRIFT
+- Trigger: Alias/Rename-Kette nicht eindeutig auflösbar (z.B. mehrere Canonicals, collision).
+- db_state: DB_UNKNOWN wenn unklar welcher Key gilt; sonst DB_OK + warning
+- Panel: rot/gelb “Alias/Rename nicht aufgelöst”
+
+Bridge-Regel (DB_UNKNOWN) — Referenz:
+- DB-State Mapping Regeln: Section 3 (R-DB-01..02 / R-REG-01..02).
+- D1/D2/D6 referenzieren DB_UNKNOWN-Bedingungen explizit.
+
+----------------------------------------------------------------------
+5) /diag Schema — Naming & Felder (settings.trace Objektform)
+--------------------------------------------------------------------
+
+/diag liefert eine JSON-Struktur, die *mindestens* diese Felder im `settings.trace` Objekt führt.
+Die Feldnamen sind kanonisch (Naming-Norm) und werden im Panel 1:1 genutzt.
+
+Diag-Felder (kanonisch):
+- trace_id: string (uuid)
+- ts_utc: string (RFC3339)
+- db_state: enum(DB_OK, DB_DOWN, DB_UNKNOWN)
+- key_state: enum(OK, MISSING, INVALID, ALIAS_USED, DEPRECATED, COLLISION)
+- drift_flags: array[string]  (z.B. ["D1","D3"])
+- reason: string (REG_REASON_*)
+- canonical_key: string
+- alias_key_used: string|null
+- value_source: enum(DB, DEFAULT, FALLBACK, NONE)
+- value_raw: any|null
+- value_normalized: any|null
+- validate_errors: array[string]
+- consumer: string (z.B. "peak", "qos", "dns")
+- writer: string (z.B. "panel", "migration", "system")
+- write_allowed: bool
+- contract_hash: string
+- catalog_hash: string
+- notes: array[string]
+
+----------------------------------------------------------------------
+6) Version / Changelog
+----------------------------------------------------------------------
+
+Changelog:
+- v1.4: Reason-Taxonomy vervollständigt (REG_REASON_CANONICAL_ALIAS_VALUE_DIVERGE, REG_REASON_MULTI_CANONICAL_COLLISION) gemäß Harvest-Quellen.
+- 2026-01-29: v1.3 — Redaktion: D-Binding Header “Stand v1.1” auf “Stand v1.2” korrigiert (Mini-Drift-Fix).
+- 2026-01-29: v1.2 — Redaktion: Patch-Runde-Status aktualisiert; D-Binding Header präzisiert (D3/D4 fehlen im Harvest-Stand, nicht erfunden); optional Reason-Classes Terminologie vereinheitlicht.
+- 2026-01-29: v1.1 — HARVEST eingepflegt: Registry States (REG_*), Reason-Taxonomy (REG_REASON_*), DB-State Mapping Regeln (R-DB/R-REG), Drift-Bindings D1/D2/D5/D6 (inkl. Harvest-“...” Marker), /diag Feldnormen für settings_registry/settings_effective.
+- 2026-01-29: v1.0 — NEW FILE: Doc-Set Skeleton angelegt (REGISTRY Container; Sections + Struktur; noch ohne Befüllung).

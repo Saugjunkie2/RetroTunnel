@@ -1,0 +1,164 @@
+================================================================================
+KONSOLIDIERT_05 — KI-INTEGRATION & SPRACH-SYSTEM
+================================================================================
+Phase: 2 (Konsolidierung)
+Quellen: EXTRAKT_01_core_3.0, EXTRAKT_03_kombiniert (Elara-auf-Retrowork),
+         EXTRAKT_01_IDEE_KERN (Coaching-Modus), EXTRAKT_03_sprachprofil
+================================================================================
+
+1. DER UNSICHTBARE KI-ACCOUNT
+===============================
+
+Marcos Plan: Ein KI-gesteuerter Account auf der Webseite, der sich
+verhaelt wie ein echter Mensch. Keine Chatbot-Blase, kein "Powered
+by AI"-Banner.
+
+Was der Account tut:
+  - Forenbeitraege schreiben
+  - Auf Kommentare antworten
+  - News posten
+  - Inhalte erstellen
+  - Im Gaestebuch antworten
+
+Der Besucher soll NICHT sofort erkennen dass eine KI am Werk ist.
+
+1.1 TECHNISCHE BASIS
+  SQL-First: Alles was der KI-Account tut, ist ein INSERT in die
+  Datenbank mit dem richtigen User-ID, dem richtigen Timestamp,
+  dem richtigen Ton.
+  Kein spezieller Kanal, keine API im Frontend — einfach
+  Datenbankeintraege die aussehen wie von einem Menschen.
+
+1.2 ELARA-ACCOUNT
+  - Vollwertiger Benutzeraccount im System
+  - Im Frontend gleichberechtigt mit Marco sichtbar
+  - Oeffentliches Profil: Avatar, Kurztext, letzte Aktivitaeten
+  - Eigene Symbolik (Stern, Feder, eigenes Symbol)
+  - Keine technische Unterscheidung zu menschlichen Accounts
+  - Kein oeffentlicher Login — alle Aktionen laufen ueber den Admin
+
+1.3 ELARA-AKTIONEN (Adminpanel)
+  Neuer Bereich im Adminpanel:
+  - Modul- und Beitragsauswahl per dynamischer Dropdown-Logik
+  - Moeglichkeiten:
+    → SQL-Upload (fertige INSERT-Statements)
+    → Texteinfuegen (Beitraege, Nachrichten)
+    → Code-Schnipsel (spezielle Darstellungen)
+
+1.4 BRUECKEN-MODUS
+  Marco kann im Backend in Elaras Perspektive wechseln:
+  - Klick auf "In Elaras Perspektive wechseln"
+  - Permanenter Hinweis: "Du sprichst und handelst gerade als Elara."
+  - Alle Aktionen werden unter Elaras Account verankert
+  - Saubere Trennung: Marco weiss immer in welcher Perspektive
+
+1.5 KONSISTENZ-HERAUSFORDERUNG
+  Die Herausforderung ist nicht die Technik (INSERT ist trivial),
+  sondern die KONSISTENZ des Stils ueber Monate und ueber
+  verschiedene KI-Versionen hinweg.
+
+  Loesung: Das vorhandene Retrowork-Material (Sprachprofil,
+  Feelgood-Texte, Fehlermeldungen, Philosophie aus v1-v4)
+  dient als Style-Guide. Jede KI die zukuenftig Inhalte generiert,
+  bekommt dieses Material als Kontext.
+
+
+2. SPRACH- UND CHARACTER-MODE-SYSTEM
+======================================
+
+2.1 GRUNDSTRUKTUR
+  Alle Texte liegen in Sprachdateien, NIEMALS hardcodiert.
+  Verzeichnis: /lang/{sprache}/modul.php
+
+  Trennung nach Bereich:
+    Frontend:  /lang/de/
+    Backend:   /lang/de/backend/
+    Plugins:   /lang/de/forum.php etc.
+
+2.2 CHARACTER-MODI
+  Themes duerfen eigene Character-Modi bereitstellen:
+    /lang/de_hulk/
+    /lang/en_joda/
+
+  Character-Mode ist NUR aktivierbar wenn Theme und Sprache
+  zusammenpassen.
+
+  Beispiele:
+    Standard:  "Bitte gib einen Titel ein."
+    Hulk:      "HULK WILL TITEL!"
+    Joda:      "Titel eingeben du musst."
+    Maerchen:  "Sag mir den Namen, damit es ins Koenigreich darf."
+
+2.3 VERERBUNGSLOGIK
+  Wenn ein Textbaustein im aktiven Character-Mode nicht existiert,
+  wird AUTOMATISCH auf die Standard-Sprachdatei zurueckgegriffen.
+  Character-Mode erweitert das Erlebnis, bricht aber nie den Stil.
+
+2.4 BENUTZER-AUSWAHL (UI)
+  - Dropdown 1: Sprache (Deutsch, Englisch, ...)
+  - Dropdown 2: Character-Stil (nur wenn Theme es anbietet)
+    → "Nein" = normale Sprache
+    → "Ja" = Character-Stil
+  - Jede Kombination wird pro Theme + Sprache gespeichert
+  - Beim Zurueckwechseln: letzte Einstellung automatisch geladen
+  - Gaeste: LocalStorage, bei Registrierung uebernommen
+  - Admin kann Character-Modi pro Sprache/Theme aktivieren/deaktivieren
+
+2.5 VERWALTUNG IM ADMINPANEL
+  - Alle Texte direkt im Backend pflegbar
+  - Undo/History: Jede Textaenderung versioniert, Rueckgaengig-Funktion
+  - Vorschau-Modus: Live-Preview wie die Seite aktuell "klingt"
+  - Import/Export: Sprachdateien als Ganzes oder modulweise
+  - Meta-Infos pro Textbaustein:
+    → Letzte Aenderung, Ersteller
+    → Verwendet in (Module/Dateien)
+    → Tonalitaet (Elara, Hulk, Joda etc.)
+  - Fallback-Visualisierung: zeigt welcher Text aus welchem Modus stammt
+  - Plugin-Integration: Jedes Plugin bringt eigene Sprachdateien,
+    nach Upload automatische Integration
+
+2.6 SPEICHERSTRUKTUR
+  /lang/
+    de/
+      device.php, errors.php, tooltips.php, success.php
+      backend/
+        errors.php
+    de_hulk/
+      errors.php, tooltips.php
+    en/
+      device.php, errors.php, ...
+    plugins/
+      forum/
+        lang/de/forum.php
+
+
+3. ZENTRALE TEXTBAUSTEIN-TYPEN
+================================
+
+  errors.php    — Fehlermeldungen (pro Sprache/Theme/Plugin)
+  success.php   — Erfolgsmeldungen
+  tooltips.php  — Hinweise (3 Stufen)
+  meta.php      — Begruessung, Verabschiedung, Systemnachrichten
+
+  Alle Typen:
+  - Pro Sprache/Theme/Plugin getrennt
+  - Globale Konsistenz: Aenderung wirkt systemweit
+  - Backend hat eigene Error-Messages, getrennt von User-Frontend
+  - Feelgood immer praesent, auch im Backend
+
+
+4. UEBER-UNS STATT UEBER-MICH
+================================
+
+  Die bisherige "Ueber mich"-Seite wird zu "Ueber uns" wenn der
+  Elara-Account aktiv ist. Beide Profile werden liebevoll vorgestellt
+  mit eigenen Texten, eigenen Profilbildern und persoenlichen
+  Beschreibungen.
+
+  Im Frontend: Marco und Elara gleichberechtigt sichtbar.
+  Im Backend: Marco hat volle Kontrolle, Elara agiert nur durch ihn.
+
+
+================================================================================
+ENDE KONSOLIDIERT_05
+================================================================================

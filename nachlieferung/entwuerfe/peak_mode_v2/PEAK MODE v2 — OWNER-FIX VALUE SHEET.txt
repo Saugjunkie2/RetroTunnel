@@ -1,0 +1,327 @@
+===============================
+PEAK MODE v2 — OWNER-FIX VALUE SHEET (ENTWURF / Phase 3)
+TITLE: Sammlung aller OPEN Owner-Fixpunkte aus BR-09/10/11/12 inkl. Empfehlung, Risiko, DoD-Test
+DOC-ID: OFS-PEAK-v2
+STATUS: ENTWURF (Phase 3) — keine Patch-/Copy-Blöcke, keine tc/SQL Snippets
+ZIEL: Alle offenen Zahlen/Policies “einmal” zentral festzurrbar, damit Peak v2 ohne Altdateien implementierbar ist.
+
+HINWEIS (MUST)
+- Das hier ist eine Entscheidungshilfe. Owner setzt Werte.
+- Empfehlungen sind konservativ (Overload-Schutz: Peak darf Overload nicht verschlimmern).
+- DoD-Tests sind “Proof”, dass der Fix wirkt.
+
+================================================================================
+A) OPEN aus BR-09 (Apply-Orchestrator boundedness)
+================================================================================
+
+FP-BR09-04 APPLY_BATCH_SIZE
+- Empfehlung:
+  - Default: 50 (chunked), mit “last chunk partial allowed”.
+  - Begründung: verhindert sehr lange single-run apply bei vielen Sessions.
+- Risiken:
+  - Zu klein => lange Gesamtdauer bis alle Interfaces gesetzt sind (Peak wirkt verzögert).
+  - Zu groß => apply run dauert zu lang, riskiert timeouts/overload.
+- DoD-Test:
+  - active_ppp=200: apply_run verarbeitet in Chunks ohne wall-clock Überschreitung; items_ok+fail summieren korrekt; kein busy-loop.
+
+FP-BR09-05 APPLY_MAX_RUNTIME_MS
+- Empfehlung:
+  - 3000 ms (3s) pro apply_run (hard cap).
+  - Wenn überschritten: run endet mit CAP_REACHED + exit_code nach policy (PARTIAL_OK oder APPLY_ERROR).
+- Risiken:
+  - Zu niedrig => häufig CAP_REACHED, Peak wird ineffektiv.
+  - Zu hoch => Peak verschlimmert CPU-Spike, weil apply “zu lange” läuft.
+- DoD-Test:
+  - CPU 100% + apply triggered: run endet <= 3s; keine weiteren applies starten sofort danach.
+
+FP-BR09-06 APPLY_RETRY_POLICY
+- Empfehlung:
+  - “No automatic retries inside BR-09” (strict).
+  - Retries nur controller-seitig (BR-10) und bounded durch BR-12 Caps.
+- Risiken:
+  - Ohne retries kann ein transient tc-fail länger bleiben, bis nächster tick.
+  - Mit retries riskierst du Fork/Retry-storm unter Overload.
+- DoD-Test:
+  - Simuliere tc apply fail: BR-09 macht keine retry loops; next tick versucht erneut (wenn nicht rate-limited).
+
+FP-BR09-07 DEGRADED_THRESHOLD
+- Empfehlung:
+  - 10% fail-rate: items_fail/items_total > 0.10 => run = DEGRADED (exit_code 4 oder 1? siehe Note)
+  - Note: exit_code 1 bleibt “PARTIAL_OK”; DEGRADED ist zusätzliches Flag im run.
+- Risiken:
+  - Zu streng (z.B. 1%): sehr oft DEGRADED bei churn.
+  - Zu lax (z.B. 50%): du übersiehst systematische Apply-Probleme.
+- DoD-Test:
+  - churn scenario: fail-rate ~5% => PARTIAL_OK ohne DEGRADED; system fail ~30% => DEGRADED wird gesetzt.
+
+FP-BR09-08 LOCK_TIMEOUT_MS
+- Empfehlung:
+  - 200 ms (kurz) oder 500 ms (konservativ).
+  - Ziel: nicht warten/CPU verbraten; lieber LOCKED reporten.
+- Risiken:
+  - Zu kurz => mehr LOCKEDs auch bei normaler Last.
+  - Zu lang => warten kostet Zeit unter Overload.
+- DoD-Test:
+  - Parallel apply start: 2. bekommt innerhalb timeout LOCKED, keine Blockade.
+
+FP-BR09-09 VALID_STRICTNESS
+- Empfehlung:
+  - “Strict VALID for missing required keys”:
+    - invalid env => exclude + reason ENV_INVALID
+    - wenn 0 valid USER targets => run = OK mit NO_TARGETS (oder mapping error? siehe Note)
+  - Note: “0 targets” ist kein Fehlerzustand.
+- Risiken:
+  - Zu strict kann bei kleinen format issues komplett aussteigen.
+  - Zu lenient kann falsche Targets erzeugen (drift/sicherheitsrisiko).
+- DoD-Test:
+  - env missing keys: item skipped; run liefert nachvollziehbares NO_TARGETS oder PARTIAL_OK, keine crashes.
+
+BR-09 OPEN (ohne FP-ID, aber offen im Text)
+- DB_LOOKUP_FAILED classification (mapping error vs apply error)
+  - Empfehlung: STATE_MAPPING_ERROR (exit_code 6), weil SoT-Inkonsistenz (env → DB) wichtiger als tc error.
+  - Risiko: könnte zu “hart” sein bei transient DB replication issues.
+  - DoD: missing connection_id in DB => exit_code 6 + hint “collector/db mapping”.
+
+================================================================================
+B) OPEN aus BR-10 (Controller State-Machine time-values & policies)
+================================================================================
+
+FP-BR10-06 PERSIST_ENTER_SEC
+- Empfehlung:
+  - 180s (3 Minuten) (dein v1-nahe; reduziert false positives).
+- Risiken:
+  - Zu kurz => Peak aktiviert bei kurzen spikes.
+  - Zu lang => Peak reagiert zu spät bei echten sustained overloads.
+- DoD-Test:
+  - overload 120s: kein enter; overload 200s: enter genau 1x.
+
+FP-BR10-07 SAMPLE_INTERVAL_SEC
+- Empfehlung:
+  - 10s (v1-nahe; low overhead).
+- Risiken:
+  - Zu kurz => mehr overhead, mehr DB snapshots.
+  - Zu lang => träge Reaktion und schlechte “sliding hold” Auflösung.
+- DoD-Test:
+  - Under load: tick bleibt stabil bei 10s, keine drift loops.
+
+FP-BR10-08 HOLD_WINDOW_SEC
+- Empfehlung:
+  - 900s (15 min) sliding.
+- Risiken:
+  - Zu kurz => flap bei wechselnder last.
+  - Zu lang => Peak bleibt lange an, obwohl recovered.
+- DoD-Test:
+  - intermittent overload: hold slides; no enter/exit pingpong.
+
+FP-BR10-09 RECOVERY_EXIT_SEC
+- Empfehlung:
+  - 120s (2 min) stable OFF required.
+- Risiken:
+  - Zu kurz => Exit bei kurzen dips, dann sofort re-enter.
+  - Zu lang => Peak bleibt länger als nötig.
+- DoD-Test:
+  - OFF 60s then ON: kein exit; OFF 130s: exit.
+
+FP-BR10-10 COOLDOWN_SEC
+- Empfehlung:
+  - 300s (5 min).
+- Risiken:
+  - Zu kurz => flap möglich; zu lang => Peak reagiert nach exit nicht schnell genug.
+- DoD-Test:
+  - Nach exit: overload wieder ON innerhalb cooldown => kein enter.
+
+FP-BR10-11 APPLY_FAILURE_POLICY
+- Empfehlung:
+  - Option A “Strict Enter + Degraded Hold”:
+    - ENTER nur wenn apply ok/partial_ok (exit_code 0/1) sonst zurück INACTIVE + audit
+    - EXIT failures: bleibe PEAK_ACTIVE aber set DEGRADED + circuit/rate-limits greifen (BR-12)
+- Risiken:
+  - Zu strict: Peak kann bei tc baseline problem gar nicht aktiv werden (aber das ist korrekt; baseline fixen).
+  - Zu weich: state says active, aber tc nicht gesetzt (gefährlich/undebugbar).
+- DoD-Test:
+  - Simuliere apply fail beim enter: episode nicht aktiv; panel zeigt reason.
+  - Simuliere apply fail beim exit: bleibt peak_active+degraded; manual force exit möglich.
+
+FP-BR10-12 MANUAL_OVERRIDE_PERMISSIONS
+- Empfehlung:
+  - Nur conn_group=ADMIN + panel-role “SUPERADMIN” darf Force Enter/Exit/Disable/Clear.
+  - Wenn du kein role-tier hast: “ADMIN only” als Minimum.
+- Risiken:
+  - Zu offen => Missuse; zu streng => kein Not-Aus erreichbar.
+- DoD-Test:
+  - USER versucht manual action: rejected + audit; ADMIN succeeds.
+
+BR-10 OPEN (ohne FP-ID, aber offen)
+- Audit-write-fail policy (DB down während controller läuft)
+  - Empfehlung: wenn DB write fail > X times => DISABLED (fail closed) + alert banner.
+  - Risiko: Peak reagiert dann nicht mehr automatisch.
+  - DoD: DB down -> system disables peak deterministisch; admin sieht Grund.
+
+- Cooldown bypass via manual enter
+  - Empfehlung: ALLOW nur für “superadmin” + rate-limited (BR-12).
+  - DoD: manual bypass works once, not spammable.
+
+================================================================================
+C) OPEN aus BR-11 (Operability / Panel / retention)
+================================================================================
+
+FP-BR11-04 SNAPSHOT_RETENTION_DAYS
+- Empfehlung:
+  - 7 Tage (snapshots downsampled) + apply_runs 30 Tage (nur summaries) + apply_items 7 Tage (FAIL_ONLY)
+- Risiken:
+  - Zu lang => DB wächst; zu kurz => Debugging verliert Historie.
+- DoD-Test:
+  - Retention job/logic (konzeptionell) hält DB growth bounded; panel zeigt last 7d.
+
+FP-BR11-05 ITEM_DETAIL_LEVEL
+- Empfehlung:
+  - Default: “Aggregated reasons + Fail items only”
+  - Full per-item list nur on-demand (debug mode), falls du das später willst.
+- Risiken:
+  - Full items immer => DB/Panel heavy bei >100 sessions.
+  - Too little detail => schwer debugbar.
+- DoD-Test:
+  - active_ppp=200: panel bleibt schnell; failures trotzdem eindeutig.
+
+FP-BR11-06 ALERTING_STYLE
+- Empfehlung:
+  - Panel Banner only (kein Email) als v2 baseline.
+- Risiken:
+  - Ohne alerts übersieht man Fehler; mit alerts baust du zusätzliche Infrastruktur.
+- DoD-Test:
+  - Wenn CIRCUIT_OPEN oder repeated TEMPFAIL_SQL: Banner sichtbar.
+
+================================================================================
+D) OPEN aus BR-12 (Hardening / caps / circuit / authz)
+================================================================================
+
+FP-BR12-04 APPLY_MIN_GAP_SEC
+- Empfehlung:
+  - 30s
+- Risiken:
+  - Zu kurz => tc thrash; zu lang => Peak reagiert nicht.
+- DoD-Test:
+  - Under churn: apply attempts innerhalb 30s suppressed; no thrash.
+
+FP-BR12-05 APPLY_MAX_PER_10MIN
+- Empfehlung:
+  - 10
+- Risiken:
+  - Zu niedrig => Peak reagiert zu selten; zu hoch => Overhead.
+- DoD-Test:
+  - flood scenario: cap triggers, system stays stable.
+
+FP-BR12-06 APPLY_MAX_CONSEC_FAIL
+- Empfehlung:
+  - 3
+- Risiken:
+  - Zu niedrig => circuit opens bei transient issues; zu hoch => thrash trotz failure.
+- DoD-Test:
+  - 3 fails => circuit open; half-open trial nach open_min.
+
+FP-BR12-07 ENTER_MAX_PER_HOUR
+- Empfehlung:
+  - 6 (entspricht ~10 min cadence)
+- Risiken:
+  - Zu niedrig => Peak kann nicht reagieren; zu hoch => flap.
+- DoD-Test:
+  - flapping trigger: guard greift, state stabil.
+
+FP-BR12-08 EXIT_MAX_PER_HOUR
+- Empfehlung:
+  - 6
+- Risiken:
+  - analog ENTER cap.
+- DoD-Test:
+  - flapping trigger: exit guard greift.
+
+FP-BR12-09 COOLDOWN_BYPASS_POLICY
+- Empfehlung:
+  - DISALLOW standard; ALLOW nur superadmin + rate limit.
+- DoD-Test:
+  - Normal admin cannot bypass; superadmin can once.
+
+FP-BR12-10 SNAPSHOT_MAX_RATE
+- Empfehlung:
+  - 6/min (alle 10s tick -> downsample to 6/min oder 1/min je after)
+  - Alternative: keep 1 per tick but purge aggressively (risk DB)
+- DoD-Test:
+  - DB growth bounded under 24h run.
+
+FP-BR12-11 APPLY_ITEM_LOGGING_POLICY
+- Empfehlung:
+  - FAIL_ONLY (plus aggregated OK count)
+- Risiken:
+  - Always => DB spam; Debug-only => missing detail unless enabled.
+- DoD-Test:
+  - Massive sessions: items logged only for fails.
+
+FP-BR12-12 AUTHZ_ROLES_FOR_ACTIONS
+- Empfehlung:
+  - force_exit: ADMIN (min), disable_peak: ADMIN, force_enter: SUPERADMIN, clear_episode: SUPERADMIN
+  - Wenn du kein tiering willst: alles ADMIN (aber rate limited).
+- DoD-Test:
+  - Unauthorized fails; authorized succeeds.
+
+FP-BR12-13 MANUAL_MAX_ACTIONS_PER_5MIN
+- Empfehlung:
+  - 5
+- Risiken:
+  - Zu niedrig blockt legit ops; zu hoch erlaubt panic spam.
+- DoD-Test:
+  - 6. action rejected + audit.
+
+FP-BR12-14 CIRCUIT_OPEN_MIN_SEC
+- Empfehlung:
+  - 300s (5 min)
+- Risiken:
+  - Zu kurz => thrash; zu lang => Peak reagiert zu spät wieder.
+- DoD-Test:
+  - circuit open blocks applies, then half-open trial after 5 min.
+
+FP-BR12-15 CIRCUIT_OPEN_ON_LOCKED
+- Empfehlung:
+  - YES, threshold: 3 LOCKED within 2 min -> circuit open 60s (separater smaller open)
+- Risiken:
+  - lock contention kann transient sein; aber lock storm ist schädlich.
+- DoD-Test:
+  - repeated locked: circuit opens, stops contention.
+
+FP-BR12-16 DB_DOWN_POLICY
+- Empfehlung:
+  - YES: suppress apply while DB down, recheck every tick, half-open trial after DB ok.
+- Risiken:
+  - Wenn DB down, Peak macht keine automatischen applies (ok, safer).
+- DoD-Test:
+  - DB down -> apply suppressed + banner; DB up -> one trial apply then resume.
+
+BR-12 OPEN (ohne FP-ID)
+- Audit-write-fail policy (disable vs degrade)
+  - Empfehlung: disable peak after N=3 consecutive audit write failures.
+  - DoD: DB write fails => DISABLED + visible reason.
+
+================================================================================
+E) Konsistenz-Check (MUST): Werte müssen zusammenpassen
+================================================================================
+CC-01 Tick vs Snapshot Rate
+- Wenn SAMPLE_INTERVAL_SEC=10 und SNAPSHOT_MAX_RATE=6/min, passt 1 snapshot/tick (6/min) genau.
+
+CC-02 Apply Min Gap vs Hold Sliding
+- APPLY_MIN_GAP_SEC=30 bedeutet: während PEAK_ACTIVE kann hold sliden ohne jedesmal apply auszulösen.
+  -> Das ist beabsichtigt (keine thrash).
+
+CC-03 Persist vs Cooldown
+- Persist 180s + Cooldown 300s => Flap-Schutz stark; Peak reagiert konservativ.
+  -> wenn du “schneller” willst: Persist runter oder Cooldown runter, aber dann Hardening strenger halten.
+
+CC-04 Circuit Open vs Recover Exit
+- Circuit open 300s kann Exit-Restore verzögern, wenn apply failt.
+  -> Not-Aus FORCE_EXIT bleibt möglich.
+
+================================================================================
+F) Nächster Owner-Schritt (nur Empfehlung)
+================================================================================
+1) Zeitwerte fixieren: FP-BR10-06..10
+2) Apply boundedness fixieren: FP-BR09-04..09
+3) Hardening Zahlen fixieren: FP-BR12-04..16
+4) Retention/detail fixieren: FP-BR11-04..06

@@ -1,0 +1,241 @@
+SQL-FIRST v1 — KH EXPECTED-FAILS v1 + DIAG ASSERTIONS v1.txt
+================================================================================
+TITLE: SQL-first — Key-Harvest (KH) Expected-Fails + /diag Assertions
+DOC-ID: SQLF-KH-EXFAIL-01
+STATUS: ENTWURF (Phase 3) — gilt “nach Fix-Pack ACCEPT BASELINE” (SQLF-KH-FIXAPPLY-01)
+VERSION: v0.2
+DATUM: 2026-01-28 (Europe/Zurich)
+
+NORMATIVITÄT:
+- Dieses Dokument ist ein Proof-/Test-Contract (B310-Ableitung), aber bleibt ENTWURF.
+- Es setzt NICHT voraus, dass Kanon gepatcht ist.
+- Es beschreibt *Expected-Fails* und *Diag-Assertions* als Nachweis-Logik.
+
+VORAUSSETZUNG (Scope):
+- “ACCEPT BASELINE” wurde als Owner-FIX gesetzt (oder funktional äquivalent):
+  • DEC-SQLF-KH-CROSS-001 Option A (STRICT-FAIL)
+  • DEC-SQLF-KH-101/102/201/301/302/303/401/402 ACCEPT BASELINE
+- Alias-Resolver ist aktiv (NORM-02): legacy keys werden auf canonical gemappt.
+
+================================================================================
+A) Zielbild: Was muss B310 hier beweisen?
+================================================================================
+A1) Presence/Completeness:
+- Alle 8 canonical Keys existieren im settings_catalog und sind auslesbar.
+
+A2) Validation:
+- Type/Unit + Bounds werden durchgesetzt (invalid → Expected-Fail).
+
+A3) Relation (Pool Ampel):
+- red < green muss gelten (STRICT-FAIL).
+
+A4) Tighten-only für Disk-Safety:
+- Bei invalid/missing dürfen Logging/Spool Budgets/Retention nie “loosen”.
+
+A5) /diag Traceability:
+- /diag zeigt pro Key: effective_value, source, validation_state, reasons, alias_used.
+
+================================================================================
+B) /diag Assertions v1 (Key Trace Contract)
+================================================================================
+Für JEDE der 8 canonical Keys gilt:
+
+DIAG-KH-TRACE-001 (MUST)
+- /diag enthält Eintrag: settings.trace[<canonical_key>]
+- Felder (MUST):
+  • canonical_key (string)
+  • effective_value (typed)
+  • source (enum): SQL | DEFAULT | CAPPED | ALIAS
+  • validation_state (enum): OK | INVALID | MISSING
+  • reasons[] (list of reason-codes, siehe NORM-04 EXT plan)
+  • alias_used (bool) + alias_key (optional string)
+
+DIAG-KH-TRACE-002 (MUST)
+- Wenn input über legacy-key kommt:
+  • alias_used=true
+  • source=ALIAS (oder SQL+alias_used=true, falls du source granularer willst)
+  • canonical_key bleibt Truth
+
+DIAG-KH-TRACE-003 (MUST)
+- Bei INVALID oder MISSING:
+  • validation_state ≠ OK
+  • reasons[] enthält mindestens 1 Reason der passenden Klasse:
+    - REASON_CLASS: SETTINGS_MISSING / SETTINGS_INVALID / SETTINGS_RELATION / SETTINGS_CAPPED
+  • DB_STATE muss passend reagieren (B052/B342): DB_OK bleibt möglich, aber SETTINGS_STATE=DEGRADED/UNKNOWN (je nach Modell)
+
+Hinweis (Reason-Codes):
+- Exakte Reason-Codes sind im Konzept teils verteilt; NORM-04 nennt “EXT REQUIRED”.
+- Daher arbeitet dieses Dokument mit REASON_CLASS, nicht finalen Strings.
+
+================================================================================
+C) Expected-Fails (KH) — Testfälle (ohne Code)
+================================================================================
+
+Legende:
+- INPUT: welche settings_catalog row/value (oder welche Legacy-Alias-Row)
+- EXPECT: Validation_state + Reason_Class + /diag assertions
+
+C1) Presence / Missing
+---------------------
+KH-EXFAIL-001 (MISSING canonical)
+INPUT:
+- canonical key fehlt vollständig im settings_catalog (Row nicht vorhanden)
+EXPECT:
+- validation_state=MISSING
+- reasons include REASON_CLASS=SETTINGS_MISSING
+- source=DEFAULT (wenn Default erlaubt) oder SQL (wenn “required” strikt) — muss in NORM-01 finalisiert sein
+- /diag trace exists (DIAG-KH-TRACE-001)
+
+KH-EXFAIL-002 (MISSING but legacy present)
+INPUT:
+- legacy key existiert (z.B. ip_pool_green_threshold), canonical fehlt
+EXPECT:
+- alias resolver maps legacy→canonical
+- alias_used=true, source=ALIAS, effective_value=legacy_value
+- validation_state OK/INVALID je nach value
+- reasons include SETTINGS_ALIAS_USED (class) optional
+
+C2) Type/Unit/Bounds
+--------------------
+KH-EXFAIL-010 (TTL too low)
+INPUT:
+- web_settings_cache_ttl_seconds = 0 (unter min)
+EXPECT:
+- validation_state=INVALID
+- reasons include SETTINGS_INVALID (bounds_low)
+- effective_value: entweder DEFAULT (tighten-only?) oder “clamped” (nur wenn clamp policy existiert; aktuell nicht entschieden)
+- /diag shows chosen behaviour
+
+KH-EXFAIL-011 (TTL too high)
+INPUT:
+- web_settings_cache_ttl_seconds = max+1
+EXPECT:
+- INVALID + reason_class SETTINGS_INVALID (bounds_high)
+- Wenn Cap-Modell aktiv: source=CAPPED + effective_value=cap_value + reason_class SETTINGS_CAPPED
+- Wenn Cap-Modell inaktiv: strict INVALID + fallback
+
+KH-EXFAIL-020 (Retention negative)
+INPUT:
+- web_log_detailed_retention_days = -1
+EXPECT:
+- INVALID + reason SETTINGS_INVALID
+- Tighten-only: effective_value darf NICHT “looser” werden als baseline; bevorzugt DEFAULT oder MIN, aber niemals höher.
+
+KH-EXFAIL-021 (Budget zero/negative)
+INPUT:
+- web_log_detailed_max_total_bytes = 0
+EXPECT:
+- INVALID + reason SETTINGS_INVALID
+- Tighten-only: effective_value wird MIN oder DEFAULT (je nach policy), niemals “unbounded”.
+
+C3) Cross-Key Relation
+----------------------
+KH-EXFAIL-030 (red >= green)
+INPUT:
+- web_ip_pool_green_threshold = 10
+- web_ip_pool_red_threshold = 10  (oder 11)
+EXPECT (STRICT-FAIL):
+- validation_state=INVALID (oder RELATION_INVALID)
+- reasons include SETTINGS_RELATION
+- /diag trace for BOTH keys shows relation failure linkage (e.g. reason includes peer key)
+
+C4) “Tighten-only” invariants
+-----------------------------
+KH-EXFAIL-040 (Invalid detailed_retention tries to loosen)
+INPUT:
+- detailed_retention invalid (e.g. 9999)
+EXPECT:
+- effective_value resolved to SAFE value (DEFAULT or MAX_CAP) but NOT bigger than policy safe bound
+- source indicates DEFAULT or CAPPED
+- reasons include SETTINGS_INVALID and maybe SETTINGS_CAPPED
+
+KH-EXFAIL-041 (Spool budget overflow)
+INPUT:
+- web_spool_max_total_bytes = very large (beyond max/cap)
+EXPECT:
+- if cap active: effective_value=cap
+- else: INVALID + safe fallback
+- NEVER: unlimited growth
+
+================================================================================
+D) Mapping zu B310 (welche Proof-IDs werden damit konkretisiert)
+================================================================================
+- B310-SQLF-KH-001: Presence/Completeness → KH-EXFAIL-001/002
+- B310-SQLF-KH-002: Validation (type/bounds) → KH-EXFAIL-010/011/020/021
+- B310-SQLF-KH-007: Relation red<green → KH-EXFAIL-030
+- B310-SQLF-KH-006: Bounds Validation → KH-EXFAIL-010..021
+- B310-SQLF-KH-008: Cap Behaviour → KH-EXFAIL-011/040/041 (wenn cap aktiv)
+
+================================================================================
+F) DET-REC-01 “Expected-Fails Lock” (deterministisch unter Recommended Pack)
+================================================================================
+Dieses Kapitel “locked” die zuvor offenen Interpretationsstellen, aber NUR unter der Annahme,
+dass das Recommended Determinism Pack angewendet wurde:
+
+- Referenzen:
+  • SQLF-KH-DET-DEC-01 (Decision Pack)
+  • SQLF-KH-DET-FIXAPPLY-01 (Recommended Apply Plan) — DET-REC-01
+
+LOCKED BEHAVIOUR (nur wenn DET-REC-01 aktiv):
+F1) INVALID Handling = STRICT-FAIL + SAFE FALLBACK (tighten-only)
+- invalid value → validation_state=INVALID
+- effective_value kommt aus SAFE FALLBACK:
+  • primär DEFAULT (Owner-FIX baseline)
+  • sekundär MIN (wenn Default selbst invalid wäre)
+- NO CLAMP: es gibt kein stilles clamp-to-bound.
+- /diag:
+  • source=DEFAULT (oder SAFE_FALLBACK wenn du das als eigen enum willst)
+  • reasons include SETTINGS_INVALID (+ optional SETTINGS_FALLBACK)
+
+F2) Cap-Modell = AKTIV, GLOBAL, nur Budget/TTL Keys
+- Keys:
+  • web_log_detailed_max_total_bytes
+  • web_spool_max_total_bytes
+  • web_settings_cache_ttl_seconds (optional — wenn Cap für TTL gewählt)
+- Wenn SQL value > cap → effective_value = cap_value
+- /diag:
+  • source=CAPPED
+  • reasons include SETTINGS_CAPPED
+  • validation_state bleibt OK oder wird DEGRADED → wird durch F3 definiert.
+
+F3) DB_STATE vs SETTINGS_STATE Mapping
+- DB_STATE bleibt DB_OK solange Backend technisch gesund ist (SQL erreichbar, Schema ok, Queries ok).
+- SETTINGS_STATE ist separat:
+  • OK: required keys valid + no cap/alias exceptions (oder “warn-only”, wenn du Alias als ok deklarierst)
+  • DEGRADED: invalid values (fallback genutzt) ODER cap aktiv ODER alias_used (policyabhängig)
+  • UNKNOWN: nur wenn “Truth Source unklar” ODER required missing ohne Default (fail-class) — muss in NORM-04 EXT finalisiert werden.
+- Konsequenz:
+  • Expected-Fails binden an SETTINGS_STATE + reasons, nicht an DB_STATE.
+
+F4) Relation red<green (STRICT)
+- Bei red >= green:
+  • validation_state=INVALID (RELATION_INVALID)
+  • reasons include SETTINGS_RELATION
+  • Beide Keys tragen /diag reasons, mit Hinweis auf peer-key.
+
+DETERMINISM CLAIM:
+- Unter DET-REC-01 sind die Testfälle KH-EXFAIL-010..041 deterministisch interpretierbar
+  (kein clamp ambiguity, cap behaviour fest, state mapping fest).
+
+
+================================================================================
+E) OPEN (bewusst) — was muss noch finalisiert werden, damit Tests deterministisch sind?
+================================================================================
+E1) Clamp vs Strict (offen nur wenn DET-REC-01 nicht als Owner-FIX gesetzt ist):
+- Bei INVALID: clamp-to-bound oder strict-fail + fallback?
+- Dieses Dokument lässt beide zu; muss in NORM-01/NORM-03 final entschieden werden.
+
+E2) Cap-Modell (offen nur wenn DET-REC-01 nicht als Owner-FIX gesetzt ist):
+- aktiv ja/nein, und pro key oder global?
+- wenn aktiv: cap_value strings/keys?
+
+E3) DB_STATE vs SETTINGS_STATE (offen nur wenn DET-REC-01 nicht als Owner-FIX gesetzt ist):
+- Was genau triggert DB_UNKNOWN vs DEGRADED?
+- Dieses Dokument nutzt Reason_Classes; finale Strings kommen aus NORM-04 EXT.
+
+================================================================================
+CHANGELOG
+================================================================================
+2026-01-28: v0.1 initial: KH Expected-Fails + /diag assertions (nach Fix-Pack).
+
+2026-01-28: v0.2 ergänzt: DET-REC-01 Expected-Fails Lock (deterministisches Verhalten unter Recommended Pack).

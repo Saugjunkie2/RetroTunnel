@@ -1,0 +1,147 @@
+SQL-FIRST v1 — KH-008 “LOOSER” DEFINITION v1 (formal) + Minimalvergleichsregeln.txt
+================================================================================
+TITLE: SQL-first — Formale Definition “looser” (für KH-008 CAP/TIGHTEN-ONLY Safety Gate)
+DOC-ID: SQLF-KH-LOOSER-DEF-01
+STATUS: ENTWURF (Phase 3) — Norm-Addendum für CI-Gate Determinismus
+VERSION: v0.3
+DATUM: 2026-01-28 (Europe/Zurich)
+
+ZWECK:
+- Schließt OPEN: SQLF-OPEN-KH-LOOSER-DEF
+- Macht KH-008 Gate (CI-SQLF-KH-008-CAP-SAFETY) deterministischer:
+  • “tighten-only” bedeutet: bei INVALID/MISSING/CAP darf effective_value nie “looser” werden als der
+    definierte Safe-Baseline-Rahmen.
+
+VORAUSSETZUNG:
+- DET-REC-01 Lock wird als Recommended Modell verwendet (STRICT+fallback + cap active + settings_state mapping).
+- Diese Norm definiert NUR Vergleichslogik, keine neuen Keys und keine Implementierungsdetails.
+
+================================================================================
+A) Begriffe
+================================================================================
+A1) Policy Value (PV):
+- Der Wert, der aus SQL (oder Alias) kommt, vor Validation/Cap/Fallback.
+
+A2) Effective Value (EV):
+- Der Wert, der nach Validation/Cap/Fallback tatsächlich als wirksam gilt (aus /diag trace).
+
+A3) Safe Baseline (SB):
+- Ein definierter “nicht-looser” Rahmen, aus dem EV bei INVALID/MISSING abgeleitet wird.
+- SB ist NICHT zwingend = DEFAULT; SB ist das, was du als “sicher/konservativ” definierst.
+
+A4) Looser (Definition):
+Ein EV ist “looser” als SB, wenn er eine der Ressourcen-/Retention-/Zeit-Budgets in Richtung “mehr”
+oder “länger” verschiebt, und damit Disk-Overflow/Abuse-Risiken erhöht.
+
+================================================================================
+B) Vergleichsrichtung pro KH-Key (Monotonie)
+================================================================================
+Diese Tabelle definiert die Monotonie (was ist looser?):
+
+B1) Budget-Bytes Keys (größer = looser):
+- web_log_detailed_max_total_bytes
+- web_spool_max_total_bytes
+Monotonie:
+- EV_looser_than_SB ⇔ EV > SB
+
+B2) Retention Keys (größer = looser):
+- web_log_detailed_retention_days
+- web_log_aggregate_retention_months
+- web_spool_retention_days
+Monotonie:
+- EV_looser_than_SB ⇔ EV > SB
+
+B3) Cache TTL Key (größer = looser):
+- web_settings_cache_ttl_seconds
+Monotonie:
+- EV_looser_than_SB ⇔ EV > SB
+Hinweis:
+- TTL ist “weniger DB-Last” aber “länger stale”; in KH-008 Kontext zählt “looser” als
+  weniger enges Control (stale window) → größer = looser.
+
+B4) Pool Threshold Keys (kein looser Begriff im Sinne Disk-Safety):
+- web_ip_pool_green_threshold
+- web_ip_pool_red_threshold
+→ Diese gehören NICHT in “looser” Vergleich; sie haben eigene Relation Gate (KH-007).
+Für KH-008 zählen sie nur insofern, als invalid nicht zu “unbounded behaviour” führen darf.
+
+================================================================================
+C) Minimalregeln “tighten-only” (Gate-tauglich)
+================================================================================
+Diese Regeln sind so formuliert, dass CI sie prüfen kann:
+
+C1) Tighten-only bei INVALID/MISSING:
+- Für Keys aus B1–B3 gilt:
+  • Wenn validation_state != OK (INVALID/MISSING/RELATION_INVALID) dann MUSS gelten:
+    EV <= SB
+  • EV darf niemals “unlimited/unbounded” darstellen (siehe C3).
+
+C2) Cap behaviour:
+- Wenn cap event vorliegt (source=CAPPED oder reason_class SETTINGS_CAPPED):
+  • EV <= CAP_VALUE
+  • CAP_VALUE itself muss <= SB sein ODER SB muss als max(SB, CAP_VALUE) definiert sein.
+  (Damit ist konsistent, dass Cap nie looser macht.)
+
+C3) “Unbounded” Definition (Minimal):
+Ein EV gilt als unbounded (MUST FAIL) wenn:
+- EV ist NULL/None bei numeric required
+- EV ist “0” oder “-1” wenn Semantik “no limit” bedeutet (muss per key definiert sein)
+- EV ist größer als MAX_BOUND ohne CAPPED indication
+Praktische CI-Minimalprüfung:
+- EV muss eine endliche positive Zahl sein (>= 1), und <= MAX_BOUND oder <= CAP_VALUE, je nach Modell.
+
+C4) SB Herkunft (für Gate v1):
+- SB wird in v1 als das Minimum aus folgenden Quellen definiert (konservativ):
+  • DEFAULT (Owner-FIX baseline)
+  • OPTIONAL: MIN_BOUND (falls du “noch strenger” willst)
+Gate-Definition:
+- Gate prüft EV <= DEFAULT (wenn DEFAULT als SB festgelegt ist) ODER EV <= MIN_SAFE.
+Diese genaue Wahl muss im KH Catalog Addendum final dokumentiert werden.
+
+================================================================================
+D) Gate Integration (wie CI es nutzt)
+================================================================================
+D1) Für KH-008 Gate:
+- Für alle Keys in B1–B3:
+  • Wenn validation_state != OK ⇒ assert EV <= SB
+  • Wenn source=CAPPED ⇒ assert EV == CAP_VALUE (oder <= CAP_VALUE)
+  • Wenn reasons include SETTINGS_CAPPED ⇒ assert source=CAPPED (Consistency)
+
+D2) Für KH-006 Bounds Gate:
+- “unbounded” checks können C3 nutzen.
+
+================================================================================
+E) OPEN (bewusst, aber nicht blockierend für v1)
+================================================================================
+E1) SB final (geschlossen durch SQLF-KH-SB-NORM-01; Owner-FIX DEC-SQLF-KH-SB-001 bleibt OPEN bis FIX):
+- Ob SB = DEFAULT oder SB = MIN_SAFE muss als Owner-FIX in KH Defaults/Bounds Candidate finalisiert werden.
+- Dieses Addendum liefert die Vergleichslogik; SB-Quelle ist separat fixbar.
+
+E2) “No limit” Sentinels:
+- Falls einzelne Keys “0 bedeutet unlimited” hätten, muss das explizit als INVALID klassifiziert werden.
+- Bis dahin: CI verlangt EV >= 1.
+
+================================================================================
+CHANGELOG
+================================================================================
+2026-01-28: v0.1 initial: Formale “looser” Definition + Minimalvergleichsregeln für KH-008 Gate.
+
+
+================================================================================
+F) SB Source Norm (Closure)
+================================================================================
+- SB Source Norm wurde als eigenes Addendum erstellt:
+  • SQLF-KH-SB-NORM-01 “KH SAFE BASELINE (SB) SOURCE NORM v1”
+- Damit kann KH-008 Gate vollständig deterministisch formuliert werden (wenn DEC-SQLF-KH-SB-001 FIX ist).
+
+2026-01-28: v0.2 ergänzt: Verweis auf SQLF-KH-SB-NORM-01 (SB Source Norm) + OPEN präzisiert.
+
+
+================================================================================
+G) /diag Felder (SB-aware)
+================================================================================
+Für v1 gilt als Minimum:
+- settings.trace[key].safe_baseline_value
+- settings.trace[key].sb_model
+
+2026-01-28: v0.3 ergänzt: /diag SB-Felder als Minimum (safe_baseline_value, sb_model).

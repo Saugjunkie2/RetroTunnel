@@ -1,0 +1,219 @@
+xp-vpn-stack/entwuerfe/sql-first/SQL-FIRST v1 — DECISION MATRIX.txt
+================================================================================
+TITLE: SQL-first — Decision Matrix (DEC-IDs, Status, Impact, References)
+DOC-ID: SQLF-DECISION-MATRIX
+STATUS: ENTWURF (Phase 3) — NORMATIV innerhalb des Entwurfs
+VERSION: v1.2
+DATUM: 2026-01-29 (Europe/Zurich)
+FOCUS_PHASE: PH1
+
+NORMATIVITÄT (MUST):
+- Diese Matrix ist der zentrale “Index” der Entscheidungen.
+- Jede Entscheidung hat: DEC-ID, Status (FIX/OPEN), kurze Aussage, Impact (PH/F/NX),
+  Referenzen (Kanon-Datei/Abschnitt oder Entwurfs-Norm).
+- FIX heißt: Owner hat entschieden (siehe OWNER-FIX VALUE SHEET).
+- OPEN heißt: noch nicht final; wird NICHT implizit entschieden.
+
+ARBEITSMODUS (Entwurfspflege; NON-RUNTIME):
+- Zusätzlich zum Status (FIX/OPEN) kann eine DEC als Entwurfsarbeit mitgeführt werden via:
+  • PH_BINDING: CORE | PH1..PH10  (früheste Phase, in der die DEC spätestens FIX sein muss)
+  • WORK_STATUS: ACTIVE | DEFERRED (aktueller Fokus im Entwurf)
+  • BLOCKS: NONE | PH1..PH10      (welche Phase wäre ohne diese DEC blockiert)
+- Ableitung (wenn nicht explizit gesetzt):
+  • PH_BINDING: kleinste PH aus „Impact: PH…“; wenn keine PH genannt → PH_BINDING=PH10 (konservativ)
+  • WORK_STATUS: ACTIVE, wenn PH_BINDING=CORE oder PH_BINDING <= FOCUS_PHASE; sonst DEFERRED
+  • BLOCKS: default NONE; nur explizit setzen, wenn wirklich „PHx kann nicht closed sein ohne FIX dieser DEC“
+- Guardrail: WORK_STATUS/PH_BINDING/BLOCKS steuern nur Priorisierung/Backlog im Entwurf – sie ändern nicht die Semantik von FIX/OPEN.
+
+================================================================================
+DECISIONS
+================================================================================
+
+DEC-SQLF-001 | Status: FIX
+Aussage: Single DB (System + Webpanel), kein DB-Split.
+Impact: PH1, PH5, PH6, PH7; B055/B050/B056/B165; Panel-Operability
+Refs: OWNER-FIX; (später Kanon: neue D0xx)
+
+DEC-SQLF-002 | Status: FIX
+Aussage: SQL-first ist Fundament, policy-relevantes gehört als Key in settings_catalog.
+Impact: PH1–PH10 (quer); Magic-Guard; Consumer müssen Resolution nutzen
+Refs: B057; OWNER-FIX; NORM-01
+
+DEC-SQLF-003 | Status: FIX
+Aussage: Prefix/Namespace für Keys aktiv (web_/vpn_/peak_/radius_/settings_/log_/spool_).
+Impact: Alias-Resolver, Panel-UX, Drift-Risiko, B310 Proofs
+Refs: OWNER-FIX; NORM-02
+
+DEC-SQLF-004 | Status: FIX
+Aussage: Drift-Modell Option C (korrigiert): Hard-configs sind Referenz/Drift-Detektor (optional Auto-Repair),
+         aber nicht Enforcement ohne DB.
+Impact: PH6 (Operability), /diag, B330 Logging/Retention Modell
+Refs: OWNER-FIX; NORM-03; NORM-05; Kanon-Konfliktstelle: B330 (zu prüfen)
+
+DEC-SQLF-005 | Status: FIX
+Aussage: Webpanel ist Control Plane und nur im VPN erreichbar; zentrale Sicht/Steuerung.
+Impact: PH5, PH6; Security Surface; UX/Docs
+Refs: decisions/D003; OWNER-FIX
+
+--------------------------------------------------------------------------------
+OPEN (platzhalter; Details im OPEN REGISTER)
+--------------------------------------------------------------------------------
+DEC-SQLF-010 | Status: OPEN
+Aussage: Fallback-Policy je Fail-Class (last_known vs baseline_default vs tighten-only) pro Key-Family.
+Impact: PH2/PH3/PH8; B166/B270/B310
+Refs: NORM-01/05/07; OPEN REGISTER O-SQLF-010
+
+DEC-SQLF-011 | Status: OPEN
+Aussage: Granularität des Reason-Sets (nur Kategorien vs Kategorien+Subcodes).
+Impact: B342/B052/B270/B310; Panel Support
+Refs: NORM-04; OPEN REGISTER O-SQLF-011
+
+DEC-SQLF-012 | Status: OPEN
+Aussage: Sichtbarkeit (User vs Admin) für /diag settings-trace Felder.
+Impact: PH5/PH6 Security; Debuggability
+Refs: NORM-05; OPEN REGISTER O-SQLF-012
+
+DM-SQLF-KEYHARVEST-01 (FIX): Unpräfixierte Legacy-Keys im Kanon sind NUR Alias.
+- Canonical Keys folgen strikt der Präfix-Norm (web_/vpn_/peak_/radius_).
+- Key-Harvest v1 Canonical: web_ip_pool_{green,red}_threshold, web_log_*, web_spool_*, web_settings_cache_ttl_seconds.
+- Begründung: verhindert Namenswildwuchs, verbessert Panel-UX, reduziert Drift im Alias-Resolver.
+
+DM-SQLF-KEYHARVEST-02 (FIX): Die 8 Harvest-Keys werden als echte settings_catalog Einträge geführt.
+- Status: REQUIRED (weil Kanon sie als SQL-first/policy-relevant referenziert).
+- Umsetzung: SQLF-CATADD-01 spezifiziert Typ/Constraints/Fail-Class/Diag/Proof; Defaults bleiben OWNER-FIX-OPEN bis final entschieden.
+Refs: SQLF-HARVEST-01; SQLF-CATADD-01; NORM-01; NORM-07
+
+DM-SQLF-KEYHARVEST-03 (FIX): Disk-Safety Keys nutzen Fail-Class „tighten-only“.
+- Betrifft: web_log_* + web_spool_* (Retention/MaxBytes)
+- Regel: Bei missing/invalid darf fallback niemals loosening sein (nie höhere Caps/Retention).
+Refs: NORM-03; SQLF-CATADD-01; NORM-07 (KH-004)
+
+
+
+================================================================================
+CHANGELOG
+================================================================================
+v0.4 (2026-01-29): FOCUS_PHASE (PH1) + Scope-Gating (PH_BINDING/WORK_STATUS/BLOCKS) für phasengetriebene Entwurfspflege ergänzt.
+
+v0.3 (2026-01-28): FIX ergänzt: Harvest-Keys als Catalog-Entries + tighten-only Fail-Class.
+
+v0.2 (2026-01-28): FIX ergänzt: Key-Harvest Canonical-Naming + Alias-Regel.
+
+v0.1 (2026-01-28): Initiale Decision-Matrix mit FIX-DEC (Single DB, Prefix, Drift-Modell, Panel-Zentrale) + OPEN Platzhalter.
+
+
+======================================================================
+D) Key-Harvest Defaults/Bounds (CANDIDATE) — 8 Keys + Cross-Constraints
+======================================================================
+
+DEC-SQLF-KH-CROSS-001 | Status: OPEN | Aussage: red < green Relation Rule; strict-fail vs auto-adjust | Impact: PH5/PH9 | Ref: SQLF-OWNER-FIX-KH-DEFAULTS A)
+DEC-SQLF-KH-101 | Status: OPEN | Aussage: Default/Bounds web_ip_pool_green_threshold | Impact: PH5 | Ref: SQLF-OWNER-FIX-KH-DEFAULTS B1)
+DEC-SQLF-KH-102 | Status: OPEN | Aussage: Default/Bounds web_ip_pool_red_threshold | Impact: PH5 | Ref: SQLF-OWNER-FIX-KH-DEFAULTS B1)
+DEC-SQLF-KH-201 | Status: OPEN | Aussage: Default/Bounds web_settings_cache_ttl_seconds (+ Cap-Modell) | Impact: global | Ref: SQLF-OWNER-FIX-KH-DEFAULTS B2/C)
+DEC-SQLF-KH-301 | Status: OPEN | Aussage: Default/Bounds web_log_detailed_retention_days | Impact: PH6 | Ref: SQLF-OWNER-FIX-KH-DEFAULTS B3)
+DEC-SQLF-KH-302 | Status: OPEN | Aussage: Default/Bounds web_log_detailed_max_total_bytes | Impact: PH6 | Ref: SQLF-OWNER-FIX-KH-DEFAULTS B3)
+DEC-SQLF-KH-303 | Status: OPEN | Aussage: Default/Bounds web_log_aggregate_retention_months | Impact: PH6/PH9 | Ref: SQLF-OWNER-FIX-KH-DEFAULTS B3)
+DEC-SQLF-KH-401 | Status: OPEN | Aussage: Default/Bounds web_spool_retention_days | Impact: PH6/PH7 | Ref: SQLF-OWNER-FIX-KH-DEFAULTS B4)
+DEC-SQLF-KH-402 | Status: OPEN | Aussage: Default/Bounds web_spool_max_total_bytes | Impact: PH6/PH7 | Ref: SQLF-OWNER-FIX-KH-DEFAULTS B4)
+
+================================================================================
+KH DEFAULTS / BOUNDS (Key-Harvest v1)
+================================================================================
+
+DEC-SQLF-KH-CROSS-001 | Status: OPEN
+Aussage: Ampel-Relation muss gelten: 0 < red < green (Wahl: strict-fail vs auto-adjust).
+Impact: PH1/PH5/PH6 (Operability), Panel (/diag), B052/B342 Reasons, B310-KH-007
+Refs: SQLF-OWNER-FIX-KH-DEFAULTS (Candidate) / SQLF-OWNER-DECISION-MENU-KH
+
+DEC-SQLF-KH-101 | Status: OPEN
+Aussage: Default/Bounds für web_ip_pool_green_threshold (Slots).
+Impact: PH5 (Panel Stats), IP-Pool Ops, Alerts; B310-KH-001/-006
+Refs: SQLF-OWNER-FIX-KH-DEFAULTS; B061; SQLF-CATADD-01
+
+DEC-SQLF-KH-102 | Status: OPEN
+Aussage: Default/Bounds für web_ip_pool_red_threshold (Slots) + Relation zu green.
+Impact: PH5 (Panel Stats), IP-Pool Ops; B310-KH-001/-007
+Refs: SQLF-OWNER-FIX-KH-DEFAULTS; B061; SQLF-CATADD-01
+
+DEC-SQLF-KH-201 | Status: OPEN
+Aussage: Default/Bounds für web_settings_cache_ttl_seconds (Seconds) + optionaler Cap.
+Impact: PH5/PH6 (Ops/DoS/Latency), Settings-Loader; B310-KH-002/-008
+Refs: SQLF-OWNER-FIX-KH-DEFAULTS; B330
+
+DEC-SQLF-KH-301 | Status: OPEN
+Aussage: Default/Bounds für web_log_detailed_retention_days (Days).
+Impact: PH6 (Logs/Retention), Disk-Overflow Risiko; B310-KH-002/-006
+Refs: SQLF-OWNER-FIX-KH-DEFAULTS; B330
+
+DEC-SQLF-KH-302 | Status: OPEN
+Aussage: Default/Bounds für web_log_detailed_max_total_bytes (Bytes) + optionaler Cap.
+Impact: PH6 (Disk Budget), Fail-Safe Logging; B310-KH-002/-008
+Refs: SQLF-OWNER-FIX-KH-DEFAULTS; B330
+
+DEC-SQLF-KH-303 | Status: OPEN
+Aussage: Default/Bounds für web_log_aggregate_retention_months (Months).
+Impact: PH6 (Long-term stats), Panel exports; B310-KH-002
+Refs: SQLF-OWNER-FIX-KH-DEFAULTS; B330
+
+DEC-SQLF-KH-401 | Status: OPEN
+Aussage: Default/Bounds für web_spool_retention_days (Days).
+Impact: PH6 (Spool/Queue), Recovery/Retry windows; B310-KH-002
+Refs: SQLF-OWNER-FIX-KH-DEFAULTS; B330
+
+DEC-SQLF-KH-402 | Status: OPEN
+Aussage: Default/Bounds für web_spool_max_total_bytes (Bytes) + optionaler Cap.
+Impact: PH6 (Disk Budget), Queue Exhaustion; B310-KH-002/-008
+Refs: SQLF-OWNER-FIX-KH-DEFAULTS; B330
+
+2026-01-28: v0.5 KH-Defaults/Bounds Entscheidungen explizit ergänzt (OPEN) + Verweis auf Owner Decision Menu.
+
+
+Hinweis (Phase 3):
+- Für KH Defaults/Bounds existiert ein Sammel-Apply-Plan:
+  • SQLF-KH-FIXAPPLY-01 “KH FIX APPLY (Recommended Baseline)”
+  Der Plan ist NICHT automatisch Owner-FIX, sondern eine vorbereitete Ein-Rutsch-Aktion.
+
+2026-01-28: v0.6 Verweis ergänzt: SQLF-KH-FIXAPPLY-01 (Sammel-Apply-Plan).
+
+
+================================================================================
+KH DETERMINISM (Expected-Fails deterministisch machen)
+================================================================================
+DEC-SQLF-KH-DET-001 | Status: OPEN
+Aussage: INVALID Handling Policy: STRICT+fallback vs CLAMP+warn.
+Refs: SQLF-KH-DET-DEC-01; SQLF-KH-EXFAIL-01(E1)
+
+DEC-SQLF-KH-DET-002 | Status: OPEN
+Aussage: Cap-Modell: aktiv ja/nein; scope (global/per-key); Semantik in /diag.
+Refs: SQLF-KH-DET-DEC-01; SQLF-KH-EXFAIL-01(E2)
+
+DEC-SQLF-KH-DET-003 | Status: OPEN
+Aussage: DB_STATE vs SETTINGS_STATE Mapping (DB_UNKNOWN nur echte Backend-Probleme?).
+Refs: SQLF-KH-DET-DEC-01; SQLF-KH-EXFAIL-01(E3); B052/B342
+
+2026-01-28: v0.8 ergänzt: KH Determinism DEC-001..003 (OPEN) + Ref Decision Pack.
+
+
+Hinweis (Phase 3):
+- Für KH Determinism (DEC-001..003) existiert ein Sammel-Apply-Plan:
+  • SQLF-KH-DET-FIXAPPLY-01 “KH DETERMINISM FIX APPLY (Recommended Pack)”
+  Der Plan ist NICHT automatisch Owner-FIX, sondern eine vorbereitete Ein-Rutsch-Aktion.
+
+2026-01-28: v0.9 Verweis ergänzt: SQLF-KH-DET-FIXAPPLY-01 (Sammel-Apply-Plan).
+
+
+================================================================================
+KH SAFE BASELINE (SB) SOURCE MODEL
+================================================================================
+DEC-SQLF-KH-SB-001 | Status: OPEN
+Aussage: SB (Safe Baseline) Modell für KH-008 tighten-only: MODEL_1 (DEFAULT_SAFE) / MODEL_2 (SAFE_MIN) / MODEL_3 (derived).
+Refs: SQLF-KH-SB-NORM-01; SQLF-KH-LOOSER-DEF-01; SQLF-KH-B310-GATE-01
+
+2026-01-28: v1.0 ergänzt: DEC-SQLF-KH-SB-001 (SB Source Modell) + Ref Addendum.
+
+
+Hinweis (Phase 3):
+- Für DEC-SQLF-KH-SB-001 existiert ein Sammel-Apply-Plan (Recommended):
+  • SQLF-KH-SB-FIXAPPLY-01 “KH SB FIX APPLY (MODEL_1 DEFAULT_SAFE)”
+
+2026-01-28: v1.1 ergänzt: Verweis auf SB FixApply (SQLF-KH-SB-FIXAPPLY-01).

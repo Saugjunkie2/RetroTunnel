@@ -1,0 +1,160 @@
+xp-vpn-stack/entwuerfe/sql-first/SQL-FIRST v1 — OWNER-FIX DEFAULTS+BOUNDS (KH-Keys) — Candidate.txt
+================================================================================
+TITLE: SQL-first — Owner-FIX Defaults/Bounds (Key-Harvest v1: 8 Keys) — CANDIDATE
+DOC-ID: SQLF-OWNER-FIX-KH-DEFAULTS
+STATUS: ENTWURF (Phase 3) — NORMATIVE STRUKTUR; Inhalte teils OPEN (Owner muss final FIX setzen)
+VERSION: v0.2
+DATUM: 2026-01-28 (Europe/Zurich)
+
+NORMATIVITÄT (MUST):
+- Diese Datei macht Defaults/Bounds für die 8 Key-Harvest-Keys explizit sichtbar.
+- “Owner-FIX” bedeutet hier: Ziel ist, dass diese Werte vom Owner final FIX gesetzt werden.
+- Solange ein Eintrag STATUS=OPEN ist, ist er NICHT bindend (keine implizite Entscheidung).
+- Keine Magic Numbers werden als “FIX” behauptet, wenn sie nicht explizit entschieden sind.
+- Bezug: SQLF-CATADD-01 (Catalog-Addendum) + B061 (IP Pool Ampel) + B330 (Logging/Retention/Settings-Load).
+
+FORMATREGEL:
+- Pro Key: Canonical-Key, Unit/Type, Default, Bounds, Relation-Constraints, Fail-Class-Intention,
+  Validierung (B310 Proof-Intent), Status (FIX/OPEN).
+- Zusätzlich: 1) Cross-Key Constraints (z.B. red < green), 2) Physik-Ceilings (falls genutzt) als separate OPENs.
+
+================================================================================
+A) Cross-Key Constraints (MUST zuerst lesen)
+================================================================================
+
+DEC-SQLF-KH-CROSS-001 (STATUS: OPEN)
+- Thema: Beziehung ip_pool_red_threshold < ip_pool_green_threshold
+- Ziel: Ampel-Logik ist deterministisch und verhindert widersprüchliche Zustände.
+- Regel (Entwurf):
+  • Es MUSS gelten: 0 < web_ip_pool_red_threshold < web_ip_pool_green_threshold
+- Option A (strict-fail):
+  • Wenn verletzt: Settings gelten als INVALID → Fail-Class greifen → Reason-Code + /diag drift/invalid Flag.
+- Option B (auto-adjust):
+  • Wenn verletzt: System korrigiert intern (z.B. red := min(red, green-1)) UND setzt Drift/Warning.
+- Constraints:
+  • Keine stille Korrektur ohne sichtbaren Hinweis im Panel (/diag).
+- Validierung:
+  • B310-SQLF-KH-007 (Relation): invalid-reason + expected-fail/expected-warning.
+
+================================================================================
+B) Key Defaults/Bounds — 8 Harvest Keys (CANDIDATE)
+================================================================================
+
+B1) Pool-Ampel (B061) — Units: “Slots” (allocatable slots; Tail-Reserve bereits abgezogen)
+--------------------------------------------------------------------------------
+
+DEC-SQLF-KH-101 (STATUS: OPEN) — web_ip_pool_green_threshold
+- Canonical Key: web_ip_pool_green_threshold
+- Legacy Alias: ip_pool_green_threshold
+- Type/Unit: INT (slots)
+- Semantik: GREEN wenn free_slots >= green_threshold
+- Default (CANDIDATE): default = 30
+- Bounds (CANDIDATE):
+  • min = 5
+  • max = (allocatable_slots - 1)   (harte Beziehung zu pool size; muss zur Laufzeit validierbar sein)
+- Fail-Class-Intention:
+  • invalid → tighten-only (nie “loosen”), weil falsche Ampel falsche Ops-Entscheide triggern kann
+- /diag Erwartung:
+  • settings.trace zeigt effective_value, source(sql/alias/fallback), validity=OK/INVALID
+- Validierung:
+  • B310-SQLF-KH-001 (Presence)
+  • B310-SQLF-KH-006 (Bounds)
+  • B310-SQLF-KH-007 (Relation, zusammen mit red)
+
+DEC-SQLF-KH-102 (STATUS: OPEN) — web_ip_pool_red_threshold
+- Canonical Key: web_ip_pool_red_threshold
+- Legacy Alias: ip_pool_red_threshold
+- Type/Unit: INT (slots)
+- Semantik: RED wenn free_slots < red_threshold
+- Default (CANDIDATE): default = 10
+- Bounds (CANDIDATE):
+  • min = 1
+  • max = (web_ip_pool_green_threshold - 1)  (Relation)
+- Fail-Class-Intention: invalid → tighten-only
+- Validierung: B310-SQLF-KH-001 / -006 / -007
+
+HINWEIS:
+- Defaults sind abhängig von Pool-Größe (z.B. /24 vs /23) und Tail-Reserve.
+- Ziel ist “sinnvoller Startwert”, nicht “universell korrekt”.
+
+B2) Settings-Load Strategy (B330) — Units: Sekunden
+--------------------------------------------------------------------------------
+
+DEC-SQLF-KH-201 (STATUS: OPEN) — web_settings_cache_ttl_seconds
+- Canonical Key: web_settings_cache_ttl_seconds
+- Legacy Alias: settings_cache_ttl_seconds
+- Type/Unit: INT (seconds)
+- Zweck: TTL für gecachte Settings (DoS/Latency Schutz) — policy value aus SQL
+- Default (CANDIDATE): default = 60
+- Bounds (CANDIDATE): min = 5 ; max = 300
+- Physik-Ceiling (OPEN): local_cap_seconds = 300 (wenn Cap-Modell aktiv)
+- Fail-Class-Intention:
+  • missing/invalid → fallback = 60s (klar markiert; Reason-Code)
+  • sql>cap → drift/warn + effective_value begrenzt (wenn Cap aktiv)
+- Validierung:
+  • B310-SQLF-KH-002 (Validation)
+  • B310-SQLF-KH-004 (Diag Trace)
+  • B310-SQLF-KH-008 (Cap behaviour, falls aktiv)
+
+B3) Logging Retention Targets (B330) — Units: Tage / Bytes / Monate
+--------------------------------------------------------------------------------
+
+DEC-SQLF-KH-301 (STATUS: OPEN) — web_log_detailed_retention_days
+- Type/Unit: INT (days) | Default: 14 | Bounds: 1..30
+- Fallback (OPEN): 7 oder 14 (Owner muss wählen)
+- Validierung: B310-SQLF-KH-002 / -004
+
+DEC-SQLF-KH-302 (STATUS: OPEN) — web_log_detailed_max_total_bytes
+- Type/Unit: BIGINT (bytes) | Default: 1_000_000_000 (~1GB) | Bounds: 100_000_000..5_000_000_000
+- Fallback (OPEN): 500_000_000 oder 1_000_000_000 (Owner muss wählen)
+- Validierung: B310-SQLF-KH-002 / -004
+
+DEC-SQLF-KH-303 (STATUS: OPEN) — web_log_aggregate_retention_months
+- Type/Unit: INT (months) | Default: 6 | Bounds: 1..24
+- Fallback (OPEN): 3 oder 6 (Owner muss wählen)
+- Validierung: B310-SQLF-KH-002 / -004
+
+B4) Spool/Delta Buffer Targets (B330) — Units: Tage / Bytes
+--------------------------------------------------------------------------------
+
+DEC-SQLF-KH-401 (STATUS: OPEN) — web_spool_retention_days
+- Type/Unit: INT (days) | Default: 7 | Bounds: 1..30
+- Fallback (OPEN): 3 oder 7 (Owner muss wählen)
+- Validierung: B310-SQLF-KH-002 / -004
+
+DEC-SQLF-KH-402 (STATUS: OPEN) — web_spool_max_total_bytes
+- Type/Unit: BIGINT (bytes) | Default: 500_000_000 (~0.5GB) | Bounds: 50_000_000..2_000_000_000
+- Fallback (OPEN): 250_000_000 oder 500_000_000 (Owner muss wählen)
+- Validierung: B310-SQLF-KH-002 / -004
+
+================================================================================
+C) Physik-Ceilings (B330) — Konflikt zu “Option C corrected” (OPEN)
+================================================================================
+
+O-SQLF-KH-PHYS-001 (STATUS: OPEN)
+- Thema: Lokal erzwungene Hard Caps (Physik > Policy) vs “Configs nur Drift-Hinweis”.
+- Kandidaten:
+  Option A: “immutable runtime fact” + panel-visible; effective_value = min(sql,cap)
+  Option B: kein Cap enforced; nur Warning/Drift (braucht Ersatzschutz gegen DoS/Disk-Full)
+- Validierung:
+  • B310-SQLF-KH-008 muss definieren, wie Cap/Warning/Fail sich verhält.
+
+================================================================================
+D) Changelog
+================================================================================
+v0.1 (2026-01-28):
+- Erstentwurf: Defaults/Bounds CANDIDATE für 8 KH-Keys + Relation red<green + Physik-Ceiling OPEN.
+
+================================================================================
+FIX APPLY (Sammel-Aktion)
+================================================================================
+Dieses Dokument enthält Candidate-Werte, die NICHT automatisch Owner-FIX sind.
+
+Wenn du “ACCEPT BASELINE” als Owner-FIX setzen willst:
+- Siehe SQLF-KH-FIXAPPLY-01 (KH FIX APPLY).
+- Dann werden alle DEC-SQLF-KH-xxx Einträge in diesem Dokument von STATUS: OPEN → STATUS: FIX gedreht.
+
+================================================================================
+CHANGELOG
+================================================================================
+2026-01-28: v0.2 ergänzt: Fix-Apply Hinweis (Sammel-Aktion) ohne implizite Owner-FIX.

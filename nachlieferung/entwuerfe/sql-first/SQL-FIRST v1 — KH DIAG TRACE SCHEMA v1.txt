@@ -1,0 +1,163 @@
+SQL-FIRST v1 — KH /diag TRACE SCHEMA v1 (settings.trace) — Minimal/Extended.txt
+================================================================================
+TITLE: /diag settings.trace Schema (KH-first) — Minimal + Extended Contract
+DOC-ID: SQLF-DIAG-TRACE-01
+STATUS: ENTWURF (Phase 3) — Contract für Panel/CI/Diag
+VERSION: v0.2
+DATUM: 2026-01-28 (Europe/Zurich)
+
+ZWECK:
+- Definiert die Objektform von /diag.settings.trace, damit:
+  * CI-Gates (KH-006/007/008) maschinenlesbar und deterministisch sind
+  * Webpanel die Settings “mit Bedeutung” anzeigen kann (inkl. Drift/Health)
+  * /diag konsistent bleibt, auch wenn einzelne Backends DB_UNKNOWN/DB_DOWN melden
+
+REFERENZEN:
+- SQLF-KH-B310-GATE-01 (Gate Wording, /diag Minimum)
+- SQLF-KH-LOOSER-DEF-01 + SQLF-KH-SB-NORM-01 (SB-aware tighten-only)
+- SQLF-OPEN-KH-CAP-VALUE-FIELD (optional)
+
+KONSTRUKTIONSREGELN:
+- Kein “implizites Wissen”: jedes Feld hat Typ + Semantik.
+- Minimal Contract = MUSS immer vorhanden sein, sobald /diag erreichbar ist (auch in degraded).
+- Extended Contract = optional (kann je nach PH/Feature dazukommen).
+
+================================================================================
+A) Top-Level /diag Struktur (nur Ausschnitt)
+================================================================================
+/diag (json)
+- backend:
+  * db_state: DB_OK | DB_DOWN | DB_UNKNOWN
+  * settings_state: OK | DEGRADED | UNKNOWN
+  * reasons[]: reason_class strings (siehe Reason-Class Mapping)
+- settings:
+  * trace: object map (canonical_key -> TraceEntry)
+  * completeness: { required_set_id -> status } (optional, PH-basiert)
+
+Hinweis:
+- “settings_state” ist NICHT identisch zu db_state.
+- settings_state kann DEGRADED sein bei INVALID/FALLBACK/CAPPED, obwohl db_state=DB_OK.
+
+================================================================================
+B) settings.trace Objektform
+================================================================================
+B1) Map-Key
+- canonical_key (string): der resolved Canonical Key nach Alias-Resolver (z.B. web_log_detailed_max_total_bytes)
+
+B2) TraceEntry (object) — Minimal Contract
+MUSS-Felder:
+- canonical_key (string)
+- requested_key (string|null)  : Key-Name, der vom Consumer angefragt wurde (vor Alias), wenn vorhanden
+- scope (string)               : GLOBAL | CUSTOMER | CONNECTION | DEVICE | (weitere später)
+- value_type (string)          : INT | BOOL | STRING | ENUM | JSON | BYTES | SECONDS | DAYS | MONTHS
+- policy_intent (string)       : kurze Kategorie, z.B. LOG_BUDGET | SPOOL_BUDGET | CACHE_TTL | POOL_THRESHOLD
+- sql_value (scalar|null)      : Wert aus SQL nach Lookup, vor validation (kann null bei missing/db_unknown sein)
+- effective_value (scalar|null): der tatsächlich wirksame Wert nach validation/cap/fallback
+- validation_state (string)    : OK | MISSING | INVALID | RELATION_INVALID | UNKNOWN
+- source (string)              : SQL | DEFAULT | FALLBACK | CAPPED | HARD_BASELINE | UNKNOWN
+- reasons (array[string])      : reason_class Liste (keine langen Strings), z.B. SETTINGS_MISSING, SETTINGS_INVALID, SETTINGS_CAPPED, SETTINGS_RELATION
+- safe_baseline_value (scalar|null): SB (siehe SB Norm) — MUSS für B1–B3 Keys sobald Gate aktiv ist
+- sb_model (string|null)       : MODEL_1 | MODEL_2 | MODEL_3 (oder null wenn nicht applicable)
+- updated_at (string|null)     : ISO8601, wann effective_value zuletzt berechnet wurde
+
+Minimal Semantik:
+- Wenn db_state != DB_OK:
+  * sql_value kann null sein
+  * validation_state kann UNKNOWN sein
+  * source muss in diesem Fall UNKNOWN oder FALLBACK/DEFAULT sein (nie SQL)
+- Wenn validation_state == OK:
+  * effective_value MUST NOT be null
+- Wenn validation_state != OK:
+  * effective_value darf nicht “unbounded” sein (siehe KH rules)
+
+================================================================================
+C) Extended Contract (optional Felder)
+================================================================================
+Optional (Extended):
+- cap_value (scalar|null)        : der angewandte Cap-Wert (für KH-008 Präzision)
+- bounds (object|null)           : {min, max} oder {allowed_values} je nach Typ
+- default_value (scalar|null)    : Default aus Catalog, zur Panel-Anzeige
+- alias_chain (array[string])    : [requested_key, alias_1, ..., canonical_key]
+- consumer_ids (array[string])   : welche Consumer diesen Key genutzt haben (runtime observation)
+- relation_group (string|null)   : z.B. IP_POOL_THRESHOLDS
+- relation_peers (array[string]) : beteiligte keys für relation checks
+- registry_state (string|null)   : OK | WARN | FAIL (wenn Registry/Doc-Set Drift detektiert wird)
+- drift_flags (array[string])    : z.B. DOCSET_MISMATCH, ALIAS_COLLISION
+- diagnostics (object|null)      : debug-only (nicht im Panel standardmäßig)
+
+================================================================================
+D) Typ-System (value_type + constraints)
+================================================================================
+D1) value_type ist semantisch, nicht nur JSON-primitive:
+- BYTES/SECONDS/DAYS/MONTHS sind INT aber mit Einheit.
+- ENUM muss allowed_values im bounds (extended) haben.
+
+D2) Scalar Encoding:
+- INT/BYTES/SECONDS/DAYS/MONTHS: integer
+- BOOL: true/false
+- STRING: string
+- JSON: object/array encoded
+- ENUM: string (Value)
+
+================================================================================
+E) Minimal Required-Set Hook (PH-basiert)
+================================================================================
+Optional: settings.completeness[required_set_id]
+- required_set_id: z.B. PH2_REQUIRED_KEYS_MIN
+- status: OK | MISSING | INVALID | UNKNOWN
+- missing_keys[]: list canonical_key
+- invalid_keys[]: list canonical_key
+- last_checked_at
+
+Hinweis:
+- CI kann auf completeness laufen oder direkt auf trace, je nach Gate.
+
+================================================================================
+F) CI/Gate-Kompatibilität (Mapping)
+================================================================================
+Für KH-006/007/008 benötigt CI mindestens:
+- validation_state
+- effective_value
+- source
+- reasons[]
+- safe_baseline_value + sb_model (für KH-008 SB-aware)
+Optional:
+- cap_value (präziser)
+
+================================================================================
+G) Panel UX Hinweise (nur Contract, keine UI)
+================================================================================
+Panel kann pro Key zeigen:
+- Canonical Key + Beschreibung (Catalog)
+- effective_value + source
+- status badge aus validation_state
+- “Warum?” aus reasons (reason_class -> human text mapping)
+- SB (wenn Gate aktiv): safe_baseline_value + sb_model
+
+================================================================================
+H) DoD / Validierung
+================================================================================
+H1) Trace Completeness Test (B310):
+- Für alle Keys im Required-Key-Set muss ein TraceEntry existieren.
+
+H2) Determinism:
+- Unter DET-REC-01 Lock müssen die gleichen Inputs die gleichen trace outputs erzeugen
+  (source/validation_state/reasons/effective_value) — unabhängig von Laufzeitreihenfolge.
+
+H3) Degraded Mode:
+- Wenn db_state=DB_UNKNOWN muss trace dennoch existieren und source!=SQL sein.
+
+================================================================================
+CHANGELOG
+================================================================================
+2026-01-28: v0.1 initial: /diag settings.trace Schema (Minimal/Extended) für KH Gates + Panel.
+
+
+================================================================================
+I) Reason-Class Mapping (Panel)
+================================================================================
+- reasons[] liefert reason_class codes.
+- Panel Mapping ist definiert in:
+  • SQLF-REASONMAP-01 “Reason-Class → Panel Text Mapping v1”
+
+2026-01-28: v0.2 ergänzt: Verweis auf SQLF-REASONMAP-01 (Panel Mapping).

@@ -1,0 +1,261 @@
+xp-vpn-stack/entwuerfe/sql-first/SQL-FIRST v1 — OPEN REGISTER.txt
+================================================================================
+TITLE: SQL-first — OPEN REGISTER (vollständige offene Punkte, keine impliziten Entscheidungen)
+DOC-ID: SQLF-OPEN
+STATUS: ENTWURF (Phase 3) — NON-NORMATIVE (Tracking)
+VERSION: v1.9
+DATUM: 2026-01-29 (Europe/Zurich)
+FOCUS_PHASE: PH1
+
+REGEL:
+- OPEN Items sind NICHT entschieden.
+- Keine OPEN Entscheidung darf still durch “Default” implementiert werden.
+- Jedes OPEN hat: O-ID, Titel, Impact (PH/F), Abhängigkeiten, Vorschlag (optional), Owner needed? (Y/N).
+
+- Scope-Gating (Entwurfspflege, kein Runtime-Policy):
+  - FOCUS_PHASE steuert, was „jetzt“ aktiv bearbeitet wird (Fundament zuerst).
+  - Optional/empfohlen pro OPEN (zusätzlich zum bisherigen Schema):
+    • PH_BINDING: CORE | PH1..PH10  (früheste Phase, in der dieses OPEN spätestens geklärt sein muss)
+    • WORK_STATUS: ACTIVE | DEFERRED (aktueller Arbeitsstatus im Entwurf)
+    • BLOCKS: NONE | PH1..PH10      (welche Phase ist blockiert, solange OPEN ungelöst bleibt)
+    • SCOPE_NOTE: 1 Satz Begründung (warum CORE/PHx)
+  - Default/Ableitung (nur wenn Felder fehlen):
+    • PH_BINDING: kleinste PH aus „Impact: PH…“; wenn keine PH genannt → PH_BINDING=PH10 (konservativ, blockiert frühe Phasen nicht)
+    • WORK_STATUS: ACTIVE, wenn PH_BINDING=CORE oder PH_BINDING <= FOCUS_PHASE; sonst DEFERRED
+    • BLOCKS: default NONE; nur explizit setzen, wenn wirklich „PHx kann nicht als closed gelten ohne dieses OPEN“
+  - Guardrail:
+    • DEFERRED ist NICHT „entschieden“ und erzeugt keine stillen Defaults.
+    • PH1 darf nur dann als „geschlossen/hochreif“ gelten, wenn keine OPENs mit BLOCKS: PH1 existieren.
+
+================================================================================
+O-SQLF-010 — Fail-Class Defaults (last_known vs baseline vs tighten-only) je Key-Family
+Impact: PH1/PH2/PH3/PH8; Consumer Verhalten bei DB_UNKNOWN/invalid
+Deps: NORM-01 fail_class + NORM-04 reason codes + B052
+Owner needed: Y
+Hinweis: Ohne diese Norm bleibt “Policy bei Missing/Invalid/DB_UNKNOWN” drift-gefährdet.
+
+O-SQLF-011 — Reason Registry EXT in B342 (CONFIG/DRIFT/APPLY)
+Impact: PH5/PH6 DoD; B052 Drift-Guard
+Deps: NORM-04 EXT-SQLF-001..008; B342 Patch (Phase 4)
+Owner needed: Y (Outcome-Klassen), aber Codes selbst sind “MUST” für Vollständigkeit.
+
+O-SQLF-012 — /diag Visibility Levels (User vs Admin) für settings_trace
+Impact: PH5/PH6 Security vs Debuggability
+Deps: NORM-05; D003 Panel surface
+Owner needed: Y
+
+O-SQLF-020 — Key Harvest Vollständigkeit (Non-Time Keys)
+Impact: Alle PH; Required-Key-Sets bleiben TBD
+Deps: DOC-SET-001-EXT + Consumer Mapping
+Owner needed: N (aber Arbeitsaufwand)
+
+O-SQLF-021 — Required-Key-Set Content PH1/PH2/PH5/PH6 (konkrete key names)
+Impact: Phase Reifegrad; Peak-Integration Blocker
+Deps: O-SQLF-020
+Owner needed: teilweise (Naming/Prefix Konflikte), aber überwiegend Ableitung.
+
+O-SQLF-030 — “Catalog Versioning” / schema_version Modell
+Impact: Drift detection + auto-repair safety
+Deps: NORM-03
+Owner needed: Y (wie strikt?)
+
+O-SQLF-040 — Auto-Repair Workflow (Dry-run, Audit, Rollback, Not-Aus)
+Impact: PH6
+Deps: NORM-03; Panel UX
+Owner needed: Y (Policy Grenzen)
+
+O-SQLF-050 — Settings Export/Import Format (Panel ↔ Reference Snapshot)
+Impact: Drift visibility + backup/reconcile
+Deps: NORM-03; PH6 backup
+Owner needed: Y
+
+SQLF-OPEN-DRIFT-01 (BLOCKER, Konsistenz):
+- Problem: B330/B165 definieren lokale HARD Ceilings (LOG_HARD_MAX_BYTES / SPOOL_HARD_MAX_BYTES / SPOOL_HARD_MAX_AGE_SECONDS) als MUST-Enforcement (Physik > Policy).
+  Das kollidiert potentiell mit Option C (korrigiert), falls Option C so verstanden wird, dass 'Hard Config' nur Drift-Hinweis ist.
+- Delta: Klarstellen in NORM-03 (Drift Model), ob 'Physik-Ceilings' als echte Enforcement-Schicht außerhalb SQL zulässig sind,
+  und wie sie im Panel als 'Ceiling active' sichtbar werden (ohne SQL auszuhebeln).
+- Validierung: B310-LOG-CEIL-001 (Ceiling hit triggers alert + diag + panel flag) + B310-LOG-CEIL-002 (SQL value > ceiling => effective_value clamps).
+
+SQLF-OPEN-KH-01 (Major):
+- 8 Harvest-Keys müssen als Canonical Keys in settings_catalog aufgenommen werden (NORM-01.6) + Alias-Mapping in NORM-02.4.3.
+- Validierung: B310-SQLF-CAT-extend (presence/validation/alias).
+
+O-SQLF-KH-DEFAULTS-01 (Major): Default-Werte + Upper-Bounds für die 8 Harvest-Keys final fixieren.
+- Betroffen: web_ip_pool_{green,red}_threshold; web_log_*; web_spool_*; web_settings_cache_ttl_seconds
+- Warum offen: Kanon referenziert Keys, aber konkrete Zahlen sind nicht als Owner-Fakt belegt.
+- Impact: B310-SQLF-KH-002/004 hängt an finalen bounds.
+Refs: SQLF-CATADD-01; NORM-07
+
+O-SQLF-KH-RELATION-01 (Minor): Regel red < green finalisieren (strict fail vs auto-adjust).
+- Option A (strict): VALUE_INVALID wenn red >= green (Expected Fail).
+- Option B (auto-adjust): clamp + warning reason.
+Refs: SQLF-CATADD-01 (SQLF-KH-KEY-02); NORM-07 (KH-002)
+
+O-SQLF-KH-BOUNDS-01 (Major): Disk-Safety Bounds (max_total_bytes, retention) als „Policy vs Physik“ trennen.
+- Ziel: klar definieren, welche Grenzen Validator-Clamps sind vs reine Panel-Doku.
+Refs: NORM-03; B330; SQLF-CATADD-01
+
+
+
+================================================================================
+CHANGELOG
+================================================================================
+v0.4 (2026-01-29): FOCUS_PHASE (PH1) + Scope-Gating Metadaten (PH_BINDING/WORK_STATUS/BLOCKS) als Entwurfspflege-Regel ergänzt.
+
+v0.3 (2026-01-28): OPEN ergänzt: Harvest-Defaults/Bounds + red<green Regel.
+
+v0.2 (2026-01-28): OPEN ergänzt: Key-Harvest Pflicht (8 Keys) + Drift/Physik-Ceiling Konflikt.
+
+v0.1 (2026-01-28): Initiales OPEN Register für SQL-first (Fail-Class Defaults, Reason Registry EXT, /diag visibility, Key Harvest, Auto-Repair, Export/Import).
+
+
+================================================================================
+O-SQLF-KH-001 — Key-Harvest Defaults/Bounds finalisieren (8 Keys)
+Impact: PH5 (Pool-Ampel), PH6 (Logs/Spool), global (Settings Load TTL)
+Deps: SQLF-OWNER-FIX-KH-DEFAULTS; SQLF-CATADD-01; NORM-01; NORM-07; B061; B330
+Owner needed?: Y
+Vorschlag:
+- Defaults/Bounds aus SQLF-OWNER-FIX-KH-DEFAULTS übernehmen und als FIX markieren, sobald Owner final entscheidet.
+
+================================================================================
+O-SQLF-KH-002 — Relation red < green (strict-fail vs auto-adjust) final
+Impact: PH5/PH9; Avoid Silent Inconsistency
+Deps: DEC-SQLF-KH-CROSS-001; NORM-04 Reason Registry; NORM-05 DIAG; B310-SQLF-KH-007
+Owner needed?: Y
+
+================================================================================
+O-SQLF-KH-003 — Physik-Ceilings Modell (B330) vs Option C corrected
+Impact: Security/Ops (DoS/Disk-Full Schutz); Konsistenz zu SQL-first
+Deps: O-SQLF-KH-PHYS-001; NORM-03 Drift Modell; B310-SQLF-KH-008
+Owner needed?: Y
+
+================================================================================
+SQL-FIRST — OPEN ITEMS (KH Defaults/Bounds Consolidation)
+================================================================================
+
+SQLF-OPEN-KH-FIX-ALL (PRIORITY: MAJOR)
+- Thema: KH-Defaults/Bounds von OPEN → FIX setzen (9 DEC-Items inkl. Cross-Relation).
+- Betroffen:
+  • DEC-SQLF-KH-CROSS-001, -101, -102, -201, -301, -302, -303, -401, -402
+- Warum offen:
+  • Candidate-Werte sind bewusst nicht als Owner-FIX behauptet.
+- Ziel:
+  • Owner setzt “ACCEPT BASELINE” ODER eigene Defaults/Bounds.
+- Validierung:
+  • B310-SQLF-KH-001..008 Expected-Fail/Diag-Trace müssen deterministisch werden.
+- Referenzen:
+  • SQLF-OWNER-FIX-KH-DEFAULTS (Candidate)
+  • SQLF-OWNER-DECISION-MENU-KH (Menü)
+
+SQLF-OPEN-KH-CROSS-REL (PRIORITY: MAJOR)
+- Thema: Relation red<green: strict-fail vs auto-adjust.
+- Entscheidung: DEC-SQLF-KH-CROSS-001 Option A/B.
+- Validierung: B310-SQLF-KH-007 + /diag trace
+
+2026-01-28: v0.5 OPEN-Register ergänzt: konsolidierter Owner-FIX Schritt für KH-DEC Items + Relation-Entscheid.
+
+
+SQLF-OPEN-KH-FIXAPPLY (PRIORITY: MINOR)
+- Thema: Es existiert ein KH “Fix Apply” Plan als Sammel-Owner-Aktion (Accept Baseline).
+- Zweck: Phase-3 Abschluss ohne Chat-Pingpong; Owner kann später alles in einem Satz FIX setzen.
+- Artefakt: SQLF-KH-FIXAPPLY-01 (KH FIX APPLY)
+
+2026-01-28: v0.6 OPEN-Register ergänzt: KH-FIXAPPLY Arbeitsartefakt.
+
+
+SQLF-OPEN-KH-CLAMP-VS-STRICT (PRIORITY: MAJOR)
+- Thema: Bei INVALID values: clamp-to-bound vs strict-fail + fallback.
+- Impact: Determinismus der B310 KH Expected-Fails (SQLF-KH-EXFAIL-01).
+- Artefakt: SQLF-KH-EXFAIL-01 Abschnitt E1.
+
+SQLF-OPEN-KH-CAP-MODEL (PRIORITY: MAJOR)
+- Thema: Cap-Modell aktiv ja/nein, und ob global oder per-key.
+- Impact: B310 KH-008 Determinismus + /diag source=CAPPED semantics.
+- Artefakt: SQLF-KH-EXFAIL-01 Abschnitt E2.
+
+SQLF-OPEN-KH-SETTINGSSTATE-MAP (PRIORITY: MAJOR)
+- Thema: Exakte Zuordnung DB_STATE vs SETTINGS_STATE (DB_UNKNOWN vs DEGRADED etc.).
+- Impact: /diag assertions + Gates + Expected-Fails.
+- Artefakt: SQLF-KH-EXFAIL-01 Abschnitt E3.
+
+2026-01-28: v0.7 ergänzt: OPEN Items für deterministische KH Expected-Fails (clamp/strict, cap-model, state-map).
+
+
+SQLF-OPEN-KH-DETERMINISM-PACK (PRIORITY: BLOCKER)
+- Thema: Determinismus für KH Expected-Fails erfordert 3 Owner-Entscheide (clamp/strict + cap + state-map).
+- Artefakt: SQLF-KH-DET-DEC-01 “KH DETERMINISM CLOSURE (Decision Pack v1)”
+- Grund: Ohne diese Entscheidungen bleiben B310-KH Proofs interpretierbar → kein harter CI-Gate möglich.
+- Blocks: PH2/Peak-Integration Preconditions (indirekt), weil SQL-first Fundament nicht beweisbar ist.
+
+2026-01-28: v0.8 ergänzt: Determinism-Pack als BLOCKER-OPEN mit Artefakt-Ref.
+
+
+SQLF-OPEN-KH-DETERMINISM-FIXAPPLY (PRIORITY: MINOR)
+- Thema: Es existiert ein Determinism “Fix Apply” Plan als Sammel-Owner-Aktion (Recommended Pack).
+- Zweck: Owner kann DEC-SQLF-KH-DET-001..003 in einem Satz FIX setzen.
+- Artefakt: SQLF-KH-DET-FIXAPPLY-01 “KH DETERMINISM FIX APPLY (Recommended Pack)”
+
+2026-01-28: v0.9 OPEN-Register ergänzt: Determinism FixApply Arbeitsartefakt.
+
+
+SQLF-OPEN-KH-EXFAIL-LOCK (PRIORITY: MINOR)
+- Thema: KH Expected-Fails enthalten ein “DET-REC-01 Lock” (deterministisches Verhalten), aber es ist nur aktiv,
+  wenn Owner das Recommended Determinism Pack FIX setzt.
+- Artefakt: SQLF-KH-EXFAIL-01 Abschnitt F; SQLF-KH-DET-FIXAPPLY-01
+
+2026-01-28: v1.0 ergänzt: Hinweis auf EXFAIL Lock (DET-REC-01) als Entwurfs-Brücke zu CI-Gates.
+
+
+SQLF-OPEN-KH-LOOSER-DEF (PRIORITY: MAJOR)
+- Thema: Formale Definition “looser” für KH-008 (cap/tighten-only) Gate.
+- Grund: CI-Gate kann sonst nur Minimalchecks fahren.
+- Artefakt: SQLF-KH-B310-GATE-01 Abschnitt E1.
+- Addendum erstellt: SQLF-KH-LOOSER-DEF-01 (Phase 3 ENTWURF).
+
+2026-01-28: v1.1 ergänzt: OPEN für formale 'looser' Definition (KH-008 Gate).
+
+2026-01-28: v1.2 ergänzt: Addendum SQLF-KH-LOOSER-DEF-01 als Closure-Baustein für 'looser' Definition.
+
+
+SQLF-OPEN-KH-SB-MODEL (PRIORITY: MAJOR)
+- Thema: SB (Safe Baseline) Modell muss als Owner-FIX entschieden werden (MODEL_1/2/3).
+- Artefakt: SQLF-KH-SB-NORM-01
+- Grund: Ohne SB-Model-FIX bleibt KH-008 CI-Gate nicht vollständig deterministisch (nur Minimalchecks).
+
+2026-01-28: v1.3 ergänzt: OPEN für SB-Model Owner-FIX (DEC-SQLF-KH-SB-001).
+
+
+SQLF-OPEN-KH-SB-FIXAPPLY (PRIORITY: MINOR)
+- Thema: SB FixApply Plan existiert, damit Owner DEC-SQLF-KH-SB-001 in einem Satz FIX setzen kann.
+- Artefakt: SQLF-KH-SB-FIXAPPLY-01
+
+2026-01-28: v1.4 ergänzt: SB FixApply Arbeitsartefakt (Sammel-Owner-Aktion).
+
+
+SQLF-OPEN-KH-CAP-VALUE-FIELD (PRIORITY: MINOR)
+- Thema: Optionales /diag Feld cap_value für KH-008 Gate, um EV<=CAP_VALUE direkt zu prüfen.
+- Ohne cap_value bleibt Gate auf EV<=SB + source/reasons (ausreichend, aber weniger präzise).
+- Ref: SQLF-KH-B310-GATE-01 Abschnitt H.
+
+2026-01-28: v1.5 ergänzt: optionales cap_value /diag Feld als Präzisions-Upgrade für KH-008 Gate.
+
+
+SQLF-OPEN-DIAG-TRACE-STABILITY (PRIORITY: MINOR)
+- Thema: TraceEntry Minimal Contract muss als stabiler Vertrag (SemVer) behandelt werden, damit Panel/CI nicht driftet.
+- Artefakt: SQLF-DIAG-TRACE-01.
+
+2026-01-28: v1.6 ergänzt: OPEN für Trace Schema Stabilitätsregel (Contract SemVer).
+
+
+SQLF-OPEN-REASONCODE-STABILITY (PRIORITY: MINOR)
+- Thema: reason_class Codes müssen als stabile API behandelt werden (Rename nur via Alias).
+- Artefakt: SQLF-REASONMAP-01.
+
+2026-01-28: v1.7 ergänzt: OPEN für Reason-Code Stability (API).
+
+
+SQLF-OPEN-CATALOG-FIELDSET-FINAL (PRIORITY: MINOR)
+- Thema: Catalog Feldschema v1 muss als kanonische Minimalmenge beschlossen werden (keine Pflicht zu allen optional Feldern).
+- Artefakt: SQLF-CATALOG-TPL-01.
+
+2026-01-28: v1.8 ergänzt: OPEN für Catalog Feldschema Finalisierung (Minimal/Optional).

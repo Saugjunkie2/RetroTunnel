@@ -1,0 +1,81 @@
+SQL-FIRST v1 — KH DETERMINISM FIX APPLY (Recommended Pack) — v0.1.txt
+================================================================================
+TITLE: SQL-first — KH Determinism Fix Apply (Recommended Pack)
+DOC-ID: SQLF-KH-DET-FIXAPPLY-01
+STATUS: ENTWURF (Phase 3) — Sammel-Owner-Aktion (Recommended)
+VERSION: v0.1
+DATUM: 2026-01-28 (Europe/Zurich)
+
+NORMATIVITÄT:
+- Dieses Dokument setzt KEINE Entscheidungen automatisch.
+- Es beschreibt eine vorbereitete Ein-Rutsch-Owner-Aktion (“Recommended Pack”).
+- Referenz: SQLF-KH-DET-DEC-01 (Decision Pack).
+
+ZIEL:
+- KH Expected-Fails (SQLF-KH-EXFAIL-01) sollen deterministisch werden.
+- Dazu werden die 3 DEC-SQLF-KH-DET-00x in einem Schritt auf FIX gesetzt.
+
+================================================================================
+A) Recommended Determinism Pack (Empfehlung)
+================================================================================
+Owner-FIX Recommended Kombination:
+
+DET-REC-01:
+- DEC-SQLF-KH-DET-001 = Option A  (STRICT-FAIL + SAFE FALLBACK, tighten-only)
+- DEC-SQLF-KH-DET-002 = Option A  (Cap aktiv, GLOBAL, nur Budget/TTL Keys)
+- DEC-SQLF-KH-DET-003 = Option A  (DB_STATE bleibt DB_OK; SETTINGS_STATE separiert)
+
+Begründung (kurz):
+- Maximale Test-Deterministik + maximale Panel-Transparenz
+- DB_UNKNOWN bleibt “Backend-Problem”, Settings-Anomalien bleiben sichtbar ohne Overload.
+
+================================================================================
+B) Was “FIX APPLY” später konkret bedeutet (ohne Patch/Copy-Blöcke)
+================================================================================
+B1) Owner-Aktion (ein Satz reicht später):
+- “KH Determinism Recommended Pack DET-REC-01: DEC-001..003 auf FIX setzen.”
+
+B2) Danach gelten die Determinism-Regeln als “Owner-FIX”:
+- DECISION MATRIX:
+  • DEC-SQLF-KH-DET-001/002/003: Status OPEN → FIX
+- OPEN REGISTER:
+  • SQLF-OPEN-KH-CLAMP-VS-STRICT geschlossen
+  • SQLF-OPEN-KH-CAP-MODEL geschlossen
+  • SQLF-OPEN-KH-SETTINGSSTATE-MAP geschlossen
+  • SQLF-OPEN-KH-DETERMINISM-PACK geschlossen
+
+B3) Proof-/Gate-Auswirkung:
+- SQLF-KH-EXFAIL-01 wird “deterministic”.
+- B310-KH-006/007/008 können als harte CI-Gates formuliert werden.
+
+================================================================================
+C) /diag Semantic Notes (für Panel-UX)
+================================================================================
+C1) STRICT-FAIL+Fallback:
+- invalid value → effective_value aus SAFE FALLBACK
+- /diag:
+  • validation_state=INVALID
+  • source=DEFAULT (oder SAFE_FALLBACK)
+  • reasons: SETTINGS_INVALID (+ optional SETTINGS_FALLBACK)
+
+C2) Cap aktiv:
+- SQL value > cap → effective_value=cap_value
+- /diag:
+  • source=CAPPED
+  • validation_state: OK oder DEGRADED (je nach Settings-State Modell)
+  • reasons include SETTINGS_CAPPED
+
+C3) DB_OK vs SETTINGS_STATE:
+- DB_OK bleibt DB_OK, solange Backend gesund ist.
+- SETTINGS_STATE zeigt degradations.
+
+================================================================================
+D) OPEN nach Apply (bewusst)
+================================================================================
+- Finaler Reason-Code Katalog (Strings) ist weiterhin in NORM-04 EXT zu schließen.
+- Cap-Quelle muss als Domain/Facts sauber festgelegt werden (ohne “hard config = gültig” Behauptung).
+
+================================================================================
+CHANGELOG
+================================================================================
+2026-01-28: v0.1 initial: Determinism Recommended Pack als Fix-Apply Plan (Sammel-Aktion).

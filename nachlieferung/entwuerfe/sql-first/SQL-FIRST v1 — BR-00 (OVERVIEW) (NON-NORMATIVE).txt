@@ -1,0 +1,125 @@
+===============================
+SQL-FIRST v1 — BR-00 (OVERVIEW) (NON-NORMATIVE)
+TITLE: Was “SQL-first” im xp-vpn-stack bedeutet, warum es existiert, Zielbild + grobe Pipeline (Orientierung)
+BR-ID: BR-00
+STATUS: ENTWURF (Phase 3) — NON-NORMATIVE (nur Erklärung + Verweise)
+VERSION: v0.3
+DATUM: 2026-01-29 (Europe/Zurich)
+
+NORMATIVITÄT (MUST):
+- Dieses BR-00 ist NICHT normativ. Es setzt keine neuen Policies/Defaults/Keys.
+- Normativ sind: NORM-01..NORM-07, DECISION MATRIX, OWNER-FIX VALUE SHEET.
+- BR-00 wiederholt nur DEC/OWNER-FIX, die bereits entschieden sind (Status: FIX), oder markiert Punkte als OPEN.
+
+ZIEL (MUST):
+- Ein Leser soll in 1–2 Minuten verstehen:
+  a) Was “SQL-first” hier bedeutet,
+  b) Warum es das zentrale Fundament (für Peak, QoS, DNS, Restrict, …) ist,
+  c) Welche Artefakte der Kanon zwingend braucht (Keys/Reasons/Diag/Proofs),
+  d) Wo die Details stehen (Verweise auf Dateien).
+
+HINWEIS (Arbeitsfokus): Aktuell gilt FOCUS_PHASE=PH1 (Fundament). SQL-first Punkte mit Impact PH2+ werden im Entwurf nicht „vorab entschieden“,
+sondern als DEFERRED geführt (Details: OPEN REGISTER / DECISION MATRIX). PH1 wird dadurch nicht blockiert, außer ein Punkt ist explizit als BLOCKS: PH1 markiert.
+
+================================================================================
+1) Definition: Was heißt SQL-first in diesem Projekt?
+================================================================================
+SQL-first heißt hier (konkret, nicht “Marketing”):
+- Jede policy-relevante Entscheidung (Limits, Quotas, Profile, Flags, Laufzeiten, Gate-Parameter)
+  muss als Settings-Key im SQL-Backbone modelliert sein (settings_catalog + scoped values).
+- Kein Consumer darf “Magic Numbers” oder stille Defaults nutzen, die nicht im Katalog erklärt,
+  typisiert, validiert und im Panel sichtbar sind.
+- Alles muss für das Webpanel les-/änderbar sein (innerhalb der erlaubten Scopes + Mutability),
+  und für /diag maschinenlesbar sichtbar sein (policy vs runtime).
+
+Nicht SQL-first sind:
+- Ephemere Runtime-Telemetrie / kurzfristige Zustände (z.B. “aktuelle bps”, “tc applied state”),
+  die in /run, radacct, oder /diag gehören (aber im Panel angezeigt werden dürfen).
+- Physische/technische Fakten (z.B. Interface-Namen, Service-IP-Facts), die als “Facts” dokumentiert
+  und im Panel angezeigt werden, aber nicht als “Policy knob” gedacht sind.
+
+================================================================================
+2) Warum existiert SQL-first (Wozu das Ganze)?
+================================================================================
+SQL-first ist das “Fundament”, weil:
+- Das Webpanel die Zentrale ist (Owner-Requirement): alles steuern + verstehen + auditierbar.
+- Drift muss sichtbar werden: “Soll (Katalog) vs Ist (DB/Runtime)” und sauber begründet (Reason-Codes).
+- Peak/QoS/DNS/Restrict dürfen nicht auf impliziten Defaults basieren; sonst driftet das System
+  bei jedem neuen Feature (SQL-Sand).
+
+================================================================================
+3) Owner-FIX Entscheidungen (wiederholt, ohne neue Semantik)
+================================================================================
+Diese Entscheidungen sind in diesem SQL-first Entwurf als FIX geführt:
+
+DEC-SQLF-001 (Single DB):
+- Es gibt EINE Datenbank für System + Webpanel (kein Split in “system db” vs “panel db”).
+- Begründung: Panel ist nur im VPN erreichbar, Sicherheitsmechanismen existieren, Drift/Komplexität
+  bei 2 DBs ist höher. (Details: DECISION MATRIX)
+
+DEC-SQLF-002 (Key-Prefixe/Namespaces):
+- Settings-Keys tragen Prefixe nach Funktionsdomäne (z.B. web_ / vpn_ / peak_ / radius_).
+- Zusätzlich sind “Familienpräfixe” für Querschnitt erlaubt (settings_ / log_ / spool_),
+  aber die Norm regelt: was ist Policy-key vs Telemetrie vs Fact.
+
+DEC-SQLF-003 (Drift-Modell Option C — korrigiert):
+- “Hard in configs” heißt NICHT “gilt/enforced ohne DB”.
+- Hard-Configs dienen als Referenz/Drift-Detektor/Panel-Hinweis (und optional Auto-Repair),
+  aber Policy-Truth bleibt SQL-first (DB als Truth Source).
+- /diag muss Drift/DB_UNKNOWN Gründe maschinenlesbar zeigen.
+
+DEC-SQLF-004 (Entwurf ↔ Kanon Scope):
+- Entwürfe sind NICHT Kanon.
+- Kanon treibt Entwurf (Entwurf wird später an Kanon angepasst), niemals umgekehrt.
+- In diesem Ordner werden Entscheidungen+Offenes gesammelt, um nichts zu verlieren.
+
+================================================================================
+4) Grobe Pipeline: Wie SQL-first “von außen” funktioniert
+================================================================================
+Step A — Katalog (Definitionen)
+- settings_catalog definiert Keys: type, range, scope, allowed overrides, fail_class, doc.
+- Normativ: NORM-01 KEY CATALOG (B057 Contract)
+
+Step B — Werte (Scoped Values)
+- Werte liegen je Scope in settings_global / settings_customer / settings_connection.
+- Override-Regeln sind whitelist-basiert.
+- Normativ: NORM-01, NORM-02
+
+Step C — Resolution (effective_value)
+- Ein Consumer darf nie “direkt SQL rows” interpretieren, sondern muss das Resolution-Modell nutzen:
+  effective_value + effective_source + key_state + reason_code.
+- Normativ: NORM-02 PREFIX+ALIAS+RESOLUTION, NORM-04 REASON REGISTRY
+
+Step D — Apply/Reconcile (Runtime)
+- Policy wird in Runtime umgesetzt (nft/tc/AAA/DNS/etc.) via Apply/Reconcile Contract.
+- Runtime-Zustand (applied/stale/error) wird nicht als Policy key modelliert, sondern als /diag slice.
+- Normativ: NORM-05 DIAG CONTRACT, Kanon: B166/B167 (später Kanon-Patches)
+
+Step E — Observability (Panel + /diag)
+- Panel zeigt: Meaning/Doc + Current effective values + Drift + Gründe.
+- /diag zeigt: maschinenlesbare Felder für Automations/Support/CI-Gates.
+- Normativ: NORM-05, NORM-04
+
+Step F — Proof/Gates (B310 + DOC-SET)
+- Jede Phase PH1–PH10 hat Required-Key-Sets + Proof-IDs + Expected-Fails.
+- Normativ: NORM-06 REQUIRED KEY SETS, NORM-07 B310 PROOF PLAN
+
+================================================================================
+5) Artefakte in diesem Ordner (wo steht was?)
+================================================================================
+- SQL-FIRST v1 — OWNER-FIX VALUE SHEET (normativ, DEC-FIX)
+- SQL-FIRST v1 — DECISION MATRIX (normativ)
+- SQL-FIRST v1 — NORM-01..NORM-07 (normativ)
+- SQL-FIRST v1 — OPEN REGISTER (nicht normativ, aber vollständig)
+
+================================================================================
+6) OPEN (nur Hinweis; Details im OPEN REGISTER)
+================================================================================
+- OPEN werden als O-SQLF-xxx geführt (Impact + Varianten).
+- In BR-00 stehen sie nur als Kurzhinweis, um das 1–2 Minuten Ziel nicht zu sprengen.
+
+================================================================================
+CHANGELOG
+================================================================================
+v0.2 (2026-01-29): Non-normative Ergänzung: PH1-Fokus-Hinweis (FOCUS_PHASE=PH1) + DEFERRED-Regel-Verweis auf OPEN REGISTER/DECISION MATRIX.
+v0.1 (2026-01-28): Initialer BR-00 Überblick + FIX-Entscheide wiederholt + Pipeline skizziert.

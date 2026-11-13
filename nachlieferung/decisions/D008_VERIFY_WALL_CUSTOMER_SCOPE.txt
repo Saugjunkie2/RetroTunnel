@@ -1,0 +1,60 @@
+xp-vpn-stack/decisions/D008_VERIFY_WALL_CUSTOMER_SCOPE.txt
+================================================================================
+DECISION-ID: D008
+TITLE: Email Verify ist Customer-Attribut (nicht pro Connection) und steuert Verify-Wall + Claim-Freigabe
+VERSION: v1.0
+DATUM: 2026-01-23
+STATUS: ACCEPTED
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+================================================================================
+
+CONTEXT
+- Customers (Panel-Accounts) können mehrere VPN-Connections (Sub-Accounts pro Gerät) besitzen.
+- Ziel: pro Customer eine verifizierbare Kontakt-Email als Abuse/Compliance-Anker.
+- Neues Onboarding:
+  - Login ist möglich, aber PENDING (email_verified_at NULL) wird per Verify-Wall blockiert (nur Code/Resend/Support).
+  - Claim ist erst nach erfolgreicher Email-Verifikation (ACTIVE) erlaubt und erfordert zwingend Claim-Token.
+- Email-Verify ist App-Layer (Verify-Wall) und kein Kernel-Restricted-Trigger (Restricted bleibt Quota/Expiry/Manual + UNCLAIMED_OVERDUE).
+
+DECISION
+- Email-Verifikation ist eine Eigenschaft des Customers (Panel-Accounts), nicht pro Connection:
+  - Source of Truth: customers.email_verified_at
+  - PENDING: email_verified_at ist NULL
+  - ACTIVE: email_verified_at ist gesetzt
+- Enforcement (App-Layer):
+  - PENDING-User dürfen sich einloggen, sehen aber nicht das Panel-Innenleben.
+  - Stattdessen greift eine Verify-Wall mit exakt 3 Aktionen:
+    1) Code eingeben
+    2) Code neu senden
+    3) Support kontaktieren
+- Claim-Freigabe:
+  - Claim ist nur erlaubt, wenn Customer ACTIVE ist.
+  - Claim erfordert zwingend Claim-Token (keine Eingabe von VPN-Client-Credentials).
+- Kernel-Restricted bleibt unabhängig davon:
+- Restricted wird ausschließlich durch Quota/Expiry/Manual/UNCLAIMED_OVERDUE ausgelöst, nicht durch fehlende Email-Verifikation.
+
+RATIONALE
+- Eine verifizierte Kontakt-Email muss pro Customer gelten, nicht pro Gerät.
+- Im Abuse-/Supportfall ist eine teilweise Verifikation unlogisch und umgehbar.
+
+CONSEQUENCES
+- Positive Auswirkungen:
+  - Klare Compliance/Abuse-Regel pro Kunde.
+  - Weniger Supportfälle und keine Sonderlogik pro Connection.
+- Negative Auswirkungen / Risiken:
+- Ein Customer kann bei fehlendem Verify nicht ins Panel-Innenleben (Verify-Wall) und kann daher ohne Verifikation keine Claims durchführen.
+- Mitigations:
+- Panel zeigt klaren Status + Verify-Call-to-Action (B280).
+- Verify ist jederzeit möglich (Verify-Wall); nach erfolgreicher Verifikation wird das Panel-Innenleben freigeschaltet und Claim wird erlaubt (B155).
+- Support-Kanal in der Verify-Wall fängt echte Problemfälle ab (Tippfehler/kein Mailzugriff/Spamfilter).
+
+LINKED BLOCKS
+- B155, B280
+LINKED TASKS
+- (none; tasks/T* sind non-canonical und wurden nach blocks/decisions migriert)
+
+================================================================================
+CHANGELOG
+================================================================================
+- v1.0: initial
+================================================================================

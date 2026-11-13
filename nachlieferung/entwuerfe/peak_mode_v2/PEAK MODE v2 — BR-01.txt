@@ -1,0 +1,136 @@
+===============================
+PEAK MODE v2 — BR-01 tc STANDARD-TOPOLOGIE (Connect-Pre-Init) — CAKE Edition
+===============================
+Status: ENTWURF (Phase 3)
+Ziel: self-contained Spezifikation (ohne Alt-Peak-Dateien als Pflicht)
+Regeln: kein Patch, kein Copy-Code, kein tc/SQL Snippet; nur Contract + Delta-Intention + Validierung.
+
+
+0) Scope (MUST)
+- Dieses BR definiert die verbindliche tc-Topologie pro pppX (Baseline) und präzisiert, was Peak-Mode daran ändern darf (und was nicht).
+- Anti-Scope: Keine Definition von Peak-Triggern (CPU/SoftIRQ), keine DB-Tabellen/History, keine Batch-Mechanik; nur tc-Struktur + Apply-Zielnorm.
+
+
+1) Kanon-Abgleich (MUST, drift-sicher)
+
+1.1 Imports (KANON-QUELLEN)
+- K-IMP-01: blocks/B160_TC_QOS_PER_PPP.txt → “QoS/Rate-Limits pro pppX; qdisc auf pppX; bandwidth kommt aus Profil (RADIUS/SQL)”
+- K-IMP-02: blocks/B166_POLICY_APPLY_RECONCILE.txt → “Single-Writer / Concurrency: vor jeder Apply/Reconcile-Ausführung muss serialisiert werden (kein Parallel-Write)”
+- K-IMP-03: blocks/B167_WIRING_HOOKS_SYSTEMD.txt → “Wiring: Hooks/Services/Timer als kanonische Integrationspunkte (keine Cron-Flicks)”
+- K-IMP-04: blocks/B167_WIRING_HOOKS_SYSTEMD.txt + blocks/B168_STALE_SESSION_JANITOR.txt → “Runtime-Aktivität: ‘vpn_connection_id aktiv’ nur dann true, wenn mind. ein VALID /run/vpn-sessions/*.env existiert; bloße Dateiexistenz reicht nicht”
+- K-IMP-05: blocks/B057_SETTINGS_PARAMETER_CANON_SQLFIRST_MAGIC_GUARD.txt (indirekt) → “SQL-first / keine Magic Numbers in Skripten: Parameter/Policy-Keys sind kanonisch in DB”
+
+1.2 Kanon-Anker (Wortlaut/Begriff)
+- Begriff “pppX”: per Verbindung/Subaccount entstehendes Interface (aus B160 Inputs abgeleitet).
+- Begriff “Profil-Bandbreite”: policy-/profilbasierter Bandwidth-Wert aus RADIUS/SQL (B160 Input).
+- Begriff “Single-Writer”: Apply-Reihenfolge muss serialisiert sein (B166).
+
+1.3 Konfliktcheck (MUST)
+- K-CONF-01: B160 nennt “CAKE oder fq_codel” als mögliche qdisc-Option → Status: RISK
+  - Peak-Mode v2 (CAKE Edition) setzt CAKE als Voraussetzung. Wenn root-qdisc nicht CAKE ist, darf Peak nicht “blind” ändern.
+- K-CONF-02: Ingress/IFB: B160 erwähnt keine Peak-Ingress-Regel → Status: NONE
+  - Peak definiert explizit “egress-only” (siehe Owner-Fixpunkte); das steht nicht im Widerspruch zu B160, sondern präzisiert Peak-Scope.
+
+
+2) Owner-Fixpunkte (MUST)
+- FP-BR01-01 (QDISC_ROOT): pro pppX MUSS CAKE als root-qdisc liegen (Peak-Mode CAKE Edition; Feature-Voraussetzung).
+- FP-BR01-02 (PEAK_DELTA_ONLY_BW): Peak-Mode darf an CAKE ausschließlich den Parameter “bandwidth” ändern.
+- FP-BR01-03 (NO_TOPOLOGY_CHANGE): Peak-Mode arbeitet “change, not replace” (keine Neu-Initialisierung/kein Umbau der tc-Struktur im Peak-Moment).
+- FP-BR01-04 (NO_CLASSES_HANDLES): Peak-Mode benutzt keine rate/ceil, keine Klassen, keine classid/handle-Normen.
+- FP-BR01-05 (TARGET_NORM): Apply-Ziel ist immer “root auf dev pppX” (keine ID-Discovery/Parsing als Norm).
+- FP-BR01-06 (EGRESS_ONLY): Peak-Mode ist egress-only; kein IFB/Ingress-Shaping im Peak-Modul.
+- FP-BR01-07 (SQLFIRST_NO_MAGIC): Peak-Bandwidth-Werte und Profilwerte stammen aus DB/Policy-Keys; keine Magic Numbers im Hook/Sampler.
+
+
+3) Contract (MUST, implementierbar ohne Raten)
+
+3.1 Inputs (MUST)
+- Input-01: pppX Interface existiert (per aktiver Session).
+- Input-02: Profil-Bandbreite (Standardzustand) ist über SQL/RADIUS/Policy-Keys bestimmt (B160).
+- Input-03: Peak-Bandbreite (Notbetrieb) ist über SQL/Policy-Keys bestimmt (kein Hardcode).
+- Input-04: (für Robustheit) Möglichkeit zur Feststellung “root-qdisc auf pppX ist CAKE?” (nur als Check, nicht als Umbau).
+
+Constraints:
+- Legacy: keine Änderungen, die XP-Flow/pppd/ip-up Stabilität voraussetzen, die nicht kanonisch sind.
+- Ops: Peak darf unter Last keine komplexe tc-Rekonfiguration triggern.
+- SQL-first: keine Parameter-Dopplung/Hardcode außerhalb DB/Policy-Keys.
+
+3.2 Outputs (MUST)
+- Output-01 (Baseline): pro pppX existiert eine stabile root-qdisc Struktur mit CAKE; bandwidth entspricht Profil (Normalbetrieb).
+- Output-02 (Peak Enter): pro betroffenen USER-pppX wird CAKE.bandwidth auf Peak-Wert gesetzt (ohne Strukturumbau).
+- Output-03 (Peak Exit/Restore): pro betroffenen USER-pppX wird CAKE.bandwidth deterministisch auf Profilwert zurückgesetzt (Quelle: SQL-first Profil-SoT).
+
+3.3 States / Transitions
+- BR-01 hat keine eigenen Peak-States; es definiert nur die tc-Struktur und erlaubte Deltas.
+- Peak-States (ENTER/HOLD/EXIT) sind in anderen BRs (BR-03/BR-09/BR-10) zu definieren.
+
+3.4 Enforcement-Punkte (MUST)
+- E-01: tc-Strukturvoraussetzung “CAKE root auf pppX” ist Voraussetzung für Peak-Apply.
+- E-02: Apply-Serialisierung: Peak-Apply gilt als tc-write und MUSS unter Single-Writer (B166) laufen.
+- E-03: “No blind writes”: wenn pppX nicht existiert oder root nicht CAKE → keine Änderung; stattdessen Anomalie/Failure-Record (Error-Klasse wird in BR-09/BR-10 normiert).
+
+3.5 Fehlerklassen / Resultcodes (nur BR-01-relevant)
+- ERR-BR01-IF_MISSING: pppX existiert nicht im Apply-Moment → SKIP/FAIL (best-effort, kein Retry).
+- ERR-BR01-NO_CAKE_ROOT: root-qdisc ist nicht CAKE → FAIL (keine Topologie-Reparatur in Peak).
+- ERR-BR01-NO_PROFILE_VALUE: Profilwert nicht resolvable (SQL/Policy-Key) → FAIL (kein Default/Magic Number).
+
+3.6 Idempotenz / Concurrency (MUST)
+- Idempotenz: Wiederholtes Setzen der gleichen CAKE.bandwidth auf pppX ist zulässig und erzeugt keinen Strukturdrift.
+- Concurrency: Peak-Apply darf nie parallel zu einem anderen tc-Apply laufen (Single-Writer Lock; B166).
+- Race Cases:
+  - Disconnect während Apply: pppX verschwindet → ERR-BR01-IF_MISSING, best-effort weiter, kein Retry.
+  - qdisc drifted (kein CAKE): Peak ändert nichts (NO_CAKE_ROOT), weil “no topology change”.
+
+3.7 Resource/Retention
+- BR-01 definiert keine Retention; Logging/Audit/Retention ist BR-08/BR-09/BR-10.
+
+
+4) Fix-Intention + Delta-Beschreibung (MUST)
+- Ziel: Peak-Mode muss CPU-Notbetrieb ermöglichen, ohne tc-Struktur in einem kritischen Moment umzubauen.
+- Delta: In v2 wird festgeschrieben, dass Peak ausschließlich CAKE.bandwidth per “change” (nicht replace) auf root dev pppX ändert; keine Klassen/handles; egress-only.
+- Grenzen/Constraints: CAKE-root ist Voraussetzung; wenn nicht erfüllt → keine auto-repair; SQL-first Parameterquellen; Single-Writer.
+- Validierung: siehe DoD/Tests.
+
+
+5) DoD / Tests / Validierung (MUST)
+T-01 Baseline-Topologie (Normalbetrieb)
+- Setup: aktive USER-Session (pppX existiert), Profilwert ist bekannt.
+- Aktion: Statusprüfung der qdisc-Struktur.
+- Erwartung: root-qdisc ist CAKE; bandwidth entspricht Profilwert; keine Klassen/handles als Norm.
+- Nachweis: inspekte Daten (qdisc root + bandwidth) + Audit-Markierung “baseline ok”.
+
+T-02 Peak-Delta “change vs replace” (Risiko-Minimierung)
+- Setup: laufende TCP-Streams + interaktive Latenzprobe; Session bleibt stabil.
+- Aktion: Peak Enter/Exit mehrfach wiederholen (nur bandwidth ändern).
+- Erwartung: nur tolerierbare kurze Effekte; keine signifikanten Drops/RTT-Spikes durch Qdisc-Neuaufbau (weil kein replace).
+- Nachweis: Statistik/Counter + Audit (apply_source=HOOK/SAMPLER) dokumentiert “change-only”.
+
+T-03 Negative: root nicht CAKE
+- Setup: pppX hat nicht-CAKE root (absichtlich falsch).
+- Aktion: Peak-Apply versucht zu wirken.
+- Erwartung: keine Strukturänderung; sauberer FAIL/Anomalie-Eintrag; kein Loop/Retry.
+- Nachweis: Audit zeigt ERR-BR01-NO_CAKE_ROOT; tc-Struktur bleibt unverändert.
+
+T-04 Race: pppX verschwindet während Apply
+- Setup: Session disconnect genau während Apply.
+- Aktion: Peak-Apply läuft.
+- Erwartung: best-effort; einzelne Targets FAIL/SKIP; gesamtes System bleibt stabil; kein Retry-Sturm.
+- Nachweis: apply_item zeigt IF_MISSING; apply_run bleibt konsistent.
+
+T-05 SQL-first: keine Magic Numbers
+- Setup: Profil-/Peak-Werte werden ausschließlich über Policy-Keys geliefert.
+- Aktion: Peak Enter/Exit.
+- Erwartung: kein Hardcoded fallback; bei fehlendem Key → FAIL statt Default.
+- Nachweis: Konfig-/Auditpfad verweist auf Key-Quelle; kein “silent default”.
+
+
+6) OPEN Items (MUST)
+- O-01: B160 erlaubt “CAKE oder fq_codel”; Peak fordert CAKE. v2 muss festlegen:
+  - Entweder: “Peak-Mode Feature setzt CAKE voraus; bei fq_codel ist Peak deaktiviert (FAIL/Anomalie)”
+  - oder: “B160 wird kanonisch auf CAKE festgelegt” (wäre Kanon-Änderung außerhalb BR-01; hier nur markieren).
+- O-02: Exakte SoT-Key-Namen/Derivation für Profil- und Peak-Bandwidth (Policy-Key-IDs) sind in BR-05/BR-12 o.ä. zu verankern; BR-01 verlangt nur “SQL-first Quelle existiert”.
+
+
+7) Änderungsprotokoll (v2-Entwurfsintern)
+- CHG-01: BR-01 v2 macht “CAKE-only + change-not-replace + egress-only + target-norm root dev pppX” explizit und self-contained.
+- CHG-02: Konflikt B160 (“CAKE oder fq_codel”) wird als RISK markiert, nicht stillschweigend übergangen.

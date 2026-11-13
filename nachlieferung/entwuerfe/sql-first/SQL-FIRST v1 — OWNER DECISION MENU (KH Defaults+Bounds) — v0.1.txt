@@ -1,0 +1,135 @@
+xp-vpn-stack/entwuerfe/sql-first/SQL-FIRST v1 — OWNER DECISION MENU (KH Defaults+Bounds) — v0.1.txt
+================================================================================
+TITLE: SQL-first — Owner Decision Menu (KH Defaults+Bounds)
+DOC-ID: SQLF-OWNER-DECISION-MENU-KH
+STATUS: ENTWURF (Phase 3) — Owner entscheidet gesammelt; nichts hier ist implizit FIX
+VERSION: v0.1
+DATUM: 2026-01-28 (Europe/Zurich)
+
+ZIEL (NON-NORMATIVE):
+- Du willst nicht 50x “ja/nein” beantworten, sondern gesammelt FIX setzen.
+- Dieses Dokument sammelt ALLE KH-Defaults+Bounds-Entscheide als konkrete Menüpunkte.
+- Jede Entscheidung referenziert die DEC-ID aus:
+  • SQLF-OWNER-FIX-KH-DEFAULTS (Candidate)  (DEC-SQLF-KH-xxx)
+  • SQLF-DECISION-MATRIX (Index)
+- Vorgehen: Du kannst später in der Candidate-Datei pro DEC den STATUS von OPEN → FIX drehen
+  ODER ein “Owner-FIX Value Sheet” ergänzen (beides ist Phase-3-konform).
+
+WICHTIG:
+- Ich setze hier keine Zahlen als “Owner entschieden”. Alles bleibt OPEN, bis du FIX markierst.
+- Ich gebe Empfehlungen, aber die sind ausdrücklich nur Vorschlag.
+
+================================================================================
+A) Kurzregel: Was soll hier FIX werden?
+================================================================================
+A1) “Safe Baseline” Ziel:
+- Startwerte sollen “vernünftig” sein, ohne Spezialwissen.
+- Bounds sollen Missbrauch und kaputte Werte verhindern.
+- Fail-Class folgt deinem Modell: policy aus SQL; “Caps” nur als Drift-Hinweis/Begrenzung (Option C corrected).
+
+A2) Wenn du Null-Diskussion willst:
+- Nimm überall “Empfehlung: ACCEPT BASELINE (Candidate)”.
+- Dann wird aus allen KH-DEC sofort FIX und wir können PH2/Panel/Diag/Proofs daran sauber aufhängen.
+
+================================================================================
+B) Entscheidungsmenü (KH)
+================================================================================
+
+B0) Cross-Key Constraint — Ampel-Relation
+----------------------------------------
+DEC-SQLF-KH-CROSS-001 (Status: OPEN)
+Thema: 0 < red < green  (web_ip_pool_red_threshold < web_ip_pool_green_threshold)
+
+Option A (Empfehlung): STRICT-FAIL (keine Autokorrektur)
+- Intention: Keine stillen “magischen” Korrekturen; Drift muss sichtbar sein.
+- Behaviour: Relation verletzt → settings INVALID → tighten-only Pfad + Reason + /diag Flag.
+- Validierung: B310-SQLF-KH-007 (Relation)
+
+Option B: AUTO-ADJUST + WARN
+- Intention: System bleibt lauffähig, aber zeigt Drift/Warnung.
+- Behaviour: red := min(red, green-1) (oder ähnlich) + /diag warning.
+- Validierung: B310-SQLF-KH-007 + /diag warning assertions
+
+Owner-FIX Felder (auszufüllen):
+- Gewählte Option: A / B
+- Wenn B: Korrekturregel (formal, ohne Code): __________________________
+
+B1) Pool-Ampel Defaults (Slots)
+-------------------------------
+DEC-SQLF-KH-101 — web_ip_pool_green_threshold (Status: OPEN)
+Candidate Baseline:
+- default = 30
+- bounds: min=5 ; max=(allocatable_slots - 1)
+
+Empfehlung: ACCEPT BASELINE.
+Alternative (ohne neue Magic Numbers): DEFAULT als Prozent:
+- default = ceil(allocatable_slots * P_green)   mit P_green OPEN (z.B. 0.10..0.20)
+- bounds bleiben gleich.
+
+Owner-FIX: default=____ ; min=____ ; max=____ ; (oder “%‑Rule”)
+
+DEC-SQLF-KH-102 — web_ip_pool_red_threshold (Status: OPEN)
+Candidate Baseline:
+- default = 10
+- bounds: min=1 ; max=(web_ip_pool_green_threshold - 1)
+
+Empfehlung: ACCEPT BASELINE.
+Alternative (ohne neue Magic Numbers): DEFAULT als Prozent:
+- default = ceil(allocatable_slots * P_red)   mit P_red OPEN (z.B. 0.03..0.08)
+- zusätzlich Relation: P_red < P_green
+
+Owner-FIX: default=____ ; min=____ ; max=____
+
+B2) Settings Cache TTL (Seconds)
+--------------------------------
+DEC-SQLF-KH-201 — web_settings_cache_ttl_seconds (Status: OPEN)
+Candidate Baseline:
+- default=60 ; bounds min=5 ; max=300
+- (OPEN) “local cap” = 300 falls Cap-Modell aktiv
+
+Empfehlung: ACCEPT BASELINE.
+Owner-FIX: default=____ ; min=____ ; max=____ ; cap_active? (JA/NEIN) ; cap_value=____
+
+B3) Logging Targets (Retention + Budget)
+----------------------------------------
+DEC-SQLF-KH-301 — web_log_detailed_retention_days (Status: OPEN)
+DEC-SQLF-KH-302 — web_log_detailed_max_total_bytes (Status: OPEN)
+DEC-SQLF-KH-303 — web_log_aggregate_retention_months (Status: OPEN)
+
+Candidate Baseline (aus SQLF-OWNER-FIX-KH-DEFAULTS):
+- detailed_retention_days: default=14 ; bounds min=1 ; max=90
+- detailed_max_total_bytes: default=1_000_000_000 ; bounds min=50_000_000 ; max=10_000_000_000
+- aggregate_retention_months: default=6 ; bounds min=1 ; max=24
+
+Empfehlung: ACCEPT BASELINE (weil das “Ops-safe” ist, ohne den Host zu fluten).
+Owner-FIX: pro Key default/min/max + (optional) cap_active + cap_value
+
+B4) Spool Targets (Retention + Budget)
+--------------------------------------
+DEC-SQLF-KH-401 — web_spool_retention_days (Status: OPEN)
+DEC-SQLF-KH-402 — web_spool_max_total_bytes (Status: OPEN)
+
+Candidate Baseline:
+- spool_retention_days: default=7 ; bounds min=1 ; max=60
+- spool_max_total_bytes: default=500_000_000 ; bounds min=50_000_000 ; max=5_000_000_000
+
+Empfehlung: ACCEPT BASELINE.
+Owner-FIX: pro Key default/min/max + (optional) cap_active + cap_value
+
+================================================================================
+C) Wenn du “alles FIX” in einem Rutsch willst
+================================================================================
+C1) Minimaler Fix-Satz (1 Zeile pro DEC):
+- KH-CROSS-001: Option A (strict-fail)
+- KH-101/102/201/301/302/303/401/402: ACCEPT BASELINE
+
+C2) Danach ist Phase-3-SQL-first KH-Teil “contract-geschlossen”:
+- Katalog-Aufnahme ist definiert,
+- Defaults+Bounds sind FIX,
+- B310 Proof-Plan kann konkretisiert werden (Expected-Fails),
+- /diag Felder können als Required tracebar werden.
+
+================================================================================
+CHANGELOG
+================================================================================
+2026-01-28: v0.1 initial: Sammel-Menü für Owner-FIX (ohne implizite Entscheidungen).

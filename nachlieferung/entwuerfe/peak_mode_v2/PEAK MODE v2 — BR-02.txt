@@ -1,0 +1,139 @@
+===============================
+PEAK MODE v2 — BR-02 tc PEAK-OVERRIDE VALUE (Quelle/Key/Einheit/Restore)
+===============================
+Status: ENTWURF (Phase 3)
+Ziel: self-contained Spezifikation (ohne Alt-Peak-Dateien als Pflicht)
+Regeln: kein Patch, kein Copy-Code, kein tc/SQL Snippet; nur Contract + Delta-Intention + Validierung.
+
+
+0) Scope (MUST)
+- Dieses BR definiert NUR: Woher Peak den Bandwidth-Override-Wert bekommt, in welcher Einheit er geführt wird, und wie Restore (Exit) den Normalzustand deterministisch wiederherstellt.
+- Anti-Scope: Keine Trigger-Logik (SoftIRQ/CPU), keine Täter-Selektion, keine Batch-Mechanik, keine DB-Historisierung/Retention (das ist BR-08/BR-09/BR-10).
+
+
+1) Kanon-Abgleich (MUST, drift-sicher)
+
+1.1 Imports (KANON-QUELLEN)
+- K-IMP-01: blocks/B160_TC_QOS_PER_PPP.txt → “qdisc on pppX: CAKE or fq_codel; bandwidth = profile; speed profile from RADIUS/SQL”
+- K-IMP-02: blocks/B055_DB_SCHEMA_CORE.txt → “settings_catalog + settings_global/customer/connection als SoT-Familie; typed keys; fail_class/policy_direction; keine Magic Defaults”
+- K-IMP-03: blocks/B057_SETTINGS_PARAMETER_CANON_SQLFIRST_MAGIC_GUARD.txt → “SQL-first Magic-Guard: Missing/Invalid darf nie ‘Allow by accident’; Fail-Closed/Fail-Safe ist maschinenlesbar”
+- K-IMP-04: blocks/B166_POLICY_APPLY_RECONCILE.txt → “Single-Writer/Concurrency gilt für tc-writes”
+- K-IMP-05: PEAK MODE v2 BR-01 (tc Topologie CAKE Edition) → “Peak ändert ausschließlich CAKE.bandwidth; change-not-replace; egress-only; keine Topologie-Änderung”
+
+1.2 Kanon-Anker (Wortlaut/Begriff)
+- “Profil-Bandbreite”: Normalzustand, kommt aus “speed profile from RADIUS/SQL” (B160) und muss SQL-first SoT haben (B055/B057).
+- “Peak-Bandbreite”: Notbetriebwert, muss ebenfalls SQL-first SoT sein (B055/B057), darf nicht “im Script” hardcoded sein.
+- “Restore”: Exit setzt deterministisch auf Profil-Bandbreite zurück; kein “Cache wird neue Wahrheit”.
+
+1.3 Konfliktcheck (MUST)
+- K-CONF-01: B160 nennt “CAKE oder fq_codel” als qdisc; Peak v2 fordert CAKE-only (aus BR-01) → Status: RISK (bereits in BR-01 markiert; BR-02 setzt CAKE voraus)
+- K-CONF-02: SQL-first Magic-Guard vs “Peak braucht Wert” → Status: NONE
+  - Peak-Wert wird über settings_catalog key definiert; Missing/Invalid führt zu FAIL (kein Default), kompatibel mit B057.
+
+
+2) Owner-Fixpunkte (MUST)
+- FP-BR02-01 (PEAK_KEY_NAME): Peak-Override Key-Name = peak_user_peak_bandwidth_bps
+- FP-BR02-02 (PEAK_SOURCE): Quelle = SQL-Policy (auditierbar im Panel/Diag), nicht Script/Env.
+- FP-BR02-03 (PEAK_UNIT): Einheit = bps (Bit pro Sekunde) — STATUS: OPEN bis Owner explizit bestätigt (siehe BR-02 v1 Hinweis “Skalierung nicht raten”)
+- FP-BR02-04 (PEAK_DELTA): Peak überschreibt ausschließlich CAKE.bandwidth auf pppX root (siehe BR-01).
+- FP-BR02-05 (RESTORE_RULE): Exit/Restore setzt CAKE.bandwidth zurück auf Standard-Profilwert aus normalem Profil (SQL-first), nicht auf “pre-peak cached value” als neue SoT.
+- FP-BR02-06 (NO_MAGIC_DEFAULT): Wenn Peak-Key fehlt/invalid ist → FAIL (kein stiller Default), konform B057.
+
+
+3) Contract (MUST, implementierbar ohne Raten)
+
+3.1 Inputs (MUST)
+- Input-01: Peak-Key “peak_user_peak_bandwidth_bps” ist als typed settings_catalog Eintrag definiert (B055/B057).
+- Input-02: Peak-Key-Wert ist in zulässigem Scope verfügbar (GLOBAL/CUSTOMER/CONNECTION nach settings_catalog.allowed_override_scope).
+- Input-03: Profil-Bandbreite (Normalzustand) ist aus dem “speed profile from RADIUS/SQL” deterministisch ableitbar (B160), mit SQL-first SoT (Key/Derivation muss existieren).
+- Input-04: (Optional, aber erlaubt) conn_group / tc_profile aus B058 derived_policy kann für Profilwahl genutzt werden, sofern im Kanon als SoT definiert.
+
+Constraints:
+- SQL-first: Peak-Key + Profilquelle müssen auditierbar/tracebar sein (B057).
+- Fail-Sicherheit: Missing/Invalid → kein “Allow by accident” (B057).
+- Peak darf keine neuen SoT-Quellen erfinden (kein Env als Policy-Truth).
+
+3.2 Outputs (MUST)
+- Output-01: Peak-Apply erhält einen expliziten Zielwert “peak_bandwidth_bps” (typed, validiert).
+- Output-02: Exit/Restore erhält einen expliziten Zielwert “profile_bandwidth_bps” (typed, validiert).
+- Output-03: Wenn ein Input fehlt/invalid ist: ein definierter FAIL (Error-Klasse) + Audit/Diag-Reason (Details in BR-09/BR-10).
+
+3.3 States / Transitions
+- BR-02 hat keine eigenen States; es definiert Werte/Quelle/Restore-Regel.
+- Peak-State-Machine (Enter/Hold/Exit) ist BR-03/BR-10; Batch-Apply ist BR-09.
+
+3.4 Enforcement-Punkte (MUST)
+- E-01: settings_catalog erzwingt Typ/Range/Fail-Class des Peak-Keys (B055/B057).
+- E-02: Peak darf nur dann setzen, wenn Werte validiert sind; sonst FAIL (no magic default).
+- E-03: Restore nutzt die kanonische Profilquelle (kein Shadow-State-Caching als neue Wahrheit).
+
+3.5 Fehlerklassen / Resultcodes (BR-02-relevant)
+- ERR-BR02-PEAKKEY_MISSING: Peak-Key nicht vorhanden (settings_catalog / settings_* fehlt) → FAIL
+- ERR-BR02-PEAKKEY_INVALID: Peak-Key vorhanden, aber Typ/Range ungültig → FAIL
+- ERR-BR02-PROFILE_SOURCE_UNRESOLVED: Profil-Bandbreite kann nicht deterministisch ermittelt werden → FAIL
+- ERR-BR02-SCOPE_VIOLATION: Override versucht in verbotenem Scope (B057 allowed_override_scope) → FAIL
+
+3.6 Idempotenz / Concurrency (MUST)
+- Idempotenz: Wiederholtes “set bandwidth = X” mit gleichem X ist unkritisch.
+- Concurrency: alle tc-writes (Peak + normal apply) laufen unter Single-Writer (B166).
+
+3.7 Resource/Retention
+- BR-02 definiert keine Retention. Audit/Retention gehört BR-08/BR-10.
+
+
+4) Fix-Intention + Delta-Beschreibung (MUST)
+- Ziel: Peak-Mode erhält einen auditierbaren, SQL-first Peak-Override-Wert (bps), und Exit stellt deterministisch den Profilwert wieder her, ohne neue “Shadow-SoT”.
+- Delta:
+  - Definiere Peak-Key “peak_user_peak_bandwidth_bps” als settings_catalog entry (typed, Range, fail_class), und nutze ihn als alleinige Quelle für Peak bandwidth.
+  - Definiere Restore-Regel: Exit nutzt Profilbandbreite aus dem Normalprofil (SQL-first), nicht aus “pre-peak caching” als Truth.
+- Grenzen/Constraints:
+  - Kein Raten der Einheit/Skalierung: unit muss explizit owner-gefixt sein (bps).
+  - Missing/Invalid → FAIL, nicht fallback (B057).
+- Validierung: siehe DoD/Tests.
+
+
+5) DoD / Tests / Validierung (MUST)
+
+T-01 Peak-Key vorhanden + gültig
+- Setup: Peak-Key existiert in settings_catalog + hat gültigen Wert im erlaubten Scope.
+- Aktion: Peak-Enter (value resolution).
+- Erwartung: peak_bandwidth_bps wird deterministisch ermittelt; keine Defaults.
+- Nachweis: Audit/Diag zeigt “source=SQL key peak_user_peak_bandwidth_bps” + Wert.
+
+T-02 Peak-Key fehlt (Fail Closed / kein Default)
+- Setup: Peak-Key nicht vorhanden.
+- Aktion: Peak-Enter (value resolution).
+- Erwartung: FAIL mit ERR-BR02-PEAKKEY_MISSING; Peak darf nicht “raten”.
+- Nachweis: Audit/Diag Failure-Reason.
+
+T-03 Peak-Key invalid (Range/Type)
+- Setup: Peak-Key vorhanden, aber invalid (z.B. negativ/zu klein/zu groß oder falscher Typ).
+- Aktion: Peak-Enter.
+- Erwartung: FAIL mit ERR-BR02-PEAKKEY_INVALID.
+- Nachweis: Audit/Diag zeigt Validator/Range-Verletzung.
+
+T-04 Restore Quelle deterministisch (Profil-Bandbreite)
+- Setup: Normale Profilquelle ist resolvable; Peak ist aktiv.
+- Aktion: Peak-Exit.
+- Erwartung: Zielwert “profile_bandwidth_bps” ist deterministisch aus Normalprofil abgeleitet; Peak-Wert wird nicht weiterverwendet.
+- Nachweis: Audit/Diag zeigt Profil-Quelle (Key/Derivation) + Wert.
+
+T-05 Scope Governance (B057)
+- Setup: settings_catalog erlaubt z.B. nur GLOBAL; ein CUSTOMER/CONNECTION override wird gesetzt/versucht.
+- Aktion: Value resolution.
+- Erwartung: FAIL mit ERR-BR02-SCOPE_VIOLATION (Hard Fail + Audit).
+- Nachweis: Audit/Diag zeigt allowed_override_scope Verletzung.
+
+
+6) OPEN Items (MUST)
+- O-01 (Owner-Fix nötig): FP-BR02-03 “Einheit/Skalierung” explizit festzurren:
+  - Soll peak_user_peak_bandwidth_bps als INT bps geführt werden? (empfohlen aus BR-02 v1, aber in v2 ohne Owner-Fix bleibt OPEN)
+- O-02 (Kanon-Lücke): Profil-Bandbreite Quelle ist in B160 als “profile from RADIUS/SQL” genannt, aber der konkrete SQL-first Key/Derivation ist hier nicht benannt.
+  - v2 muss festlegen, welche kanonische Quelle (Key/Derivation) “profile_bandwidth_bps” liefert (ohne Raten).
+- O-03 (Range/Min/Max): settings_catalog Range für Peak-Key ist in Kanon noch nicht festgelegt.
+  - v2 muss Range und fail_class/policy_direction für diesen Key definieren (B055/B057-konform), sonst bleibt Implementierung ratend.
+
+
+7) Änderungsprotokoll (v2-Entwurfsintern)
+- CHG-01: BR-02 v2 macht Quelle/Key/Restore-Regel self-contained und bindet sie an SQL-first Magic-Guard.
+- CHG-02: “Einheit bps” wird explizit als Owner-Fix markiert (OPEN bis bestätigt), um keine Skalierung zu raten.

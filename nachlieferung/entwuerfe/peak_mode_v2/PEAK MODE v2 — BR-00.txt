@@ -1,0 +1,149 @@
+===============================
+PEAK MODE v2 — BR-00 (OVERVIEW) (NON-NORMATIVE)
+TITLE: Was Peak Mode v2 ist, warum es existiert, wie es grob funktioniert (Orientierung)
+BR-ID: BR-00
+STATUS: ENTWURF (Phase 3) — NON-NORMATIVE (nur Erklärung + Verweise)
+NORMATIVITÄT (MUST):
+- Dieses BR-00 ist NICHT normativ. Es setzt keine neuen Zahlen/Policies.
+- Normativ sind: BR-01..BR-12, DECISION MATRIX, OWNER-FIX VALUE SHEET.
+- BR-00 wiederholt nur Owner-FIX-Werte, die bereits im v2-Kanon festgezurrt sind, oder markiert Dinge als OPEN.
+
+ZIEL (MUST):
+- Ein Leser soll in 1–2 Minuten verstehen:
+  a) Was Peak Mode ist,
+  b) Welche Probleme er löst,
+  c) Welche “grobe Pipeline” er hat,
+  d) Wo die Details stehen,
+  e) Welche Werte bereits hart fix sind (Owner-FIX),
+  f) Welche Entscheidungen noch offen sind (OPEN), ohne dass BR-00 driftet.
+
+================================================================================
+1) Was Peak Mode v2 ist (Kurzdefinition)
+================================================================================
+Peak Mode v2 ist ein CPU-Overload Schutzmodus für den VPN-Server:
+- Er erkennt sustained Überlast (Primärsignal: SoftIRQ%, aggregated),
+- startet eine “Episode” (State-Machine),
+- ermittelt die Top-N “Täter”-Sessions (USER-only),
+- und reduziert während Peak die Bandbreite pro PPP-Verbindung mit CAKE (kein HTB-Mix),
+  um CPU/SoftIRQ-Druck zu senken und Stabilität zu gewinnen.
+Nach Recovery stellt er die Baseline wieder her (Restore).
+
+Wichtig:
+- Peak Mode ist kein “Traffic Shaper für Fairness”, sondern ein “Stabilitätsmodus unter Server-Overload”.
+
+================================================================================
+2) Warum Peak Mode existiert (Problem & Ziel)
+================================================================================
+Problem:
+- Wenn der Server durch VPN-Last an die CPU-Grenze kommt, kann das System kippen:
+  höhere Latenz, Paketverluste, dropouts, Zeitouts, instabile Verbindungen.
+
+Ziel:
+- Peak darf die Situation nicht verschlimmern.
+- Peak reduziert kontrolliert den Durchsatz pro Session, um Overload abzufangen,
+  und bleibt dabei bounded, auditierbar und operabel.
+
+Nebenbedingung:
+- Keine “Misch-Implementierung”: CAKE bleibt das Modell (auch im Overload), damit kein Mischmasch entsteht.
+
+================================================================================
+3) Was in v2 bereits “hart” Owner-fixiert ist (FIX)
+================================================================================
+FIX-01 FP-PEAK-01 MULTI-Schwelle = 30%
+- Bedeutung: ab dieser Multi-Last (Kontext: v2 Triggerlogik) kann Peak relevant werden.
+- Normative Quelle: DECISION MATRIX + die zuständigen BRs (Trigger/Score).
+
+FIX-02 FP-PEAK-02 Top-N Täter (dynamisch, gelatched pro Episode)
+- Wenn active_ppp <= 20  -> N = 3
+- Wenn 21..100          -> N = 5
+- Wenn > 100            -> N = 10
+- “Latch”: N bleibt innerhalb einer Episode fix (wandert nicht live mit active_ppp).
+- Normative Quelle: BR-07 + DECISION MATRIX.
+
+FIX-03 SoftIRQ% Triggerbasis: aggregated über alle CPUs
+- Normative Quelle: BR-03 + DECISION MATRIX.
+
+FIX-04 QoS Modell bleibt CAKE (kein HTB-Mix), auch bei CPU-Overload
+- Normative Quelle: BR-06 / Grundsatzentscheidung.
+
+================================================================================
+4) Grobe Pipeline: Wie Peak v2 “von außen” funktioniert
+================================================================================
+
+Step A — Erkennen (Detection)
+- Peak überwacht CPU/SoftIRQ (aggregated).
+- Normativ: BR-03 (Messlogik/Definitionen).
+
+Step B — Entscheiden (Gates/Trigger)
+- Peak aktiviert sich nicht bei kurzen Spikes (Persist), nutzt Hold/Recovery/Cooldown gegen Flapping.
+- Normativ: BR-04/BR-05/BR-06 (Trigger/Gates/Score), BR-10 (Persist/Hold/Recovery/Cooldown).
+
+Step C — Episode starten (State Machine)
+- Peak startet eine Episode (enter), bleibt aktiv (hold/extend), beendet sie (exit/restore).
+- Normativ: BR-10.
+
+Step D — Täter bestimmen (Top-N)
+- Peak ermittelt Top-N Täter innerhalb USER-only Sessions und latching.
+- Normativ: BR-07.
+
+Step E — Anwenden (Apply)
+- Peak setzt CAKE/Rate-Policies pro PPP-Verbindung (bounded batches, bounded runtime).
+- Normativ: BR-09.
+
+Step F — Audit & Debugbarkeit (Schema/Logs)
+- Jede Episode/Apply-Run ist auditierbar (keine “Blackbox”).
+- Normativ: BR-08 (Schema) + BR-11 (Panel/Observability).
+
+Step G — Hardening (Anti-Thrash / Circuit / AuthZ)
+- Peak darf nie Apply-Stürme erzeugen; Manual Overrides sind autorisiert und rate-limited.
+- Normativ: BR-12.
+
+================================================================================
+5) Was noch offen ist (OPEN) — und wo es festgezurrt wird
+================================================================================
+Dieses BR-00 setzt keine neuen Werte. Die offenen Owner-Fixpunkte stehen zentral im:
+- OWNER-FIX VALUE SHEET (FP-BR09-*, FP-BR10-*, FP-BR11-*, FP-BR12-*).
+
+Typische OPEN Bereiche (Beispiele):
+- Zeitwerte: Persist/Hold/Recovery/Cooldown (BR-10)
+- Apply boundedness: batch_size, max_runtime, degraded_threshold (BR-09)
+- Hardening Caps: apply_min_gap, window caps, circuit thresholds (BR-12)
+- Retention/Detail-Level: wie viel Audit-Detail, wie lange halten (BR-11/BR-08)
+
+Regel:
+- Solange diese OPEN sind, ist v2 implementierbar, aber nicht “vollständig geschlossen”.
+- Schließen erfolgt per Owner-Entscheid über das Owner-Fix Sheet.
+
+================================================================================
+6) Hinweise zur Interpretation (damit keine Drift entsteht)
+================================================================================
+- BR-00 ist nur Orientierung. Wenn BR-00 und BR-xx widersprechen würden, gilt BR-xx (normativ).
+- BR-00 wiederholt nur bereits fixierte Werte (siehe Abschnitt 3).
+- Für jede technische Entscheidung gilt: nur BR-xx / Decision Matrix / Owner-Fix Sheet sind “Source of Truth”.
+
+================================================================================
+7) Referenzkarte: Wo finde ich was?
+================================================================================
+- BR-01 / BR-02: (Peak Mode Grundlagen / Begriffe / Zielbild-Details) — normativ
+- BR-03: SoftIRQ% Messdefinition (aggregated) — normativ
+- BR-04 / BR-05 / BR-06: Gates, Trigger, Scoring, CAKE-Grundsätze — normativ
+- BR-07: Top-N Täterlogik (dynamisch + latch) — normativ
+- BR-08: DB Extension Schema (Episodes/Snapshots/Apply-Audit) — normativ
+- BR-09: Apply-Orchestrator Contract (bounded, exit codes, batch) — normativ
+- BR-10: State Machine (enter/hold/exit/recovery/cooldown) — normativ
+- BR-11: Operability / Panel / Observability — normativ
+- BR-12: Hardening / Caps / Circuit / AuthZ — normativ
+- DECISION MATRIX: Owner-FIX vs OPEN Entscheidungen kompakt — normativ
+- OWNER-FIX VALUE SHEET: alle offenen Zahlen/Policies + Empfehlung/Risiko/DoD — normativ als “Entscheidungsregister”
+
+================================================================================
+8) DRIFT-AMPel (nur Status)
+================================================================================
+DRIFT: NONE
+- Grund: BR-00 setzt keine neuen Werte, verweist nur auf normativen Kanon und wiederholt Owner-FIX.
+
+================================================================================
+9) CHANGELOG (ENTWURF-intern)
+================================================================================
+- v2.0-ENTWURF (heute): BR-00 (OVERVIEW) angelegt als non-normative Orientierung für Peak v2,
+  inkl. Pipeline, FIX-Werte, OPEN-Verweisstruktur und Referenzkarte.

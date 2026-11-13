@@ -1,0 +1,116 @@
+xp-vpn-stack/entwuerfe/sql-first/SQL-FIRST v1 — NORM-02 PREFIX + ALIAS + RESOLUTION — Spec.txt
+================================================================================
+TITLE: NORM-02 — Prefix/Namespace + Alias-Resolver + Effective-Resolution Contract
+DOC-ID: SQLF-NORM-02
+STATUS: ENTWURF (Phase 3) — NORMATIV (innerhalb Entwurf)
+VERSION: v0.3
+DATUM: 2026-01-29 (Europe/Zurich)
+
+SCOPE:
+- Definiert:
+  (1) erlaubte Prefixe/Namespaces,
+  (2) Alias/Rename Regeln (Migration ohne Drift),
+  (3) wie Consumers effective_value + key_state deterministisch erhalten.
+
+REFERENZEN:
+- OWNER-FIX: DEC-SQLF-003 (Prefix enabled)
+- Kanon: B057 (Magic-Guard), B058 (deterministic derivations), B052 (DB_UNKNOWN), B270 (/diag)
+- Peak-Analog: entwuerfe/peak_mode_v2/… DECISION MATRIX (nur Stil, nicht Inhalt)
+
+================================================================================
+N-02.1 Erlaubte Prefixe (Owner-FIX, MINIMUM)
+================================================================================
+Erlaubt sind folgende Namespace-Prefixe für policy keys:
+- web_
+- vpn_
+- peak_
+- radius_
+
+Querschnitt-Familienprefixe (erlaubt, aber strikt klassifiziert):
+- settings_   (Meta/Resolver/Cache Verhalten)
+- log_        (Logging/Retention/Aggregation Policy)
+- spool_      (Spool/Queue/Buffer Policy)
+
+MUST:
+- Jeder Key muss genau einem Prefix zuordenbar sein (keine “prefixlosen” policy-keys).
+
+================================================================================
+N-02.2 Canonical Key Name vs Alias
+================================================================================
+- Canonical Name: der “endgültige” Key (unique in settings_catalog).
+- Alias: ältere Bezeichnung, die weiterhin akzeptiert/aufgelöst werden kann, um Drift zu vermeiden.
+
+Alias-Resolver MUSS:
+- deterministisch sein,
+- canonical_key liefern,
+- alias_used (+ optional alias_key) liefern,
+- reason_code liefern (aus NORM-04), damit /diag erklären kann, warum ein Alias genutzt wurde (z.B. deprecated used / removed reject).
+
+================================================================================
+N-02.3 Rename/Alias-Tabelle (ENTWURF-NORM)
+================================================================================
+Es existiert eine Alias-Tabelle (konzeptionell), die mindestens enthält:
+- old_key (alias)
+- new_key (canonical)
+- status: active | deprecated | removed
+- introduced_version, deprecated_version
+- auto_migrate: yes/no (ob values beim Reconcile umgeschrieben werden dürfen)
+
+MUST:
+- Kein “Silent Rename” ohne Alias-Eintrag.
+- Removed heißt: reject + reason (nicht still ignorieren).
+
+================================================================================
+N-02.4 Effective-Resolution Output (MUST)
+================================================================================
+Jeder Consumer bekommt für jeden Key ein strukturierter Output (Concept Contract):
+
+- canonical_key
+- effective_value
+- effective_source: GLOBAL | CUSTOMER | CONNECTION | FALLBACK_BASELINE | FALLBACK_LAST_KNOWN
+- key_state: OK | MISSING | INVALID | FALLBACK_ACTIVE | DB_UNKNOWN
+- reason_code (aus NORM-04)
+- parsed_at (optional)
+- ttl_seconds (wenn cache relevant)
+
+MUST:
+- Consumers konsumieren NUR effective_* und key_state, nie raw SQL rows.
+
+================================================================================
+N-02.5 Cache / Timeout Keys (Hinweis, keine Festwerte)
+================================================================================
+Es gibt settings_* Meta-Keys für Resolver-Verhalten (z.B. settings_cache_ttl_seconds, settings_sql_read_timeout_ms).
+Wichtig: diese Meta-Keys sind selbst policy-keys und unterliegen NORM-01/06/07.
+(Die konkreten Werte werden nicht hier festgelegt.)
+
+================================================================================
+N-02.6 Validierung (DoD, referenziert B310)
+================================================================================
+- B310-SQLF-ALIAS-001: Alias resolves deterministically to canonical_key.
+- B310-SQLF-ALIAS-002: Deprecated/Removed behavior (reject + reason).
+- B310-SQLF-RES-001: Effective precedence CONNECTION > CUSTOMER > GLOBAL.
+- B310-SQLF-RES-002: Key-state correctness (missing/invalid/db_unknown -> expected state).
+
+N-02.4.3 Alias-Einträge aus Key-Harvest v1 (SQLF-HARVEST-01) (MUST)
+- Ziel: Alttext/Legacy Keys bleiben lesbar, Canonical ist aber strikt Präfix-Norm.
+- Alias-Mapping (legacy -> canonical):
+  • ip_pool_green_threshold -> web_ip_pool_green_threshold
+  • ip_pool_red_threshold -> web_ip_pool_red_threshold
+  • log_detailed_retention_days -> web_log_detailed_retention_days
+  • log_detailed_max_total_bytes -> web_log_detailed_max_total_bytes
+  • log_aggregate_retention_months -> web_log_aggregate_retention_months
+  • spool_retention_days -> web_spool_retention_days
+  • spool_max_total_bytes -> web_spool_max_total_bytes
+  • settings_cache_ttl_seconds -> web_settings_cache_ttl_seconds
+
+Resolver-Regel (Delta, ohne Patch):
+- Wenn consumer einen legacy key referenziert, MUSS der Resolver im Panel/Backend die canonical key identity ausgeben (effective_key).
+- Im UI werden canonical keys angezeigt; legacy keys nur als “Alias erkannt” (drift/compat Hinweis).
+
+
+================================================================================
+CHANGELOG
+================================================================================
+v0.3 (2026-01-29): Norm-Closure: Alias-Resolver Output auf NORM-05/NORM-04 Contract normalisiert (alias_used/alias_key + reason_code); DoD-Liste auf Proof-Index (NORM-07) synchronisiert (RES-003 entfernt).
+v0.2 (2026-01-28): Alias-Einträge ergänzt (Key-Harvest v1, 8 Mappings).
+v0.1 (2026-01-28): NORM-02 initial: Prefixe + Alias/Rename Contract + Effective-Resolution Output.

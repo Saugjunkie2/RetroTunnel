@@ -1,0 +1,311 @@
+# SQL-FIRST v1 — DOC-SET-WRITEPATH v1 — Writer Matrix / Write-Path Contract
+# Version: v1.1
+# Status: ENTWURF (Doc-Set Container)
+# Zweck: Inventar für Writer-Matrix (Initiator/Writer/Enforcer/Truth/Drift-Detector) + Write-Path-Contract Regeln + Violation Handling.
+
+----------------------------------------------------------------------
+0) Scope / Regeln (Doc-Set-Container)
+----------------------------------------------------------------------
+
+- Dieses DOC-SET ist der Inventar-Ort für “Wer darf was schreiben?”.
+- NORM-xx (später: NORM-02/NORM-05/NORM-07) verweist auf dieses DOC-SET für Matrix/Inventare.
+- Patch-Runde 1: nur Skeleton; keine inhaltliche Übernahme.
+
+----------------------------------------------------------------------
+1) Input-Sources (Kanon + Doc-Sets; keine Chatverlauf-Abhängigkeit)
+----------------------------------------------------------------------
+
+Primary normative Sources (Kanon):
+- B345_WRITE_PATH_MATRIX_CONTRACT
+  Zweck: Write-Path-Grundsatz (USER/ADMIN/SYSTEM/DAEMON Rollen; “USER schreibt niemals direkt in SQL”; Gates/Validierung).
+- B057_SQL_FIRST_CONTRACT (+ Health/Trace)
+  Zweck: settings_catalog/settings_* Familienmodell; Effective-Value; required/missing/invalid; Fail-Classes; Trace-Pflichten.
+- B052_DB_OUTAGE + Drift/Unknown Regeln
+  Zweck: DB_STATE/DB_UNKNOWN Ableitung; SETTINGS_DRIFT/ENUM_DRIFT/INVARIANT_BROKEN/LOCK_TX_ANOMALY.
+- B166_POLICY_APPLY + Determinismus/Trace
+  Zweck: Apply/Reconcile als einzige SQL→Kernel Brücke; deterministische Ableitung; idempotent; /run Wiring (PPP).
+- B167_RUN_PATHS + Hooks/Locks
+  Zweck: /run/vpn-sessions/*.env; /run locks; strongSwan event wiring; stale purge.
+- B342_REASON/OUTCOME Normen (Policy Outcomes)
+  Zweck: Reason Tokens/Outcomes als kanonische Sprache (für Violation/Fail-Closed/Observability).
+- B270_DIAG_CONTRACT
+  Zweck: /diag Pflichtfelder (expected-vs-effective; registry state; drift flags; health).
+
+Doc-Set Sources (Inventare, SQL-first):
+- DOC-SET-PR-PFX (PR-PFX-00x + Bridge)
+  Relevant: PR-PFX-005 No-Alias-Write, PR-PFX-006 Conflict Detection (nur Referenz; keine Dopplung).
+- DOC-SET-REGISTRY (States/Reasons/Drift/diag)
+  Relevant: Registry-States + REG_REASON_* Klassen, Drift Flags, /diag Feldnormen (Observability/Violation).
+- DOC-SET-KEYCAT (Key Catalog)
+  Relevant: canonical_key_id, canonical_name, aliases/rename, source-Tracking (source/sources vereinheitlicht).
+
+----------------------------------------------------------------------
+2) Begriffe / Matrix-Legende (verbindlich für dieses DOC-SET)
+----------------------------------------------------------------------
+
+Begriffe:
+- Initiator:
+  Wer löst die Aktion aus (USER | ADMIN | SYSTEM | DAEMON).
+- Writer:
+  Komponente, die persistenten Zustand schreibt (SQL | /run | spool | logs/audit).
+  Hinweis: “persistenter Zustand” bedeutet: etwas, das nach Prozess-Neustart/Retry noch relevant ist
+  (SQL, /run-Files, Locks, spooled ops, audit events).
+- Enforcer:
+  Komponente, die Policy technisch erzwingt (AAA | nft | tc | web_gate | system_gate).
+- Truth Source:
+  Wo “die Wahrheit” in dieser Domäne gilt (SQL vs /run vs radacct vs kernel state).
+- Drift-Detector:
+  Kanonische Stelle, die Drift/UNKNOWN sichtbar machen MUSS (B052/B057/B270/B166/B167 etc.).
+
+Write-Surfaces (Kurz-Norm):
+- SQL:
+  persistent, normativ, policy-relevant (settings_*; identity objects; locks object).
+- /run:
+  runtime bridge / session mapping / apply state; darf nicht “manuell” hotfixbar sein (Drift-Risiko).
+- spool (falls genutzt):
+  transient/backpressure; darf niemals “Truth Source” für Policy sein; nur Queue/Transport.
+- logs/audit:
+  bounded/rotated; Events als Nachweis/Diagnose, nicht als Policy-Quelle.
+
+Grundsatz (MUST):
+- USER schreibt niemals direkt in SQL.
+- ADMIN schreibt Policy nur über Panel-Gates (AuthZ/Validation/Audit).
+- SYSTEM/DAEMON schreibt /run und Kernel-Enforcement nur als deterministische Ableitung aus SQL.
+
+----------------------------------------------------------------------
+3) Writer-Matrix (Inventory) — Initiator/Writer/Enforcer/Truth/Drift
+----------------------------------------------------------------------
+
+Hinweis:
+- Diese Matrix ist “Inventar” (DOC-SET). Die normative Durchsetzung steht in B345/B057/B166/B167.
+- Wo ein Feld später noch präzisiert werden muss, wird es als “TBD (Kanon-Quelle: …)” markiert, nicht erfunden.
+
+MATRIX_ROW (Schema bleibt kanonisch, wird hier befüllt):
+MATRIX_ROW:
+  id: WM-001
+  scope_domain: identity_core
+  operation: CREATE|UPDATE
+  initiator: USER|ADMIN
+  writer: SQL (Panel / ADMIN über web_gate)
+  enforcer: web_gate + AAA constraints (wo relevant)
+  truth_source: SQL
+  drift_detector: B057 health (required/missing/invalid) + B052 ENUM_DRIFT/INVARIANT + /diag (B270)
+
+MATRIX_ROW:
+  id: WM-002
+  scope_domain: vpn_connections
+  operation: CREATE|UPDATE|DISABLE|RESTRICT
+  initiator: ADMIN
+  writer: SQL (Panel / ADMIN über web_gate)
+  enforcer: web_gate + SYSTEM Apply
+  truth_source: SQL
+  drift_detector: B057 health (missing/invalid keys) + B166 determinism/trace + /diag (B270)
+
+MATRIX_ROW:
+  id: WM-003
+  scope_domain: aaa_login_identity
+  operation: UPDATE
+  initiator: ADMIN
+  writer: SQL (AAA backend objects)
+  enforcer: AAA (FreeRADIUS) + system_gate
+  truth_source: SQL (+ radacct als Session-Truth)
+  drift_detector: B056/B057 required AAA keys + Fail2ban/Reason-chain observability (B340/B342)
+
+MATRIX_ROW:
+  id: WM-004
+  scope_domain: active_session_locks
+  operation: CREATE|RELEASE|EXPIRE
+  initiator: SYSTEM|DAEMON
+  writer: SQL (mutex object; kein Session-State)
+  enforcer: system_gate (SimUse)
+  truth_source: SQL (mutex truth)
+  drift_detector: B052 LOCK_TX_ANOMALY + /diag/panel health (B270)
+
+MATRIX_ROW:
+  id: WM-005
+  scope_domain: settings_catalog
+  operation: CREATE|UPDATE
+  initiator: ADMIN
+  writer: SQL (ADMIN über Panel-Gate)
+  enforcer: web_gate + registry gates (CI)
+  truth_source: SQL
+  drift_detector: B052 SETTINGS_DRIFT + B057 validation/fail-policy + /diag registry hash/version (B270/DOC-SET-REGISTRY)
+
+MATRIX_ROW:
+  id: WM-006
+  scope_domain: settings_values
+  operation: UPDATE
+  initiator: ADMIN
+  writer: SQL (settings_global/settings_customer/settings_connection via Panel)
+  enforcer: web_gate + SYSTEM Apply
+  truth_source: SQL
+  drift_detector: B057 health (invalid/missing) + /diag expected-vs-effective (B270)
+
+MATRIX_ROW:
+  id: WM-007
+  scope_domain: effective_value_trace
+  operation: DERIVE
+  initiator: SYSTEM
+  writer: logs/audit + /diag outputs (keine Policy-Truth)
+  enforcer: system_gate (determinism checks)
+  truth_source: SQL (effective derived deterministically)
+  drift_detector: B166 determinism/trace requirement + CI runtime checks
+
+MATRIX_ROW:
+  id: WM-008
+  scope_domain: runtime_mapping_ppp
+  operation: CREATE|UPDATE|PURGE
+  initiator: SYSTEM
+  writer: /run/vpn-sessions/*.env
+  enforcer: system_gate (apply/reconcile), hooks
+  truth_source: /run (runtime) + SQL (policy) + radacct (online truth)
+  drift_detector: stale purge deterministisch (B167) + /diag status (B270) + B052 INVARIANT when mapping not reconcilable
+
+MATRIX_ROW:
+  id: WM-009
+  scope_domain: runtime_mapping_ikev2
+  operation: CREATE|UPDATE|PURGE
+  initiator: DAEMON (strongSwan events)
+  writer: /run/vpn-sessions/ikev2/(pending|active)/*.env
+  enforcer: system_gate + daemon hooks
+  truth_source: /run (runtime) + SQL (policy)
+  drift_detector: B167 + B052 INVARIANT_BROKEN wenn mapping/state nicht deterministisch
+
+MATRIX_ROW:
+  id: WM-010
+  scope_domain: nft_enforcement
+  operation: APPLY
+  initiator: SYSTEM
+  writer: kernel state (nft rules/sets)
+  enforcer: nft
+  truth_source: kernel state (nft) als enforcement; policy-truth bleibt SQL
+  drift_detector: apply-trace + /diag expected-vs-effective (B270) + B057 health (missing dns/ports keys etc.)
+
+MATRIX_ROW:
+  id: WM-011
+  scope_domain: dns_dnat53
+  operation: APPLY
+  initiator: SYSTEM
+  writer: kernel state (nft nat DNAT53)
+  enforcer: nft
+  truth_source: kernel state (DNAT) als enforcement; policy-truth bleibt SQL
+  drift_detector: /diag expected dns profile + warnings (B270) + B057 health wenn dns keys fehlen
+
+MATRIX_ROW:
+  id: WM-012
+  scope_domain: tc_qos
+  operation: APPLY
+  initiator: SYSTEM
+  writer: kernel state (tc qdisc/classes)
+  enforcer: tc
+  truth_source: kernel state (tc) als enforcement; policy-truth bleibt SQL
+  drift_detector: /diag + panel warnings via B057 key-health + reason/outcome norms (B342)
+
+MATRIX_ROW:
+  id: WM-013
+  scope_domain: panel_security_tokens
+  operation: CREATE|ROTATE|INVALIDATE
+  initiator: USER|ADMIN
+  writer: SQL (sessions) + cookies/server session store
+  enforcer: web_gate (AuthZ/CSRF)
+  truth_source: server session state
+  drift_detector: mismatch darf nie silent allow sein (Fail-Closed Grundsatz; /diag/panel health)
+
+MATRIX_ROW:
+  id: WM-014
+  scope_domain: fail2ban_pipeline
+  operation: CLASSIFY|BAN
+  initiator: DAEMON
+  writer: logs/audit (+ optional SQL for events)
+  enforcer: fail2ban + policy outcome rules
+  truth_source: event pipeline
+  drift_detector: B342 + DB_UNKNOWN rule (B052) verhindert “ban on backend error”
+
+----------------------------------------------------------------------
+4) Write-Path-Contract Regeln (WP-00x) — was MUSS gelten
+----------------------------------------------------------------------
+
+WP-001 — Canonical-Only Writes (MUST)
+- Ziel:
+  Writers schreiben ausschließlich canonical Keys (nicht Aliases).
+- Delta/Anker:
+  Durchsetzung über PR-PFX-005 (No-Alias-Write) + Registry/Resolver Gate.
+- Grenzen/Constraints:
+  SQL-first; keine stillen Sonderwege; Legacy-Clients sind irrelevant für Write-Path (Server-seitig).
+- Validierung:
+  /diag.settings_registry.summary.alias_write_attempts == 0 im Normalbetrieb; Audit-Events bei Verstoß.
+
+WP-002 — No-Alias-Write (Split-Brain Prevention) (MUST)
+- Referenz:
+  DOC-SET-PR-PFX / PR-PFX-005.
+- Observability (MUST):
+  /diag.settings_registry.summary.alias_write_attempts
+  Audit Event: ALIAS_WRITE_ATTEMPT
+- Gate:
+  CI-005 (Policy/Security Gate)
+
+WP-003 — Conflict Detection (Alias + Canonical Divergence) (MUST)
+- Referenz:
+  DOC-SET-PR-PFX / PR-PFX-006.
+- Observability (MUST):
+  /diag.settings_registry.state=CONFLICT
+  /diag.settings_registry.top_conflicts[] (key_id + names + reason)
+
+WP-004 — USER darf keine Policy schreiben (MUST)
+- Ziel:
+  USER kann Claim/Verify auslösen, aber keine Policy/Settings schreiben.
+- Delta/Anker:
+  B345 Write-Path-Grundsatz + Panel AuthZ (B280/B285) + AAA separation (B056).
+- Validierung:
+  Versuche eines USER-Write müssen fail-closed + auditiert sein (Reason/Outcome Normen).
+
+WP-005 — Apply/Reconcile ist die einzige SQL→Kernel Brücke (MUST)
+- Ziel:
+  nft/tc/DNS Enforcement entsteht ausschließlich durch SYSTEM Apply/Reconcile (deterministisch).
+- Delta/Anker:
+  B166/B167; keine manuellen Hotfixes in kernel state ohne Trace.
+- Validierung:
+  Apply-Trace + /diag expected-vs-effective; idempotent Re-Run erzeugt keinen Drift.
+
+WP-006 — Audit-Minimum für Registry/Resolver Events (MUST)
+- Ziel:
+  Jede relevante Registry/Resolver Aktion ist auditierbar (ohne value-leak).
+- Delta/Anker:
+  DOC-SET-REGISTRY (Reason/diag Felder) + Audit-Minimalfelder (actor, key_id, before/after hash, timestamp, reason_code).
+- Validierung:
+  Audit-Stream/Log zeigt Events; keine stillen Auto-Fixes ohne Event.
+
+----------------------------------------------------------------------
+5) Violation Handling / Actions (nur deterministische Aktionen)
+----------------------------------------------------------------------
+
+VH-001 — ALIAS_WRITE_ATTEMPT
+- Problem:
+  Writer versucht Alias statt Canonical zu schreiben → Split-Brain Risiko.
+- Action (MUST):
+  reject/fail-closed + Audit Event ALIAS_WRITE_ATTEMPT + Counter increment.
+- Observability:
+  /diag.settings_registry.summary.alias_write_attempts
+  (Optional detail fields in DOC-SET-REGISTRY: last_violation, violating_writer_component)
+
+VH-002 — CONFLICT_DETECTED (alias+canonical divergence)
+- Action (MUST):
+  canonical gewinnt als effective; alias quarantined (nur Diagnose/Audit); keine stille Fusion.
+- Observability:
+  /diag.settings_registry.state=CONFLICT
+  /diag.settings_registry.top_conflicts[]
+  Audit: CONFLICT_DETECTED
+
+VH-003 — BACKEND/DB-State Unsicherheit (DB_UNKNOWN)
+- Action (MUST):
+  fail-closed für Policy-Changes; Apply muss deterministisch degradieren; keine “ban on backend error”.
+- Observability:
+  DB_STATE / DB_UNKNOWN Gründe gemäß B052 + Ausgabe in /diag (B270)
+
+----------------------------------------------------------------------
+6) Version / Changelog
+----------------------------------------------------------------------
+
+Changelog:
+- 2026-01-29: v1.1 — Befüllt: Input-Sources (Kanon+Doc-Sets), Matrix-Legende, Writer-Matrix Inventory (WM-001..WM-014), Write-Path-Contract Regeln (WP-001..WP-006), Violation Handling (ALIAS_WRITE_ATTEMPT/CONFLICT/DB_UNKNOWN) + Observability-Verweise (PR-PFX-005/006, /diag Felder).
+- 2026-01-29: v1.0 — NEW FILE: Doc-Set Skeleton angelegt (WRITEPATH Container; Matrix-Schema + Sections; noch ohne Befüllung).

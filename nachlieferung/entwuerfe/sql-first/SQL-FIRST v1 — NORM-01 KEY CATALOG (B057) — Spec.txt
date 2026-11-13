@@ -1,0 +1,151 @@
+xp-vpn-stack/entwuerfe/sql-first/SQL-FIRST v1 — NORM-01 KEY CATALOG (B057) — Spec.txt
+================================================================================
+TITLE: NORM-01 — Settings Key Catalog (SQL-first) — Katalog/Scopes/Validation/Fail-Class
+DOC-ID: SQLF-NORM-01
+STATUS: ENTWURF (Phase 3) — NORMATIV (innerhalb Entwurf)
+VERSION: v0.4
+DATUM: 2026-01-28 (Europe/Zurich)
+
+SCOPE:
+- Definiert den kanonischen “Key Contract”: Was ein Key ist, wie er typisiert/validiert wird,
+  welche Scopes existieren, welche Fail-Class gilt.
+- Kein Code, keine SQL-DDL-Blöcke (nur Contract).
+
+REFERENZEN (Kanon):
+- blocks/B057_SETTINGS_PARAMETER_CANON_SQLFIRST_MAGIC_GUARD.txt
+- blocks/B055_DB_SCHEMA_CORE.txt
+- blocks/B052_DB_OUTAGE_CONTRACT.txt
+- blocks/B270_DIAG_ENDPOINT.txt
+- decisions/D002 (SQL-first AAA ab Tag 1)
+
+================================================================================
+N-01.1 Begriffe
+================================================================================
+- “Key” = policy-relevanter Parametername, eindeutig (canonical name), stable.
+- “Catalog” = settings_catalog: Definitionen + Validatoren + Fail-Class.
+- “Scoped Value Tables”:
+  • settings_global      (Default/Baseline)
+  • settings_customer    (Override pro Kunde/Account)
+  • settings_connection  (Override pro vpn_connection / Subaccount)
+
+================================================================================
+N-01.2 Scope-Modell (MUST)
+================================================================================
+MUST Scopes (wie B057):
+- GLOBAL:     genau 1 Wert pro key (Baseline)
+- CUSTOMER:   genau 0..1 Wert pro (customer_id, key)
+- CONNECTION: genau 0..1 Wert pro (vpn_connection_id, key)
+
+Override-Whitelist:
+- Ein Key MUSS im Katalog definieren, welche Scopes überhaupt überschreiben dürfen.
+- Override für nicht-overridebaren Key => Hard Fail + Audit-Event (B057).
+
+================================================================================
+N-01.3 settings_catalog Contract (MUST)
+================================================================================
+Jeder Key im settings_catalog muss mindestens enthalten:
+
+(1) Identität
+- key (canonical, stable, unique)
+- key_family (z.B. vpn_qos_, peak_profile_, dns_force_, log_retention_)
+- key_prefix (Namespace: web_/vpn_/peak_/radius_/settings_/log_/spool_)
+
+(2) Typ/Constraints (Validation ist Pflicht)
+- value_type (bool/int/float/string/enum/json)
+- constraints:
+  - min/max (numerisch)
+  - allowed_values (enum)
+  - regex/pattern (string)
+  - json_schema (wenn json)
+- unit (z.B. seconds, ms, bps, bytes, pct)
+
+(3) Mutability / Safety
+- mutability_class: immutable | admin_only | customer_allowed
+- change_guard: tighten_only | allow_loosen | deny_changes_while_active
+  (Hinweis: genaue Semantik wird pro Domain im Consumer-Contract konkretisiert, aber der Katalog muss
+   mindestens markieren, ob loosening grundsätzlich erlaubt ist.)
+
+(4) Override-Regel
+- allowed_override_scopes: subset of GLOBAL/CUSTOMER/CONNECTION
+- precedence_order ist fix: CONNECTION > CUSTOMER > GLOBAL
+
+(5) Fail-Class (Policy-Verhalten bei Missing/Invalid/DB_UNKNOWN)
+- fail_class: fail_closed | fallback_baseline | fallback_last_known | tighten_only
+- expected_reason_code_on_fail: Reason Registry (NORM-04)
+
+(6) Dokumentation / Panel-Text (PFLICHT)
+- title_short (1 Zeile)
+- description (Meaning/Impact)
+- examples (optional, aber empfohlen)
+- linked_consumers (Liste: welche Domains/Blöcke konsumieren)
+
+================================================================================
+N-01.4 Key State Machine (MUST, für jedes Effective-Resolution Ergebnis)
+================================================================================
+Für jeden konsumierten Key muss der Resolver (normativ NORM-02) eine key_state liefern:
+
+- OK: value valid, effective_value derived, effective_source known.
+- MISSING: required key fehlt im gewählten Scope UND kein zulässiger Fallback existiert.
+- INVALID: value vorhanden, aber verletzt value_type/constraints.
+- FALLBACK_ACTIVE: value invalid/missing, aber Fail-Class erlaubt definierten fallback; fallback wurde genutzt.
+- DB_UNKNOWN: Datenquelle nicht verlässlich (DB_DOWN/timeout/consistency fail) => Fail-Class entscheidet.
+
+================================================================================
+N-01.5 SQL-first Magic-Guard (MUST)
+================================================================================
+- Kein Consumer darf stille Defaults verwenden.
+- Wenn ein Consumer einen Parameter braucht, muss er als Key im catalog existieren
+  und in den Required-Key-Sets (NORM-06) der Phase auftauchen.
+- DOC-SET-001-EXT (später Gate) muss “Consumer referenced key not in catalog” als Failure markieren.
+
+================================================================================
+N-01.6 Validierung (DoD, referenziert B310)
+================================================================================
+Minimaler Nachweis für N-01:
+- B310-SQLF-CAT-001: “Alle required keys existieren im catalog” (completeness)
+- B310-SQLF-CAT-002: “Type/Range validation” (invalid => INVALID)
+- B310-SQLF-CAT-003: “Override scope enforcement” (forbidden override => reject + reason)
+- B310-SQLF-CAT-004: “Fail-Class mapping” (missing/invalid/db_unknown => expected fail map)
+
+(Details: NORM-07 B310 Proof Plan)
+
+================================================================================
+N-01.6 Key-Harvest v1 (Non-Time Keys) — Ergänzungsbedarf zum B057-Startset
+================================================================================
+Kanon-Fundstellen (Harvestergebnis, siehe SQLF-HARVEST-01):
+- B061 nennt Pool-Ampel Thresholds als Settings (SQL-first): ip_pool_green_threshold / ip_pool_red_threshold.
+- B330 nennt Logging/Retention + Cache als SQL-first Keys: log_* / spool_* / settings_cache_ttl_seconds.
+
+NORMATIVE INTENTION (Delta, ohne Patch):
+- Diese Keys werden als Canonical Keys MIT Präfixen in settings_catalog aufgenommen (NORM-02 Prefix-Norm).
+- Unpräfixierte Legacy-Namen gelten als Alias und müssen vom Alias-Resolver gemappt werden.
+
+Canonical Keys (v1 Harvest) — vorgeschlagene Canonical-Namen:
+- web_ip_pool_green_threshold
+- web_ip_pool_red_threshold
+- web_log_detailed_retention_days
+- web_log_detailed_max_total_bytes
+- web_log_aggregate_retention_months
+- web_spool_retention_days
+- web_spool_max_total_bytes
+- web_settings_cache_ttl_seconds
+
+MINIMAL CONTRACT (Draft, solange Details nicht final):
+- type: INT, range: >=0 (alle oben)
+- scope_default: GLOBAL, allowed_override_scope: NONE (vorläufig, bis Customer/Conn Override explizit gewollt ist)
+- fail_class (vorläufig): FAIL_SAFE_HARDCAP, direction=TIGHTEN_ONLY, failsafe=0
+  Hinweis: Für UI-only Keys (Pool-Ampel) kann statt failsafe=0 auch 'UNKNOWN state' als UI-Policy definiert werden (NORM-05/Diag).
+
+B310-Pflichtbezug:
+- B310-SQLF-CAT-001..004 müssen diese 8 Keys wie jeden required Key abdecken (presence/validation/alias/expected-fail).
+
+================================================================================
+CHANGELOG
+================================================================================
+v0.3 (2026-01-28): CATALOG-ADDENDUM Referenz ergänzt (SQLF-CATADD-01).
+
+v0.2 (2026-01-28): N-01.6 ergänzt: Key-Harvest v1 (8 Keys) + Canonical-Prefix Intention.
+
+v0.1 (2026-01-28): NORM-01 initialer Katalog-Contract (Scopes, Pflichtfelder, Fail-Class, Key-State Machine, Magic-Guard, DoD).
+
+[REF] SQLF-OWNER-FIX-KH-DEFAULTS: Defaults/Bounds CANDIDATE für 8 KH-Keys (OPEN bis Owner FIX).

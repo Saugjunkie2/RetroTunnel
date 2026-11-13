@@ -1,0 +1,351 @@
+# SQL-FIRST v1 — DOC-SET-PR-PFX v1 — Prefix Ruleset (PR-PFX-00x + Bridge)
+# Version: v1.3
+# Status: ENTWURF (Doc-Set Container)
+# Zweck: Inventar/SoT für PR-PFX-001..009 Regeln + Allowlist v1 + Bridge Cases (B310 Impact-Kopplung).
+
+----------------------------------------------------------------------
+0) Scope / Regeln (Doc-Set-Container)
+----------------------------------------------------------------------
+
+- Dieses Dokument enthält die vollständigen PR-PFX-Regeln als DOC-SET-Inventar.
+- NORM-02 bleibt normativ/kurz und verweist auf dieses DOC-SET für die kompletten Regelblöcke.
+- Patch-Runde 2: Befüllung aus HARVEST (PR-PFX-001..009 + Bridge Cases) — ohne Chatverlauf-Referenzen/Zeilenanker als Abhängigkeit.
+
+----------------------------------------------------------------------
+1) Input-Sources (nur innerhalb Entwurf; keine Chatverlauf-Abhängigkeit)
+----------------------------------------------------------------------
+
+- HARVEST-Output: PR-PFX-001..009 (Regeldefinitionen)
+- HARVEST-Output: PR-PFX Bridge Cases (B310/Impact-Kopplung)
+
+----------------------------------------------------------------------
+2) Allowlist v1 (kanonisch)
+----------------------------------------------------------------------
+
+- Prefix Allowlist v1 (entscheidet): vpn_, web_, peak_, radius_, settings_, log_, spool_
+
+- Allowlist (je Prefix eine Zeile):
+  - vpn_
+  - web_
+  - peak_
+  - radius_
+  - settings_
+  - log_
+  - spool_
+
+----------------------------------------------------------------------
+3) PR-PFX Ruleset (PR-PFX-001..009) — Kanon
+----------------------------------------------------------------------
+[PR-PFX-001]
+PR-PFX-001 — Canonical Keyform Enforcement (B057-Norm)
+
+    Ziel: Kein canonical Key verletzt lower_snake_case (keine Punkte, keine Großbuchstaben, keine Illegal-Chars).
+
+    Scope: Alle settings_catalog.canonical_key und alle aktiven Key-Namen, die als canonical markiert sind.
+
+    Trigger:
+
+        bei Build/CI (DOC-SET Harvest)
+
+        beim Registry-Load (webpanel startup)
+
+    Validierung:
+
+        PASS: regex ^[a-z0-9_]+$ und beginnt mit Prefix-Allowlist
+
+        FAIL: alles andere ⇒ MIGRATION_REQUIRED oder DRIFT (siehe PR-PFX-003)
+
+    Fehlerklassifikation:
+
+        MIGRATION_REQUIRED: canonical enthält “.” oder “-” oder Großbuchstaben
+
+        DRIFT: canonical verletzt form, aber kein Migrationspfad definiert
+
+    Konsequenz:
+
+        Fail-Closed für PH1-Keysets (PH1 darf nicht starten, wenn keyform broken ist)
+
+    Gates:
+
+        CI: B310 Gate (Proof Plan)
+
+        Runtime: Registry-Load Gate
+
+    Notes / Peak-Relevanz:
+
+        Peak darf keine “zweite Key-Sprache” bekommen; sonst driftet Peak weg vom SQL-first.
+
+[PR-PFX-002]
+PR-PFX-002 — Prefix Allowlist Enforcement (B057-Norm)
+
+    Ziel: Jeder canonical key beginnt mit einem erlaubten Prefix (Allowlist v1).
+
+    Scope: Alle canonical Keys im Registry-Katalog.
+
+    Allowlist v1 (entscheidet): vpn_, web_, peak_, radius_, settings_, log_, spool_
+
+    Trigger: Build/CI + Registry-Load.
+
+    Validierung:
+
+        PASS: Jeder canonical key beginnt mit einem dieser Präfixe.
+
+        FAIL: canonical key beginnt mit anderem Präfix (oder ohne Präfix).
+
+    Fehlerklassifikation:
+
+        DRIFT: Prefix-Policy violation (Hard-Drift)
+
+    Konsequenz:
+
+        Fail-Closed für PH1 (weil Key-Namespace sonst nicht deterministisch)
+
+[PR-PFX-003]
+PR-PFX-003 — Dot-Key Detection ⇒ Migration Required
+
+    Ziel: Punkt-Keys (“foo.bar”) sind Legacy/Pre-SQL-first und müssen als Migration sichtbar werden.
+
+    Trigger: Key enthält “.” oder “/” oder “:” (nicht-underscore separators)
+
+    Ergebnis: MIGRATION_REQUIRED
+
+    Notes: Dot-Keys dürfen nicht “still” weiterleben.
+
+[PR-PFX-004]
+PR-PFX-004 — Canonical-First Resolution
+
+    Ziel: Canonical ist die einzige Quelle; alias ist nur “read bridge”.
+
+    Rule: Resolve(name) → canonical_key (wenn alias match) → canonical_key
+
+    Fail: wenn alias auf mehrere canonicals zeigen kann ⇒ CONFLICT (PR-PFX-006)
+
+[PR-PFX-005]
+PR-PFX-005 — No-Alias-Write
+
+    Ziel: Writer dürfen niemals alias keys schreiben.
+
+    Rule: Writes nur auf canonical_key.
+
+    Fail: alias_write_attempt ⇒ CONFLICT (Split-SoT) / sichtbar in /diag.
+
+[PR-PFX-006]
+PR-PFX-006 — Conflict Detection (Alias + Canonical Divergence)
+
+    Ziel: Wenn alias und canonical beide existieren und Werte abweichen, muss das als Konflikt sichtbar werden.
+
+    Trigger: canonical exists AND alias exists AND value(alias) != value(canonical)
+
+    Ergebnis: REG_CONFLICT (Registry State) + /diag top_conflicts
+
+    Konsequenz: Domain-abhängig blockierend (Peak/QoS darf nicht “blind” weiter)
+
+[PR-PFX-007]
+PR-PFX-007 — Lifecycle-Enforcement under vpn_
+
+    Ziel: Lifecycle Keys gehören unter vpn_ (nicht frei flottierend).
+
+    Beispiel: janitor / online-window / claim / session control
+
+    Fail: falsches Prefix ⇒ DRIFT
+
+[PR-PFX-008]
+PR-PFX-008 — Peak Profile Key Baseline (vpn_profile_bandwidth_bps)
+
+    Ziel: Peak/QoS braucht einen canonical baseline key, sonst driftet QoS/Peak in Sonderpfade.
+
+    Key: vpn_profile_bandwidth_bps (Baseline)
+
+    Fail: fehlt oder falscher Typ/Unit ⇒ MIGRATION_REQUIRED oder FAIL_CLOSED (PH2)
+
+[PR-PFX-009]
+PR-PFX-009 — Prefix Set Published & Panel-Readable
+
+    Ziel: Prefix-Katalog muss im Panel lesbar sein; Drift sichtbar.
+
+    Fehlerklassifikation: DRIFT (Dokumentationsdrift)
+
+    Prefix Summary: aus Allowlist v1 (vpn_, web_, peak_, radius_, settings_, log_, spool_) + Semantik.
+
+    Output: “Prefix Catalog” (Doc-Set).
+
+    Registry-State/Mapping:
+
+        MIGRATION_REQUIRED: PR-PFX-001, PR-PFX-003
+
+        DRIFT: PR-PFX-002, PR-PFX-007, PR-PFX-008, PR-PFX-009
+
+Peak-Integration-Blocker-Hinweis (direkter Bezug)
+
+Für „Peak integrieren“ sind als harte Vorbedingungen (aus diesen Proofs) mindestens grün:
+
+    PR-PFX-001 (canonical keyform)
+
+    PR-PFX-002 (prefix allowlist)
+
+    PR-PFX-004 (canonical-first)
+
+    PR-PFX-005 (no-alias-write)
+
+    PR-PFX-006 (conflict detection)
+
+    PR-PFX-008 (profile key baseline)
+
+----------------------------------------------------------------------
+4) Bridge Cases (B310 / Impact-Kopplung) — Kanon
+----------------------------------------------------------------------
+[BC-01]
+BC-01 (PR-PFX-005) — No-Alias-Write (Split-Brain Prevention)
+Impact Case IC-002 — Daemon/Writer kann alias schreiben (Split-SoT)
+
+    Trigger: write auf alias key (legacy) statt canonical
+
+    Consumer: Daemons + Panel (PH1/PH5/PH6)
+
+    Fail-Semantik: CONFLICT (weil Resolver nicht mehr deterministisch)
+
+    State/Flag: alias_write_attempt + ggf. CONFLICT wenn parallel canonical existiert
+
+    /diag: alias_write_attempts
+
+    B310: PR-PFX-005
+
+[BC-02]
+BC-02 (PR-PFX-006) — Conflict Detection (Alias + Canonical Divergence)
+Impact Case IC-004 — Profil-Konflikt unentdeckt (canonical vs alias value diverge)
+
+    Trigger: canonical + alias beide existieren und unterscheiden sich
+
+    Consumer: Peak + QoS + Panel (PH2/PH5)
+
+    Fail-Semantik: CONFLICT (muss sichtbar + blockierend je nach Domain)
+
+    State/Flag: settings_registry.state=REG_CONFLICT + top_conflicts count
+
+    /diag: top_conflicts
+
+    B310: PR-PFX-006
+
+[BC-03]
+BC-03 (PR-PFX-004) — Canonical-First verletzt (Alias gewinnt)
+Impact Case IC-006 — Resolver nicht deterministisch / falscher Key gewinnt
+
+    Trigger: Resolver liefert alias statt canonical
+
+    Consumer: Panel + Daemons (PH1/PH5/PH6)
+
+    Fail-Semantik: FAIL (Determinismus gebrochen)
+
+    B310: PR-PFX-004
+
+[BC-04]
+BC-04 (PR-PFX-003) — Dot-Key Detection (Legacy Keyspace)
+Impact Case IC-007 — Dot-Key lebt weiter (Migration unsichtbar)
+
+    Trigger: Key enthält Punkt “.”
+
+    Consumer: Panel + CI (PH1/PH5)
+
+    Fail-Semantik: MIGRATION_REQUIRED
+
+    B310: PR-PFX-003
+
+[BC-05]
+BC-05 (PR-PFX-002) — Prefix Allowlist verletzt
+Impact Case IC-008 — unbekanntes Präfix
+
+    Trigger: canonical prefix nicht in Allowlist
+
+    Consumer: CI + Panel (PH1/PH5)
+
+    Fail-Semantik: DRIFT
+
+    B310: PR-PFX-002
+
+[BC-06]
+BC-06 (PR-PFX-001) — Canonical Keyform verletzt
+Impact Case IC-009 — illegaler canonical key
+
+    Trigger: canonical key verletzt snake_case
+
+    Consumer: CI + Panel (PH1/PH5)
+
+    Fail-Semantik: MIGRATION_REQUIRED / DRIFT (je nach Pattern)
+
+    B310: PR-PFX-001
+
+[BC-07]
+BC-07 (PR-PFX-007) — Lifecycle Keys nicht unter vpn_
+Impact Case IC-010 — Lifecycle driftet in “freie” Keys
+
+    Trigger: janitor/claim/online-window außerhalb vpn_
+
+    Consumer: PH1 + Panel
+
+    Fail-Semantik: DRIFT
+
+    B310: PR-PFX-007
+
+[BC-08]
+BC-08 (PR-PFX-008) — Peak Profile baseline fehlt
+Impact Case IC-011 — Peak/QoS ohne baseline key
+
+    Trigger: vpn_profile_bandwidth_bps fehlt / falscher Typ
+
+    Consumer: PH2 + Panel
+
+    Fail-Semantik: FAIL_CLOSED (PH2 darf nicht starten)
+
+    B310: PR-PFX-008
+
+[BC-09]
+BC-09 (PR-PFX-009) — Prefix-Katalog nicht publiziert/lesbar
+Impact Case IC-012 — Panel kann Prefix-Drift nicht anzeigen
+
+    Trigger: Prefix Summary fehlt / nicht synchron
+
+    Consumer: PH5/PH6 (Operability)
+
+    Fail-Semantik: DRIFT
+
+    B310: PR-PFX-009
+
+Impact-Summary (Consumer-Folgen)
+
+    IC-002 (Daemon alias-write möglich)
+
+    IC-004 (Profil-Konflikt unentdeckt)
+
+    IC-006 (Resolver nicht deterministisch)
+
+    IC-007 (Dot-Key Migration unsichtbar)
+
+    IC-008 (unbekanntes Präfix)
+
+    IC-009 (illegaler canonical key)
+
+    IC-010 (Lifecycle driftet)
+
+    IC-011 (Peak baseline fehlt)
+
+    IC-012 (Prefix-Katalog fehlt)
+
+B310 Mapping Summary (dedupliziert; stabile Reihenfolge)
+
+    B310: PR-PFX-001/002/003/004/005/006/007/008/009
+
+----------------------------------------------------------------------
+5) Peak Prerequisites (Platzhalter)
+----------------------------------------------------------------------
+
+- (Platzhalter: Liste der “harten Vorbedingungen” aus HARVEST wird in Runde 2 übernommen.)
+
+----------------------------------------------------------------------
+6) Version / Changelog
+----------------------------------------------------------------------
+
+Changelog:
+- 2026-01-29: v1.3 — Redaktion: “B310 Mapping Summary” dedupliziert und in stabile Einzeiler-Form gebracht (Noise/Drift reduziert; keine Semantikänderung).
+- 2026-01-29: v1.2 — Re-Import aus HARVEST: PR-PFX-001..009 vollständig + Bridge Cases BC-01..BC-09 vollständig; /diag in BC-02 korrigiert auf top_conflicts (harvest-exakt).
+- 2026-01-29: v1.1 — HARVEST übernommen: Allowlist v1 + PR-PFX-001..009 + Bridge Cases in Sections 2–4; Chatverlauf-Referenzen/Zeilenanker entfernt (nur Regelinhalt).
+- 2026-01-29: v1.0 — NEW FILE: Doc-Set Skeleton angelegt (PR-PFX Container; Sections + Struktur; noch ohne Befüllung).

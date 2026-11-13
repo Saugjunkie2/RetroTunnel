@@ -1,0 +1,201 @@
+SQL-FIRST v1 — KH B310 GATE WORDING v1 (KH-006/007/008) + CI-Gates v1.txt
+================================================================================
+TITLE: SQL-first — KH B310 Gate Wording (CI-ready)
+DOC-ID: SQLF-KH-B310-GATE-01
+STATUS: ENTWURF (Phase 3) — CI-Gate-Formulierung, ohne Implementierungsdetails
+VERSION: v0.5
+DATUM: 2026-01-28 (Europe/Zurich)
+
+VORAUSSETZUNG:
+- KH Canonical Keys existieren (settings_catalog) und KH-EXFAIL ist gelockt unter DET-REC-01:
+  • SQLF-KH-EXFAIL-01 Abschnitt F (DET-REC-01 Lock)
+  • SQLF-KH-DET-FIXAPPLY-01 (Recommended Pack) — wenn Owner-FIX gesetzt
+- Reason-Strings sind ggf. noch nicht final; daher basiert das Gate auf:
+  • validation_state / source / reason_class (nicht finaler string)
+
+================================================================================
+A) Gate-Ziel: Was soll CI “hart” verhindern?
+================================================================================
+A1) Peak-/Policy-Module sollen nie mit “SQL-Sand” laufen:
+- Wenn required keys fehlen/invalid/Relation bricht → CI muss das als “nicht releasefähig” markieren.
+
+A2) Disk-Safety muss beweisbar sein:
+- Logging/Spool Budgets dürfen niemals unbounded werden (tighten-only / cap / fallback).
+
+================================================================================
+B) B310 Gate Wording — KH-006 / KH-007 / KH-008 (CI-Ready)
+================================================================================
+
+B310-SQLF-KH-006 (BOUNDS VALIDATION GATE)
+-----------------------------------------
+Gate-Name (CI): CI-SQLF-KH-006-BOUNDS
+Scope:
+- Canonical Keys:
+  • web_ip_pool_green_threshold
+  • web_ip_pool_red_threshold
+  • web_settings_cache_ttl_seconds
+  • web_log_detailed_retention_days
+  • web_log_detailed_max_total_bytes
+  • web_log_aggregate_retention_months
+  • web_spool_retention_days
+  • web_spool_max_total_bytes
+
+Requirement (MUST PASS):
+- Für jeden Key existiert /diag trace (DIAG-KH-TRACE-001).
+- validation_state muss unter Normalwerten OK sein.
+- Bei absichtlich injizierten invalid inputs muss:
+  • validation_state=INVALID (oder RELATION_INVALID für relation cases)
+  • effective_value muss SAFE sein (DEFAULT/FALLBACK oder CAPPED), niemals “invalid passthrough”.
+
+Fail Conditions (MUST FAIL CI):
+- missing trace for any key
+- invalid passthrough: effective_value == invalid input
+- unbounded: effective_value fehlt/None wo numeric required ist
+- source undefined / validation_state missing
+
+Proof Inputs (Expected-Fail suite):
+- KH-EXFAIL-010/011/020/021/041 (siehe SQLF-KH-EXFAIL-01)
+
+B310-SQLF-KH-007 (RELATION red<green GATE)
+-----------------------------------------
+Gate-Name (CI): CI-SQLF-KH-007-RELATION
+Requirement (MUST PASS):
+- Relation: web_ip_pool_red_threshold < web_ip_pool_green_threshold
+- Bei injiziertem red >= green muss:
+  • validation_state=INVALID (oder RELATION_INVALID)
+  • reasons include reason_class SETTINGS_RELATION
+  • /diag trace exists for BOTH keys and flags the relation failure.
+
+Fail Conditions (MUST FAIL CI):
+- relation violation does NOT trigger invalid
+- only one key shows relation failure
+- missing reason_class SETTINGS_RELATION
+
+Proof Inputs:
+- KH-EXFAIL-030
+
+B310-SQLF-KH-008 (CAP / TIGHTEN-ONLY SAFETY GATE)
+-------------------------------------------------
+Gate-Name (CI): CI-SQLF-KH-008-CAP-SAFETY
+Interpretation:
+- Dieser Gate ist nur “hart” CI-fähig unter DET-REC-01 Lock:
+  • strict-fail + safe fallback
+  • cap active for budget keys
+
+Requirement (MUST PASS) under DET-REC-01:
+- Für Budget/TTL Keys (siehe DET-REC-01):
+  • wenn SQL value > cap → effective_value=cap_value
+  • source=CAPPED und reasons include SETTINGS_CAPPED
+- Bei invalid budgets (0/neg/overflow):
+  • validation_state=INVALID
+  • effective_value SAFE (DEFAULT/FALLBACK oder CAPPED)
+- “tighten-only” invariant:
+  • effective_value darf nie “looser” sein als baseline safe bounds
+  (hier muss in späterer Norm definiert sein, was “looser” exakt heißt; Gate prüft mindestens: not unlimited/not higher than cap)
+
+Fail Conditions (MUST FAIL CI):
+- cap not applied when over cap
+- missing CAPPED source when cap applied
+- invalid budgets lead to unlimited/no-limit effective behaviour
+- missing reasons class SETTINGS_CAPPED on cap events
+
+Proof Inputs:
+- KH-EXFAIL-011/040/041
+
+================================================================================
+C) CI-Gate Zuordnung (welche Pipeline stoppt was?)
+================================================================================
+Da das Konzept CI-IDs bereits nutzt (CI-001/003/004/005 etc.), ist diese Zuordnung als ENTWURF:
+- CI-001 (Schema/Key-Completeness): bindet KH-006 Presence/Trace Teil
+- CI-003 (Settings Validation): bindet KH-006 Bounds + invalid passthrough
+- CI-004 (Relation/Invariant): bindet KH-007
+- CI-005 (Safety/Resource): bindet KH-008
+
+Hinweis:
+- Wenn CI-IDs im Kanon anders heißen, muss nur das Mapping angepasst werden; Gate-Wording bleibt.
+
+================================================================================
+D) /diag Minimalfelder (Gate-Input Contract)
+================================================================================
+Für CI-Auswertung werden als Minimum gelesen:
+- settings.trace[canonical_key].validation_state
+- settings.trace[canonical_key].effective_value
+- settings.trace[canonical_key].source
+- settings.trace[canonical_key].reasons[] (als reason_class)
+- optional: settings_state (OK/DEGRADED/UNKNOWN)
+
+================================================================================
+E) OPEN (bewusst)
+================================================================================
+E1) “Looser”-Definition (geschlossen durch SQLF-KH-LOOSER-DEF-01):
+- Für KH-008 muss “looser” formal definiert werden (z.B. higher bytes/retention, longer TTL).
+- Bis dahin prüft Gate minimal: not unlimited + cap applied + safe fallback.
+
+E2) Reason-String final:
+- Gate nutzt reason_class, bis NORM-04 EXT finalisiert ist.
+
+================================================================================
+CHANGELOG
+================================================================================
+2026-01-28: v0.1 initial: CI-ready Gate-Wording für B310 KH-006/007/008 + CI-Mapping.
+
+
+================================================================================
+F) KH-008 “Looser”-Addendum
+================================================================================
+Artefakt:
+- SQLF-KH-LOOSER-DEF-01 “KH-008 LOOSER DEF v1”
+Nutzen:
+- Definiert Monotonie + Minimal-CI-Regeln, damit KH-008 Gate nicht nur “minimal checks” fährt.
+
+2026-01-28: v0.2 ergänzt: Verweis auf SQLF-KH-LOOSER-DEF-01 (formale 'looser' Regeln).
+
+
+================================================================================
+G) KH-008 Gate: SB (Safe Baseline) Requirement
+================================================================================
+- Für volle Deterministik des KH-008 Gates ist SB-Quelle normiert in:
+  • SQLF-KH-SB-NORM-01
+- Owner-FIX:
+  • DEC-SQLF-KH-SB-001 (MODEL_1/2/3)
+- CI Input Contract Ergänzung:
+  • settings.trace[key].safe_baseline_value
+  • settings.trace[key].sb_model
+
+2026-01-28: v0.3 ergänzt: SB Norm Ref + CI Input Contract Erweiterung (KH-008).
+
+
+================================================================================
+H) KH-008 ASSERTIONS (SB-aware) — Contract-Closed
+================================================================================
+Unter der Annahme, dass SB-Model FIX ist (DEC-SQLF-KH-SB-001; Recommended MODEL_1 via SQLF-KH-SB-FIXAPPLY-01):
+
+Für Keys aus B1–B3 (Budget/Retention/TTL):
+H1) INVALID/MISSING tighten-only:
+- Wenn validation_state != OK:
+  • assert effective_value <= safe_baseline_value
+  • assert safe_baseline_value ist gesetzt (numeric, finite)
+
+H2) CAP tighten-only:
+- Wenn source == CAPPED oder reasons include SETTINGS_CAPPED:
+  • assert effective_value <= cap_value (wenn cap_value als Feld existiert)
+  • mindestens: effective_value <= safe_baseline_value
+  • assert source == CAPPED (Consistency)
+
+H3) No-Unbounded:
+- In allen Fällen:
+  • effective_value muss numeric & finite sein (>=1) und darf nicht als “unlimited sentinel” durchrutschen.
+
+Hinweis:
+- cap_value Feld ist optional in v1; wenn nicht vorhanden, bleibt der Gate-Check auf EV<=SB + source/reasons.
+
+2026-01-28: v0.4 KH-008 Gate contract-closed: /diag SB-Felder als Minimum + SB-aware Assertions ergänzt.
+
+
+================================================================================
+I) /diag Trace Schema Reference
+================================================================================
+Für die objektgenaue Form von settings.trace siehe:
+- SQLF-DIAG-TRACE-01 “KH /diag TRACE SCHEMA v1 (settings.trace)”
+
+2026-01-28: v0.5 ergänzt: Verweis auf SQLF-DIAG-TRACE-01 (Trace Schema).

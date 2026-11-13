@@ -1,0 +1,142 @@
+xp-vpn-stack/entwuerfe/sql-first/SQL-FIRST v1 — NORM-04 REASON REGISTRY (SQL-first subset + EXT plan).txt
+================================================================================
+TITLE: NORM-04 — Reason Registry (SQL-first): Mapping für Missing/Invalid/DB_UNKNOWN/Drift → Reason-Codes (B342 kompatibel)
+DOC-ID: SQLF-NORM-04
+STATUS: ENTWURF (Phase 3) — NORMATIV (innerhalb Entwurf)
+VERSION: v0.2
+DATUM: 2026-01-29 (Europe/Zurich)
+
+SCOPE:
+- Definiert, welche Reason-Codes für SQL-first/Settings/Drift verwendet werden,
+  und wie sie auf B342 (kanonische Reason Registry) abgebildet werden.
+- Wichtig: B052 Drift-Guard fordert: “Jeder verwendete Reason-Code existiert in B342”.
+  Daher enthält diese Datei:
+  A) “EXISTING (B342)” — sofort nutzbar,
+  B) “EXT REQUIRED” — neue Codes, die B342 später erweitern muss (Blocker für Vollständigkeit).
+
+REFERENZEN:
+- blocks/B342_POLICY_OUTCOME_REASON_CODES_MATRIX.txt (kanonische Codes)
+- blocks/B052_DB_OUTAGE_CONTRACT.txt (DB_UNKNOWN behaves like DB_DOWN; observability detail)
+- blocks/B057_SETTINGS_PARAMETER_CANON_SQLFIRST_MAGIC_GUARD.txt
+- blocks/B270_DIAG_ENDPOINT.txt
+
+================================================================================
+A) EXISTING (B342) — verwendbar ohne B342-Patch
+================================================================================
+Diese Codes existieren in B342 und dürfen sofort referenziert werden:
+
+1) Backend / DB (B052 Outage)
+- R_AUTH_BACKEND_SQL_DOWN
+  • Semantik: SQL Connection down / DB_DOWN / DB_UNKNOWN (enforcement wie down)
+  • Outcome: DENY (laut B342)
+  • Usage: Wenn Resolver/AAA nicht sicher aus DB lesen kann.
+
+- R_AUTH_BACKEND_SQL_FAIL
+  • Semantik: SQL Query/Operation fail (inkl. timeout, transaction fail)
+  • Outcome: DENY (laut B342)
+  • Usage: Wenn DB erreichbar, aber Operation fehlschlägt.
+
+2) Panel/Onboarding/Ownership (Auszug)
+- R_PANEL_VERIFY_PENDING / R_PANEL_VERIFY_IN_PROGRESS
+- R_PANEL_CLAIM_REQUIRED
+- R_PANEL_CONNECTION_NOT_OWNED
+- R_CLAIM_REQUIRED / R_CLAIM_IP_MISMATCH
+(Anmerkung: Diese sind nicht primär “SQL-first reasons”, aber relevant, weil SQL-first im Panel verankert ist.)
+
+3) Policy Outcomes (Auszug)
+- R_POLICY_QUOTA_EXHAUSTED
+- R_POLICY_EXPIRY_PASSED
+- R_POLICY_MANUAL_RESTRICTED
+- R_POLICY_PREPROVISIONED_GRACE_ACTIVE
+
+================================================================================
+B) EXT REQUIRED — neue Reason-Codes, die B342 später enthalten MUSS
+================================================================================
+Warum: SQL-first benötigt Reason-Codes für “Configuration/Settings Contract” Fehler,
+die NICHT backend-outage sind.
+
+Diese Codes sind in B342 aktuell NICHT sichtbar (Stand ZIP). Damit gilt:
+- Solange EXT nicht im Kanon aufgenommen ist, müssen diese Fälle als “OPEN/Blocker” behandelt werden,
+  weil sonst B052 Drift-Guard verletzt wird (unknown reason -> drift).
+
+EXT-SQLF-001 (CONFIG_CATALOG_MISSING)
+- Proposed Code: R_CONFIG_CATALOG_MISSING
+- Wann: required key nicht im settings_catalog (DOC-SET completeness failure)
+- Outcome: INFO (Panel/CI) oder DENY (wenn key runtime-kritisch ist)
+- Hinweis: Outcome muss domain-spezifisch normiert werden (nicht alles darf DENY sein)
+
+EXT-SQLF-002 (CONFIG_KEY_MISSING_REQUIRED)
+- Proposed Code: R_CONFIG_KEY_MISSING_REQUIRED
+- Wann: required key existiert im catalog, aber effective resolution liefert MISSING
+- Outcome: je key.fail_class (NORM-01), oft DENY oder RESTRICT
+
+EXT-SQLF-003 (CONFIG_KEY_INVALID)
+- Proposed Code: R_CONFIG_KEY_INVALID
+- Wann: value verletzt type/range/validator
+- Outcome: je fail_class
+
+EXT-SQLF-004 (CONFIG_OVERRIDE_FORBIDDEN)
+- Proposed Code: R_CONFIG_OVERRIDE_FORBIDDEN
+- Wann: override scope nicht erlaubt (Whitelist) oder wrong mutability
+- Outcome: INFO (Audit) + DENY (wenn security relevant)
+
+EXT-SQLF-005 (CONFIG_ALIAS_DEPRECATED_USED)
+- Proposed Code: R_CONFIG_ALIAS_DEPRECATED_USED
+- Wann: alias resolve genutzt; canonical existiert; drift flag gesetzt
+- Outcome: INFO (Panel) (nicht DENY)
+
+EXT-SQLF-006 (CONFIG_DRIFT_REFERENCE_MISMATCH)
+- Proposed Code: R_CONFIG_DRIFT_REFERENCE_MISMATCH
+- Wann: DB value != reference file snapshot
+- Outcome: INFO; optional Repair-Workflow
+
+EXT-SQLF-007 (APPLY_TC_FAILED)
+- Proposed Code: R_APPLY_TC_FAILED
+- Wann: policy ok, aber tc apply/reconcile failed (runtime drift)
+- Outcome: INFO/RESTRICT (je Domain)
+
+EXT-SQLF-008 (APPLY_NFT_FAILED)
+- Proposed Code: R_APPLY_NFT_FAILED
+- Wann: policy ok, aber nft apply/reconcile failed (runtime drift)
+- Outcome: INFO/RESTRICT (je Domain)
+
+EXT-SQLF-009 (CONFIG_ALIAS_MAP_MISSING)
+- Proposed Code: R_CONFIG_ALIAS_MAP_MISSING
+- Wann: Alias key wird genutzt, aber Resolver kann Alias nicht deterministisch auf canonical mappen (Alias-Registry/Resolver-State fehlt oder ist inkonsistent).
+- Outcome: je key.fail_class (NORM-01), typischerweise DENY oder RESTRICT (weil Determinism gebrochen).
+
+EXT-SQLF-010 (CONFIG_FAILCLASS_VIOLATION)
+- Proposed Code: R_CONFIG_FAILCLASS_VIOLATION
+- Wann: Fail-Class-Regel verletzt (z.B. Mutability/Scope/Constraints), nicht nur “Override forbidden”.
+- Outcome: je fail_class; oft DENY wenn security-relevant, sonst RESTRICT/INFO.
+
+EXT-SQLF-011 (DIAG_CONTRACT_BREACH)
+- Proposed Code: R_DIAG_CONTRACT_BREACH
+- Wann: /diag settings-trace Contract verletzt Minimal-Contract (Pflichtfelder fehlen / falsche Feldnamen / unerwartete Struktur).
+- Outcome: CI/Gate FAIL (Observability-Contract), nicht als Runtime-DENY für User-Traffic zu missbrauchen.
+
+================================================================================
+C) Minimum-Reason-Set (für SQL-first Fundament) (MUST)
+================================================================================
+Bis EXT in B342 existiert, ist das echte Minimum:
+
+- R_AUTH_BACKEND_SQL_DOWN
+- R_AUTH_BACKEND_SQL_FAIL
+plus die vorhandenen Onboarding/Ownership Codes (falls die Flows genutzt werden).
+
+ABER: Für ein “wasserdichtes” SQL-first Fundament sind die EXT-Codes zwingend.
+Diese Datei markiert daher: EXT-SQLF-001..008 sind “Kanon-Lücke” und potentielle Blocker
+für PH5/PH6 / DOC-SET Gates.
+
+================================================================================
+D) Validierung / Proof (B310)
+================================================================================
+- B310-SQLF-REASON-001: Jeder SQL-first failure maps to an existing B342 code (oder flagged as EXT_REQUIRED).
+- B310-SQLF-REASON-002: No unknown reason strings (B052 Drift-Guard).
+- B310-SQLF-REASON-003: /diag outputs canonical reason_code + optional detail token (No-PII).
+
+================================================================================
+CHANGELOG
+================================================================================
+v0.2 (2026-01-29): EXT ergänzt/geschlossen: APPLY_NFT_FAILED vervollständigt; neue EXT REQUIRED Codes für Alias-Map-Missing, Failclass-Violation und /diag Contract Breach (für NORM-07 Expected-Fails + Proof-Closure).
+v0.1 (2026-01-28): NORM-04 initial: B342 existing mapping + EXT required reason-codes für SQL-first Contract/Drift/Apply-Fails.

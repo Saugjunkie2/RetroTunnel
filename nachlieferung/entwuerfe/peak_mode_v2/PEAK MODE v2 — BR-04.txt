@@ -1,0 +1,144 @@
+===============================
+PEAK MODE v2 — BR-04 VPN_bps (Global Throughput) — exakte Definition + Counter-Randfälle
+===============================
+Status: ENTWURF (Phase 3)
+Ziel: self-contained Spezifikation (ohne Alt-Peak-Dateien als Pflicht)
+Regeln: kein Patch, kein Copy-Code, kein tc/SQL Snippet; nur Contract + Delta-Intention + Validierung.
+
+
+0) Scope (MUST)
+- Dieses BR definiert ausschließlich die Messgröße “vpn_bps” (globaler VPN-Throughput) inkl. Interface-Set, Formel und Randfallbehandlung (Counters/Resets/Interface churn).
+- Anti-Scope: Keine Peak-Triggerlogik (SoftIRQ/CPU), keine Täter-Selektion, keine tc-Apply/Batches, keine DB-Tabellen (nur Flag-/Result-Contract).
+
+
+1) Kanon-Abgleich (MUST, drift-sicher)
+
+1.1 Imports (KANON-QUELLEN)
+- K-IMP-01: Peak-Mode_Was es ist, wie es funktioniert.txt → Abschnitt “4.2 VPN_bps aus sysfs ppp*”
+  - Importiert: Interface-Scan via /sys/class/net/ (ppp0..pppN), Summe rx_bytes+tx_bytes, Delta-Formel, Counter-Reset Handling.
+- K-IMP-02: Peak-Mode_CHECKLISTE.txt → BR-04 “VPN_bps — exakte Definition + Counter-Randfälle”
+  - Importiert: die 3 MUST-Fragen A/B/C und Output-Erwartung (Berechnung + Reset-Regel).
+- K-IMP-03: blocks/B167_WIRING_HOOKS_SYSTEMD.txt (indirekt) → “Sampler/Timer-basierter Rhythmus; kein Cron-Flick”
+  - Importiert: “Δt_seconds ist messbar (Zeitdifferenz zwischen Samples), nicht hardcoded im Messcontract”.
+- K-IMP-04: PEAK MODE v2 BR-03 (später) → liefert die Sampler-Cadence/Window-Definition (nur als Bezug, BR-04 bleibt cadence-agnostisch).
+
+1.2 Kanon-Anker (Wortlaut/Begriff)
+- “ppp* Interfaces”: alle Interfaces in /sys/class/net/, deren Name mit “ppp” beginnt und ein aktives Netz-Interface repräsentiert (ppp0..pppN).
+- “vpn_bps”: globaler Throughput über alle aktuellen ppp* Interfaces (Summe rx+tx), in Bit pro Sekunde.
+
+1.3 Konfliktcheck (MUST)
+- K-CONF-01: “Nur USER/ADMIN gemappte active Sessions zählen?” (BR-04A Frage) → Status: NONE
+  - Kanon (Was es ist) definiert explizit: Scan “alle Interfaces, die ppp heißen” (nicht mapping-basiert).
+- K-CONF-02: Interface churn zwischen Samples (kommt/geht) → Status: NONE
+  - Kanon benennt churn als Randfall und fordert Rescan genau deswegen.
+- K-CONF-03: Negative Delta (wrap/reset) → Status: NONE
+  - Kanon fordert: Δbytes<0 ⇒ setze Δbytes=0 + markiere counter_reset im Snapshot.
+
+
+2) Owner-Fixpunkte (MUST)
+- FP-BR04-01 (IFACE_SET): vpn_bps zählt über ALLE existierenden ppp* Interfaces (ppp0..pppN) via /sys/class/net/ — NICHT nur “gemappte USER/ADMIN active Sessions”.
+- FP-BR04-02 (BYTES_SUM): pro pppX wird rx_bytes + tx_bytes verwendet.
+- FP-BR04-03 (GLOBAL_SUM): sum_bytes_now = Σ_over_all_pppX (rx_bytes + tx_bytes).
+- FP-BR04-04 (DELTA): Δbytes = sum_bytes_now - sum_bytes_prev.
+- FP-BR04-05 (FORMULA): vpn_bps = (Δbytes * 8) / Δt_seconds.
+- FP-BR04-06 (NEG_DELTA_RULE): Wenn Δbytes < 0 ⇒ setze Δbytes = 0 und setze snapshot_flag = COUNTER_RESET (oder äquivalentes Flag; genaue Feldablage wird in BR-08/BR-08A gemappt).
+- FP-BR04-07 (THRESHOLD_REFERENCE): Falls vpn_bps als Threshold/Referenz genutzt wird, ist der Bezug GLOBAL (gesamter VPN-Throughput), nicht per-ppp.
+
+
+3) Contract (MUST, implementierbar ohne Raten)
+
+3.1 Inputs (MUST)
+- Input-01: Liste der Interfaces unter /sys/class/net/ (Runtime).
+- Input-02: Für jedes pppX: sysfs Counter rx_bytes und tx_bytes (kumuliert).
+- Input-03: sum_bytes_prev (vorheriger Sample-Stand; rein runtime, kein SoT-Shift).
+- Input-04: Δt_seconds (Zeitdifferenz zwischen zwei Samples; gemessen, nicht geraten).
+
+Constraints:
+- Rescan ist Pflicht pro Zyklus (keine Annahme, dass pppX Set konstant bleibt).
+- Keine Abhängigkeit von DB-/run-Mapping für die Definition von vpn_bps (Messung soll robust sein, auch wenn Mapping kurzfristig fehlt).
+
+3.2 Outputs (MUST)
+- Output-01: vpn_bps (float/int, aber semantisch “bps”) als globaler Throughput.
+- Output-02: delta_bytes (nach NEG_DELTA_RULE bereits korrigiert).
+- Output-03: snapshot_flag:
+  - NONE (Normalfall)
+  - COUNTER_RESET (wenn Δbytes < 0 korrigiert wurde)
+  - (optional) IFACE_CHURN (wenn Interface-Set sich geändert hat; nur wenn du das explizit willst, sonst weglassen)
+
+3.3 States / Transitions
+- BR-04 hat keine eigenen States; es liefert nur Messwerte/Flags.
+
+3.4 Enforcement-Punkte (MUST)
+- E-01: Rescan-Pflicht: vpn_bps wird nur aus aktueller sysfs Interface-Liste berechnet.
+- E-02: NEG_DELTA_RULE ist zwingend (keine negative Rate, kein “riesiger Spike” durch Wrap).
+
+3.5 Fehlerklassen / Resultcodes (BR-04-relevant)
+- ERR-BR04-SYSFS_UNREADABLE: /sys/class/net oder rx/tx Counter nicht lesbar → Messung FAIL/DEGRADED (genaue Klassifikation wird in BR-10/BR-09 Run-Result definiert).
+- ERR-BR04-DELTA_T_ZERO: Δt_seconds <= 0 → Sample ungültig; vpn_bps wird nicht berechnet (oder als 0) + anomaly-flag (muss v2 festlegen; falls nicht, OPEN).
+
+3.6 Idempotenz / Concurrency (MUST)
+- Idempotenz: Wiederholte Samples mit identischer sysfs-Lage sind konsistent (nur Δt/Δbytes bestimmen vpn_bps).
+- Concurrency: Messung ist read-only; kein Lock wie tc-write nötig (Lock nur für Apply in BR-09/BR-01).
+
+3.7 Resource/Retention
+- BR-04 selbst definiert keine Retention; die Speicherung (Snapshots) ist BR-08/BR-10.
+- Disk-Full Schutz wird in BR-10 geregelt (bounded logging).
+
+
+4) Fix-Intention + Delta-Beschreibung (MUST)
+- Ziel: vpn_bps ist eine eindeutig definierte, robuste, global gültige Messgröße (Σ ppp rx+tx), die auch bei Interface churn und Counter resets keine falschen Peaks erzeugt.
+- Delta:
+  - Festschreiben des Interface-Sets: “alle ppp* in sysfs”.
+  - Festschreiben der NEG_DELTA_RULE: negative Delta → 0 + COUNTER_RESET flag.
+  - Klarstellung: vpn_bps ist global (K1 global), wenn als Threshold/Referenz genutzt.
+- Grenzen/Constraints:
+  - Keine Abhängigkeit von /run mapping oder DB für die Messdefinition.
+  - Keine Magic-Defaults bei Δt<=0; Fehler wird als anomaly behandelt (siehe OPEN).
+- Validierung: siehe DoD/Tests.
+
+
+5) DoD / Tests / Validierung (MUST)
+
+T-01 Normalfall (stabile ppp* Menge)
+- Setup: ppp0..pppN existieren, Counter steigen.
+- Aktion: zwei Samples mit Δt_seconds > 0.
+- Erwartung: vpn_bps = (Δbytes*8)/Δt; snapshot_flag=NONE.
+- Nachweis: Messwerte reproduzierbar, keine negativen Rates.
+
+T-02 Interface churn (pppX kommt/geht)
+- Setup: Zwischen Sample A und B kommt ein pppX hinzu oder verschwindet.
+- Aktion: Rescan pro Zyklus.
+- Erwartung: Messung funktioniert weiterhin; keine Annahme über konstante N; vpn_bps bleibt definiert.
+- Nachweis: delta wird gegen die neue Summe gebildet; keine Exceptions/Crash.
+
+T-03 Counter reset / wrap (NEG_DELTA_RULE)
+- Setup: sum_bytes_now < sum_bytes_prev (simuliert reset/wrap).
+- Aktion: Sample-Berechnung.
+- Erwartung: Δbytes wird zu 0 gesetzt; vpn_bps wird 0 (oder entsprechend) und snapshot_flag=COUNTER_RESET.
+- Nachweis: kein negativer bps; Flag ist gesetzt; Anomalie ist sichtbar.
+
+T-04 Unlesbarer Counter (sysfs read fail)
+- Setup: Counter-Datei kurzfristig nicht lesbar.
+- Aktion: Sample.
+- Erwartung: Fehlerklasse ERR-BR04-SYSFS_UNREADABLE; Messung wird als ungültig markiert (kein “random value”).
+- Nachweis: Audit/Diag zeigt Fehlergrund.
+
+T-05 Δt_seconds <= 0 (Zeitbasisfehler)
+- Setup: clock issue oder doppelte timestamp.
+- Aktion: Sample.
+- Erwartung: definierte Behandlung (OPEN, muss in v2 entschieden werden); jedenfalls keine Division-by-zero/Crash.
+- Nachweis: anomaly sichtbar; System bleibt stabil.
+
+
+6) OPEN Items (MUST)
+- O-01: Handling Δt_seconds <= 0 (ERR-BR04-DELTA_T_ZERO):
+  - Option A: Sample verwerfen (kein vpn_bps update) + anomaly-flag
+  - Option B: vpn_bps=0 + anomaly-flag
+  - (Owner muss festzurren, damit Implementierung nicht rät.)
+- O-02: Optionales Flag IFACE_CHURN:
+  - Kanon fordert Rescan, aber nicht zwingend ein explizites Flag. v2 kann entscheiden, ob churn als Flag persistiert wird (nur wenn Nutzen für Debug/DoD).
+
+
+7) Änderungsprotokoll (v2-Entwurfsintern)
+- CHG-01: BR-04 v2 macht Interface-Set + Formel + NEG_DELTA_RULE self-contained (ohne Mapping-Abhängigkeit).
+- CHG-02: Offener Punkt Δt<=0 wird explizit als OPEN markiert (keine Annahme).

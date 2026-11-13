@@ -1,0 +1,179 @@
+PEAK MODE v2 — DECISION MATRIX (D-01..)
+Scope: Nur Peak-Mode v2 (ENTWURF / Phase 3). Keine Patchblöcke, kein Code.
+Regel: Jede Decision hat Status (FIX/OPEN), Owner-Wert, Fundstelle (Kanon/Peak-v1), Contract-Text (1–3 Sätze), DoD-Test.
+
+Legende Status:
+- FIX  = für v2 festgezurrt (Owner-Wert vorhanden; keine Ratevermutung nötig)
+- OPEN = v2 ist sonst nicht “geschlossen”; Owner-Wert/Regel fehlt (oder Kanon verweist nur auf Optionen)
+
+
+D-01 — FP-PEAK-01 MULTI-Schwelle (% Anteil Single Täter vs MULTI)
+STATUS: FIX
+Owner-Wert: 30%
+Fundstelle:
+- Peak-Mode_entscheidung.txt → Abschnitt „FP-PEAK-01 (A4 Schwelle ‚MULTI‘ vs Single Täter)“ (Frage/Antwortformat)
+Contract (v2):
+- Ein Client gilt als “Single Täter”, wenn sein Share am Gesamt-VPN-Traffic im Fenster ≥ 30% ist; sonst MULTI.
+DoD-Test:
+- Rechenprobe mit bekannten Shares (z.B. 29.9%→MULTI, 30.0%→Single) + Snapshot/Audit zeigt korrektes Label.
+
+
+D-02 — FP-PEAK-02 Top-N Täter (Peak-intern) — dynamisch + Latch pro Episode
+STATUS: FIX
+Owner-Wert (v2): Option B + Latch:
+- Wenn active_ppp(USER) <= 20  → Top-N = 3
+- Wenn 21..100                → Top-N = 5
+- Wenn > 100                  → Top-N = 10
+- Latch-Regel: N wird beim Episode-Start festgelegt und bleibt bis Episode-Ende konstant.
+Fundstelle:
+- Peak-Mode_entscheidung.txt → Abschnitt „FP-PEAK-02 (Top-N Täter …)“ (Owner-Wert gefordert, aber in v1 noch offen)
+- (Owner-Entscheid v2: diese Nachrichtkette; noch nicht in Dateien persistiert)
+Contract (v2):
+- Täterliste pro Episode nutzt gelatchtes Top-N gemäß active_ppp(USER) beim Episode-Start; N “wandert” nicht während der Episode.
+DoD-Test:
+- Szenario: Episode startet mit 18 USER-ppp → N=3. Während Episode steigt auf 40 → N bleibt 3. Audit/Snapshots zeigen N konstant.
+
+
+D-03 — BR-03A Aggregation SoftIRQ%: aggregated über alle CPUs (nicht max-per-CPU)
+STATUS: FIX
+Owner-Wert: aggregated (SUM/gesamt)
+Fundstelle:
+- Peak-Mode_CHECKLISTE.txt → BR-03 „Aggregation: Summe/avg/max (genau eins)“
+- Peak-Mode_TEIL2_BUILD_READY_CHECKLISTE.txt → BR-03 als OPEN (v1 fehlte Fixierung)
+Contract (v2):
+- softirq_pct wird auf Basis aggregierter Δsoftirq/Δtotal über alle CPUs berechnet (eine globale Prozentzahl).
+DoD-Test:
+- Vergleichstest: per-CPU spikes dürfen Peak nicht triggern, wenn global softirq_pct unter Trigger bleibt; Aggregation reproduzierbar.
+
+
+D-04 — BR-03B total_ticks Definition (was ist Δtotal in /proc/stat genau?)
+STATUS: OPEN
+Owner-Wert: TBD
+Fundstelle:
+- Peak-Mode_CHECKLISTE.txt → BR-03B fordert explizite Festzurrung (idle+iowait? etc.)
+- Peak-Mode_Was es ist, wie es funktioniert.txt → „Δtotal = Summe aller CPU-Zeiten“ (ohne exakte Feldliste)
+Contract (v2) (noch offen):
+- v2 MUSS definieren, welche /proc/stat Felder in total enthalten sind (z.B. alle States inkl. idle+iowait) und wie multi-cpu summiert wird.
+DoD-Test:
+- Determinismus: identische /proc/stat Snapshots → identischer softirq_pct; Dokumentation listet exakt die Felder, die in total eingehen.
+
+
+D-05 — BR-03C Glättung/Stabilität (softirq_pct raw vs smoothing)
+STATUS: OPEN
+Owner-Wert: TBD (z.B. „keine Glättung“ oder „Median 3 Samples“)
+Fundstelle:
+- Peak-Mode_CHECKLISTE.txt → BR-03C (MUST: raw vs glätten)
+Contract (v2) (noch offen):
+- v2 legt fest, ob softirq_pct direkt aus jedem 10s Sample verwendet wird oder ob eine minimale Glättung (definiert) erfolgt.
+DoD-Test:
+- Flap-Test: kurze 1-Sample-Spikes dürfen (wenn so gewünscht) nicht sofort Episode starten (kompatibel mit X=3min).
+
+
+D-06 — BR-01/PM-11 Baseline tc/qdisc Entscheidung: CAKE root-qdisc pro pppX + Peak nur bandwidth Override
+STATUS: FIX
+Owner-Wert: CAKE (root auf pppX), Peak ändert ausschließlich „bandwidth“ (change-not-replace), egress-only
+Fundstelle:
+- Peak-Mode_entscheidung.txt → PM-11 „Peak-Enforcement basiert auf CAKE … keine rate/ceil/klassen/handles“
+- peak-mode_OWNER-FIXPUNKTE (CAKE Edition).txt → BR-01C1 (Parameter-only)
+- blocks/B160_TC_QOS_PER_PPP.txt → „qdisc on pppX: CAKE … bandwidth = profile“
+Contract (v2):
+- Peak-Apply darf die tc-Topologie nicht umbauen; nur CAKE bandwidth pro USER-pppX temporär überschreiben.
+DoD-Test:
+- Vorher/Nachher: tc qdisc show dev pppX zeigt weiterhin CAKE/root; einzig bandwidth ändert sich; Exit stellt Profilwert wieder her.
+
+
+D-07 — BR-09A Liste-Quelle der Targets (Batch): /run/vpn-sessions (VALID) als Runtime-SoT + DB-Filter USER/Admin via CONNECTION_ID
+STATUS: FIX
+Owner-Wert: /run/vpn-sessions/*.env (VALID) als Basis; USER-Filter per DB lookup anhand CONNECTION_ID (conn_group)
+Fundstelle:
+- blocks/B167_WIRING_HOOKS_SYSTEMD.txt → „Runtime-Aktivität (KANONISCH): … true genau dann, wenn mind. ein VALID Runtime-Mapping …“
+- blocks/B168_STALE_SESSION_JANITOR.txt → Definition VALID (Kernel/PID/mtime Fallback)
+- Peak-Mode_CHECKLISTE.txt → BR-09 fordert Fixierung DB vs sysfs+MAP2 (v1 offen)
+Contract (v2):
+- Peak-Batch-Targets werden aus Snapshot der VALID /run/vpn-sessions/<ppp_if>.env gebildet; pro Target wird CONNECTION_ID→conn_group geprüft; ADMIN wird ausgeschlossen.
+DoD-Test:
+- Ghost-File Test: Datei existiert aber INVALID → darf nicht als active Target zählen. Admin Session → wird zuverlässig excluded.
+
+
+D-08 — BR-09B Batch-Mechanik: tc -b Batchfile vs netlink batch (Fork-Storm Risiko)
+STATUS: OPEN
+Owner-Wert: TBD
+Fundstelle:
+- Peak-Mode_CHECKLISTE.txt → BR-09B fordert Fixierung
+- Peak-Mode_Was es ist, wie es funktioniert.txt → nennt Alternativen („tc -b oder netlink batch“) ohne Entscheidung
+Contract (v2) (noch offen):
+- v2 MUSS eine Mechanik festlegen, die unter CPU-Overload keinen Fork-Storm auslöst (und die Fehlerklassen sauber reportet).
+DoD-Test:
+- Lasttest: Peak-Apply bei hoher Sessionzahl erzeugt bounded CPU/Process-Count; keine Retry-Schleifen.
+
+
+D-09 — BR-10 Apply-Error/Retry Policy (Peak darf Overload nicht verschlimmern)
+STATUS: FIX
+Owner-Wert: 1× best-effort apply; bei Fehler log+mark anomaly; kein Retry; Sampler kann im nächsten Zyklus erneut „desired“ erzwingen
+Fundstelle:
+- peak-mode_OWNER-FIXPUNKTE (CAKE Edition).txt → BR-10 Error-Policy (bindend aus Owner-Entscheid)
+- Peak-Mode_TEIL2_BUILD_READY_CHECKLISTE.txt → BR-10 war in v1 OPEN (keine Facts gefunden)
+Contract (v2):
+- Peak-Apply selbst macht keine Retries; Stabilität kommt über den nächsten Sampling-Zyklus (desired-state enforcement), nicht über sofortige Wiederholung.
+DoD-Test:
+- Simulierter tc-Fehler: keine Loop/Storm; Audit zeigt FAIL-Klasse; System bleibt bedienbar; nächster Zyklus kann heilen.
+
+
+D-10 — Doppelte „Top-N“ Begriffe entkoppeln: HB-01 Top-N (Panel Hot-Block) vs FP-PEAK-02 Täter-TopN (Peak-intern)
+STATUS: FIX
+Owner-Wert:
+- HB-01 Top-N = Top-5 (bleibt wie in v1)
+- Täter-TopN = FP-PEAK-02 (dynamisch 3/5/10, gelatcht)
+Fundstelle:
+- Peak-Mode_entscheidung.txt → „HB-01 Top-N = Top-5“ + FP-PEAK-02 verlangt separaten Wert
+Contract (v2):
+- v2 dokumentiert explizit: HB-01 (Hot-Block/Monitoring) ist unabhängig von Täter-TopN (Peak-intern).
+DoD-Test:
+- Panel/Reports zeigen HB-01 immer Top-5; Peak-Episode zeigt Täterliste gemäß FP-PEAK-02; keine Vermischung in Text/Logs.
+
+
+D-11 — Batch Result-Klassifikation (OK/DEGRADED/FAILED) inkl. Schwellenwerte
+STATUS: OPEN
+Owner-Wert: TBD (z.B. fail_rate thresholds + harte FAIL-Klassen)
+Fundstelle:
+- Peak-Mode_CHECKLISTE.txt → BR-09C fordert „Ab wann gilt Batch als failed (DoD)?“
+Contract (v2) (noch offen):
+- v2 muss Schwellen definieren (z.B. % Failures), und harte Fehlerklassen, die immer FAILED bedeuten.
+DoD-Test:
+- Reproduzierbare Einstufung: gleiche attempted/success/fail Counts → gleiche run_result; Grenzfälle (attempted=0) sind definiert.
+
+
+D-12 — Restore-Quelle der Profil-Bandwidth (Exit/Recover): Welche SQL-First Quelle ist kanonisch?
+STATUS: OPEN
+Owner-Wert: TBD (Key/Derivation muss im Kanon festgelegt werden)
+Fundstelle:
+- blocks/B160_TC_QOS_PER_PPP.txt → „bandwidth = profile“ (Quelle nicht spezifiziert)
+- peak-mode_OWNER-FIXPUNKTE (CAKE Edition).txt → „Profil-Werte kommen aus DB/Policy-Keys“ (ohne Key-Namen)
+Contract (v2) (noch offen):
+- v2 muss festnageln, woher exakt der “Profilwert” stammt (Policy-Key/Plan/Override-Priorität), damit Exit deterministisch ist.
+DoD-Test:
+- Policy-Change während Peak: Exit stellt exakt den kanonischen Profilwert wieder her (ohne Magic Numbers, ohne Drift).
+
+
+D-13 — Peak Apply Concurrency: Peak-Apply muss Single-Writer-Regel aus B166 erfüllen (kein Parallel-Write auf tc)
+STATUS: FIX (Norm), aber Mechanik-Detail via B167 muss eingehalten werden
+Owner-Wert: Peak respektiert Single-Writer Lock (wie Apply/Reconcile)
+Fundstelle:
+- blocks/B166_POLICY_APPLY_RECONCILE.txt → „CONCURRENCY / SINGLE-WRITER (MUST) … vor jeder Apply/Reconcile-Ausführung“
+- blocks/B167_WIRING_HOOKS_SYSTEMD.txt → „Mechanik wird im Wiring verbindlich verdrahtet“
+Contract (v2):
+- Peak-Apply gilt als tc-Write und muss serialisiert sein: kein paralleler Peak-Apply zu Policy-Apply/Reconcile.
+DoD-Test:
+- Parallelstart-Szenario: einer bekommt Lock, der andere EXIT TEMPFAIL_LOCKED; kein Partial-Write-Mix.
+
+
+D-14 — BR-08 (DB Schema): Typen + Indexe + Constraints (Peak additions / Extension Schema)
+STATUS: OPEN (v2 Entwurf vorhanden, aber Kanon-Fixierung fehlt)
+Owner-Wert: TBD (finale Typen/Indexe/Constraints + Namenskanon)
+Fundstelle:
+- Peak-Mode_TEIL2_BUILD_READY_CHECKLISTE.txt → BR-08 OPEN (Typen/Indexe fehlen)
+- Peak-Mode_CHECKLISTE.txt → BR-08 fordert Typen/Indexe
+Contract (v2) (noch offen):
+- v2 muss die DB-Details (Typen, PK/FK, Indexe, constraints) vollständig schließen (ohne “Ratespiel”).
+DoD-Test:
+- SQL Review: Alle Queries (Episode, Snapshot, Apply Audit) sind durch passende Indexe abgesichert; Constraints verhindern ungültige States.

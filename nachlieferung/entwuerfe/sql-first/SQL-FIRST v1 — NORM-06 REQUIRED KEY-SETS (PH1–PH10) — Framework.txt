@@ -1,0 +1,130 @@
+xp-vpn-stack/entwuerfe/sql-first/SQL-FIRST v1 — NORM-06 REQUIRED KEY-SETS (PH1–PH10) — Framework.txt
+================================================================================
+TITLE: NORM-06 — Required Key-Sets (PH1–PH10): “Welche Keys müssen existieren” + Mapping auf Consumer/Proofs
+DOC-ID: SQLF-NORM-06
+STATUS: ENTWURF (Phase 3) — NORMATIV (Framework; Inhalte teils OPEN)
+VERSION: v0.5
+DATUM: 2026-01-29 (Europe/Zurich)
+
+SCOPE:
+- Definiert das Format, wie Required Key-Sets pro Phase/Domain modelliert werden.
+- Diese Datei legt NICHT alle Keys fest (das wäre “Key Harvest”); sie legt das Framework fest.
+- Inhalte (konkrete keys) werden als KEYSET-Entries ergänzt, sobald DOC-SET-001-EXT/Harvest vorliegt.
+
+ARBEITSMODUS (PH-Fokus; ENTWURFSPFLEGE, NON-RUNTIME):
+- Diese NORM ist Framework (Format/DoD), nicht „alles sofort ausformulieren“.
+- In der Entwurfspflege gilt ein PH-Fokus (FOCUS_PHASE, aktuell: PH1):
+  • Keysets <= PH1 (und CORE-Foundation) dürfen aktiv konkretisiert werden.
+  • Keysets für PH2..PH10 bleiben OPEN und werden als DEFERRED behandelt, solange deren Phase nicht fokussiert ist.
+- Guardrail: Ein späteres Keyset blockiert PH1 nicht, außer es ist explizit als „BLOCKS: PH1“ deklariert.
+- Ziel: PH1 kann reifen/geschlossen werden, ohne PH2+ vorzuplanen; PH2+ wird später sauber ergänzt.
+
+REFERENZEN:
+- B290 Phase-Definitionen (PH1–PH10)
+- B057 Magic-Guard
+- NORM-01/02/05/07
+
+================================================================================
+N-06.1 Key-Set Konzept (MUST)
+================================================================================
+Ein Key-Set ist eine benannte Liste required keys, die in settings_catalog existieren müssen,
+damit eine Phase als “konzeptuell geschlossen” gelten kann.
+
+Key-Set hat:
+- keyset_id (z.B. PH2_REQUIRED_KEYS_v1)
+- phase (PH1..PH10)
+- domain (optional: QoS/DNS/Panel/AAA)
+- required_keys: list of canonical keys
+- optional_keys: list (nice but not required for closure)
+- consumers: list of canonical consumer blocks (Bxxx)
+- proof_ids: list of B310 tests that prove completeness + correctness
+- expected_fail_map_id
+
+================================================================================
+N-06.2 Minimal-Required (Owner-Anforderung)
+================================================================================
+Owner verlangt Minimum-Sets (mindestens) für:
+- PH1, PH2, PH5, PH6
+
+Status in diesem Entwurf:
+- Framework ist FIX (N-06.1).
+- Konkrete key lists sind OPEN und werden in “KEYSET Entries” nachgetragen.
+
+================================================================================
+N-06.3 KEYSET Entries (Platzhalter v0.1)
+================================================================================
+
+[KEYSET] PH1_REQUIRED_KEYS_v1 (STATUS: FIX)
+- scope: VPN baseline (Tunnel + SQL-AAA + Firewall Basis)
+- consumers: B050/B055/B166/B167/B169 + strongSwan/FreeRADIUS contracts
+- references: B057 (Magic-Guard / Registry; NON-CONSUMER for PH1 completeness)
+- required_keys: (canonical keys; SQL-first; canonical uses allowed prefixes; legacy/prefixless names are alias-only via Resolver)
+  - vpn_active_session_lock_ttl_seconds
+  - vpn_janitor_interval_seconds
+  - vpn_boot_janitor_delay_seconds
+  - vpn_cleanup_ratelimit_window_seconds
+  - vpn_cleanup_timeout_seconds
+  - vpn_cleanup_result_ttl_seconds
+  - vpn_pending_ttl_seconds
+  - vpn_stale_threshold_seconds
+  - vpn_reconcile_interval_seconds
+  - radius_acct_interim_seconds
+- optional_keys: (none yet; keep empty until Harvest closes)
+- proof_ids:
+  - B310-PH1-KEYSET-COMPLETE (TBD; derived from required_keys + settings_trace completeness)
+  - B310-SQLF-CAT-001
+- expected_fail_map_id: PH1_EXPECTED_FAILS_v1 (STATUS: OPEN; mapped in NORM-07 / Reason-Codes via NORM-04)
+
+[KEYSET] PH2_REQUIRED_KEYS_v0 (STATUS: OPEN)
+- scope: QoS / Bandbreitenkontrolle
+- consumers: B160/B165/B292 + Peak (später)
+- required_keys: TBD
+- proof_ids: B310-PH2-KEYSET-COMPLETE (TBD)
+
+[KEYSET] PH5_REQUIRED_KEYS_v0 (STATUS: OPEN)
+- scope: Webpanel Core (Onboarding/Claim/Status)
+- consumers: B200/B210/B220/B270 + decisions/D003 flow
+- required_keys: TBD
+- proof_ids: B310-PH5-KEYSET-COMPLETE (TBD)
+
+[KEYSET] PH6_REQUIRED_KEYS_v0 (STATUS: OPEN)
+- scope: Operability (Diag + F2B + Logs + Backup)
+- consumers: B270/B330/B340/B341/B342 + CI gates
+- required_keys: TBD
+- proof_ids: B310-PH6-KEYSET-COMPLETE (TBD)
+
+================================================================================
+N-06.4 DoD (wann ist ein Key-Set “grün”?)
+================================================================================
+Ein Key-Set gilt als “geschlossen” wenn:
+- alle required_keys existieren im catalog (NORM-01)
+- resolver liefert OK/FALLBACK_ACTIVE korrekt (NORM-02)
+- /diag zeigt completeness + drift flags (NORM-05)
+- B310 Proofs existieren und sind eindeutig (NORM-07)
+
+================================================================================
+N-06.5 Bootstrap-Prerequisite (SQL-first “DB existiert” Gate) (MUST)
+================================================================================
+Ziel:
+- PH-Keyset-Closure setzt voraus, dass die Datenbank als Source-of-Truth bereits existiert.
+- Kein “Runtime-Fallback” auf Defaults/Magic-Numbers: wenn DB/Scheme/Seed fehlt -> fail-closed.
+
+MUST (konzeptionell, implementierungsneutral):
+- Vor PH1-Test/Proof-Läufen muss der DB-Bootstrap einmalig erfolgt sein:
+  - Schema vorhanden (mindestens settings_catalog + settings_value; weitere Tabellen gemäß B055/B057-SoT).
+  - Seed vorhanden: alle required_keys des jeweiligen keyset_id existieren im catalog.
+- Runtime-Regel: Resolver/AAA/Policy lesen Settings ausschließlich aus DB (SQL-first).
+- Fail-Closed: Wenn DB nicht erreichbar / Schema unvollständig / required_keys fehlen:
+  - keine “silent defaults”; Dienste gehen in BLOCKED/MAINTENANCE (keine PH1-Proofs “grün” möglich).
+- Validierung (DoD-Hook):
+  - /diag zeigt DB-State und keyset completeness (NORM-05).
+  - B310-Tests dürfen PH1 nur als “geschlossen” markieren, wenn Bootstrap-Prerequisite erfüllt ist (NORM-07).
+
+================================================================================
+CHANGELOG
+================================================================================
+v0.5 (2026-01-29): Batch 3 PH1 Completeness: Consumerscope bereinigt (B057 als NON-CONSUMER), Duplicate-Header entfernt, PH1-baseline reconcile als required_key ergänzt (vpn_reconcile_interval_seconds), PH1_REQUIRED_KEYS_v1 auf STATUS: FIX gesetzt.
+v0.4 (2026-01-29): PH1_REQUIRED_KEYS_v1 canonicalisiert: required_keys auf prefixed canonical (vpn_*/radius_) umgestellt; prefixlose Namen sind alias-only via Resolver (NORM-02-konform).
+v0.3 (2026-01-29): PH-Fokus/Scope-Gating für Required Key-Sets als Entwurfspflege-Regel ergänzt (PH1 aktiv, PH2+ DEFERRED; BLOCKS nur explizit).
+v0.2 (2026-01-29): PH1_REQUIRED_KEYS_v1 als PH1-Minimalsatz (required_keys + expected_fail_map_id) ergänzt; Bootstrap-Prerequisite (N-06.5) als SQL-first Gate/Hook ergänzt; Header-Version/Datum aktualisiert.
+v0.1 (2026-01-28): Framework für Required Key-Sets (Format + DoD) + Platzhalter-Entries für PH1/PH2/PH5/PH6 als OPEN.

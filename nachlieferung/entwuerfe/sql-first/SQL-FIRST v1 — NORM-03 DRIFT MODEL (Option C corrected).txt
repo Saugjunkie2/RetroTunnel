@@ -1,0 +1,89 @@
+xp-vpn-stack/entwuerfe/sql-first/SQL-FIRST v1 — NORM-03 DRIFT MODEL (Option C corrected).txt
+================================================================================
+TITLE: NORM-03 — Drift Model (Option C, korrigiert): Referenz-Datei + Panel-Drift-Status (+ optional Auto-Repair)
+DOC-ID: SQLF-NORM-03
+STATUS: ENTWURF (Phase 3) — NORMATIV (innerhalb Entwurf)
+VERSION: v0.1
+DATUM: 2026-01-28 (Europe/Zurich)
+
+OWNER-FIX:
+- DEC-SQLF-004: “Hard in configs” ist NICHT Enforcement ohne DB.
+- Hard-Configs/Dateireferenzen dienen als Drift-Detektor/Referenz/Panel-Hinweis (und optional Auto-Repair).
+
+REFERENZEN:
+- B052_DB_OUTAGE_CONTRACT (DB_DOWN/DB_UNKNOWN semantics)
+- B057 SQL-first Magic-Guard
+- B330 Logging/Retention (Konfliktstellen/Drift-Risiko möglich)
+- B270 /diag contract (drift exposure)
+
+================================================================================
+N-03.1 Definition: Was ist Drift?
+================================================================================
+Drift = “Soll (normativ) vs Ist (observed)” Abweichung, die im Panel sichtbar und begründet sein muss.
+
+Drift kann entstehen in:
+A) Settings Drift (catalog vs scoped values vs effective resolution)
+B) Runtime Drift (policy effective vs applied runtime state)
+C) Facts Drift (documented facts vs observed facts; z.B. Service-IP, Interface binding)
+D) Schema Drift (DB schema vs expected schema version)
+
+================================================================================
+N-03.2 Referenz-Datei (“Hard”) — Bedeutung (korrigiert)
+================================================================================
+Referenz-Dateien (z.B. “settings_snapshot_reference.json” als Konzept) sind:
+- KEIN Enforcer.
+- KEINE Alternative Truth Source.
+- Sie sind “Diagnose-/Audit-Referenz”:
+  - Panel zeigt: “DB value != Reference”
+  - /diag liefert: drift_flags + reason_code
+  - Optionaler Auto-Repair darf existieren (Owner wünscht Automation), aber:
+    • Auto-Repair ist ein kontrollierter, expliziter Prozess (Audit, Not-Aus, Dry-run).
+
+================================================================================
+N-03.3 Drift-Flags (MUST)
+================================================================================
+Panel und /diag müssen Drift granular zeigen:
+
+- DRIFT_NONE
+- DRIFT_SETTINGS_CATALOG (Key fehlt/Typ/Constraints/Fail-Class mismatch)
+- DRIFT_SETTINGS_VALUE (scoped value missing/invalid/unexpected override)
+- DRIFT_SETTINGS_ALIAS (alias used / deprecated key present)
+- DRIFT_RUNTIME_APPLY (policy != runtime applied; z.B. tc not applied)
+- DRIFT_FACTS (documented fact mismatch)
+- DRIFT_SCHEMA (schema version mismatch)
+
+Jeder Drift-Flag muss einen Reason-Code tragen (NORM-04).
+
+================================================================================
+N-03.4 Relationship zu DB_STATE (B052) (MUST)
+================================================================================
+- DB_STATE ist die Health-Aussage über Datenquelle/Verlässlichkeit.
+- Drift ist unabhängig davon, kann aber durch DB_UNKNOWN ausgelöst werden.
+
+MUST:
+- Wenn DB_STATE != OK, dann müssen drift checks sauber “degraded” werden:
+  - Wenn DB_UNKNOWN: drift-status kann “UNKNOWN” sein, aber mit Reason.
+  - Kein stilles “grün”, nur weil DB nicht erreichbar ist.
+
+================================================================================
+N-03.5 Optional Auto-Repair (Owner-Wunsch; normativ begrenzt)
+================================================================================
+Auto-Repair darf existieren, aber nur innerhalb dieser Grenzen:
+
+- Repair-Scope: nur Settings Drift (catalog/value/alias), niemals Runtime/Facts Drift automatisch.
+- Repair-Gate: Admin-only, audit-logged, dry-run supported, rollback defined.
+- Repair-Policy: repair darf NICHT loosening erzwingen, wenn change_guard tighten_only ist.
+- Repair darf niemals “Missing required key” still mit default füllen, ohne dass der Default im catalog existiert.
+
+================================================================================
+N-03.6 Validierung / Proof (B310)
+================================================================================
+- B310-SQLF-DRIFT-001: Drift-Flags korrekt gesetzt (Settings drift).
+- B310-SQLF-DRIFT-002: DB_UNKNOWN -> drift degraded properly (no green by outage).
+- B310-SQLF-DRIFT-003: Auto-Repair dry-run shows intended deltas + audit record.
+- B310-SQLF-DRIFT-004: Not-Aus disables repair path.
+
+================================================================================
+CHANGELOG
+================================================================================
+v0.1 (2026-01-28): Drift-Modell Option C (korrigiert) als Contract: Drift-Flags, DB_STATE Beziehung, optional Auto-Repair Grenzen.

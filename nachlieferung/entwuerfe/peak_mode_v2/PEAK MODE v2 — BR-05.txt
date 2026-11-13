@@ -1,0 +1,150 @@
+===============================
+PEAK MODE v2 — BR-05 BANDWIDTH-PROFILE SoT (Normalbetrieb) — Quelle/Derivation/Priorität
+===============================
+Status: ENTWURF (Phase 3)
+Ziel: self-contained Spezifikation (ohne Alt-Peak-Dateien als Pflicht)
+Regeln: kein Patch, kein Copy-Code, kein tc/SQL Snippet; nur Contract + Delta-Intention + Validierung.
+
+
+0) Scope (MUST)
+- Dieses BR definiert ausschließlich: wie die Normalbetrieb-Bandbreite (“profile_bandwidth_bps”) SQL-first als SoT bestimmt wird, inkl. Priorität/Override-Scope und deterministische Restore-Grundlage.
+- Anti-Scope: Peak-Triggerlogik (SoftIRQ), Täter-Selektion, Batch-Mechanik, DB-History (BR-08/BR-09/BR-10), tc-Topologie (BR-01), Peak-Override-Wert (BR-02).
+
+
+1) Kanon-Abgleich (MUST, drift-sicher)
+
+1.1 Imports (KANON-QUELLEN)
+- K-IMP-01: blocks/B160_TC_QOS_PER_PPP.txt → “bandwidth = profile; speed profile from RADIUS/SQL; per pppX”
+- K-IMP-02: blocks/B055_DB_SCHEMA_CORE.txt → settings_catalog + settings_* (global/customer/connection) als SQL-first Parameter-SoT
+- K-IMP-03: blocks/B057_SETTINGS_PARAMETER_CANON_SQLFIRST_MAGIC_GUARD.txt → allowed_override_scope + typed keys + fail_class; Missing/Invalid darf nicht silent defaulten
+- K-IMP-04: blocks/B058_DERIVED_POLICY_PIPELINE.txt (falls vorhanden im Kanon) → derived_policy kann “resolved” policy values liefern (nur wenn dort als SoT definiert; sonst OPEN)
+- K-IMP-05: PEAK MODE v2 BR-02 → Restore muss deterministisch auf Profil-Bandbreite zurück (kein Shadow-Truth)
+
+1.2 Kanon-Anker (Wortlaut/Begriff)
+- “Profil” (B160): der Normalzustand der Bandbreite pro Verbindung, nicht Peak.
+- “SQL-first” (B055/B057): policy values müssen in DB/Key-System repräsentiert sein; keine Magic Numbers im Code.
+- “Override Scope” (B057): global vs customer vs connection ist gesteuert (allowed_override_scope).
+
+1.3 Konfliktcheck (MUST)
+- K-CONF-01: B160 sagt “RADIUS/SQL”; B055/B057 sagt “settings_*”; “wo liegt das Profil?” → Status: RISK
+  - Kanon benennt Quelle aber nicht eindeutig als Key/Derivation. v2 muss deterministisch definieren, wie aus RADIUS/SQL “profile_bandwidth_bps” entsteht.
+- K-CONF-02: derived_policy vs direkte settings_* Reads → Status: RISK
+  - Wenn derived_policy im Kanon als “authoritative resolved view” gilt, muss Peak/Restore die resolved view nutzen, sonst Drift.
+- K-CONF-03: Admin vs User Profile differenzierung → Status: NONE (Peak betrifft USER only; Profil-SoT gilt für beide, Filter in BR-09).
+
+
+2) Owner-Fixpunkte (MUST)
+OFFEN (Owner-Fix nötig, weil Kanon hier typischerweise nur “RADIUS/SQL” sagt):
+- FP-BR05-01 (PROFILE_KEY_NAME): exakter SQL-first Key/Derivation-Name für Normalbetrieb-Bandwidth pro Connection
+  - Kandidaten (nur als Platzhalter, NICHT als Vorschlag): connection_profile_bandwidth_bps / plan_bandwidth_bps / tc_profile_bandwidth_bps
+- FP-BR05-02 (RESOLUTION_PATH): exakte Auflösungskette:
+  - Option A: direct settings read (connection override -> customer -> global)
+  - Option B: derived_policy resolved view ist SoT (preferred in vielen SQL-first Designs, aber nur wenn Kanon das sagt)
+- FP-BR05-03 (PRIORITY): klare Prioritätsreihenfolge (CONNECTION > CUSTOMER > GLOBAL) oder andere, wenn Kanon abweicht.
+- FP-BR05-04 (SCOPE_GOVERNANCE): allowed_override_scope wird enforced; violations => FAIL (B057).
+- FP-BR05-05 (FAIL_CLASS): Missing/Invalid Verhalten: FAIL (no silent default) + reason code.
+
+BEREITS FEST (aus Kanon/anderen BRs):
+- FP-BR05-06 (UNIT): Einheit bps (im gesamten QoS/Peak-Kontext konsistent zu führen) — Status: OPEN bis du in BR-02 Einheit final fixierst; BR-05 muss dieselbe Einheit nutzen.
+- FP-BR05-07 (RESTORE_TRUTH): Restore nutzt Profil-SoT, nicht cached pre-peak value als neue SoT (BR-02 Contract).
+
+
+3) Contract (MUST, implementierbar ohne Raten)
+
+3.1 Inputs (MUST)
+- Input-01: connection_id (oder äquivalent), eindeutig pro pppX/Session/Connection.
+- Input-02: conn_group (USER/ADMIN), Plan/Produkt/Profilzuordnung (nur soweit im Kanon vorhanden).
+- Input-03: SQL-first Parameter-SoT: settings_catalog + settings_* (B055/B057) oder derived_policy (B058) — muss durch Owner-Fix (FP-BR05-02) eindeutig werden.
+- Input-04: allowed_override_scope & typed validation (B057).
+
+Constraints:
+- Keine Magic Defaults: Missing/Invalid muss explizit behandelt werden (FAIL_CLASS).
+- Determinismus: Gleiche Inputs → gleicher profile_bandwidth_bps.
+
+3.2 Outputs (MUST)
+- Output-01: profile_bandwidth_bps (typed, validiert).
+- Output-02: source_trace (welche Quelle/Scope/Key führte zum Wert): z.B. “CONNECTION override”, “CUSTOMER override”, “GLOBAL default”, oder “derived_policy resolved”.
+- Output-03: errors/anomalies:
+  - ERR-BR05-PROFILE_MISSING
+  - ERR-BR05-PROFILE_INVALID
+  - ERR-BR05-SCOPE_VIOLATION
+  - ERR-BR05-RESOLUTION_UNDEFINED (wenn FP-BR05-02 nicht gesetzt → v2 darf nicht implementiert werden)
+
+3.3 States / Transitions
+- BR-05 hat keine eigenen States; es ist eine Value-Resolution Spezifikation.
+
+3.4 Enforcement-Punkte (MUST)
+- E-01: DB-Schema/Keys (settings_catalog) erzwingen Typ/Range/Scope und Fail-Handling.
+- E-02: Resolution Path ist normativ (Owner-Fix); Implementierung darf nicht “fallbacken” auf alternative Quelle.
+- E-03: Restore-Mechanik in BR-02/BR-09 muss dieses BR als alleinige Quelle für Profilwert nutzen.
+
+3.5 Fehlerklassen / Resultcodes (BR-05-relevant)
+- ERR-BR05-PROFILE_MISSING: kein Profilwert nach Resolution Path → FAIL
+- ERR-BR05-PROFILE_INVALID: Profilwert ungültig → FAIL
+- ERR-BR05-SCOPE_VIOLATION: override in verbotenem scope → FAIL
+- ERR-BR05-RESOLUTION_UNDEFINED: Owner-Fix FP-BR05-02 fehlt → FAIL (hard stop; verhindert “Raten”)
+
+3.6 Idempotenz / Concurrency (MUST)
+- Idempotenz: Resolution ist pure function; gleiche DB-State → gleicher Output.
+- Concurrency: Read-only; kein tc-lock nötig (apply-lock nur bei tc-write).
+
+3.7 Resource/Retention
+- BR-05 selbst definiert keine Retention; Trace/Audit wird in BR-08/BR-09/BR-10 abgelegt.
+
+
+4) Fix-Intention + Delta-Beschreibung (MUST)
+- Ziel: “bandwidth = profile” (B160) wird in v2 als exakte, SQL-first SoT-Regel definiert, sodass Peak Exit deterministisch ist und keine Drift entsteht.
+- Delta:
+  - Festlegen des Profile-Keys (FP-BR05-01) + Resolution Path (FP-BR05-02) + Priorität (FP-BR05-03).
+  - Enforce allowed_override_scope (B057) und Fail Closed bei Missing/Invalid.
+  - Liefere source_trace damit Ops/Panel debugbar ist (ohne Magic).
+- Grenzen/Constraints:
+  - Kein Raten: solange FP-BR05-01/02/03 offen sind, ist BR-05 nicht implementierbar.
+  - Legacy irrelevant (rein policy resolution), aber Ops/Debug wichtig.
+- Validierung: siehe DoD/Tests.
+
+
+5) DoD / Tests / Validierung (MUST)
+
+T-01 Deterministische Auflösung (ein Wert pro Connection)
+- Setup: definierte DB-Werte in den erlaubten Scopes.
+- Aktion: resolve profile_bandwidth_bps.
+- Erwartung: genau ein Wert + source_trace; keine Ambiguität.
+- Nachweis: Audit/Diag zeigt Path und Scope.
+
+T-02 Override-Priorität
+- Setup: GLOBAL=G, CUSTOMER=C, CONNECTION=K vorhanden.
+- Aktion: resolve.
+- Erwartung: Ergebnis entspricht Priorität (z.B. CONNECTION gewinnt).
+- Nachweis: source_trace zeigt korrekten Gewinner.
+
+T-03 Scope Governance
+- Setup: settings_catalog erlaubt nur GLOBAL; CUSTOMER/CONNECTION override existiert.
+- Aktion: resolve.
+- Erwartung: FAIL mit ERR-BR05-SCOPE_VIOLATION (nicht “nimmt trotzdem”).
+- Nachweis: Failure-Reason + trace.
+
+T-04 Missing/Invalid
+- Setup: Profilwert fehlt oder ist ungültig.
+- Aktion: resolve.
+- Erwartung: FAIL (ERR-BR05-PROFILE_MISSING/INVALID); kein Default.
+- Nachweis: Failure-Reason; kein tc-write erfolgt (BR-09 Gate).
+
+T-05 Ops-Debugbarkeit
+- Setup: mehrere Planprofile/Customer overrides.
+- Aktion: resolve mehrfach.
+- Erwartung: trace ist ausreichend, um Quelle eindeutig zu sehen.
+- Nachweis: Panel/Diag kann “warum dieser Wert?” zeigen (ohne alte Dateien).
+
+
+6) OPEN Items (MUST)
+- O-01: FP-BR05-01 Profile-Key Name (exakte SQL-first Identität) ist nicht im Kanon-Text eindeutig benannt → Owner-Fix nötig.
+- O-02: FP-BR05-02 Resolution Path (direct settings vs derived_policy) ist offen → Owner-Fix nötig.
+- O-03: FP-BR05-03 Priorität ist offen → Owner-Fix nötig (oder Kanon-Anker muss es explizit nennen).
+- O-04: Einheit bps endgültig fixieren (BR-02 FP-BR02-03), damit BR-05 konsistent ist.
+- O-05: Range/Min/Max für profile_bandwidth_bps: muss im settings_catalog definiert werden; sonst Invalid-Handling untestbar.
+
+
+7) Änderungsprotokoll (v2-Entwurfsintern)
+- CHG-01: BR-05 v2 schließt die “bandwidth = profile” Lücke aus B160 durch explizite SQL-first SoT-Regeln (Keys/Path/Priority).
+- CHG-02: Drift-Risiko (RADIUS/SQL ohne Key) wird nicht kaschiert, sondern als OPEN markiert.
