@@ -1,0 +1,270 @@
+================================================================================
+BASE-050 — WAN-EXPOSITION, EINGANGSSCHUTZ UND NOTZUGANG
+================================================================================
+DATEI: BASE-050_040_WAN_EXPOSITION_UND_NOTZUGANG.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Was vom Internet aus erreichbar ist und was nicht, wie die erreichbaren
+  Endpunkte gegen Ueberlast und Ausspaehung geschuetzt werden, und wie der
+  datenbankunabhaengige Notzugang (rtmgmt0) aufgebaut ist.
+
+================================================================================
+1) WAN-EXPOSITION (vollstaendige Liste)
+================================================================================
+
+  ERREICHBAR AM WAN (Regeln IW-01..IW-07)
+
+    ZWECK                 PROTOKOLL / PORT            FAMILIE   EMPFAENGER
+    --------------------- --------------------------- --------- --------------
+    IKEv1                 UDP 500                     IPv4      strongSwan
+    IKEv1 NAT-T / ESP-    UDP 4500                    IPv4      strongSwan /
+    in-UDP                                                      Kernel (XFRM)
+    ESP                   IP-Protokoll 50             IPv4      Kernel (XFRM)
+    L2TP                  UDP 1701, NUR mit IPsec-    IPv4      accel-ppp
+                          Kontext
+    WireGuard (AWG)       UDP wg_listen_port          IPv4+IPv6 awg0
+                          (Vorschlag 49392)
+    Notzugang             UDP mgmt_port               IPv4+IPv6 rtmgmt0
+    Echo (abschaltbar)    ICMP / ICMPv6 Echo          IPv4+IPv6 Kernel
+    Neighbor Discovery,   ICMPv6 133-136, MLD         IPv6      Kernel
+    MLD (link-lokal)
+
+  NICHT ERREICHBAR AM WAN (Auswahl; es gilt: alles nicht Genannte)
+    DNS 53, AdGuard-Oberflaeche 2000, Unbound 5353, Web 80/443, NTP 123,
+    SSH 27812 (und 22), phpMyAdmin, RADIUS 1812/1813, MariaDB 3306,
+    UDP 1701 ohne IPsec-Kontext, jedes TCP.
+
+  FESTLEGUNGEN
+  W-1  L2TP/IPsec wird am WAN nur ueber IPv4 angenommen (IW-02..IW-05
+       gelten nur fuer IPv4). Begruendung: Der L2TP-Dienst arbeitet nur
+       ueber IPv4; ein IPv6-IKE-Endpunkt waere Angriffsflaeche ohne
+       Nutzen. Folge: Der Servername fuer L2TP-Clients darf nur auf eine
+       IPv4-Adresse aufloesen (ANF-FW-02).
+  W-2  Kein Dienst bindet an die WAN-Adresse ausser den Tunnel-Endpunkten
+       (Exposure-by-Binding, BASE-005_030). Die Firewall ist die zweite,
+       unabhaengige Schicht: Auch ein versehentlich an 0.0.0.0 gebundener
+       Dienst ist am WAN nicht erreichbar (IW-09).
+  W-3  accel-ppp bindet zwingend an 0.0.0.0:1701 (LT-03). Der Schutz gegen
+       unverschluesseltes L2TP liegt deshalb ALLEIN in IW-04/IW-05; diese
+       Regeln duerfen nie entfallen und nie umgeordnet werden.
+  W-4  Dienstadressen des SERVICE_NET liegen auf lo. Pakete, die ueber das
+       WAN an eine RetroTunnel-Adresse gerichtet sind, werden bereits in
+       pre_raw verworfen (PR-04); der Server beantwortet am WAN keine
+       ARP-/ND-Anfragen fuer diese Adressen (BASE-050_070 Abschnitt 6).
+
+================================================================================
+2) ANTWORTVERHALTEN ("STEALTH")
+================================================================================
+
+  - Am WAN wird ausschliesslich verworfen. Es gibt keinen TCP-Reset und
+    keine ICMP-Fehlermeldung als Reaktion auf unerwuenschte Pakete.
+  - Ausgehende ICMP-Meldungen "port unreachable" werden am WAN
+    unterdrueckt (OUT-03). Ein gestoppter Tunnel-Dienst ist damit von
+    aussen nicht von einem laufenden zu unterscheiden, der die Anfrage
+    ignoriert.
+  - WireGuard (awg0 und rtmgmt0) antwortet nur auf kryptografisch gueltige
+    Handshakes; ein Portscan sieht diese Ports nicht.
+  - IKE antwortet protokollbedingt auf wohlgeformte Anfragen. Der Host ist
+    dadurch als IPsec-Gateway erkennbar; das ist fuer XP-/Vista-
+    Kompatibilitaet unvermeidbar und kein Verstoss gegen SZ-3.
+  - Echo am WAN: ratenbegrenzt erlaubt (vpn_fw_wan_ping_rate_per_sec,
+    Vorschlag 5 je Sekunde und Quelle); Wert 0 schaltet Echo ab.
+    Begruendung: Erreichbarkeitsueberwachung und Fehlersuche; die
+    Erkennbarkeit des Hosts aendert sich wegen IKE nicht.
+  - Sichtbarkeit von Scans: nur ueber Zaehler (c_in_wan_other) und
+    stichprobenartige Logzeilen mit dem Kennzeichen WAN_DROP.
+
+================================================================================
+3) UEBERLASTSCHUTZ DER ENDPUNKTE
+================================================================================
+
+  SETTINGS (Kandidaten fuer BASE-090; Wirkung RENDER, Fehler STRICT;
+  Bedeutung der Klassen: BASE-050_070 Abschnitt 1)
+
+    KEY                                    TYP / BEREICH     VORSCHLAG
+    -------------------------------------- ----------------- ---------
+    vpn_fw_wan_new_rate_per_sec            INT 1..1000       20
+    vpn_fw_wan_new_burst                   INT 1..5000       40
+    vpn_fw_wan_new_global_rate_per_sec     INT 100..100000   2000
+    vpn_fw_wan_new_global_burst            INT 100..200000   4000
+    vpn_fw_wan_ping_rate_per_sec           INT 0..100        5
+
+  WIRKUNG
+  - "Neu" ist das erste Paket eines Flows (Quelladresse, Quellport,
+    Zielport). Pakete bestehender Flows durchlaufen die Grenze nicht
+    (IN-07); laufende Tunnel sind von einer Ueberlast nicht betroffen.
+  - Je Quelladresse: IW-02, IW-06, IW-07 lassen neue Flows nur durch,
+    solange die Quelle unter ihrer Grenze liegt. Ist der Zaehlerspeicher
+    voll, wird verworfen (DEC-FW-15).
+  - Gesamtdeckel: begrenzt die Summe neuer Flows zu IKE- und WG-Port.
+    Zweck ist die Begrenzung der conntrack-Belegung bei gefaelschten
+    Quelladressen: hoechstens Gesamtdeckel x Lebensdauer eines
+    unbeantworteten UDP-Eintrags (30 s). Beim Vorschlag sind das
+    60.000 Eintraege, weit unter vpn_fw_conntrack_max.
+  - ESP wird nicht verfolgt (PR-09) und nicht ratenbegrenzt; Pakete mit
+    unbekannter SPI verwirft der Kernel.
+
+  GRENZEN (ehrlich benannt)
+  - Bei einer Flut mit gefaelschten Quellen konkurrieren echte neue
+    Verbindungsversuche mit der Flut um den Gesamtdeckel. Bestehende
+    Tunnel laufen weiter; NEUE Verbindungen koennen in dieser Zeit
+    scheitern. Das ist ohne Schutz durch den Hoster nicht vermeidbar.
+  - Mehrere Clients hinter einer gemeinsamen oeffentlichen Adresse teilen
+    sich die Grenze je Quelle; der Vorschlag ist dafuer bemessen.
+  - Die Dienste haben eigene Schutzmechanismen, die bestehen bleiben:
+    WireGuard-Cookies unter Last; strongSwan-Grenzen fuer halboffene
+    IKE-SAs (ANF-FW-02).
+
+  ABNAHMEBEZUG: B063 9.1 DoD-1..3 -> T-FW-21..23.
+
+================================================================================
+4) L2TP NUR UEBER IPSEC
+================================================================================
+
+  IW-04  UDP 1701 mit IPsec-Kontext   -> zugelassen
+  IW-05  UDP 1701 ohne IPsec-Kontext  -> verworfen (ohne Ausnahme, auch
+                                         nicht fuer Tests oder Diagnose)
+  OUT-02 Der Server sendet am WAN kein L2TP, das nicht durch IPsec
+         geschuetzt wird.
+
+  "IPsec-Kontext" bedeutet: Das Paket wurde vom Kernel aus einer gueltigen
+  ESP-Verbindung entpackt. Der Abgleich erfolgt auf diesen Kontext, nicht
+  auf Quelladressen (B110: sonst unsicher hinter NAT).
+  Die Regeln gelten nur am WAN; Verkehr an ppp* ist nicht betroffen.
+
+================================================================================
+5) EINGANGSHAERTUNG: WER LEISTET WAS
+================================================================================
+
+  THEMA (PRIORITAETENLISTE M2-050)        HIER GELOEST             DELEGIERT AN
+  --------------------------------------- ------------------------ --------------
+  WAN-Stealth                             Abschnitte 1, 2          -
+  Ratenbegrenzung gegen Flut/Scan         Abschnitt 3              -
+  SSH nicht am WAN, nur ADMIN_VERWALTUNG  IW-09, SD-02, IM-01      -
+  SSH-Daemon (nur Schluessel, Port,       -                        BASE-005
+  Bindung an SERVICE_SSH, erlaubte
+  Quellen)
+  Sperren nach Fehlversuchen              Set banned (BASE-050_030) MOD-005
+  TLS/Zertifikate des Panels              -                        BASE-110,
+                                                                   MOD-004
+  Halboffene IKE-Verbindungen             -                        BASE-030
+
+================================================================================
+6) NOTZUGANG rtmgmt0 (DEC-FW-16)
+================================================================================
+
+  6.1 ZWECK UND ABGRENZUNG
+    Ein eng begrenzter Verwaltungszugang, der auch dann funktioniert, wenn
+    die Datenbank, RADIUS, accel-ppp, strongSwan, das AWG-Modul,
+    vpn-policy-apply oder das volle Regelwerk ausgefallen sind.
+    Er ist KEIN Zugang fuer Kunden, kein Ersatz fuer das Panel und im
+    Normalbetrieb ungenutzt. Jede Nutzung ist ein meldepflichtiges
+    Ereignis (6.6).
+
+  6.2 AUFBAU
+    Interface      rtmgmt0, WireGuard des Kernels (nicht AmneziaWG)
+    Unit           wg-quick@rtmgmt0.service
+    Konfiguration  /etc/wireguard/rtmgmt0.conf (root:root 0600), von Hand
+                   nach Betriebsanleitung gepflegt, NICHT aus SQL erzeugt
+    Adressen       mgmt_net_v4 10.77.1.0/29: Server .1, Peers .2 bis .6
+                   (aus dem bisher freien Bereich 10.77.1.0/24); nur IPv4
+                   im Tunnel
+    Port           frei gewaehlter UDP-Port (ListenPort der Datei),
+                   verschieden von wg_listen_port, 500, 4500, 1701
+    Peers          hoechstens 5; je Peer eigener Schluessel UND
+                   PresharedKey; AllowedIPs genau eine /32 aus mgmt_net
+    Verboten in der Datei: PostUp/PostDown mit Firewall-Kommandos,
+                   SaveConfig, DNS, weitere AllowedIPs
+
+    vpn-fw-render liest ListenPort und Address aus dieser Datei (einzige
+    Quelle fuer mgmt_port und mgmt_net). Fehlt die Datei, entfallen IW-07,
+    IN-10 und die Kette in_mgmt; der Notzugang ist dann bewusst
+    abgeschaltet und es bleibt nur die Konsole des Hosters (6.7).
+
+  6.3 ERLAUBTER VERKEHR
+    - IM-01: TCP zum SSH-Port von SERVICE_SSH. Sonst nichts.
+    - IM-02: Echo an die Serveradresse von rtmgmt0 (Funktionspruefung).
+    - Keine Weiterleitung von oder nach rtmgmt0 (FD-02), kein DNS-Zwang,
+      kein NAT, kein Zugriff auf andere Dienstadressen. Weitere lokale
+      Ziele erreicht der Betreiber bei Bedarf ueber SSH-Portweiterleitung.
+    - Die Sets banned, connect_pending, restricted und
+      admin_panel_allowed sowie das Siegel wirken auf rtmgmt0 NICHT
+      (Aussperrschutz).
+
+  6.4 UNABHAENGIGKEIT
+    Benoetigt:        Kernel mit WireGuard, ein geladenes Regelwerk
+                      (voll ODER Notfall-Riegel), sshd, Dienstadressen auf lo
+    Benoetigt NICHT:  MariaDB, FreeRADIUS, accel-ppp, strongSwan, AmneziaWG,
+                      vpn-policy-apply, Settings, Panel
+    Unit-Kopplung:    After=nftables.service und lo-service-ips.service;
+                      KEIN Requires auf nftables.service (der Notzugang muss
+                      auch starten, wenn das volle Regelwerk nicht laedt).
+                      Startbedingung: vpn-fw-load bestaetigt, dass irgendein
+                      Regelwerk geladen ist; ohne Regelwerk kein rtmgmt0.
+
+  6.5 SCHLUESSEL
+    - Private Schluessel der Peers entstehen auf dem Geraet des Betreibers
+      und verlassen es nicht. Der Server kennt nur oeffentliche Schluessel
+      und die PresharedKeys.
+    - Der private Serverschluessel und die PresharedKeys sind Secrets der
+      hoechsten Klasse (Registrierung: ANF-FW-01). Sie erscheinen in
+      keinem Log, keinem Panel und keiner Sicherung ohne Verschluesselung.
+    - Der Notzugang ersetzt die SSH-Authentisierung nicht: Es bleiben zwei
+      unabhaengige Faktoren (WireGuard-Schluessel + PSK, danach
+      SSH-Schluessel).
+    - Verlust oder Verdacht: Peer aus der Datei entfernen und das
+      Interface neu einlesen; neue Schluessel erzeugen. Das ist eine
+      Handlung an der Konsole bzw. ueber einen anderen Notzugangs-Peer.
+
+  6.6 UEBERWACHUNG
+    vpn-fw-check liest den Zeitpunkt des letzten Handshakes je Peer von
+    rtmgmt0. Ein neuer Handshake erzeugt das Ereignis MGMT_ZUGANG_GENUTZT
+    (mit Peer-Kennung, ohne Schluesselmaterial) fuer MOD-007. Die Meldung
+    haengt nicht an der Datenbank.
+
+  6.7 EBENEN DER WIEDERHERSTELLUNG
+    Ebene 1  Panel im VPN (Normalbetrieb)
+    Ebene 2  SSH ueber eine ADMIN-Connection (Dienstklasse
+             ADMIN_VERWALTUNG)
+    Ebene 3  SSH ueber den Notzugang rtmgmt0
+    Ebene 4  Konsole des Hosters (ausserhalb dieses Systems). Voraussetzung
+             ist ein lokales Konto mit Kennwort, das getrennt verwahrt
+             wird (Betriebsanleitung, ANF-FW-10).
+    Der Satz "Recovery bei DB-Down erfolgt out-of-band (SSH/Console)"
+    (BASE-020_020) ist damit erfuellbar: Ebene 3 und 4 haengen nicht an
+    der Datenbank.
+
+  6.8 ROLLE BEI DER ERSTINSTALLATION
+    Regelwerk und Notzugang werden als Erstes eingerichtet und geprueft.
+    Erst danach wird ein vom Hoster vorgegebener SSH-Zugang am WAN
+    geschlossen. Reihenfolge und Pruefschritte: Implementierungsplan
+    (AP-A03).
+
+  6.9 RESTRISIKEN
+    - Zusaetzlicher UDP-Port am WAN (antwortet Unbekannten nicht).
+    - Die Signatur von Standard-WireGuard ist fuer Netzbetreiber auf dem
+      Weg des Betreibers erkennbar, WENN der Notzugang benutzt wird.
+      Deshalb: nur im Notfall verwenden; im Alltag die ADMIN-Connection.
+    - Wer einen Notzugangs-Schluessel UND einen SSH-Schluessel besitzt,
+      hat einen Weg zu root. Die Zahl der Peers ist deshalb begrenzt und
+      jede Nutzung wird gemeldet.
+
+================================================================================
+7) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  SEHEN: Zaehler der WAN-Regeln (angenommene Handshakes je Endpunkt,
+    verworfene Pakete, Grenzueberschreitungen), unverschluesseltes L2TP,
+    Zustand des Notzugangs (aktiv/abgeschaltet, Zahl der Peers, letzter
+    Handshake je Peer).
+  EINSTELLEN: die Settings aus Abschnitt 3.
+  ALARMIEREN: Nutzung des Notzugangs; anhaltende Grenzueberschreitung am
+    WAN; Zaehler c_in_l2tp_naked steigt stark.
+  NICHT IM PANEL: Pflege der Notzugangs-Datei und ihrer Schluessel.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

@@ -1,0 +1,303 @@
+================================================================================
+BASE-050 — DYNAMISCHE SETS UND ZUSTANDS-ENFORCEMENT
+================================================================================
+DATEI: BASE-050_030_SETS_UND_ZUSTANDS_ENFORCEMENT.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Vertrag der dynamischen Sets: Typ, Bedeutung, wer schreibt, wann ein
+  Element hinein- und herauskommt, was ein leeres oder verlorenes Set
+  bewirkt, und welche Reihenfolgen zwischen den Sets einzuhalten sind.
+  BASE-050 besitzt die DEFINITION und die WIRKUNG der Sets; ihren INHALT
+  bestimmt SQL und schreibt vpn-policy-apply (BASE-080).
+
+================================================================================
+1) UEBERSICHT
+================================================================================
+
+  SET                      SCHLUESSEL             ABLAUF  WIRKUNG, WENN ELEMENT
+                                                          VORHANDEN
+  ------------------------ ---------------------- ------- ----------------------
+  connect_pending_v4       IPv4-Adresse           nein    aller Verkehr von/zu
+  connect_pending_v6       IPv6-Adresse           nein    der Adresse verworfen
+  restricted_v4            IPv4-Adresse           nein    nur Dienstklasse ALLE;
+  restricted_v6            IPv6-Adresse           nein    kein WAN
+  allowed_l2tp_v4          Interface-Index +      nein    Verkehr dieser L2TP-
+                           IPv4-Adresse                   Sitzung zugelassen
+  banned_v4                IPv4-Adresse           ja      alles von der Adresse
+  banned_v6                IPv6-Adresse           ja      frueh verworfen
+  admin_panel_allowed_v4   IPv4-Adresse           nein    Dienstklasse ADMIN_
+  admin_panel_allowed_v6   IPv6-Adresse           nein    VERWALTUNG erreichbar
+
+  WIRKRICHTUNG UND VERHALTEN BEI LEEREM SET
+    connect_pending   Sperr-Set     leer = kein Gate aktiv. Abgesichert durch
+                                    Gate-vor-Peer-Add (BASE-040) und Siegel.
+    restricted        Sperr-Set     leer = niemand eingeschraenkt. Abgesichert
+                                    durch Uebernahme und Siegel (DEC-FW-10).
+    allowed_l2tp      Freigabe-Set  leer = kein L2TP-Verkehr (geschlossen).
+    banned            Sperr-Set     leer = niemand gesperrt (Komfortschutz,
+                                    kein Schutzziel haengt allein daran).
+    admin_panel_      Freigabe-Set  leer = Verwaltungsdienste zu
+    allowed                         (geschlossen); Notzugang bleibt.
+
+  GEMEINSAME REGELN
+  G-1  Alle Sets liegen in der Tabelle "inet retrotunnel" und existieren in
+       JEDEM aktivierten Regelwerk, auch im frueh geladenen (ANF-WT-01).
+  G-2  Sets enthalten nur einzelne Adressen, keine Bereiche.
+  G-3  Schreibzugriffe erfolgen ausschliesslich unter dem Single-Writer-
+       Lock und ausschliesslich durch vpn-policy-apply oder einen dort
+       registrierten Helfer (R-11, POL-02). Kein Hook, kein Panel-Code und
+       kein Fremdprogramm ruft nft direkt auf.
+  G-4  Aenderungen, die IPv4 und IPv6 derselben Connection betreffen,
+       erfolgen in EINER nft-Transaktion (POL-07).
+  G-5  Die Maximalgroesse jedes Sets ist mindestens die Zahl der
+       vergebbaren Adressen aller Pools der Familie. Scheitert ein
+       Einfuegen, gilt die aufrufende Operation als fehlgeschlagen; es gibt
+       keinen stillen Teilerfolg.
+  G-6  Offline-Connections haben im Regelbetrieb keine Elemente in
+       connect_pending und allowed_l2tp (GR-05, POL-04). Reste nach
+       Fehlern sind zulaessig, soweit sie SPERREND wirken, und werden vom
+       Abgleich entfernt.
+
+================================================================================
+2) connect_pending_v4 / _v6 — GATE DES WIREGUARD-PFADS
+================================================================================
+
+  BEDEUTUNG: Die Adresse gehoert zu einer Connection, deren Peer gerade
+  eingetragen, ersetzt oder entfernt wird. Solange das Element besteht,
+  wird in input und in forward (beide Richtungen) alles verworfen
+  (IN-05, FD-04) - auch bestehende Flows.
+
+  SCHREIBER: WG-Treiber innerhalb vpn-policy-apply (BASE-040_030).
+  EINFUEGEN: Add-Sequenz Schritt A2 bzw. Massenabgleich Schritt S5; als
+    Sofort-Sperre vor einem Peer-Remove zulaessig.
+  ENTFERNEN: NUR nach erfolgreicher Verifikation des Peers (A6/S8) oder
+    wenn bestaetigt ist, dass kein Peer mit dieser Adresse existiert.
+  KEIN ABLAUF: Elemente tragen kein Timeout. Ein ablaufendes Gate waere
+    Fail-Open (ANF-WT-01, WT-13).
+
+  KRITISCHER REST: Ein Element, zu dem noch ein Peer existiert, obwohl
+  Apply oder Remove gescheitert ist, ist die letzte Sperre. Es bleibt,
+  bis der Peer entfernt ist (POL-14, POL-21b). BASE-050 garantiert, dass
+  weder eine Aktivierung (Uebernahme) noch vpn-fw-check ein solches
+  Element entfernt.
+
+  L2TP: Das Gate wird fuer L2TP nicht benoetigt (durch allowed_l2tp
+  subsumiert, Changelog v2.1.15). Die Regeln IN-05/FD-04 gelten dennoch
+  fuer alle VPN-Interfaces, sodass ein Eintrag einer L2TP-Adresse
+  ebenfalls sperrend wirkt.
+
+================================================================================
+3) restricted_v4 / _v6 — WALLED GARDEN
+================================================================================
+
+  BEDEUTUNG: Die Connection hat op_status = RESTRICTED. Erreichbar ist nur
+  die Dienstklasse ALLE im SERVICE_NET (IV-03/IV-04); jeder Verkehr
+  Richtung WAN wird abgewiesen, Antworten vom WAN verworfen (FD-08).
+
+  SOLL-INHALT (bestimmt BASE-080 aus SQL):
+    alle Tunneladressen von Connections mit op_status = RESTRICTED, die
+    eine Kernel-Repraesentation haben oder gerade erhalten
+    (WireGuard: Peer eingetragen oder in der Add-Sequenz;
+     L2TP: Sitzung besteht).
+    IPv6 nur, wenn die Connection eine fixed_ipv6 hat (POL-06).
+    ADMIN-Connections sind nie enthalten (R-08, GR-08).
+
+  REIHENFOLGE-PFLICHT "POLICY VOR FREIGABE":
+    Die Mitgliedschaft in restricted MUSS hergestellt sein, BEVOR die
+    Admission der Connection wirksam wird:
+      WireGuard: vor dem Peer-Eintrag (Add-Sequenz A3 vor A4b)
+      L2TP:      vor dem Eintrag in allowed_l2tp_v4
+    Umgekehrt wird beim Abbau zuerst die Admission entzogen, dann die
+    Mitgliedschaft entfernt.
+
+  SOFORTWIRKUNG: Einfuegen wirkt ab dem naechsten Paket auch auf
+  bestehende Flows (DEC-FW-09). Der conntrack-Flush aller Adressen der
+  Connection bleibt Pflicht des Aufrufers (POL-09..12): er beendet auch
+  die Flows zu lokalen Diensten und raeumt NAT-Zuordnungen ab.
+
+  ENTFERNEN (RESTRICTED -> ACTIVE): wirkt sofort; kein Flush noetig.
+
+================================================================================
+4) allowed_l2tp_v4 — FREIGABE DES L2TP-PFADS
+================================================================================
+
+  BEDEUTUNG: Die L2TP-Sitzung an genau diesem ppp-Interface ist
+  zugelassen UND ihr Policy-Zustand ist hergestellt. Ohne Element wird
+  aller Verkehr der Sitzung in input und forward verworfen (IN-06, FD-05),
+  einschliesslich DNS und Portal (LT-18).
+
+  SCHLUESSEL: Paar aus Interface-Index und IPv4-Tunneladresse.
+    Der Index identifiziert die Interface-INSTANZ. Er wird vom Kernel je
+    neu erzeugtem Interface neu vergeben; der Name pppN kann dagegen
+    sofort wiederverwendet werden.
+    Folge: Ein liegengebliebenes Element einer beendeten Sitzung passt auf
+    keine spaetere Sitzung - auch nicht auf eine der gleichen Connection
+    mit gleicher Adresse und gleichem Interface-Namen.
+    Voraussetzung: accel-ppp erzeugt je Sitzung ein neues Interface
+    (unit-cache ausgeschaltet, ANF-FW-02).
+
+  SCHREIBER: vpn-policy-apply im Sitzungsaufbau (ausgeloest durch den
+    ip-up-Hook, BASE-030_040 Schritt 3/4) und im Abbau (ip-down).
+  EINFUEGEN: als LETZTER Schritt eines erfolgreichen Applys fuer diese
+    Sitzung, nach "Policy vor Freigabe" (Abschnitt 3). Eingetragen wird
+    das im Hook genannte Interface; existiert es nicht (mehr), scheitert
+    das Einfuegen und die Sitzung bleibt gesperrt.
+  ENTFERNEN: beim Sitzungsende (LT-20); als Hard-Cut, wenn die Connection
+    DISABLED wird oder die Sitzung getrennt werden soll - das Entfernen
+    wirkt sofort und unabhaengig davon, ob accel-ppp die Sitzung beendet.
+  ABGLEICH: Elemente, deren Interface nicht mehr existiert oder dessen
+    Gegenstellen-Adresse nicht zur Elementadresse passt, sind Reste und
+    werden entfernt. Fehlende Elemente bestehender, zugelassener Sitzungen
+    werden nach erneutem Apply ergaenzt. Einzelheiten: BASE-080.
+
+  KEIN IPv6: L2TP ist IPv4-only (LT-17); ein v6-Gegenstueck existiert
+  nicht, IPv6 an ppp* wird in PR-05 verworfen.
+
+================================================================================
+5) banned_v4 / _v6 — SPERRLISTE MIT ABLAUF
+================================================================================
+
+  BEDEUTUNG: Pakete mit dieser Quelladresse werden am WAN und an den
+  VPN-Interfaces frueh verworfen (PR-08). Nicht an lo und nicht am
+  Notzugang.
+
+  SCHREIBER: der in BASE-080 registrierte Sperr-Helfer von MOD-005.
+  ELEMENTE: tragen IMMER eine Ablaufzeit; ein Eintrag ohne Ablauf wird
+    abgelehnt. Obergrenze der Ablaufzeit: Setting von MOD-005.
+  NIE ZULAESSIG als Element (der Helfer lehnt ab, vpn-fw-check meldet):
+    Adressen aus service_net, mgmt_net, die Adressen des Servers selbst,
+    Loopback, Link-Local, Multicast, unspezifizierte Adresse.
+  ZULAESSIG: oeffentliche Quelladressen und einzelne Tunneladressen.
+  Wann gesperrt wird, wie lange und wie mit geteilten Adressen
+  (Carrier-NAT) umzugehen ist, entscheidet MOD-005.
+
+================================================================================
+6) admin_panel_allowed_v4 / _v6 — VERWALTUNGSFREIGABE
+================================================================================
+
+  BEDEUTUNG: Tunneladressen der ADMIN-Connections, die in BEIDEN Quellen
+  stehen (DP-07): der SQL-Ableitung panel_admin_eligible und der root-Datei
+  /etc/retrotunnel/admin_panel_allowed.conf. Nur diese Adressen erreichen
+  die Dienstklasse ADMIN_VERWALTUNG (IV-05).
+
+  SCHREIBER: der privilegierte Abgleich von BASE-110 ueber einen in
+    BASE-080 registrierten Helfer.
+  ERSETZEN: Der gesamte Inhalt beider Sets wird in EINER Transaktion
+    ausgetauscht (leeren + neu fuellen); es gibt keinen Zwischenzustand.
+  ZUSAETZLICHE KERNEL-BEDINGUNG: Die Quelle muss im ADMIN-Pool liegen.
+    Ein Element ausserhalb des Pools ist wirkungslos und wird als Drift
+    gemeldet.
+  LEER: Verwaltungsdienste sind aus dem VPN nicht erreichbar. Das ist der
+    sichere Zustand; der Betreiber nutzt dann den Notzugang.
+
+================================================================================
+7) ADRESSFORM (IPv4/IPv6)
+================================================================================
+
+  nftables speichert Adressen binaer und gibt IPv6 in der Normalform nach
+  RFC 5952 aus (die Projektform fd77:0:0:16::16:42 erscheint dort als
+  fd77::16:0:0:16:42).
+  Daraus folgt:
+  - Schreiber uebergeben die Adresse so, wie sie in SQL steht; nft
+    akzeptiert jede gueltige Schreibweise. Es findet keine Umformung im
+    Aufrufer statt (GW-6, Reverse-Derivation-Verbot).
+  - Vergleiche Soll gegen Ist erfolgen auf geparsten Adressen, nie auf
+    Zeichenketten.
+  Damit ist der im ENTWURF_IPV6_NFTABLES_ROLLEN Abschnitt 3 offene Punkt
+  entschieden.
+
+================================================================================
+8) UEBERNAHME BEI AKTIVIERUNG (vpn-fw-load, DEC-FW-03)
+================================================================================
+
+  Bei jeder Aktivierung zur Laufzeit werden die Elemente ALLER dynamischen
+  Sets aus dem Kernel gelesen und in dieselbe Transaktion aufgenommen:
+    connect_pending   vollstaendig
+    restricted        vollstaendig
+    allowed_l2tp      nur Elemente, deren Interface noch existiert
+    banned            mit der jeweils verbleibenden Ablaufzeit
+    admin_panel_      vollstaendig
+    allowed
+    Siegelzustand     unveraendert (versiegelt bleibt versiegelt)
+  Nicht uebernommen werden die Zaehlerspeicher der Ratenbegrenzung und die
+  Zaehlerstaende (sie beginnen neu; die Generation wechselt sichtbar).
+
+  ABBRUCHREGEL: Kann ein Set nicht gelesen werden, wird nicht aktiviert.
+  KONSISTENZREGEL: Nach der Aktivierung prueft vpn-fw-load, dass die
+    Elementzahlen je Set dem gelesenen Stand entsprechen; bei Abweichung
+    gilt die Aktivierung als fehlgeschlagen und es folgt die
+    Wiederherstellung (BASE-050_070 Abschnitt 4).
+  Die Uebernahme stellt den INHALT nicht gegen SQL richtig; das ist
+  Aufgabe des Abgleichs (BASE-080).
+
+================================================================================
+9) REIHENFOLGEN JE EREIGNIS (Sicht der Firewall)
+================================================================================
+
+  EREIGNIS                      SCHRITTE AN DEN SETS (in dieser Reihenfolge)
+  ----------------------------- ---------------------------------------------
+  WG: Peer eintragen            pending + ; restricted +/- nach Status ;
+                                [Peer] ; pending -
+  WG: Peer entfernen            (optional pending +) ; [Peer weg] ;
+                                pending - ; restricted -
+  L2TP: Sitzung beginnt         restricted +/- nach Status ; allowed_l2tp +
+  L2TP: Sitzung endet           allowed_l2tp - ; restricted -
+  ACTIVE -> RESTRICTED          restricted + ; conntrack-Flush
+  RESTRICTED -> ACTIVE          restricted -
+  -> DISABLED (WG)              wie "Peer entfernen"
+  -> DISABLED (L2TP)            allowed_l2tp - ; Sitzung beenden ;
+                                restricted -
+  Rollenwechsel (T-09)          alte Adressen: wie Abbau ; neue Adressen:
+                                wie Aufbau (neue Sitzung bzw. neuer Peer)
+  Sperre durch MOD-005          banned + (mit Ablauf)
+  Admin-Freigabe geaendert      admin_panel_allowed: Gesamtaustausch
+  Vollstaendiger Abgleich       Neuaufbau restricted und allowed_l2tp aus
+                                SQL und Laufzeit ; pending nur bestaetigt
+                                harmlose Reste entfernen ; danach Siegel
+                                loesen
+
+  "+" = einfuegen, "-" = entfernen. Schritte in eckigen Klammern gehoeren
+  dem Tunnelmodul. Die genaue Ablaufsteuerung, Fehlerzweige und
+  Wiederholungen definiert BASE-080; BASE-050 legt nur fest, welche
+  Reihenfolge fuer die Schutzwirkung noetig ist.
+
+================================================================================
+10) FEHLERBILDER
+================================================================================
+
+  SYMPTOM                           URSACHE                    WIRKUNG / REAKTION
+  --------------------------------- -------------------------- ------------------
+  L2TP verbunden, nichts geht       kein Element in            gewollt bis Apply-
+                                    allowed_l2tp               Erfolg; sonst Hook-
+                                                               /Apply-Fehler
+  WG verbunden, nichts geht         Element in connect_pending Abgleich; bleibt es:
+                                    oder Siegel aktiv          Alarm (BASE-040)
+  Eingeschraenkter hat Internet     Element fehlt in           Drift; Abgleich +
+                                    restricted                 Flush; Zaehler
+                                                               c_fwd_ok_* pruefen
+  Admin erreicht SSH/PMA nicht      admin_panel_allowed leer   Abgleich BASE-110;
+                                    oder Adresse fehlt         Notzugang
+  Client dauerhaft ausgesperrt      Element in banned ohne     darf nicht vorkommen
+                                    Ablauf                     (Helfer lehnt ab)
+  Einfuegen scheitert               Set voll / Interface fehlt Operation gilt als
+                                                               gescheitert, Sperre
+                                                               bleibt
+
+================================================================================
+11) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  - Je Set: Elementzahl, Zeitpunkt der letzten Aenderung, Generation.
+  - Je Connection (ADMIN-Sicht): Mitgliedschaft in den Sets als
+    SOLL (aus SQL abgeleitet) und IST (aus dem Kernel gelesen), Abweichung
+    hervorgehoben.
+  - Lesen erfolgt ueber einen Lese-Helfer (kein Schreibrecht, kein Lock).
+  - Aendern ist im Panel NICHT moeglich; das Panel loest Zustandswechsel
+    in SQL aus und stoesst vpn-policy-apply an (GR-03).
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
