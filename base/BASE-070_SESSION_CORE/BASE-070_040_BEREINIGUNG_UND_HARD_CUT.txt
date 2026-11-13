@@ -32,9 +32,12 @@ ZWECK:
     AD-1  UNKNOWN bzw. FEHLER bei jedem Zweifel: Zeitlimit, nicht
           auswertbare Antwort, Verwaltungsschnittstelle nicht erreichbar.
     AD-2  NOT_LIVE nur bei positiver Kenntnis: Die Laufzeit wurde gelesen
-          und enthaelt die Kennung nicht - ODER der Daemon laeuft gesichert
-          nicht (Dienstzustand "inaktiv" und kein Prozess), dann kann keine
-          Sitzung leben.
+          und zeigt fuer die Kennung keine Nutzung (L2TP: in keinem Zustand
+          gelistet; WireGuard: Peer fehlt oder Handshake aelter als die
+          Schwelle) - ODER der Daemon laeuft gesichert nicht (Dienstzustand
+          "inaktiv" und kein Prozess), dann kann keine Sitzung leben.
+          Kennungen werden als vollstaendige Zeichenkette exakt verglichen;
+          eine Ausgabe, die Namen kuerzt oder umformt, ergibt UNKNOWN.
     AD-3  Jede Operation hat ein Zeitlimit und keine Nebenwirkung ausser
           der benannten.
     AD-4  kill() beendet sofort und prueft, dass die Kennung danach nicht
@@ -48,10 +51,17 @@ ZWECK:
           bedienen koennen.
 
   L2TP (Runner BASE-030): Quelle ist die Sitzungstabelle von accel-ppp ueber
-    dessen lokale Verwaltungsschnittstelle. LIVE zaehlt nur den Zustand
-    "aktiv". Kennung ist der Anmeldename; Laufzeit-Referenz der
-    Interface-Name. kill() beendet die Sitzung hart; der Daemon meldet
-    danach Accounting-Stop.
+    dessen lokale Verwaltungsschnittstelle. Kennung ist der Anmeldename;
+    Laufzeit-Referenz der Interface-Name. Drei Faelle:
+      LIVE      eine Sitzung des Anmeldenamens ist im Zustand "aktiv"
+                gelistet
+      NOT_LIVE  KEINE Sitzung des Anmeldenamens ist gelistet, gleich in
+                welchem Zustand
+      UNKNOWN   es sind nur Sitzungen im Auf- oder Abbau gelistet (AD-1)
+    list() fuehrt auch Sitzungen im Auf- und Abbau, nennt je Sitzung den
+    Zustand und, soweit der Daemon sie ausgibt, seine Sitzungskennung
+    (Gegenstueck zu radacct.acctsessionid). kill() beendet die Sitzung
+    hart; der Daemon meldet danach Accounting-Stop.
   WIREGUARD (Runner BASE-040): Quelle ist der Kernel (awg show). LIVE nach
     BASE-070_020 Abschnitt 1. kill() ist Entfernen und - bei unveraendertem
     SOLL - Wiedereintragen des Peers ueber den WG-Treiber von
@@ -67,11 +77,18 @@ ZWECK:
   BASE-040_050 Fall B.)
 
     G-1  Voraussetzung ist eine Laufzeitlesung mit Ergebnis NOT_LIVE fuer
-         den Anmeldenamen bzw. ein list() ohne ihn. Bei UNKNOWN wird nicht
-         geschlossen.
-    G-2  Mindestalter: Die Zeile ist aelter als vpn_ghost_min_age_seconds
-         (Vorschlag 15), gemessen an acctstarttime. Ausnahme: Zeilen von
-         vor dem letzten Daemon-Start (BASE-070_020 Schritt L3).
+         den Anmeldenamen bzw. ein list() ohne ihn (in keinem Zustand).
+         Nennt der Adapter Sitzungskennungen des Daemons, darf zusaetzlich
+         keine gelistete Sitzung die Kennung der Zeile tragen
+         (radacct.acctsessionid). Bei UNKNOWN wird nicht geschlossen.
+    G-2  Mindestalter: Der Beginn der Zeile (acctstarttime) liegt mehr als
+         vpn_ghost_min_age_seconds (Vorschlag 15) VOR der Laufzeitlesung,
+         auf die sich die Feststellung stuetzt (Lesezeit des Abgleichs
+         bzw. Zeitpunkt des Sondenlaufs) - nicht vor der Uhrzeit der
+         Auswertung. Eine Zeile, deren Sitzung erst nach der Lesung
+         entstand, kann so nie geschlossen werden; der Abstand deckt
+         ungenaue Zeitstempel. Ausnahme: Zeilen von vor dem letzten
+         Daemon-Start (BASE-070_020 Schritt L3).
     G-3  Nur Zeilen des eigenen NAS.
     G-4  Geschlossen wird mit dem letzten belegten Lebenszeichen, nicht mit
          der Feststellungszeit:
@@ -119,10 +136,11 @@ ZWECK:
           vpn_cleanup_ratelimit_window_seconds (Vorschlag 5). Innerhalb
           des Fensters wird das letzte Ergebnis geliefert, sofern es
           juenger ist als vpn_cleanup_result_ttl_seconds (Vorschlag 5),
-          sonst UNKNOWN. Bei einem zwischengespeicherten NOT_LIVE werden
-          die G-Regeln trotzdem erneut angewandt (ein inzwischen alt
-          genug gewordener Geist wird geschlossen); das ist zulaessig,
-          weil das Ergebnis juenger ist als das Mindestalter (Regel K-f).
+          sonst UNKNOWN. Ein zwischengespeichertes Ergebnis schliesst
+          nichts Neues: Die G-Regeln messen gegen den Zeitpunkt des
+          Sondenlaufs, aus dem es stammt (G-2). Ein Geist, der erst
+          danach das Mindestalter erreicht, wird vom naechsten Sondenlauf
+          oder vom Abgleich geschlossen.
           Gleichzeitig bearbeitete Anfragen sind begrenzt; darueber:
           UNKNOWN. Je Anfrage gibt es hoechstens einen Sondenlauf.
       O2  Connection lesen: tunnel_type und Anmeldename. Nicht lesbar,
@@ -145,9 +163,11 @@ ZWECK:
     Programm startet nichts und liest keine Konfiguration mit Geheimnissen.
 
   WARUM EIN ZWISCHENGESPEICHERTES ERGEBNIS UNSCHAEDLICH IST: NOT_LIVE
-  entbindet nicht von den strengen Schritten P3 und P4; ein veraltetes
-  NOT_LIVE kann daher keine zweite Sitzung zulassen. Ein veraltetes LIVE
-  lehnt hoechstens fuer die Dauer der Ergebnis-Gueltigkeit zu Unrecht ab.
+  entbindet nicht von den strengen Schritten P3 bis P5 und schliesst
+  nichts Neues (O1); ein veraltetes NOT_LIVE kann daher weder eine zweite
+  Sitzung zulassen noch die Zeile einer lebenden Sitzung schliessen. Ein
+  veraltetes LIVE lehnt hoechstens fuer die Dauer der Ergebnis-Gueltigkeit
+  zu Unrecht ab.
 
   AUSFALL: Laeuft vpn-sessiond nicht, liefert vpn-session-check UNKNOWN; der
   Anmeldepfad entscheidet streng nach radacct, Geister schliesst der

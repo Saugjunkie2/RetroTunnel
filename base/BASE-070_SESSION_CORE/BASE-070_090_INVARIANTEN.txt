@@ -86,9 +86,10 @@ SIMUSE UND SPERREN
          bestehende Sitzung beendet, ist unzulaessig.
 
   SC-14  Der L2TP-Anmeldepfad durchlaeuft nach erfolgreicher
-         Credential-Pruefung die Schritte P1 bis P5 in dieser Reihenfolge.
-         Eine Zusage setzt eine erworbene Sperre voraus. Jeder
-         Datenbankfehler fuehrt zur Ablehnung.
+         Credential-Pruefung die Schritte P1 bis P6 in dieser Reihenfolge.
+         Eine Zusage setzt eine erworbene Sperre und die danach
+         wiederholte Protokollpruefung voraus. Jeder Datenbankfehler
+         fuehrt zur Ablehnung.
 
   SC-15  Meldet die Sonde LIVE oder zeigt radacct eine offene Zeile, wird
          abgelehnt. UNKNOWN wird nie wie NOT_LIVE behandelt: Es wird
@@ -131,12 +132,15 @@ BEREINIGUNG
 
   SC-23  Geschlossen wird nur bei positiver Kenntnis, dass die Sitzung
          nicht lebt (NOT_LIVE, list() ohne die Kennung, oder Daemon
-         gesichert nicht laufend), nie bei UNKNOWN. Eine lebende Sitzung
-         wird nie geschlossen (AD-1, AD-2, G-1).
+         gesichert nicht laufend), nie bei UNKNOWN. Eine Sitzung im Auf-
+         oder Abbau ergibt UNKNOWN. Eine lebende Sitzung wird nie
+         geschlossen (AD-1, AD-2, G-1).
 
   SC-24  Geister werden nur fuer den eigenen NAS, erst ab dem Mindestalter
-         und mit dem letzten belegten Lebenszeichen als Endzeit
-         geschlossen. Das Schliessen ist idempotent (G-2, G-3, G-4, G-7).
+         (gemessen gegen die zugrunde liegende Laufzeitlesung, nicht gegen
+         die Uhrzeit der Auswertung) und mit dem letzten belegten
+         Lebenszeichen als Endzeit geschlossen. Das Schliessen ist
+         idempotent (G-2, G-3, G-4, G-7).
 
   SC-25  Nach einem Neustart des L2TP-Daemons oder des Systems werden alle
          offenen Protokollzeilen aus der Zeit vor dem Start durch den
@@ -149,8 +153,9 @@ BEREINIGUNG
 
   SC-27  Aussperrzusagen: Eine Sperr-Leiche blockiert hoechstens fuer die
          TTL ihres Zwecks; ein Geist bei arbeitender Sonde hoechstens bis
-         zum Mindestalter; bei stehendem vpn-sessiond hoechstens fuer den
-         Takt des L2TP-Abgleichs plus Mindestalter.
+         zum Mindestalter zuzueglich eines Begrenzungsfensters der Sonde;
+         bei stehendem vpn-sessiond hoechstens fuer den Takt des
+         L2TP-Abgleichs plus Mindestalter.
 
   SC-28  Abgleich-, Bereinigungs- und Periodenlaeufe sind idempotent,
          einzeln gesperrt, zeitbegrenzt und bei nicht erreichbarer
@@ -320,7 +325,7 @@ MARKEN, BETRIEB, GRENZEN
 
   SC-59  Die Zeitgeber laufen in festem Raster; der Takt kommt aus den
          Settings. Fehlt ein Setting oder verletzt eine Kombination die
-         Regeln K-a bis K-f, gilt der Vorschlagswert und der Zustand wird
+         Regeln K-a bis K-e, gilt der Vorschlagswert und der Zustand wird
          gemeldet (U-1).
 
   SC-60  Runner (BASE-020, BASE-030, BASE-040, BASE-080) fuehren aus,

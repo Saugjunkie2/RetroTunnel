@@ -136,7 +136,11 @@ ZWECK:
   P4  SPERRE ERWERBEN
       Zweck L2TP_ADMISSION, TTL vpn_active_session_lock_ttl_seconds.
       NICHT ERWORBEN                -> REJECT R_SIMUSE_GUARD_BUSY
-  P5  ACCEPT
+  P5  NACHPRUEFUNG UNTER DER SPERRE
+      Die Abfrage aus P3 wird wiederholt; gelesen wird der aktuell
+      festgeschriebene Stand. Offene Zeile vorhanden: eigene Sperre
+      freigeben (Abschnitt 3)       -> REJECT R_SIMUSE_ACTIVE
+  P6  ACCEPT
 
   NACH DER ZUSAGE:
     - Der Daemon baut die Sitzung auf und meldet Accounting-Start. Der
@@ -152,8 +156,10 @@ ZWECK:
       den Schlussriegel, verlorene Meldung), laeuft die Sperre nach ihrer
       TTL ab. Es entsteht kein dauerhaftes Aussperren.
 
-  FEHLER: Jeder Datenbankfehler in P3 oder P4 fuehrt zur Ablehnung mit dem
-  Backend-Grund (R_AUTH_BACKEND_SQL_DOWN / _FAIL), nie zur Zusage (AAA-03).
+  FEHLER: Jeder Datenbankfehler in P3, P4 oder P5 fuehrt zur Ablehnung mit
+  dem Backend-Grund (R_AUTH_BACKEND_SQL_DOWN / _FAIL), nie zur Zusage
+  (AAA-03). Scheitert nach erworbener Sperre die Nachpruefung oder die
+  Freigabe, laeuft die Sperre nach ihrer TTL ab.
 
   WARUM DIESE REIHENFOLGE:
     P1 vor P3: Ohne vorherige Geisterpruefung wuerde eine verwaiste Zeile
@@ -164,16 +170,29 @@ ZWECK:
        effort, Pruefung streng).
     P1 trotz P3: radacct zeigt eine lebende Sitzung nicht, deren
        Accounting-Start (noch) fehlt; die Sonde zeigt sie.
-    P4 zuletzt: Die Sperre schuetzt genau das Fenster ab der Zusage.
+    P4 nach P3: Der haeufige Ablehnungsfall (eine Nutzung besteht)
+       beruehrt die Sperrtabelle nicht. Die Sperre schuetzt genau das
+       Fenster ab der Zusage.
+    P5 nach P4: Zwischen P3 und P4 kann die Sitzung eines anderen
+       Versuchs sichtbar geworden und dessen Sperre bereits freigegeben
+       worden sein. Erst die Pruefung UNTER der eigenen Sperre schliesst
+       dieses Fenster. Sie ist der Nachfolger der erneuten Pruefung vor
+       dem Eintrag aus dem Vorgaenger (SM_SESSION Abschnitt 5,
+       Sekundaerschutz). Gelesen werden muss der aktuell
+       festgeschriebene Stand: In einer Transaktion mit wiederholbarem
+       Lesestand saehe die Nachpruefung die inzwischen geschriebene Zeile
+       nicht. Zulaessig sind einzeln festgeschriebene Anweisungen oder
+       ein sperrendes Lesen.
 
   DB-RECHTE: Der DB-User radius besitzt auf vpn_session_locks SELECT,
   INSERT, DELETE (BASE-000_010). Vertraglich benutzt er ausschliesslich
   den Zweck L2TP_ADMISSION; andere Zwecke fasst er nicht an.
 
-  KAPSELUNG: Die Schritte P3 und P4 duerfen als EINE gespeicherte Routine
+  KAPSELUNG: Die Schritte P3 bis P5 duerfen als EINE gespeicherte Routine
   ausgefuehrt werden (ein Aufruf, ein eindeutiger Rueckgabewert). Das haelt
   die Entscheidungslogik aus der Ablaufsprache des AAA-Dienstes heraus
-  (AAA-27); Reihenfolge und Bedeutung der Schritte bleiben unveraendert.
+  (AAA-27); Reihenfolge und Bedeutung der Schritte bleiben unveraendert,
+  ebenso die Leseeigenschaft der Nachpruefung.
 
   KEINE SPERRLISTEN-WIRKUNG: Die Ablehnungen R_SIMUSE_ACTIVE und
   R_SIMUSE_GUARD_BUSY setzen gueltige Zugangsdaten voraus. Sie sind keine
@@ -259,8 +278,8 @@ ZWECK:
                                                                    nach <= TTL
   E  Sitzung lebt, Accounting-Start  P1 LIVE -> Ablehnung;         keine
      ging verloren                   antwortet die Sonde nicht:    zweite
-                                     P3 leer, P4 erworben, Zusage; Sitzung
-                                     der Daemon weist ab
+                                     P3 und P5 leer, P4 erworben,  Sitzung
+                                     Zusage; der Daemon weist ab
                                      (Schlussriegel)
   F  Sperre von Versuch 1 laeuft ab, Versuch 2 erhaelt Zusage; der eine
      waehrend dessen Aufbau noch     Daemon laesst nur die erste   Sitzung
@@ -277,13 +296,19 @@ ZWECK:
   H  Umbau laeuft                    P4 nicht erworben             Ablehnung
                                                                    (voruebergehend)
   I  Datenbank nicht erreichbar      P3/P4 schlagen fehl           Ablehnung
+  J  Sitzung eines anderen Versuchs  P4 erworben; P5 findet die    Ablehnung,
+     wird zwischen P3 und P4         offene Zeile; eigene Sperre   keine
+     sichtbar, dessen Sperre ist     wird freigegeben              zweite
+     schon freigegeben                                             Zusage
 
   ZUSAGEN ZUM AUSSPERREN (SZ-3):
     Sperr-Leiche                  hoechstens die TTL des Zwecks
     Geist, Sonde arbeitet         keine Wartezeit (On-Demand), sofern die
                                   Zeile aelter ist als
                                   vpn_ghost_min_age_seconds; sonst dieses
-                                  Mindestalter
+                                  Mindestalter zuzueglich hoechstens eines
+                                  Begrenzungsfensters der Sonde
+                                  (vpn_cleanup_ratelimit_window_seconds)
     Geist, vpn-sessiond steht     hoechstens Takt des L2TP-Abgleichs plus
                                   Mindestalter
     Verwaltungsschnittstelle des  unbegrenzt, solange die Stoerung anhaelt

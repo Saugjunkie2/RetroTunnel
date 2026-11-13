@@ -145,12 +145,14 @@ SIMUSE UND SPERREN
             beiden Faellen entsteht keine zweite Sitzung.
             [SC-12, SC-13, SC-15]
 
-  T-SC-20  [K] Die Schritte P1 bis P5 stehen in dieser Reihenfolge in der
+  T-SC-20  [K] Die Schritte P1 bis P6 stehen in dieser Reihenfolge in der
             Konfiguration des AAA-Dienstes; eine Anfrage mit falschem
             Kennwort erreicht vpn-session-check nicht. [SC-14, SC-26]
 
-  T-SC-21  [L] Datenbankfehler in P3 bzw. in P4 erzwingen: Ablehnung mit
-            Backend-Grund, nie eine Zusage. [SC-14]
+  T-SC-21  [L] Datenbankfehler in P3, in P4 bzw. in P5 erzwingen:
+            Ablehnung mit Backend-Grund, nie eine Zusage; nach einem
+            Fehler in P5 besteht keine Sperre ueber ihre TTL hinaus.
+            [SC-14]
 
   T-SC-22  [L] Zusage ohne nachfolgenden Accounting-Start (Meldung
             verwerfen): Die Sperre laeuft nach ihrer TTL ab; danach
@@ -195,6 +197,16 @@ SIMUSE UND SPERREN
             kuenstlich kurz): Abbruch, nach erneutem Erwerb laeuft der
             Vorgang vollstaendig durch. [SC-22]
 
+  T-SC-80  [L] Fenster zwischen P3 und P4: Versuch B nach P3 anhalten;
+            Sitzung A meldet Accounting-Start (Zeile geschrieben, Sperre
+            freigegeben); B fortsetzen. B erwirbt die Sperre, die
+            Nachpruefung findet die offene Zeile, B wird mit
+            R_SIMUSE_ACTIVE abgelehnt, seine Sperre ist entfernt.
+            Leseeigenschaft: Laeuft dieselbe Folge innerhalb einer
+            Transaktion mit wiederholbarem Lesestand, fuehrt sie ebenfalls
+            nicht zur Zusage. (Kennung nachgetragen; steht sachlich bei
+            SimUse.) [SC-12, SC-14]
+
 ================================================================================
 BEREINIGUNG
 ================================================================================
@@ -213,10 +225,16 @@ BEREINIGUNG
             [SC-23, SC-29]
 
   T-SC-32  [L] Mindestalter: Eine eben begonnene Sitzung, deren Zeile im
-            Laufzeitabbild noch fehlt, wird nicht geschlossen. Zeilen
-            eines anderen NAS werden nie angefasst. Die Lesereihenfolge
+            Laufzeitabbild noch fehlt, wird nicht geschlossen - auch dann
+            nicht, wenn der Lauf zwischen Laufzeitlesung und Auswertung
+            kuenstlich laenger als das Mindestalter angehalten wird
+            (Messung gegen die Lesezeit). Eine Sitzung im Aufbau bzw. im
+            Abbau fuehrt zu UNKNOWN und zu keinem Schliessen. Ein
+            zwischengespeichertes NOT_LIVE schliesst keine Zeile, die beim
+            zugrunde liegenden Sondenlauf zu jung war. Zeilen eines
+            anderen NAS werden nie angefasst. Die Lesereihenfolge
             (Laufzeit vor Datenbank) ist im Ablaufprotokoll des Abgleichs
-            sichtbar. [SC-24, SC-29]
+            sichtbar. [SC-23, SC-24, SC-29]
 
   T-SC-33  [L] Daemon hart beenden bei 20 offenen Sitzungen und neu
             starten: Der erste Abgleich schliesst alle alten Zeilen (Grund
@@ -485,7 +503,7 @@ MARKEN, BETRIEB, GRENZEN
 
   T-SC-74  [L] vpn_janitor_interval_seconds aendern: Der naechste Lauf
             folgt dem neuen Takt, ohne dass eine Unit-Datei geaendert
-            wurde. Ein Setting loeschen bzw. eine der Regeln K-a bis K-f
+            wurde. Ein Setting loeschen bzw. eine der Regeln K-a bis K-e
             verletzen: Der Vorschlagswert wirkt und der Zustand ist
             gemeldet. [SC-59]
 
@@ -496,10 +514,14 @@ MARKEN, BETRIEB, GRENZEN
             tunnelspezifischen Spalten. [SC-60]
 
   T-SC-76  [E] Adapter L2TP gegen den realen Daemon (E-SC-02, E-SC-03):
-            list, probe und kill liefern die geforderten Angaben; kill
-            erzeugt Accounting-Stop; die Antwortzeit unter Last liegt im
-            Zeitlimit; der Benutzer des AAA-Dienstes kann die
-            Verwaltungsschnittstelle nicht bedienen.
+            list, probe und kill liefern die geforderten Angaben
+            (Anmeldename vollstaendig und unveraendert, auch mit
+            Sonderzeichen und bei groesster zulaessiger Laenge;
+            Sitzungskennung gleich radacct.acctsessionid; Zustand); eine
+            Sitzung in der Authentisierung erscheint nicht unter ihrem
+            Anmeldenamen; kill erzeugt Accounting-Stop; die Antwortzeit
+            unter Last liegt im Zeitlimit; der Benutzer des AAA-Dienstes
+            kann die Verwaltungsschnittstelle nicht bedienen.
             [SC-23, SC-31, SC-26]
 
   T-SC-77  [E] Verhalten des AAA-Dienstes und der Datenbank (E-SC-04,

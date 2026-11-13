@@ -309,19 +309,26 @@ ZWECK:
         Prozess kann sie nicht fuehren). Sie werden ohne Mindestalter
         geschlossen (Grund SYSTEM_RESTART); die Marke wird in derselben
         Transaktion fortgeschrieben.
-    L4  JE OFFENE ZEILE r (aelteste zuerst), Connection c:
-        a) S bekannt, r in S                         -> LEBEND
+    L4  JE OFFENE ZEILE r (aelteste zuerst), Connection c. "r in S"
+        heisst: Eine Sitzung des Anmeldenamens von r ist gelistet. Nennt
+        der Adapter die Sitzungskennung des Daemons, muss sie zusaetzlich
+        gleich radacct.acctsessionid sein (exakte Zuordnung).
+        a) S bekannt, r in S im Zustand "aktiv"      -> LEBEND
              Buchungsstand anlegen, falls er fehlt (haelt c fest)
              SV-1, falls der Beginn noch nicht gemeldet ist
              Buchung (_050)
              last_runtime_seen_at fortschreiben (Abschnitt 2)
-           Fuehrt radacct mehrere offene Zeilen desselben Anmeldenamens,
+           Fuehrt radacct mehrere offene Zeilen desselben Anmeldenamens
+           und nennt der Adapter keine Sitzungskennung,
            gilt nur die juengste als die lebende; aeltere sind Geister.
-        b) S bekannt, r nicht in S,
-           Alter von r > vpn_ghost_min_age_seconds   -> GEIST
-             Zeile schliessen (_040 Abschnitt 4), weiter mit L5
-        c) S bekannt, r nicht in S, r juenger        -> abwarten
-        d) S UNBEKANNT                               -> nichts schliessen;
+        b) S bekannt, r in S in anderem Zustand      -> abwarten
+           (Auf- oder Abbau)
+        c) S bekannt, r nicht in S, Beginn von r
+           mehr als vpn_ghost_min_age_seconds vor
+           der Lesezeit t_s                          -> GEIST
+             Zeile schliessen (_040 Abschnitt 2), weiter mit L5
+        d) S bekannt, r nicht in S, r juenger        -> abwarten
+        e) S UNBEKANNT                               -> nichts schliessen;
              Buchung trotzdem (die gemeldeten Zaehler gelten unabhaengig
              von der Sonde)
     L5  JE GESCHLOSSENE, NICHT ABGESCHLOSSENE ZEILE: Schlussbuchung;
@@ -347,11 +354,12 @@ ZWECK:
         Drift L2TP_ACCT_STALLED (Alarm). Keine Beendigung.
     L9  Marke l2tp_sync_last_ok_at setzen; Statusdatei fortschreiben.
 
-  WARUM L1 VOR L2: Eine Zeile, die erst nach t_s entstanden ist, ist
-  juenger als das Mindestalter und kann nicht als Geist gelten. Eine
-  Sitzung, die nach t_s endete, erscheint in L2 bereits geschlossen oder
-  im naechsten Lauf. Die umgekehrte Reihenfolge wuerde eine soeben
-  beendete Sitzung als Geist behandeln.
+  WARUM L1 VOR L2: Schritt c misst gegen die Lesezeit t_s, nicht gegen die
+  Uhrzeit der Auswertung. Eine Zeile, deren Sitzung erst nach t_s
+  entstand, kann deshalb nie als Geist gelten - gleich, wie lange der
+  Lauf dauert. Eine Sitzung, die nach t_s endete, erscheint in L2 bereits
+  geschlossen oder im naechsten Lauf. Die umgekehrte Reihenfolge wuerde
+  eine soeben beendete Sitzung als Geist behandeln (falscher Ende-Grund).
 
   EIGENSCHAFTEN: idempotent; jeder Schritt je Zeile atomar; ein Abbruch an
   beliebiger Stelle wird vom naechsten Lauf fortgesetzt; kein Schritt
@@ -370,6 +378,9 @@ ZWECK:
   ACTIVE -> RESTRICTED (T-02/T-03) KEIN Ende. Der Tunnel bleibt; die Policy
                                    wechselt (Walled Garden).
   RESTRICTED -> ACTIVE (T-05)      keine
+  Claim (T-01)                     keine; die Episode laeuft weiter.
+                                   Spaetere Ereignisse tragen den neuen
+                                   Customer als Snapshot
   -> DISABLED (T-04/T-06/T-07)     Hard-Cut; Ende mit CONNECTION_DISABLED
   Restore (T-08)                   KEIN automatischer Beginn; das Geraet
                                    verbindet sich neu

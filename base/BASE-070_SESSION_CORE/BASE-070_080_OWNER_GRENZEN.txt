@@ -157,9 +157,10 @@ ZWECK:
        stehen.
 
   ANF-SC-04 (BASE-020, Nachzug AP-Q04)
-    a) SimUse-Baustein P1 bis P5 nach erfolgreicher Credential-Pruefung
-       (_030 Abschnitt 4); Aufruf von vpn-session-check ohne Shell, mit
-       numerischem Argument und Zeitlimit.
+    a) SimUse-Baustein P1 bis P6 nach erfolgreicher Credential-Pruefung
+       (_030 Abschnitt 4), einschliesslich der Nachpruefung unter der
+       Sperre mit aktuellem Lesestand; Aufruf von vpn-session-check ohne
+       Shell, mit numerischem Argument und Zeitlimit.
     b) Freigabe der Sperre bei Accounting-Start NACH dem Schreiben der
        radacct-Zeile.
     c) Annahme der Abrechnungsmeldungen ohne Datenbank mit Puffer nach
@@ -194,7 +195,7 @@ ZWECK:
 
   ANF-SC-08 (BASE-090)
     Keys aus _070 Abschnitt 3 katalogisieren (Grenzen, Konsistenzregeln
-    K-a bis K-f, Alias fuer Altnamen); Default von
+    K-a bis K-e, Alias fuer Altnamen); Default von
     radius_acct_interim_seconds entscheiden (VB-0020).
 
   ANF-SC-09 (BASE-040)
@@ -204,10 +205,12 @@ ZWECK:
 
   ANF-SC-10 (BASE-110, MOD-006)
     Sichten auf log_runtime_activity (mit und ohne Gegenstelle),
-    log_usage_daily, log_quota_period, Pool-Kennzahlen; privilegierter
-    Auftragsweg fuer Hard-Cut, Live-Auskunft, Pool-Stellgroessen und
-    Reservefreigabe; Kennzeichnung "zuletzt gesehen"; keine Bearbeitung
-    von Sperren, Marken, Hinweisfeldern, Buchungsstaenden.
+    log_usage_daily, log_quota_period, Pool-Kennzahlen; je Connection
+    eine gemeinsame Zeitleiste aus Lifecycle-Log und
+    Aktivitaetsereignissen (DEC-SC-03); privilegierter Auftragsweg fuer
+    Hard-Cut, Live-Auskunft, Pool-Stellgroessen und Reservefreigabe;
+    Kennzeichnung "zuletzt gesehen"; keine Bearbeitung von Sperren,
+    Marken, Hinweisfeldern, Buchungsstaenden.
 
   ANF-SC-11 (MOD-007)
     Meldeweg der Ereignisse aus _070 Abschnitt 6, auch ohne Datenbank;
@@ -250,11 +253,17 @@ ZWECK:
            Auslegung (UNKNOWN fuehrt zur Ablehnung); das kostet
            Verfuegbarkeit bei gestoerter Sonde.
   E-SC-02  Die Verwaltungsschnittstelle von accel-ppp liefert je Sitzung
-           Anmeldename, Interface, Adresse, Zustand und Beginn, erlaubt
-           gezieltes hartes Beenden, ist lokal und per Kennwort
-           schuetzbar und antwortet unter Last innerhalb des Zeitlimits.
+           Anmeldename (vollstaendig und unveraendert), Sitzungskennung,
+           Interface, Adresse, Zustand und Beginn, erlaubt gezieltes
+           hartes Beenden, ist lokal und per Kennwort schuetzbar und
+           antwortet unter Last innerhalb des Zeitlimits. Eine Sitzung,
+           die sich noch in der Authentisierung befindet, erscheint nicht
+           unter ihrem Anmeldenamen.
            AUSWEICHWEG: Adapter ueber Interface-Liste des Kernels und
            Laufzeit-Spiegel; mehr UNKNOWN, laengere Aussperrzeiten.
+           Erscheint die authentisierende Sitzung bereits unter dem
+           Namen, entscheidet die On-Demand-Pruefung je Zeile ueber die
+           Sitzungskennung statt ueber den Namen.
   E-SC-03  accel-ppp sendet nach hartem Beenden Accounting-Stop und fuehrt
            kumulative 64-Bit-Zaehler in Interim- und Stop-Meldungen.
            AUSWEICHWEG: Schlusswerte ueber den ip-down-Hook in den Spool
@@ -297,7 +306,9 @@ ZWECK:
   SES-01, -02   entfallen mit vpn_sessions; an ihre Stelle treten die
                 Episoden-Ereignisse (genau ein Beginn, hoechstens ein Ende
                 mit Grund)
-  SES-03        SZ-1, vier Schichten (_030 Abschnitt 1)
+  SES-03        SZ-1, vier Schichten (_030 Abschnitt 1); die erneute
+                Pruefung vor dem Eintrag lebt als Nachpruefung P5 fort
+                (_030 Abschnitt 4)
   SES-04, -05,  Vorbedingungen von SV-1 und Regel S-3 (_020)
   SES-06, -06b
   SES-07, -08   Regeln zu den Hinweisfeldern (nie verringern, nie Zukunft)
