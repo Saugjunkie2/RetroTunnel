@@ -1,0 +1,491 @@
+schema: trace/1
+quelle: XPN
+datei: blocks/B165_ACCOUNTING_COLLECTOR_SESSION_MAPPING.txt
+einheit: AP-K070
+vollstaendigkeit: VOLLSTAENDIG
+records:
+- id: TR-XB165-01
+  zitat: Accounting soll Quota-Usage aggregieren (zeit-/delta-basiert) statt DB-Spam mit pro-packet Events zu erzeugen.
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Verbrauch als Deltas in Takten.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#2) BUCHUNGSREGELN
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-35
+  begruendung: Uebernommen.
+  zeilen:
+  - 15
+  - 15
+- id: TR-XB165-02
+  zitat: Identität ist vpn_connection_id (SQL PK von vpn_connections.id)
+  art: DEFINITION
+  aussage: Buchungsidentitaet ist die Connection, nicht der Anmeldename.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#A-3
+  - base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt#vpn_connection_id  ueber den Anmeldenamen
+  begruendung: Uebernommen; der Buchungsstand haelt die Zuordnung ab der ersten Sichtung fest.
+  zeilen:
+  - 16
+  - 16
+- id: TR-XB165-03
+  zitat: Collector muss restart-idempotent sein (Counter-Deltas, last_seen) und darf Quota nicht durch Reboots verfälschen.
+  art: SCHUTZZIEL
+  aussage: Idempotenz ueber Neustarts.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-35
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#SV-5
+  begruendung: Uebernommen.
+  zeilen:
+  - 17
+  - 17
+- id: TR-XB165-04
+  zitat: '- Ziel: Quota-Zählung über pppX rx/tx Kernel-Counter ohne DB-Spam.'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Messung ueber Interface-Zaehler.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-11
+  - 'base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#3) L2TP: BUCHUNG AUS radacct'
+  begruendung: 'Ersetzt: Quelle sind die vom Daemon gemeldeten kumulativen Zaehler in radacct. Eine zweite Messung derselben
+    Groesse entfaellt; Idempotenz, Schutz bei Datenbankstoerung und begrenzter Puffer bleiben erhalten.'
+  zeilen:
+  - 24
+  - 24
+- id: TR-XB165-05
+  zitat: '- Datenpfad (Traffic) läuft im Kernel, KEIN SQL pro Paket.'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Kein SQL im Datenpfad.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#MESSLATENZ UND MESSGRENZEN
+  begruendung: 'Uebernommen: gebucht wird im Takt der Abrechnungsmeldungen.'
+  zeilen:
+  - 30
+  - 30
+- id: TR-XB165-06
+  zitat: '- Quota-Usage wird als Deltas gesammelt und batchweise geschrieben (Intervall 300s).'
+  art: PARAMETER
+  aussage: Buchungsintervall 300 s.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#MESSLATENZ UND MESSGRENZEN
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#radius_acct_interim_seconds
+  begruendung: Das Intervall ist das Interim-Intervall des Daemons; empfohlen werden 60 s (VB-0020).
+  zeilen:
+  - 32
+  - 32
+- id: TR-XB165-07
+  zitat: '- Pfad: /run/vpn-sessions/<ppp_if>.env'
+  art: IMPL_DETAIL
+  aussage: Ort des Laufzeit-Spiegels.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#/run/vpn-sessions/
+  - base/BASE-070_SESSION_CORE/BASE-070_080_OWNER_GRENZEN.txt#ANF-SC-03
+  begruendung: Uebernommen (Runner BASE-030).
+  zeilen:
+  - 38
+  - 38
+- id: TR-XB165-08
+  zitat: '- SESSION_ID=<string>'
+  art: IMPL_DETAIL
+  aussage: Lokale Sitzungskennung im Spiegel.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt#"l2tp:" + acctuniqueid
+  begruendung: Die Episodenkennung stammt aus radacct (acctuniqueid) und steht nicht im Spiegel.
+  zeilen:
+  - 44
+  - 44
+- id: TR-XB165-09
+  zitat: (MUST Kill-Handle; pppd Prozess-PID dieser Session)
+  art: IMPL_DETAIL
+  aussage: Prozesskennung als Kill-Handle.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#AD-4
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#L2TP (Runner BASE-030)
+  begruendung: 'Ersetzt: Beendet wird ueber die Verwaltungsschnittstelle des Daemons anhand des Anmeldenamens; accel-ppp hat
+    keine Prozesskennung je Sitzung. Das Schutzziel (deterministisches Beenden) bleibt, mit Bestaetigung durch den Adapter.'
+  zeilen:
+  - 46
+  - 46
+- id: TR-XB165-10
+  zitat: dass ausschließlich root / der privilegierte VPN-Hook
+  art: SCHUTZZIEL
+  aussage: Schreibschutz des Spiegels.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#nur fuer root schreibbar
+  begruendung: Uebernommen.
+  zeilen:
+  - 48
+  - 48
+- id: TR-XB165-11
+  zitat: '- Bei PPP Disconnect (ip-down Hook) wird /run/vpn-sessions/<ppp_if>.env entfernt.'
+  art: IMPL_DETAIL
+  aussage: Entfernen des Spiegels beim Abbau.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_080_OWNER_GRENZEN.txt#ANF-SC-03
+  begruendung: Uebernommen (Runner BASE-030); verwaiste Dateien entfernt der Bereinigungslauf.
+  zeilen:
+  - 53
+  - 53
+- id: TR-XB165-12
+  zitat: gilt genau dann, wenn mindestens ein VALID Runtime-Mapping in /run/vpn-sessions/*.env existiert,
+  art: DEFINITION
+  aussage: Aktivitaet ueber das gueltige Mapping.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt#LIVE(c)
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-02
+  begruendung: Ersetzt durch die Sitzungstabelle des Daemons als Lebendbeweis; der Spiegel ist nur noch Diagnose.
+  zeilen:
+  - 55
+  - 55
+- id: TR-XB165-13
+  zitat: '- Konsequenz: Bloße Dateiexistenz ist NICHT ausreichend für Sicherheitsentscheidungen (Ghost-File Problem).'
+  art: SCHUTZZIEL
+  aussage: Dateien sind kein Beleg.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-02
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-02
+  begruendung: Uebernommen und verschaerft.
+  zeilen:
+  - 58
+  - 58
+- id: TR-XB165-14
+  zitat: '- Hinweis: stale Mapping-Files werden zentral durch Reconcile (B166) bereinigt (PPP_IF Existenzcheck).'
+  art: FUNKTION
+  aussage: Aufraeumen verwaister Spiegel-Dateien.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#J3
+  begruendung: Durch den Bereinigungslauf anhand der Laufzeitliste.
+  zeilen:
+  - 60
+  - 60
+- id: TR-XB165-15
+  zitat: '- Pfad: /var/lib/vpn-accounting/sessions/<SESSION_ID>.state'
+  art: IMPL_DETAIL
+  aussage: Dauerhafter Zaehlerstand je Sitzung als Datei.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#TABELLE vpn_l2tp_acct_state
+  begruendung: 'Ersetzt: Der Buchungsstand liegt in SQL und wird in derselben Transaktion wie die Buchung fortgeschrieben;
+    Datei und Datenbank koennen nicht auseinanderlaufen.'
+  zeilen:
+  - 65
+  - 65
+- id: TR-XB165-16
+  zitat: '- Pfad (Basis): /var/lib/vpn-accounting/'
+  art: IMPL_DETAIL
+  aussage: Ort des Spools.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#/var/lib/vpn-accounting/
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#P-a
+  begruendung: Uebernommen als gemeinsamer Spool-Bereich beider Tunnel.
+  zeilen:
+  - 73
+  - 73
+- id: TR-XB165-17
+  zitat: '- Bei DB-Ausfall: Deltas gehen NICHT verloren.'
+  art: SCHUTZZIEL
+  aussage: Kein Verbrauchsverlust bei Datenbankausfall.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-39
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-12
+  begruendung: Uebernommen.
+  zeilen:
+  - 77
+  - 77
+- id: TR-XB165-18
+  zitat: '- Gleichzeitig: keine Endlos-Wachstumsfalle (Disk-Full) -> lokale Safety Ceilings greifen IMMER.'
+  art: SCHUTZZIEL
+  aussage: Begrenzter Spool.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#P-a
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-39
+  begruendung: Uebernommen.
+  zeilen:
+  - 78
+  - 78
+- id: TR-XB165-19
+  zitat: '- Wichtig: SQL-first darf lokale Disk-Safety niemals aushebeln.'
+  art: SCHUTZZIEL
+  aussage: Lokale Grenze vor Policy.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#P-a
+  begruendung: Uebernommen (Sicherheitsgrenze aus BASE-005 gilt zusaetzlich).
+  zeilen:
+  - 82
+  - 82
+- id: TR-XB165-20
+  zitat: '- SPOOL_HARD_MAX_BYTES (MUST)'
+  art: PARAMETER
+  aussage: Harte Groessengrenze.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#SPOOL_HARD_MAX_BYTES
+  begruendung: Uebernommen.
+  zeilen:
+  - 84
+  - 84
+- id: TR-XB165-21
+  zitat: '- SPOOL_HARD_MAX_AGE_SECONDS (MUST)'
+  art: PARAMETER
+  aussage: Harte Altersgrenze.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#Groessen- und Altersgrenze
+  begruendung: Uebernommen.
+  zeilen:
+  - 85
+  - 85
+- id: TR-XB165-22
+  zitat: indem die ältesten Spool-Segmente gelöscht/rotiert werden ("drop oldest"), bis wieder unter dem Ceiling.
+  art: FUNKTION
+  aussage: 'Bei Grenze: aelteste zuerst verwerfen.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#P-d
+  begruendung: Verworfen werden zuerst Interim-Meldungen, weil jede spaetere Meldung derselben Sitzung sie vollstaendig ersetzt;
+    Start und Stop zuletzt. Das verliert weniger als 'aelteste zuerst'.
+  zeilen:
+  - 90
+  - 90
+- id: TR-XB165-23
+  zitat: '- Jeder Ceiling-Hit MUSS einen Alert auslösen (siehe B330), inkl. Metriken:'
+  art: SCHUTZZIEL
+  aussage: Alarm bei Erreichen der Grenze.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#P-d
+  begruendung: Uebernommen mit denselben Kennzahlen.
+  zeilen:
+  - 93
+  - 93
+- id: TR-XB165-24
+  zitat: '- Ein Replay darf quota_used nicht doppelt erhöhen.'
+  art: SCHUTZZIEL
+  aussage: Keine Doppelbuchung beim Nachspielen.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-35
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-37
+  begruendung: Uebernommen.
+  zeilen:
+  - 98
+  - 98
+- id: TR-XB165-25
+  zitat: '- Es MUSS ein deterministischer Replay-Key existieren'
+  art: IMPL_DETAIL
+  aussage: Schluessel gegen doppelte Buchung.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#SV-5
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#B-3
+  begruendung: 'Statt eines Schluessels je Delta: kumulative Zaehler und Buchungsstand mit Vergleich; eine Wiederholung ergibt
+    keine Differenz.'
+  zeilen:
+  - 99
+  - 99
+- id: TR-XB165-26
+  zitat: '- spool backlog size (bytes) + oldest record age (seconds) müssen messbar sein'
+  art: BETRIEB
+  aussage: Beobachtbarkeit des Spools.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#P-d
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#11) PANEL-CONSUMABILITY
+  begruendung: Uebernommen.
+  zeilen:
+  - 101
+  - 101
+- id: TR-XB165-27
+  zitat: '- Wenn DB wieder up: seriell drainen (geordnet), mit Backoff/Rate-Limit, um DB nicht zu fluten.'
+  art: FUNKTION
+  aussage: Geordnetes Nachspielen.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#P-c
+  begruendung: Uebernommen.
+  zeilen:
+  - 103
+  - 103
+- id: TR-XB165-28
+  zitat: '- Trigger: systemd timer alle 300s'
+  art: PARAMETER
+  aussage: Takt des Collectors.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#runtime_activity_check_interval_seconds
+  begruendung: Der L2TP-Abgleich laeuft im kurzen Takt; wie oft neue Zaehler vorliegen, bestimmt das Interim-Intervall.
+  zeilen:
+  - 110
+  - 110
+- id: TR-XB165-29
+  zitat: '- Collector MUSS non-VALID Mappings ignorieren / als inaktiv behandeln'
+  art: SCHUTZZIEL
+  aussage: Nur gueltige Sitzungen zaehlen.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt#L4
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-37
+  begruendung: Gebucht wird, was der Daemon gemeldet hat; eine nicht lebende Sitzung erzeugt keine neuen Meldungen.
+  zeilen:
+  - 113
+  - 113
+- id: TR-XB165-30
+  zitat: '- Lesen rx/tx counters: /sys/class/net/pppX/statistics/{rx_bytes,tx_bytes}'
+  art: IMPL_DETAIL
+  aussage: Zaehlerquelle Interface-Statistik.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - 'base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#QUELLE:'
+  begruendung: Ersetzt durch die Zaehler der Abrechnungsmeldungen (siehe Ersetzung des Collectors).
+  zeilen:
+  - 114
+  - 114
+- id: TR-XB165-31
+  zitat: '- Batch-Commit in einer Transaktion: quota_used += delta (pro vpn_connection_id)'
+  art: FUNKTION
+  aussage: Relative Buchung in einer Transaktion.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#B-1
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#SV-5
+  begruendung: Uebernommen.
+  zeilen:
+  - 117
+  - 117
+- id: TR-XB165-32
+  zitat: '- pending_* aufaddieren + spool append'
+  art: FUNKTION
+  aussage: Deltas bei Datenbankausfall in den Spool.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#8) DATENBANKSTOERUNG
+  begruendung: 'Ersetzt: Der AAA-Dienst puffert die Abrechnungsmeldungen; ein eigener Delta-Spool entfaellt, weil die Zaehler
+    kumulativ sind. Schutzziel unveraendert.'
+  zeilen:
+  - 120
+  - 120
+- id: TR-XB165-33
+  zitat: '- Kein Auth-Fallback (B050 Fail-Closed bleibt)'
+  art: SCHUTZZIEL
+  aussage: Kein Aufweichen der Anmeldung.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-14
+  begruendung: Uebernommen.
+  zeilen:
+  - 121
+  - 121
+- id: TR-XB165-34
+  zitat: '- Final read rx/tx, final delta berechnen'
+  art: FUNKTION
+  aussage: Schlussmessung im Abbau-Hook.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt#L5
+  - base/BASE-070_SESSION_CORE/BASE-070_080_OWNER_GRENZEN.txt#E-SC-03
+  begruendung: 'Ersetzt: Die Schlusswerte liefert die Stop-Meldung des Daemons. Der Hook-Weg ist als Ausweichweg benannt,
+    falls die Annahme nicht haelt.'
+  zeilen:
+  - 123
+  - 123
+- id: TR-XB165-35
+  zitat: '- Mapping Test: pppX verbindet'
+  art: TEST
+  aussage: Test des Spiegels.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-030_TUNNEL_L2TP_IPSEC/BASE-030_095_TESTS.txt#/run/vpn-sessions/
+  begruendung: Der Spiegel und sein Test bleiben in BASE-030 (ohne Prozesskennung).
+  zeilen:
+  - 131
+  - 131
+- id: TR-XB165-36
+  zitat: '- PID Source Test (FORBIDDEN pgrep/ps):'
+  art: TEST
+  aussage: Test der Herkunft der Prozesskennung.
+  einordnung: NICHT_ANWENDBAR
+  begruendung: Entfaellt mit der Prozesskennung je Sitzung.
+  zeilen:
+  - 138
+  - 138
+- id: TR-XB165-37
+  zitat: '- Permissions Test: Nicht-root'
+  art: TEST
+  aussage: Test des Schreibschutzes.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-42
+  begruendung: Uebernommen.
+  zeilen:
+  - 139
+  - 139
+- id: TR-XB165-38
+  zitat: '- Spool Ring-Buffer Test:'
+  art: TEST
+  aussage: Test des begrenzten Spools.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-51
+  begruendung: Geprueft wird das Verwerfen nach Art der Meldung.
+  zeilen:
+  - 140
+  - 140
+- id: TR-XB165-39
+  zitat: '- Collector Test: alle 300s werden Deltas korrekt berechnet und als Batch committed.'
+  art: TEST
+  aussage: Test der Delta-Buchung.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-44
+  begruendung: Ersetzt durch den Test der Buchung aus radacct.
+  zeilen:
+  - 143
+  - 143
+- id: TR-XB165-40
+  zitat: '- DB Down Test: DB stoppen -> Spool wächst bis Ceiling;'
+  art: TEST
+  aussage: Test Datenbankausfall.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-51
+  begruendung: Uebernommen.
+  zeilen:
+  - 144
+  - 144
+- id: TR-XB165-41
+  zitat: '- Reboot Test: DB down + reboot -> spool/state bleibt;'
+  art: TEST
+  aussage: Test Neustart waehrend Ausfall.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-51
+  begruendung: Uebernommen.
+  zeilen:
+  - 145
+  - 145
+- id: TR-XB165-42
+  zitat: '- Runtime Index Test (vpn_connection_id):'
+  art: TEST
+  aussage: Test der Aktivitaetspruefung ueber das Mapping.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-76
+  begruendung: Ersetzt durch den Test des Adapters gegen den realen Daemon.
+  zeilen:
+  - 146
+  - 146

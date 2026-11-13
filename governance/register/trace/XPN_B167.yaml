@@ -1,0 +1,353 @@
+schema: trace/1
+quelle: XPN
+datei: blocks/B167_WIRING_HOOKS_SYSTEMD.txt
+einheit: AP-K070
+vollstaendigkeit: TEILWEISE (Aussagen zu Sitzungs-Mapping, Bereinigung, Systemstart, Datenbankausfall und Hard-Cut; Hook-Ablauf,
+  Connect-Gate, Policy-Verdrahtung und IKEv2 werden in AP-K080 und AP-Q04 zugeordnet)
+records:
+- id: TR-XB167-01
+  zitat: '- /usr/local/bin/vpn-session-kill'
+  art: IMPL_DETAIL
+  aussage: Werkzeugpfad.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#vpn-session-kill      Hard-Cut
+  begruendung: Uebernommen.
+  nahe_zeile: 35
+  zeilen:
+  - 35
+  - 35
+- id: TR-XB167-02
+  zitat: => true genau dann, wenn mindestens ein VALID Runtime-Mapping in /run/vpn-sessions/*.env existiert,
+  art: DEFINITION
+  aussage: Aktivitaetsdefinition ueber das Mapping.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt#LIVE(c)
+  begruendung: Ersetzt durch die Sitzungstabelle des Daemons (wie B165).
+  zeilen:
+  - 47
+  - 47
+- id: TR-XB167-03
+  zitat: '- /var/lib/vpn-accounting/ (B165)'
+  art: IMPL_DETAIL
+  aussage: Spool-Pfad.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#/var/lib/vpn-accounting/
+  begruendung: Uebernommen.
+  zeilen:
+  - 52
+  - 52
+- id: TR-XB167-04
+  zitat: '- Wenn PPP Username nicht ermittelbar ist => Mapping wird NICHT geschrieben und vpn-policy-apply wird NICHT ausgeführt.'
+  art: SCHUTZZIEL
+  aussage: Fail-Closed im Aufbau-Hook mit Beenden der Sitzung.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-030_TUNNEL_L2TP_IPSEC/BASE-030_040_PPP_INTERFACE_LIFECYCLE.txt#FAIL-CLOSED BEI IP-UP
+  begruendung: RetroTunnel laesst die Sitzung ohne Freigabe stehen (struktureller Default-Deny des L2TP-Pfads, Changelog v2.1.15);
+    BASE-070 meldet eine Sitzung ohne Berechtigung und beendet sie (Schritt L7).
+  zeilen:
+  - 86
+  - 86
+- id: TR-XB167-05
+  zitat: Das Mapping (B165) ist nur Spiegel
+  art: SCHUTZZIEL
+  aussage: Der Spiegel ist keine harte Abhaengigkeit fuer das Beenden.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#K2
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-02
+  begruendung: 'Regelfall: Kennung aus der Datenbank, Beenden ueber die Verwaltungsschnittstelle des Daemons. Der Spiegel
+    dient nur als Behelf, wenn die Datenbank fehlt.'
+  zeilen:
+  - 96
+  - 96
+- id: TR-XB167-06
+  zitat: '- Selbst wenn Cleanup ausfällt, repariert Reconcile (B166) stale state spätestens <= 5 Minuten.'
+  art: BETRIEB
+  aussage: Reste werden periodisch repariert.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#J3
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-28
+  begruendung: Uebernommen fuer die Zustaende dieses Moduls; Policy-Reste sind BASE-080.
+  nahe_zeile: 191
+  zeilen:
+  - 191
+  - 191
+- id: TR-XB167-07
+  zitat: und darf unabhängig vom Mapping-Alter terminieren.
+  art: FUNKTION
+  aussage: Verwaltungs-Kill ist unabhaengig vom Abbau-Ereignis.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - 'base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#6) HARD-CUT: vpn-session-kill'
+  begruendung: Uebernommen.
+  zeilen:
+  - 210
+  - 210
+- id: TR-XB167-08
+  zitat: '- Zweck: Batch Accounting via pppX counters + durable spool (B165)'
+  art: FUNKTION
+  aussage: Collector-Timer.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-11
+  begruendung: Ersetzt durch die Buchung aus radacct im L2TP-Abgleich.
+  zeilen:
+  - 265
+  - 265
+- id: TR-XB167-09
+  zitat: '- vpn-stale-session-janitor.timer:'
+  art: IMPL_DETAIL
+  aussage: Zeitgeber des Janitors.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#vpn-session-janitor.timer
+  begruendung: Zeitgeber in festem Raster; der Takt kommt aus den Settings (Regel U-1).
+  zeilen:
+  - 287
+  - 287
+- id: TR-XB167-10
+  zitat: '- Zusätzlich (On-Demand): FreeRADIUS kann vor Simultaneous-Use den Janitor gezielt aufrufen:'
+  art: FUNKTION
+  aussage: On-Demand-Aufruf aus dem AAA-Dienst.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#3) ON-DEMAND-PRUEFUNG
+  begruendung: Uebernommen ueber vpn-session-check.
+  zeilen:
+  - 290
+  - 290
+- id: TR-XB167-11
+  zitat: '- /run ist tmpfs und nach Boot leer (kein Mapping).'
+  art: DEFINITION
+  aussage: Zustand nach dem Systemstart.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#/run ist leer
+  begruendung: Uebernommen.
+  zeilen:
+  - 300
+  - 300
+- id: TR-XB167-12
+  zitat: '- Einmalig nach Boot-Reconcile (Delay empfohlen): globaler stale sweep (B168)'
+  art: FUNKTION
+  aussage: Verzoegerter Bereinigungslauf nach dem Start.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#5) NACH NEUSTARTS
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-25
+  begruendung: 'Neustart-Regel: Zeilen von vor dem Daemon-Start sind sicher tot und werden vom ersten Abgleich ohne Wartezeit
+    geschlossen.'
+  zeilen:
+  - 309
+  - 309
+- id: TR-XB167-13
+  zitat: '- Boot-Janitor darf mit Delay laufen (z.B. 60-120s), damit ip-up Mapping (/run/vpn-sessions) wieder aufgebaut wird.'
+  art: PARAMETER
+  aussage: Verzoegerung 60 bis 120 s.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#vpn_boot_janitor_delay_seconds
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#5) NACH NEUSTARTS
+  begruendung: Die Verzoegerung gilt nur noch dem ersten vollstaendigen Bereinigungslauf; das Schliessen alter Zeilen braucht
+    sie nicht.
+  zeilen:
+  - 313
+  - 313
+- id: TR-XB167-14
+  zitat: '- Policy/Collector/Janitor sollen erst laufen, wenn Netzwerk + VPN-Stack bereit ist.'
+  art: BETRIEB
+  aussage: Startreihenfolge der Laeufe.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#U-2
+  begruendung: 'Keine harte Abhaengigkeit: Die Laeufe sind ohne Daemon bzw. Datenbank wirkungslos und holen nach.'
+  zeilen:
+  - 319
+  - 319
+- id: TR-XB167-15
+  zitat: '- Trotzdem sollen Services sauber starten (kein Boot-Deadlock), auch wenn DB temporär down ist.'
+  art: SCHUTZZIEL
+  aussage: Kein Start-Deadlock.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#U-2
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-28
+  begruendung: Uebernommen.
+  zeilen:
+  - 352
+  - 352
+- id: TR-XB167-16
+  zitat: '- Wenn SQL nicht erreichbar -> Login muss scheitern (kein Accept).'
+  art: SCHUTZZIEL
+  aussage: Anmeldung ohne Datenbank scheitert.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-14
+  begruendung: Uebernommen.
+  zeilen:
+  - 358
+  - 358
+- id: TR-XB167-17
+  zitat: '- DB down -> skip/fail (kurzer Timeout), loggen (sparsam), nächster Lauf holt nach.'
+  art: BETRIEB
+  aussage: Laeufe ohne Datenbank.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-28
+  begruendung: Uebernommen.
+  zeilen:
+  - 360
+  - 360
+- id: TR-XB167-18
+  zitat: '- /run/vpn-accounting-collector.lock (flock)'
+  art: IMPL_DETAIL
+  aussage: Einzel-Lock des Collectors.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#U-3
+  begruendung: Jeder Lauf dieses Moduls haelt einen eigenen Einzel-Lock.
+  zeilen:
+  - 372
+  - 372
+- id: TR-XB167-19
+  zitat: '- Admin kann eine aktive VPN-Session sicher beenden (Hardcut-first).'
+  art: FUNKTION
+  aussage: Zweck des Werkzeugs.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - 'base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#6) HARD-CUT: vpn-session-kill'
+  begruendung: Uebernommen.
+  zeilen:
+  - 378
+  - 378
+- id: TR-XB167-20
+  zitat: '- Panel (www-data) darf NIEMALS direkt killen -> Privilege Separation ist Pflicht (siehe B285).'
+  art: SCHUTZZIEL
+  aussage: Privilegtrennung.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-32
+  begruendung: Uebernommen.
+  zeilen:
+  - 379
+  - 379
+- id: TR-XB167-21
+  zitat: '- vpn_connection_id MUSS strikt Integer sein (sonst exit != 0, audit-log).'
+  art: SCHUTZZIEL
+  aussage: Eingabepruefung.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#K1
+  begruendung: Uebernommen.
+  zeilen:
+  - 386
+  - 386
+- id: TR-XB167-22
+  zitat: '- Session technisch beenden (pppd/xl2tpd), bevorzugt über PID/Interface aus Runtime-Mapping (B165/B168).'
+  art: IMPL_DETAIL
+  aussage: Technisches Beenden.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#K5
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#L2TP (Runner BASE-030)
+  begruendung: Ueber den Adapter des jeweiligen Tunnels; fuer L2TP die Verwaltungsschnittstelle von accel-ppp.
+  zeilen:
+  - 388
+  - 388
+- id: TR-XB167-23
+  zitat: '- Kein "Clear lock only", kein DB-only Cleanup.'
+  art: SCHUTZZIEL
+  aussage: Kein Schein-Hard-Cut.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#HC-1
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-31
+  begruendung: Uebernommen.
+  zeilen:
+  - 389
+  - 389
+- id: TR-XB167-24
+  zitat: '- vpn-policy-apply / reconcile ausführen, um nft/tc deterministisch zu korrigieren.'
+  art: FUNKTION
+  aussage: Abgleich nach dem Beenden.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#K6
+  begruendung: Uebernommen.
+  zeilen:
+  - 391
+  - 391
+- id: TR-XB167-25
+  zitat: '- Locks (active_session_locks) best-effort entfernen (falls vorhanden).'
+  art: FUNKTION
+  aussage: Sperren nach dem Hard-Cut entfernen.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#K8
+  - base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt#K-5
+  begruendung: Das Werkzeug gibt nur die eigene Sperre (Zweck HARDCUT) frei; fremde Sperren laufen ueber ihre TTL ab.
+  zeilen:
+  - 392
+  - 392
+- id: TR-XB167-26
+  zitat: '- Accounting-Stop wird idealerweise durch den Kill ausgelöst (RADIUS schließt radacct normal).'
+  art: FUNKTION
+  aussage: Stop-Meldung durch das Beenden.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#L2TP (Runner BASE-030)
+  - base/BASE-070_SESSION_CORE/BASE-070_080_OWNER_GRENZEN.txt#E-SC-03
+  begruendung: Uebernommen; als zu pruefende Annahme gefuehrt.
+  zeilen:
+  - 394
+  - 394
+- id: TR-XB167-27
+  zitat: '- Falls Accounting-Stop ausbleibt: Janitor (B168) schließt stale radacct später (Truth bleibt radacct).'
+  art: FUNKTION
+  aussage: Rueckfall, wenn die Stop-Meldung ausbleibt.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt#L4
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#K6
+  begruendung: 'Uebernommen: Der angestossene Abgleich schliesst die Zeile als Geist.'
+  zeilen:
+  - 395
+  - 395
+- id: TR-XB167-28
+  zitat: '- Das Panel darf das Tool nur via sudo ausführen (www-data -> nur dieses Tool, nur mit validierten Args; siehe B285).'
+  art: SCHUTZZIEL
+  aussage: Aufrufweg des Panels.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#HC-2
+  begruendung: Privilegierter Auftragsweg; Form bei BASE-110.
+  zeilen:
+  - 398
+  - 398
+- id: TR-XB167-29
+  zitat: '- Boot-Janitor Test: Nach Boot (mit Delay) läuft global sweep'
+  art: TEST
+  aussage: Test des Bereinigungslaufs nach dem Start.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-33
+  begruendung: Geprueft wird die Neustart-Regel.
+  zeilen:
+  - 410
+  - 410
+- id: TR-XB167-30
+  zitat: '- DB Down Boot Test: DB down beim Boot -> Services starten trotzdem;'
+  art: TEST
+  aussage: Test Systemstart ohne Datenbank.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-36
+  begruendung: Uebernommen.
+  zeilen:
+  - 413
+  - 413
