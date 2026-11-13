@@ -278,7 +278,8 @@ ZWECK:
     User-Request -> USER_DISCONNECT; Lost-Carrier, Lost-Service, Port-Error
     -> LINK_LOST; Idle-Timeout -> IDLE_TIMEOUT; Session-Timeout ->
     SESSION_TIMEOUT; NAS-Reboot, NAS-Error, Admin-Reboot -> SYSTEM_RESTART;
-    Admin-Reset -> ADMIN_HARDCUT; alles andere -> OTHER.
+    Admin-Reset -> ADMIN_HARDCUT; Janitor-Ghost -> JANITOR_GHOST; alles
+    andere -> OTHER.
   Ein vor dem Beenden hinterlegter Grund-Hinweis (Hard-Cut-Ausloeser) hat
   Vorrang vor der Zuordnung.
 
@@ -295,11 +296,14 @@ ZWECK:
     L1  LAUFZEIT LESEN: S := list() des Adapters mit Lesezeit t_s, dazu die
         Startzeit d_start des Daemons. Bei Fehler oder Zeitlimit:
         S := UNBEKANNT.
-    L2  DANACH DATENBANK LESEN: offene radacct-Zeilen dieses NAS;
-        geschlossene Zeilen mit fehlendem, nicht abgeschlossenem oder vom
-        Zaehler abweichendem Buchungsstand (Horizont _050 Abschnitt 3);
-        Buchungsstaende; Zuordnung Anmeldename -> Connection; Marke
-        l2tp_daemon_started_at.
+    L2  DANACH DATENBANK LESEN (nur indexgestuetzte Zugriffe, kein
+        Durchsuchen der ganzen Tabelle): offene radacct-Zeilen dieses NAS;
+        neue Zeilen (Kennung groesser als die Marke
+        l2tp_sync_last_radacctid); Zeilen mit nicht abgeschlossenem
+        Buchungsstand; dazu Buchungsstaende, Zuordnung Anmeldename ->
+        Connection und die Marke l2tp_daemon_started_at. Den Vergleich
+        bereits abgeschlossener Zeilen (Nachzuegler) fuehrt der
+        Bereinigungslauf aus (_050 Abschnitt 3).
     L3  DAEMON-NEUSTART: Ist d_start juenger als die Marke, sind alle
         offenen Zeilen mit acctstarttime < d_start Geister (der neue
         Prozess kann sie nicht fuehren). Sie werden ohne Mindestalter
@@ -347,7 +351,11 @@ ZWECK:
 
   EIGENSCHAFTEN: idempotent; jeder Schritt je Zeile atomar; ein Abbruch an
   beliebiger Stelle wird vom naechsten Lauf fortgesetzt; kein Schritt
-  haengt von der Reihenfolge eintreffender Hook-Aufrufe ab.
+  haengt von der Reihenfolge eintreffender Hook-Aufrufe ab. Der Aufwand
+  eines Laufs waechst mit der Zahl der lebenden und der seit dem letzten
+  Lauf geaenderten Sitzungen, nicht mit der Groesse von radacct; der
+  Anmeldepfad wird durch den Abgleich nicht gebremst (eigene, kurze
+  Transaktionen je Zeile).
 
 ================================================================================
 8) ZUSTANDSWECHSEL DER CONNECTION UND EPISODEN

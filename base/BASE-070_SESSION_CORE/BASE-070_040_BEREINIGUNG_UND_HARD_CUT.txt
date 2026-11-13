@@ -81,7 +81,9 @@ ZWECK:
                   acctsessiontime = <Differenz dazu>,
                   acctterminatecause = :ursache
             WHERE radacctid = :rid AND acctstoptime IS NULL
-         :ursache ist 'Lost-Carrier' (Geist) bzw. 'NAS-Reboot' (Neustart).
+         :ursache ist 'Janitor-Ghost' (Geist) bzw. 'NAS-Reboot'
+         (Neustart). Der eigene Wert macht in radacct selbst sichtbar,
+         dass nicht der Daemon, sondern die Bereinigung geschlossen hat.
     G-5  Vor dem Schliessen wird im Buchungsstand der Grund-Hinweis
          JANITOR_GHOST bzw. SYSTEM_RESTART hinterlegt (_050 Abschnitt 3).
          Ereignis und Schlussbuchung erzeugt der L2TP-Abgleich (Schritt
@@ -117,8 +119,12 @@ ZWECK:
           vpn_cleanup_ratelimit_window_seconds (Vorschlag 5). Innerhalb
           des Fensters wird das letzte Ergebnis geliefert, sofern es
           juenger ist als vpn_cleanup_result_ttl_seconds (Vorschlag 5),
-          sonst UNKNOWN. Gleichzeitig bearbeitete Anfragen sind begrenzt;
-          darueber: UNKNOWN.
+          sonst UNKNOWN. Bei einem zwischengespeicherten NOT_LIVE werden
+          die G-Regeln trotzdem erneut angewandt (ein inzwischen alt
+          genug gewordener Geist wird geschlossen); das ist zulaessig,
+          weil das Ergebnis juenger ist als das Mindestalter (Regel K-f).
+          Gleichzeitig bearbeitete Anfragen sind begrenzt; darueber:
+          UNKNOWN. Je Anfrage gibt es hoechstens einen Sondenlauf.
       O2  Connection lesen: tunnel_type und Anmeldename. Nicht lesbar,
           nicht vorhanden oder nicht L2TP_IPSEC: UNKNOWN.
       O3  probe(Anmeldename).
@@ -170,8 +176,10 @@ ZWECK:
     J4  ADRESSEN: abgelaufene Quarantaene-Eintraege loeschen; widerrufene
         Connections nach Ablauf ihrer Quarantaene physisch loeschen
         (BASE-070_060 Abschnitt 6).
-    J5  BUCHUNGSSTAENDE: abgeschlossene Eintraege nach Ablauf ihrer
-        Aufbewahrung loeschen (BASE-070_050 Abschnitt 3).
+    J5  BUCHUNGSSTAENDE: Nachzuegler buchen (Vergleich der abgeschlossenen
+        Zeilen innerhalb der Aufbewahrung mit radacct); abgeschlossene
+        Eintraege nach Ablauf ihrer Aufbewahrung loeschen (BASE-070_050
+        Abschnitt 3).
     J6  POOL-STATISTIK: Fuellstaende berechnen, Schwellenwechsel melden
         (BASE-070_060 Abschnitt 7).
     J7  QUOTA-PERIODE NACHHOLEN: faellige Periodenwechsel ausfuehren, falls
@@ -220,7 +228,9 @@ ZWECK:
     K2  Connection lesen: tunnel_type, Kennung fuer den Adapter.
         Datenbank nicht erreichbar:
           L2TP       Kennung aus dem Laufzeit-Spiegel (/run/vpn-sessions/,
-                     Eintrag VPN_CONNECTION_ID); K3, K4, K7 entfallen
+                     Eintrag VPN_CONNECTION_ID); K3, K4, K7 entfallen.
+                     Der Spiegel ist deshalb nur fuer root schreibbar;
+                     kein Web- oder Kundendienst darf ihn veraendern.
           WIREGUARD  Abbruch TEMPFAIL_DB (ohne Datenbank ist der Peer nicht
                      sicher zuordenbar; Notfallweg ist der Stop des
                      Interfaces, BASE-040_060 Abschnitt 4)
