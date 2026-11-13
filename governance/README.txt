@@ -10,6 +10,12 @@ ZWECK
   Regel-Arbeitskopie, belegte Umgebungsprüfung, Register, Status/Checkpoint,
   Fortsetzungseinstieg, Gate-Zustände, später Auditberichte und Gate-Protokolle.
 
+ARBEITSBRANCH (seit 2026-11-13)
+  Auf ausdrückliche Anweisung des Betreibers ("arbeite direkt auf main",
+  BM-0005) wird der laufende Stand direkt auf main geführt. Der Inhalt von
+  main ist damit IN BEARBEITUNG und NICHT freigegeben; maßgeblich ist allein
+  der Fachstatus in STATUS.yaml.
+
 AUTORITÄT (wichtig — bitte nicht missverstehen)
   1. Höchste Ebene ist die vom Betreiber bestätigte, EXTERN geschützte
      Betreiberregel-Fassung. Eine solche externe, gegen den Hauptarchitekten
@@ -36,6 +42,9 @@ INHALT
     ARBEITSPAKETE.yaml      Aufgaben, Abhängigkeiten, Status, Ausgangs-Commits
     BEFUNDE.yaml            Befunde (kritisch/schwerwiegend/geringfügig/Verbesserung)
     VERBESSERUNGEN.yaml     Funktions-/Verbesserungsanalyse (Grundlage des Freeze)
+    BETREIBERMITTEILUNGEN.yaml  Mitteilungen/Entscheidungen des Betreibers nach dem
+                            Startauftrag, wörtlich, mit Einordnung und Folgen
+    MODULPRUEFUNG.yaml      Liste der maschinell geprüften Module (Invarianten/Tests)
     trace/                  Q2: Rückverfolgung Quelle <-> aktuelle Spezifikation
                             (wird arbeitspaketweise gefüllt)
 
@@ -65,6 +74,9 @@ KENNUNGS-NAMENSRÄUME DIESES AUFTRAGS (zur Vermeidung von Label-Drift)
     BF-…                             Befunde (BEFUNDE.yaml)
     VB-…                             Verbesserungen/Funktionen (VERBESSERUNGEN.yaml)
     UP-…                             Einzelprüfungen der Umgebungsprüfung
+    BM-…                             Betreibermitteilungen (BETREIBERMITTEILUNGEN.yaml)
+    BL-…                             Blockaden (STATUS.yaml)
+    TR-…                             Rückverfolgungs-Records (register/trace/)
   Die Kennungen der Betreiberregeln selbst werden nicht umbenannt; die Präfixe
   dienen nur der eindeutigen Zitierung innerhalb dieses Repositories.
 ================================================================================

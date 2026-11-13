@@ -15,7 +15,13 @@ WERKZEUGE
                          PRIORITAETENLISTE.txt), BEFUNDE (Fundstellen auflösbar),
                          VERBESSERUNGEN (Freeze-Regeln) und der Rückverfolgung
                          register/trace/*.yaml (Zitate wortgenau gegen die Quelle
-                         am Baseline-Commit, Erfüllungsorte existieren).
+                         am Baseline-Commit, Erfüllungsorte existieren),
+                         BETREIBERMITTEILUNGEN (Wortlaut, Einordnung, Querverweise;
+                         Regeländerung nur mit Regelbezug) und der Module laut
+                         MODULPRUEFUNG.yaml (Invarianten lückenlos, jede von
+                         mindestens einem Test geprüft, Index, Herkunft).
+  trace_zeilen.py        Trägt zu einem wörtlichen Zitat den Zeilenbereich der
+                         Quelle ein (nicht gefunden oder mehrdeutig = Fehler).
   tests/test_negativ.py  Negativtests: absichtlich ungültige, harmlose Kopien der
                          Register müssen als Fehler erkannt werden (z. B. veränderte
                          Regelreferenz, falsche Commit-Bindung, gefälschtes Zitat,

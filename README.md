@@ -5,6 +5,8 @@
 ![Status: M2 In Progress](https://img.shields.io/badge/Phase-M2%20In%20Progress-yellow.svg)
 ![Platform: Debian 13](https://img.shields.io/badge/Platform-Debian%2013-informational.svg)
 
+> **Hinweis zum Stand von `main` (seit 2026-11-13):** Auf ausdrückliche Anweisung des Betreibers wird der laufende Arbeitsstand der Konzept-Fertigstellung direkt auf `main` geführt. Der Inhalt von `main` ist **in Bearbeitung und weder vollständig geprüft noch freigegeben**. Maßgeblich ist der Fachstatus in [`governance/STATUS.yaml`](governance/STATUS.yaml); Einstieg für die Weiterarbeit: [`governance/FORTSETZUNG.md`](governance/FORTSETZUNG.md).
+
 RetroTunnel ist ein in Entwicklung befindliches Architektur- und Implementierungskonzept für einen Debian-basierten Dual-Tunnel-VPN-Stack. Die Zielarchitektur soll zwei grundverschiedene Client-Welten auf einem Server bedienen:
 
 - **L2TP_IPSEC** — Windows XP / Vista über L2TP/IPsec (accel-ppp)

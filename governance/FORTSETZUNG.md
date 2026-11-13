@@ -10,12 +10,13 @@ Live-Eingriffe, XPN/xp-vpn-stack nur lesen), mit Quellenkonsolidierung, technisc
 zwei getrennten Vollaudits und Fail-Closed-Freigabe über die Gates G1–G4.
 
 ## Pflichtablauf bei JEDER neuen Ausführung (vor jeder inhaltlichen Arbeit)
-1. `git fetch origin` in beiden Checkouts; tatsächlichen Stand von `main` und des Arbeitsbranches feststellen
-   (Arbeitsbranch laut `governance/STATUS.yaml`). Abweichungen von den dort notierten Commits zuerst klären.
+1. `git fetch origin` in beiden Checkouts; tatsächlichen Stand von `main` feststellen. **Arbeitsbranch ist seit
+   2026-11-13 `main`** (ausdrückliche Betreiberanweisung, BM-0005 in `register/BETREIBERMITTEILUNGEN.yaml`); der
+   frühere Branch `claude/friendly-allen-4qg7kn` wird nicht weitergeführt. Abweichungen zuerst klären.
 2. `governance/betreiberregeln/` lesen; SHA-256 der Arbeitskopie mit `STATUS.yaml` vergleichen. Das ist nur eine
    Arbeitskopie-Kontrolle, **kein** Schutznachweis.
-3. `governance/STATUS.yaml`, `register/ARBEITSPAKETE.yaml`, `register/BEFUNDE.yaml` und
-   `register/QUELLENINVENTAR.yaml` lesen. Nichts doppelt bearbeiten: Pakete mit Status `ERLEDIGT` nicht neu beginnen;
+3. `governance/STATUS.yaml`, `register/ARBEITSPAKETE.yaml`, `register/BEFUNDE.yaml`,
+   `register/BETREIBERMITTEILUNGEN.yaml` und `register/QUELLENINVENTAR.yaml` lesen. Nichts doppelt bearbeiten: Pakete mit Status `ERLEDIGT` nicht neu beginnen;
    bei `IN_ARBEIT` zuerst den zuletzt gepushten Zwischenstand prüfen.
 4. QA ausführen: `python3 qa/quelleninventar.py --rt . --xpn <xp-vpn-stack-Checkout> --check`
    (weitere Prüfskripte, sobald vorhanden: siehe `qa/README.txt`). Fehler zuerst beheben.
@@ -25,8 +26,11 @@ zwei getrennten Vollaudits und Fail-Closed-Freigabe über die Gates G1–G4.
    **committen und pushen**. Kleine, abgeschlossene Einheiten; keine breite Parallelität (Nutzungslimit).
 
 ## Feste Grenzen
-- Kein `FREIGEGEBEN`, kein Merge nach `main`, solange G4 nicht nachweislich erfüllt ist
-  (dann höchstens `FACHLICH_FERTIG_FREIGABE_BLOCKIERT`).
+- Kein `FREIGEGEBEN` und kein `ABGESCHLOSSEN_UND_UEBERNOMMEN`, solange G4 nicht nachweislich erfüllt ist
+  (dann höchstens `FACHLICH_FERTIG_FREIGABE_BLOCKIERT`). **Dass der Stand auf `main` liegt, ist keine Freigabe**
+  (BM-0005 ändert nur den Arbeitsort). Der Betreiber hat eine zweite Identität abgelehnt (BM-0002); G4 bleibt
+  ohne neue Betreiberaktion unerfüllbar.
+- Commits nur per normalem Push (Fast-Forward) auf `main`; nie Force-Push, nie History umschreiben.
 - Keine erfundenen Tests, Prüfungen, Lesestände oder Cloud-Funktionen. Belegstufen trennen:
   geplant / dokumentiert / logisch geprüft / maschinell geprüft / praktisch getestet.
 - XPN-Repository nie verändern. Keine Secrets in Commits. Kein Force-Push, kein Schutz-Bypass.
@@ -35,7 +39,8 @@ zwei getrennten Vollaudits und Fail-Closed-Freigabe über die Gates G1–G4.
 ## Automatische Wiederaufnahme
 Seit 2026-11-12 ist eine geplante Aufgabe eingerichtet (`trig_016TCErUz8LqpGu3rkrbt6bb`, alle 3 Stunden, an die
 ursprüngliche Sitzung gebunden). Nachgewiesen sind Auslösung und Zustellung (UP-11); **nicht** nachgewiesen ist eine
-Fortsetzung ohne Nutzeraktion, und ein erschöpftes Nutzungslimit wird dadurch nicht überwunden. Maßgeblich ist der
+Fortsetzung ohne Nutzeraktion – neun zugestellte Auslösungen blieben am 12./13.11.2026 ohne Wirkung – und ein
+erschöpftes Nutzungslimit wird dadurch nicht überwunden. Maßgeblich ist der
 Block `automatische_wiederaufnahme` in `STATUS.yaml`. Abschalten: geplante Aufgabe in der Claude-Oberfläche
 deaktivieren oder löschen.
 

@@ -1,5 +1,11 @@
 # Einmalige technische Betreiber-Einrichtung (gebündelt) — Voraussetzung für Gate G4
 
+> **Stand 2026-11-13 — vom Betreiber beantwortet: abgelehnt.** Wortlaut: „nein du nutzt bitte den main branch und
+> das hinterlegte github konto." (BM-0002) sowie „arbeite direkt auf main" (BM-0005), beide in
+> `register/BETREIBERMITTEILUNGEN.yaml`. Es wird **keine** zweite Identität und **keine** externe Regelreferenz
+> eingerichtet; gearbeitet wird direkt auf `main`. Der folgende Text bleibt als gestellte Anfrage unverändert
+> erhalten; die Folgen stehen in Abschnitt 6.
+
 **Stand:** 2026-11-11 · **Arbeitspaket:** AP-S04 · **Betrifft:** Gate G4 (geschützte Freigabe) und damit die Zustände
 `FREIGEGEBEN` / `ABGESCHLOSSEN_UND_UEBERNOMMEN`. **Die Konzeptarbeit läuft unabhängig davon weiter.**
 
@@ -64,3 +70,19 @@ Administrationsrechte besitzt (Schritt 5). Weg A wird deshalb empfohlen.
 
 Alle fachlichen Arbeitspakete (Quellenkonsolidierung, Module, Verträge, Prüfungen, Audits) werden weiterbearbeitet.
 Gate G4 bleibt `NICHT_ERFUELLBAR_OHNE_BETREIBERAKTION`.
+
+## 6. Folgen der Ablehnung (Stand 2026-11-13)
+
+1. **Gate G4 bleibt unerfüllbar.** Die unter 1 genannten Lücken F1–F4 bestehen unverändert (UP-05 bis UP-08, UP-17).
+   Nach Betreiberregel §10.13 werden alle unabhängigen Konzeptarbeiten abgeschlossen; die formale Freigabe bleibt
+   Fail-Closed blockiert. Der Hauptarchitekt kann am Ende höchstens `FACHLICH_FERTIG_FREIGABE_BLOCKIERT` feststellen
+   – das ist nach §8 **kein** erfolgreicher Abschluss.
+2. **Arbeiten auf `main` ist keine Freigabe.** BM-0005 ändert nur den Arbeitsort. Ob ein Stand geprüft ist, steht
+   ausschließlich in `governance/STATUS.yaml`; der spätere Prüfkandidat wird über Commit- und Tree-ID benannt.
+3. **Was der Betreiber jederzeit tun kann, um die Blockade aufzuheben** (jeweils eine eigene, ausdrückliche
+   Entscheidung; nichts davon unterstellt der Hauptarchitekt):
+   - die Einrichtung nach Abschnitt 2 oder 4 doch vornehmen, oder
+   - ausdrücklich entscheiden, dass für dieses Projekt die technische Selbstfreigabe-Sperre (OP-B14, OP-E2, G4)
+     entfällt und seine eigene Abnahme des benannten Kandidaten als Freigabe gilt. Eine solche Regeländerung würde
+     wörtlich registriert; die beiden Vollaudits (G2) und die Endkontrolle (G3) blieben davon unberührt.
+4. **Alternative B (Signatur-Gate)** wurde nicht gewählt und wird nicht eigenmächtig eingerichtet.

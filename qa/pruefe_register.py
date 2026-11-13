@@ -3,7 +3,8 @@
 
 Prueft die Register unter governance/ auf Schema, Querverweise und Konsistenz:
   STATUS.yaml, UMGEBUNGSPRUEFUNG.yaml, register/ARBEITSPAKETE.yaml,
-  register/BEFUNDE.yaml, register/VERBESSERUNGEN.yaml, register/trace/*.yaml
+  register/BEFUNDE.yaml, register/VERBESSERUNGEN.yaml, register/trace/*.yaml,
+  register/BETREIBERMITTEILUNGEN.yaml, register/MODULPRUEFUNG.yaml
 
 WICHTIG: Dieses Skript ist ein Konsistenzwerkzeug des Hauptarchitekten. Es ist
 NICHT das geschuetzte Freigabegate (G4). Ein gruener Lauf ist keine Freigabe.
@@ -28,6 +29,7 @@ VB_ENTSCHEIDUNG = ["INTEGRIEREN", "ROADMAP", "VERWORFEN", "OFFEN"]
 TR_ART = ["SCHUTZZIEL", "FUNKTION", "BETRIEB", "ARCH_ENTSCHEIDUNG", "IMPL_DETAIL", "PARAMETER", "TEST",
           "OFFEN", "ARBEITSANWEISUNG", "DEFINITION", "HISTORIE"]
 TR_EINORDNUNG = ["UEBERNOMMEN", "ANGEPASST", "ERSETZT", "NICHT_ANWENDBAR"]
+BM_EINORDNUNG = ["BETREIBERENTSCHEIDUNG", "INFORMATION", "ARBEITSANWEISUNG"]
 PRIO_MAP = {"DONE": {"ERLEDIGT"}, "ACTIVE": {"IN_ARBEIT"}, "NEXT": {"OFFEN", "IN_ARBEIT"},
             "WAITING": {"OFFEN", "BLOCKIERT"}, "DEFERRED": {"OFFEN", "BLOCKIERT"}, "LAUFEND": {"IN_ARBEIT", "OFFEN"}}
 
@@ -257,6 +259,41 @@ class Pruefung:
                 if e.get("entscheidung") == "OFFEN":
                     self.err(f"VERBESSERUNGEN {e.get('id')}: Freeze erklaert trotz entscheidung OFFEN")
 
+    def pruefe_mitteilungen(self, bm, st, up, bf, pakete):
+        """Betreibermitteilungen nach dem Startauftrag: woertlich, eingeordnet, Querverweise aufloesbar.
+        Eine Mitteilung gilt nur dann als Regelaenderung, wenn sie so markiert UND mit Regelbezug belegt ist."""
+        if bm is None:
+            return 0
+        bekannt = set(pakete) | {"G1", "G2", "G3", "G4"}
+        bekannt |= {b.get("id") for b in (bf or {}).get("befunde") or []}
+        bekannt |= {p.get("id") for p in (up or {}).get("pruefungen") or []}
+        bekannt |= {b.get("id") for b in (st or {}).get("blockaden") or []}
+        ids = set()
+        for m in bm.get("mitteilungen") or []:
+            i = m.get("id")
+            if not re.fullmatch(r"BM-\d{4}", str(i)):
+                self.err(f"MITTEILUNGEN: id nicht im Format BM-nnnn: {i}")
+            if i in ids:
+                self.err(f"MITTEILUNGEN: doppelte id {i}")
+            ids.add(i)
+            if m.get("einordnung") not in BM_EINORDNUNG:
+                self.err(f"MITTEILUNGEN {i}: unbekannte einordnung {m.get('einordnung')}")
+            for k in ("datum", "kanal", "wortlaut", "auslegung"):
+                if not m.get(k):
+                    self.err(f"MITTEILUNGEN {i}: Feld {k} fehlt (Mitteilung ohne Wortlaut/Auslegung ist unzulaessig)")
+            if not isinstance(m.get("regelaenderung"), bool):
+                self.err(f"MITTEILUNGEN {i}: regelaenderung muss true oder false sein")
+            elif m["regelaenderung"] and not m.get("regel_bezug"):
+                self.err(f"MITTEILUNGEN {i}: regelaenderung=true ohne regel_bezug (ausdrueckliche Aenderung belegen)")
+            for b in m.get("betrifft") or []:
+                if b not in bekannt:
+                    self.err(f"MITTEILUNGEN {i}: betrifft unbekannte Kennung {b}")
+        for m in bm.get("mitteilungen") or []:
+            g = m.get("geklaert_durch")
+            if g and g not in ids:
+                self.err(f"MITTEILUNGEN {m.get('id')}: geklaert_durch verweist auf unbekannte Mitteilung {g}")
+        return len(ids)
+
     def pruefe_trace(self, commits):
         norm = lambda s: re.sub(r"\s+", " ", s).strip()
         ids = set()
@@ -403,6 +440,7 @@ class Pruefung:
         ap = self.lade("governance/register/ARBEITSPAKETE.yaml")
         bf = self.lade("governance/register/BEFUNDE.yaml")
         vb = self.lade("governance/register/VERBESSERUNGEN.yaml")
+        bm = self.lade("governance/register/BETREIBERMITTEILUNGEN.yaml")
         ident = (st or {}).get("identitaeten") or {}
         commits = {"RT": ident.get("quellen_commit_rt"), "XPN": ident.get("quellen_commit_xpn")}
         self.pruefe_status(st, bf)
@@ -410,12 +448,13 @@ class Pruefung:
         pakete = self.pruefe_pakete(ap) or {}
         self.pruefe_befunde(bf, pakete, commits)
         self.pruefe_verbesserungen(vb)
+        nb = self.pruefe_mitteilungen(bm, st, up, bf, pakete)
         n = self.pruefe_trace(commits)
         nm = self.pruefe_module()
         offen = [b["id"] for b in (bf or {}).get("befunde") or []
                  if b.get("klasse") in ("KRITISCH", "SCHWERWIEGEND") and b.get("status") not in BF_ERLEDIGT]
         print(f"Fachstatus: {(st or {}).get('fachstatus')} | Arbeitspakete: {len(pakete)} | "
-              f"Trace-Records: {n} | gepruefte Module: {nm} | offene kritische/schwerwiegende Befunde: {len(offen)} {offen}")
+              f"Trace-Records: {n} | gepruefte Module: {nm} | Betreibermitteilungen: {nb} | offene kritische/schwerwiegende Befunde: {len(offen)} {offen}")
         for h in self.hinweise:
             print("HINWEIS:", h)
         if self.fehler:

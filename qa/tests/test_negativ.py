@@ -18,6 +18,7 @@ STATUS = "governance/STATUS.yaml"
 PAKETE = "governance/register/ARBEITSPAKETE.yaml"
 BEFUNDE = "governance/register/BEFUNDE.yaml"
 VERB = "governance/register/VERBESSERUNGEN.yaml"
+MITT = "governance/register/BETREIBERMITTEILUNGEN.yaml"
 REGELN = "governance/betreiberregeln/RETROTUNNEL_BETREIBERREGELN_v1.0_2026-11-11.md"
 TRACE = "governance/register/trace/_TEST_README.yaml"
 
@@ -318,6 +319,33 @@ class Quelleninventar(unittest.TestCase):
         rc, out = self.lauf()
         self.assertNotEqual(rc, 0, out)
         self.assertIn("ohne einheit", out)
+
+
+class Betreibermitteilungen(Basis):
+    """Mitteilungen des Betreibers duerfen weder ohne Wortlaut noch als stille Regelaenderung registriert werden."""
+
+    def test_mitteilung_ohne_wortlaut(self):
+        d = self.lade(MITT)
+        d["mitteilungen"][0]["wortlaut"] = ""
+        self.schreibe(MITT, d)
+        self.erwarte_fehler("Feld wortlaut fehlt")
+
+    def test_regelaenderung_ohne_regelbezug(self):
+        d = self.lade(MITT)
+        d["mitteilungen"][0]["regelaenderung"] = True
+        d["mitteilungen"][0].pop("regel_bezug", None)
+        self.schreibe(MITT, d)
+        self.erwarte_fehler("regelaenderung=true ohne regel_bezug")
+
+    def test_mitteilung_mit_unbekannter_kennung(self):
+        d = self.lade(MITT)
+        d["mitteilungen"][0]["betrifft"] = ["AP-GIBTESNICHT"]
+        self.schreibe(MITT, d)
+        self.erwarte_fehler("betrifft unbekannte Kennung AP-GIBTESNICHT")
+
+    def test_register_fehlt(self):
+        os.remove(os.path.join(self.tmp, MITT))
+        self.erwarte_fehler("BETREIBERMITTEILUNGEN.yaml: Datei fehlt")
 
 
 if __name__ == "__main__":
