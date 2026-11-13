@@ -1,0 +1,328 @@
+================================================================================
+BASE-070 — INVARIANTEN (Sitzungskern)
+================================================================================
+DATEI: BASE-070_090_INVARIANTEN.txt
+STATUS: ACTIVE
+
+Harter Vertrag. Jede Verletzung ist ein Fehler. Kennungen SC-01..SC-60.
+Regelkennungen in Klammern verweisen auf die Detaildateien dieses Moduls
+(H-, S-, W-, E- in _020; K- in _030; AD-, G-, HC- in _040; B-, A-, T-, Q-
+in _050; AV-, PC- in _060; M-, U- in _070; GS- in _080).
+Herkunft je Invariante: Rueckverfolgungs-Records unter
+governance/register/trace/ (Feld erfuellt_in) bzw. NEU_BEGRUENDET.yaml.
+
+================================================================================
+WAHRHEIT UND HINWEISE
+================================================================================
+
+  SC-01  Es gibt keine Tabelle vpn_sessions und keinen anderen dauerhaften
+         Sitzungsdatensatz. runtime_activity wird aus der Laufzeit
+         abgeleitet (L2TP: Sitzungstabelle des Daemons; WireGuard:
+         Handshake-Zeitstempel des Kernel-Peers).
+
+  SC-02  Keine Zulassungs-, SimUse-, Bereinigungs- oder Sperrentscheidung
+         liest ein Hinweisfeld, eine Sperre, einen Buchungsstand, ein
+         Ereignis, eine Laufzeitmarke oder eine Statusdatei als Beleg fuer
+         Liveness (H-1, K-1, A-1, E-4, M-6, GS-3).
+
+  SC-03  Kann die Laufzeit nicht gelesen werden, ist runtime_activity
+         UNBEKANNT. In diesem Zustand wird kein Beginn und kein Ende
+         gemeldet und nichts geschlossen.
+
+  SC-04  Hinweisfelder liegen nie in der Zukunft der Datenbankzeit;
+         last_runtime_seen_at wird nie verringert und nur bei beobachteter
+         Aktivitaet fortgeschrieben. Anzeigen aus Hinweisfeldern sind als
+         "zuletzt gesehen" bzw. "laut letztem Abgleich" gekennzeichnet
+         (H-2, H-3).
+
+================================================================================
+SIGNALVERTRAG UND EPISODEN
+================================================================================
+
+  SC-05  Beginn, Ende und Endpunktwechsel einer Episode werden
+         ausschliesslich ueber SV-1 bis SV-3 geschrieben: Ereignis und
+         Hinweisfelder in EINER Transaktion, als DB-User system, in genau
+         einer Implementierung fuer alle Runner (W-1 bis W-3).
+
+  SC-06  SV-1 bis SV-3 sind idempotent. Je Episode (session_token)
+         existiert hoechstens ein ACTIVITY_START und hoechstens ein
+         ACTIVITY_END; die Episodenkennung ist aus dauerhaft vorhandenen
+         Daten wiederherstellbar (S-1, E-5).
+
+  SC-07  Ein Beginn wird nur gemeldet, wenn die Connection existiert,
+         op_status ACTIVE oder RESTRICTED hat, nicht widerrufen ist und
+         Tunneltyp sowie Tunneladressen mit der Connection-Zeile
+         uebereinstimmen. Andernfalls wird die Laufzeit beendet
+         (Fail-Closed) und ein Ereignis gemeldet (S-3).
+
+  SC-08  Das Ende einer Episode loescht den Vermerk runtime_active_since
+         nur, wenn er zu dieser Episode gehoert. Das Ende traegt den
+         letzten belegten Zeitpunkt der Aktivitaet und einen Grund aus der
+         festen Liste.
+
+  SC-09  Scheitert ein Schreibvorgang des Signalvertrags, wird nichts
+         zwischengespeichert; der naechste Lauf leitet ihn aus Laufzeit,
+         Protokoll und Hinweisfeldern neu ab (W-4).
+
+  SC-10  RESTRICTED beendet keine Episode. Wechsel nach DISABLED,
+         Rollenwechsel, Schluesselrotation und Hard-Cut beenden sie mit
+         benanntem Grund. Restore beginnt keine Episode.
+
+  SC-11  Die oeffentliche Gegenstelle eines Kunden steht ausschliesslich in
+         log_runtime_activity.remote_endpoint (und systembedingt in
+         radacct). log_runtime_activity ist INSERT-only; zulaessig sind
+         allein das Leeren der Gegenstelle und das Loeschen der Zeile nach
+         Ablauf der jeweiligen Aufbewahrung (E-1).
+
+================================================================================
+SIMUSE UND SPERREN
+================================================================================
+
+  SC-12  Je Connection besteht zu keinem Zeitpunkt mehr als ein Tunnel.
+         Ein neuer Anmeldeversuch verdraengt eine bestehende Nutzung nie.
+
+  SC-13  Der L2TP-Daemon weist eine zweite Sitzung desselben Anmeldenamens
+         selbst ab (Schlussriegel). Eine Einstellung, die stattdessen die
+         bestehende Sitzung beendet, ist unzulaessig.
+
+  SC-14  Der L2TP-Anmeldepfad durchlaeuft nach erfolgreicher
+         Credential-Pruefung die Schritte P1 bis P5 in dieser Reihenfolge.
+         Eine Zusage setzt eine erworbene Sperre voraus. Jeder
+         Datenbankfehler fuehrt zur Ablehnung.
+
+  SC-15  Meldet die Sonde LIVE oder zeigt radacct eine offene Zeile, wird
+         abgelehnt. UNKNOWN wird nie wie NOT_LIVE behandelt: Es wird
+         nichts geschlossen und streng nach radacct entschieden.
+
+  SC-16  Jede Sperre hat Zweck, Halter und Ablauf. Je Connection existiert
+         hoechstens eine Sperre. Kein Ablauf liegt jenseits der Obergrenze
+         des Zwecks (K-2).
+
+  SC-17  Sperrerwerb geschieht in zwei Anweisungen (Abgelaufenes loeschen,
+         dann einfuegen) und gilt nur bei genau einer eingefuegten Zeile
+         als gelungen. "Einfuegen oder aktualisieren" ist unzulaessig.
+         Erwerb wartet nicht.
+
+  SC-18  Fristen von Sperren, Quarantaene und Quota-Perioden werden
+         ausschliesslich mit der Datenbankzeit verglichen (K-4).
+
+  SC-19  Eine Sperre gibt nur ihr Halter frei (Vergleich auf Zweck und
+         Halter); den Zweck L2TP_ADMISSION gibt der AAA-Dienst frei,
+         nachdem die radacct-Zeile geschrieben ist. Freigegeben wird nie,
+         bevor der geschuetzte Vorgang dauerhaft wirksam ist.
+
+  SC-20  Eine Sperre ist kein Zustand: Sie dient keiner Anzeige und keiner
+         Aussage ueber Nutzung. Es gibt keine Verwaltungshandlung "Sperre
+         loeschen" (K-1, K-6).
+
+  SC-21  Der DB-User radius verwendet in vpn_session_locks ausschliesslich
+         den Zweck L2TP_ADMISSION und schreibt keine andere Tabelle dieses
+         Moduls und keine Spalte der Gruppe D.
+
+  SC-22  Umbauten (Schluesselrotation, Rollenwechsel, Hard-Cut ohne
+         Statuswechsel) halten die Sperre der Connection ueber die Aenderung
+         von SQL und Laufzeit. Bei mehreren Connections werden die Sperren
+         in aufsteigender Reihenfolge erworben; misslingt eine, werden alle
+         zurueckgegeben und es bleibt kein Teilzustand.
+
+================================================================================
+BEREINIGUNG
+================================================================================
+
+  SC-23  Geschlossen wird nur bei positiver Kenntnis, dass die Sitzung
+         nicht lebt (NOT_LIVE, list() ohne die Kennung, oder Daemon
+         gesichert nicht laufend), nie bei UNKNOWN. Eine lebende Sitzung
+         wird nie geschlossen (AD-1, AD-2, G-1).
+
+  SC-24  Geister werden nur fuer den eigenen NAS, erst ab dem Mindestalter
+         und mit dem letzten belegten Lebenszeichen als Endzeit
+         geschlossen. Das Schliessen ist idempotent (G-2, G-3, G-4, G-7).
+
+  SC-25  Nach einem Neustart des L2TP-Daemons oder des Systems werden alle
+         offenen Protokollzeilen aus der Zeit vor dem Start durch den
+         ersten Abgleich geschlossen, ohne Mindestalter.
+
+  SC-26  Die On-Demand-Pruefung ist begrenzt (Zeitlimit, Haeufigkeit je
+         Connection, Gleichzeitigkeit), nimmt nur eine numerische Kennung
+         an und liest Settings nicht je Anfrage. Ihr Ausfall verhindert
+         keine Anmeldung; er macht die Pruefung nur strenger.
+
+  SC-27  Aussperrzusagen: Eine Sperr-Leiche blockiert hoechstens fuer die
+         TTL ihres Zwecks; ein Geist bei arbeitender Sonde hoechstens bis
+         zum Mindestalter; bei stehendem vpn-sessiond hoechstens fuer den
+         Takt des L2TP-Abgleichs plus Mindestalter.
+
+  SC-28  Abgleich-, Bereinigungs- und Periodenlaeufe sind idempotent,
+         einzeln gesperrt, zeitbegrenzt und bei nicht erreichbarer
+         Datenbank wirkungslos. Kein Tunnel-Dienst haengt von ihnen ab
+         (U-2, U-3).
+
+  SC-29  Der L2TP-Abgleich liest zuerst die Laufzeit und danach die
+         Datenbank.
+
+  SC-30  Eine lebende L2TP-Sitzung ohne Berechtigung (Anmeldename
+         unbekannt, Connection DISABLED oder widerrufen) wird beendet. Eine
+         lebende Sitzung ohne Protokollzeile wird gemeldet, aber nicht
+         beendet.
+
+================================================================================
+HARD-CUT
+================================================================================
+
+  SC-31  Ein Hard-Cut beendet zuerst die Laufzeit ueber den Adapter und
+         stoesst danach den Abgleich an. Eine reine Datenbankaenderung ist
+         kein Hard-Cut. Ohne Bestaetigung der Laufzeit lautet das Ergebnis
+         FAIL_KILL und es wird nichts als beendet protokolliert (HC-1,
+         HC-5, AD-4).
+
+  SC-32  Der Webprozess des Panels fuehrt den Hard-Cut nie selbst aus. Der
+         Aufruf erfolgt ueber den privilegierten Auftragsweg mit
+         numerischer Kennung; ein Verwaltungs-Hard-Cut wird im
+         Lifecycle-Log mit Akteur protokolliert (HC-2).
+
+  SC-33  Der Hard-Cut einer L2TP-Sitzung funktioniert auch ohne Datenbank
+         (Kennung aus dem Laufzeit-Spiegel).
+
+================================================================================
+VERBRAUCHSBUCHUNG
+================================================================================
+
+  SC-34  Die Spalten der Gruppe D werden nur durch die in BASE-070_050
+         Abschnitt 1 genannten Vorgaenge und nur als DB-User system
+         geschrieben (GS-4).
+
+  SC-35  Buchungen sind relativ und nie negativ. Buchung, Buchungsstand
+         und Tagesreihe werden in EINER Transaktion mit Vergleich auf den
+         bisherigen Stand geschrieben; Wiederholung und gleichzeitige
+         Laeufe zaehlen nichts doppelt (B-1, B-2, B-3, B-9).
+
+  SC-36  quota_used ist das einzige Aggregat fuer das Budget und zaehlt
+         beide Richtungen. Tagesreihe und Periodenprotokoll werden fuer
+         keine Bewertung, Einschraenkung oder Abrechnung gelesen (B-5,
+         T-4).
+
+  SC-37  L2TP: Gebucht wird je Richtung die Differenz zwischen dem in
+         radacct gemeldeten Zaehler und dem Buchungsstand. Ein kleinerer
+         gemeldeter Zaehler fuehrt zu keiner Buchung. Nachtraeglich
+         gestiegene Zaehler abgeschlossener Zeilen werden nachgebucht.
+
+  SC-38  vpn_l2tp_acct_state haelt die Zuordnung zur Connection ab der
+         ersten Sichtung fest. Eine radacct-Zeile wird nicht geloescht,
+         bevor ihr Buchungsstand abgeschlossen ist (A-3).
+
+  SC-39  Eine Datenbankstoerung allein verliert keinen Verbrauch:
+         WireGuard ueber weiterlaufende Kernelzaehler und den Snapshot
+         beim Stop; L2TP ueber die datenbankunabhaengige Annahme der
+         Abrechnungsmeldungen mit begrenztem Puffer, der zuerst
+         Interim-Meldungen verwirft und jeden Verwurf meldet.
+
+  SC-40  Die Messlatenz ist benannt und begrenzt: WireGuard ein
+         Buchungsintervall; L2TP ein Interim-Intervall plus Takt des
+         Abgleichs. Die Schwelle fuer Meldeverzug betraegt mindestens das
+         Doppelte des Interim-Intervalls plus den Takt des Abgleichs.
+
+================================================================================
+QUOTA-PERIODE
+================================================================================
+
+  SC-41  Die Quota-Periode ist der Kalendermonat in vpn_quota_timezone,
+         gespeichert als halboffenes Intervall von Zeitpunkten. Jede
+         Connection hat ab ihrer Anlage eine laufende Periode.
+
+  SC-42  Der Periodenwechsel ist je Connection EINE Transaktion aus
+         Abschlussprotokoll, Nullstellen und neuen Grenzen mit Vergleich
+         auf das alte Periodenende. Er ist bei Wiederholung wirkungslos
+         und veraendert weder Cursor noch counter_epoch noch
+         Buchungsstaende (B-8).
+
+  SC-43  Keine Verschraenkung von Buchung und Periodenwechsel verliert
+         oder verdoppelt Verbrauch.
+
+  SC-44  Planwechsel, Restore, Rollenwechsel, Schluesselrotation, Hard-Cut
+         und Neustarts setzen quota_used nicht zurueck.
+
+  SC-45  BASE-070 schreibt keinen op_status und entscheidet keine
+         Einschraenkung. Nach einem Periodenwechsel wird die Neubewertung
+         angestossen (GS-6, Q-4).
+
+================================================================================
+ADRESSEN
+================================================================================
+
+  SC-46  ip_slot, fixed_ip und fixed_ipv6 schreibt nur der Allokator, in
+         der Transaktion der Anlage bzw. des Rollenwechsels. Kein Daemon
+         vergibt Tunneladressen selbst (AV-3, AV-4, GS-5).
+
+  SC-47  Die Slot-Wahl erfolgt gleichverteilt mit einem kryptografischen
+         Zufallsgenerator aus der vollstaendigen Freimenge. Eine monotone
+         oder vorhersagbare Vergabe ist unzulaessig (AV-5).
+
+  SC-48  Slot 0, Slot 1 und die Broadcast-Adresse werden nie vergeben. Der
+         Reservebereich wird nur mit protokollierter Freigabe einer
+         ADMIN-Handlung benutzt.
+
+  SC-49  fixed_ip ist Pool-Basis plus Slot. fixed_ipv6 wird nur bei
+         v6_addr_policy = FIXED_SQL gebildet, in der Projektform
+         "fd77:0:0:<v6_visual>::A:B"; sonst ist es NULL. Die Textform wird
+         nie umgeformt; die Datenbank vergleicht sie als Zeichenkette;
+         niemand rechnet aus einer Adresse Slot oder Rolle zurueck.
+
+  SC-50  Ein Slot ist nicht vergebbar, solange eine Connection-Zeile ihn
+         traegt (gleich in welchem Zustand) oder ein gueltiger
+         Quarantaene-Eintrag ihn fuehrt.
+
+  SC-51  Reicht die Freimenge nicht, scheitert der gesamte Vorgang mit
+         POOL_EXHAUSTED_OR_QUARANTINED. Es gibt keine Teilvergabe und kein
+         Ausweichen in einen anderen Pool (AV-6).
+
+  SC-52  Vergaben je Pool laufen nacheinander (Pool-Sperre); die
+         UNIQUE-Bedingungen auf den Adressen bleiben letzte Verteidigung.
+         Gesperrt wird erst der Pool, dann die Connection; mehrere Pools
+         in fester Reihenfolge.
+
+  SC-53  Beim Rollenwechsel geht die alte Adresse in Quarantaene. Bei
+         vorzeitiger physischer Loeschung einer Connection bleibt ihre
+         Adresse fuer die Restfrist gesperrt, ohne Personenbezug.
+
+  SC-54  Eine Adresse kehrt nur auf zwei Wegen in den Pool zurueck: durch
+         Ablauf eines Quarantaene-Eintrags oder durch physische Loeschung
+         einer widerrufenen Connection nach Ablauf ihrer Quarantaene. Vor
+         dieser Loeschung wird CONNECTION_DELETED geschrieben. Die
+         Loeschung gilt einheitlich fuer jede widerrufene Connection.
+
+  SC-55  vpn_pool_config enthaelt genau eine gueltige Zeile je Rolle
+         (PC-1 bis PC-4). Netz, Praefix und v6_visual sind unveraenderlich,
+         sobald ein Slot der Rolle vergeben ist. Bei ungueltiger
+         Konfiguration wird nicht vergeben.
+
+  SC-56  Je Pool werden Fuellstaende berechnet und Stufenwechsel gemeldet.
+         Kunden sehen nur eigene Adressen; Adresslisten eines Pools
+         erhaelt nur ADMIN.
+
+================================================================================
+MARKEN, BETRIEB, GRENZEN
+================================================================================
+
+  SC-57  vpn_runtime_marks enthaelt nur Maschinenzustand, je Marke genau
+         einen Schreiber, keine Geheimnisse und keine personenbezogenen
+         Daten. Marken sind keine Settings (M-1 bis M-5).
+
+  SC-58  Statusdateien und Ereignismeldungen dieses Moduls enthalten keine
+         personenbezogenen Daten; Connections werden nur ueber
+         connection_ref benannt.
+
+  SC-59  Die Zeitgeber laufen in festem Raster; der Takt kommt aus den
+         Settings. Fehlt ein Setting oder verletzt eine Kombination die
+         Regeln K-a bis K-e, gilt der Vorschlagswert und der Zustand wird
+         gemeldet (U-1).
+
+  SC-60  Runner (BASE-020, BASE-030, BASE-040, BASE-080) fuehren aus,
+         definieren aber keine Semantik dieses Moduls; BASE-070 beschreibt
+         geforderte Eigenschaften, keine Daemon-Konfiguration;
+         vpn_session_locks bleibt tunnelneutral (GS-1, GS-2, GS-7).
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

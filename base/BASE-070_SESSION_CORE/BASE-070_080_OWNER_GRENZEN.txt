@@ -1,0 +1,319 @@
+================================================================================
+BASE-070 — OWNER-GRENZEN, ANFORDERUNGEN, ANNAHMEN
+================================================================================
+DATEI: BASE-070_080_OWNER_GRENZEN.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Was BASE-070 besitzt und was nicht; Grenzregeln; Antworten auf
+  Anforderungen anderer Module; Anforderungen an andere Module
+  (ANF-SC-xx); zu verifizierende Annahmen mit Ausweichweg (E-SC-xx);
+  Verbleib der Invarianten aus SM_SESSION.
+
+================================================================================
+1) BASE-070 OWNT
+================================================================================
+
+  a) Die Definition von runtime_activity, Episode und Hinweisfeldern; den
+     Signalvertrag mit den Schreibvorgaengen SV-1 bis SV-3; die Tabelle
+     log_runtime_activity; die Ende-Gruende.
+  b) Die Semantik von SimUse=1 in allen vier Schichten und den Vertrag der
+     Tabelle vpn_session_locks.
+  c) Die Schnittstelle des Laufzeit-Adapters, die Regeln zum Schliessen
+     von Geistern, vpn-sessiond, vpn-session-check, vpn-session-janitor,
+     vpn-session-kill.
+  d) Den Schreibvertrag der Gruppe D (SV-4 bis SV-6), die Tabellen
+     vpn_l2tp_acct_state, log_quota_period, log_usage_daily, die
+     Quota-Periode und vpn-quota-period.
+  e) vpn_pool_config, den Allokator, vpn_ip_quarantine, die Rueckgabe von
+     Adressen und die Fuellstandsueberwachung.
+  f) Die Tabelle vpn_runtime_marks und ihr Verzeichnis.
+  g) Den Vertrag des L2TP-Abgleichs (ausgefuehrt von BASE-030) und die
+     Anforderungen an den WireGuard-Controller, soweit sie Episoden und
+     Buchung betreffen (ausgefuehrt von BASE-040).
+
+================================================================================
+2) BASE-070 OWNT NICHT
+================================================================================
+
+  Gegenstand                                          Owner
+  --------------------------------------------------- ---------------------
+  Schema von vpn_connections (auch Gruppe D, ip_slot, BASE-010
+  fixed_ip, revoked_at, quarantine_until),
+  Statusuebergaenge, Reason-Registry, Lifecycle-Log
+  FreeRADIUS-Konfiguration, Pruefkette, Ablehnungs-   BASE-020
+  gruende, radacct und radpostauth als Tabellen,
+  Abrechnungspuffer
+  accel-ppp, strongSwan, Hooks, L2TP-Adapter,         BASE-030
+  vpn-l2tp-sync als Programm, Laufzeit-Spiegel
+  Peers, awg0, AWG Session Controller, WG-Adapter,    BASE-040
+  Snapshot-Spool
+  Regelwerk und Sets der Firewall                     BASE-050
+  Zeitbasis, Zeitzonendaten                           BASE-060
+  vpn-policy-apply, Abgleich der Policy-Zustaende,    BASE-080
+  conntrack, Bewertung und Durchsetzung
+  Settings-Katalog, Aufloesung, Klassen               BASE-090
+  Limits und Policy-Werte, Plaene                     BASE-100, MOD-010
+  Panel, privilegierter Auftragsweg, Sichten          BASE-110, MOD-006
+  Meldewege, Aufbewahrung, Loeschlaeufe               MOD-007
+  Sicherung und Wiederherstellung                     MOD-008
+  Registry (Units, Pfade, Benutzer, Secrets)          BASE-005, BASE-000
+
+================================================================================
+3) GRENZREGELN
+================================================================================
+
+  GS-1  BASE-070 beschreibt keine Daemon-Konfiguration. Es nennt die
+        geforderte EIGENSCHAFT (zum Beispiel "eine zweite Sitzung desselben
+        Anmeldenamens wird abgewiesen"); die Konfiguration, die sie
+        herstellt, gehoert dem Runner (Grenzregel G3 in BASE-020_060).
+  GS-2  Runner fuehren aus und liefern Laufzeitfakten. Sie aendern weder
+        Definitionen noch Tabellen dieses Moduls und fuehren keine eigene
+        Sitzungswahrheit (G2, G4).
+  GS-3  Kein Modul liest Hinweisfelder, Sperren, Buchungsstaende,
+        Ereignisse, Marken oder Statusdateien als Lebendbeweis.
+  GS-4  Gruppe D schreiben nur die in BASE-070_050 Abschnitt 1 genannten
+        Vorgaenge.
+  GS-5  ip_slot, fixed_ip und fixed_ipv6 schreibt nur der Allokator.
+  GS-6  BASE-070 schreibt keinen op_status und loest keine Einschraenkung
+        aus; es misst und meldet.
+  GS-7  vpn_session_locks bleibt tunnelneutral (G5).
+
+================================================================================
+4) ANTWORTEN AUF ANFORDERUNGEN ANDERER MODULE
+================================================================================
+
+  Anforderung                              Erfuellt in
+  ---------------------------------------- --------------------------------
+  ANF-WT-09  Mutex-Vertrag, TTL,           _030 Abschnitte 2, 3, 5, 6;
+             Bereinigung                   _040 Schritt J1
+  ANF-WT-10  Laufzeitmarken mit            _070 Abschnitt 1
+             wg_interface_generation
+             Ereignisvertrag               _020 Abschnitte 3 bis 6
+             Buchungsvertrag Gruppe D      _050 Abschnitte 1, 2, 4
+             Atomaritaet gegen Reset       _050 Abschnitte 5, 9
+  BASE-020_020 Abschnitt 5 (Signal)        _020 Abschnitte 3, 4
+  BASE-020_020 Abschnitt 6 (On-Demand)     _040 Abschnitt 3; _030 Abschnitt 4
+  BASE-020_040 Abschnitt 4 (Ende bei       _020 Abschnitt 8; _030 Abschnitt 6
+             Schluesselrotation)
+  BASE-010 OPEN-010-01 d (Owner des        _060 Abschnitt 6 (R2)
+             Quarantaene-Laufs)
+  BASE-010 INV-82 (Mechanik des            _060 Abschnitte 4, 6
+             Wiedervergabe-Schutzes)
+  D002 Risiko 2 (alte Adresse)             _060 Abschnitte 5, 6
+  D004-E03 (vier Aufgaben)                 _020, _050
+  D004-E08 (Zeitzone, Ausfuehrung)         _050 Abschnitt 5
+  LT-34 (offene Zeilen nach Neustart)      _020 Schritt L3; _040 Abschnitt 5
+  BASE-040_050 "Quota bewerten"            klargestellt: BASE-070 misst,
+                                           _050 Abschnitt 7
+  PRIORITAETENLISTE M2-070 (alle Punkte)   Index Abschnitt 2
+
+================================================================================
+5) ANFORDERUNGEN AN ANDERE MODULE
+================================================================================
+
+  ANF-SC-01 (BASE-010, Nachzug AP-Q04)
+    a) Gruppe D ins Schema: Spalten laut _050 Abschnitt 1 (einschliesslich
+       runtime_active_since); Initialisierung bei Anlage (Verbrauch 0,
+       laufende Quota-Periode).
+    b) Anlage und Rollenwechsel rufen den Allokator in ihrer Transaktion;
+       keine andere Stelle schreibt Slot oder Adressen. INV-83 und INV-84
+       laut Changelog v2.0 nachziehen.
+    c) INV-82 um vpn_ip_quarantine erweitern (_060 Abschnitt 6).
+    d) Physische Loeschung nach Quarantaene gilt fuer jede widerrufene
+       Connection; der vorzeitige Loeschpfad erzeugt einen Quarantaene-
+       Eintrag ohne Herkunft.
+    e) Lifecycle-Log: Ereignistypen SESSION_START, SESSION_END,
+       SESSION_JANITOR_CLOSE, SESSION_SIMUSE_REJECT entfallen;
+       SESSION_HARDCUT bleibt; QUARANTINE_END entfaellt zugunsten von
+       POOL_RETURN und CONNECTION_DELETED.
+
+  ANF-SC-02 (BASE-000, Nachzug AP-Q04)
+    Registry: vpn_sessions als ENTFALLEN; neu log_runtime_activity,
+    vpn_l2tp_acct_state, log_quota_period, log_usage_daily,
+    vpn_pool_config, vpn_ip_quarantine, vpn_runtime_marks; Rechte laut
+    _070 Abschnitt 4; Rechte auf vpn_sessions streichen. Empfohlen: je
+    Komponente ein eigener Datenbankzugang mit dem dort ablesbaren
+    Mindestumfang statt eines gemeinsamen Vollzugriffs.
+
+  ANF-SC-03 (BASE-030, Nachzug AP-Q04)
+    a) Der Daemon weist eine zweite Sitzung desselben Anmeldenamens ab
+       (single-session=deny); LT-35 und T-LT-34 entsprechend (BF-0012).
+    b) L2TP-Adapter mit list, probe, kill nach _040 Abschnitt 1;
+       geschuetzte lokale Verwaltungsschnittstelle; Startzeit des Daemons.
+    c) vpn-l2tp-sync nach _020 Abschnitt 7 und _050 Abschnitt 3.
+    d) Hooks ohne radacct-Korrelation, ohne vpn_sessions, ohne Loeschen
+       von Sperren. ip-up: Spiegel schreiben, Connection lesen, Adresse
+       pruefen, vpn-policy-apply, Abgleich anstossen. ip-down: Abbau,
+       Spiegel entfernen, Abgleich anstossen. BASE-030_050 neu fassen.
+    e) LT-34 durch die Neustart-Regel ersetzen.
+    f) Wenn moeglich: Kennung des Anmeldeversuchs in der RADIUS-Anfrage
+       mitsenden (Halterkennung der Sperre, _030 Abschnitt 5).
+
+  ANF-SC-04 (BASE-020, Nachzug AP-Q04)
+    a) SimUse-Baustein P1 bis P5 nach erfolgreicher Credential-Pruefung
+       (_030 Abschnitt 4); Aufruf von vpn-session-check ohne Shell, mit
+       numerischem Argument und Zeitlimit.
+    b) Freigabe der Sperre bei Accounting-Start NACH dem Schreiben der
+       radacct-Zeile.
+    c) Annahme der Abrechnungsmeldungen ohne Datenbank mit Puffer nach
+       _050 Abschnitt 8 (P-a bis P-e).
+    d) Eine Interim-Meldung legt eine fehlende radacct-Zeile an; 64-Bit-
+       Zaehler werden vollstaendig gefuehrt.
+    e) Alle Bezuege auf vpn_sessions entfernen (unter anderem AAA-06,
+       BASE-020_010, _020, _030, _040, _050, _060).
+
+  ANF-SC-05 (BASE-020 mit MOD-007)
+    Der DB-User system darf in radacct Geister schliessen (nur
+    acctstoptime, acctsessiontime, acctterminatecause). radacct-Zeilen
+    werden erst geloescht, wenn ihr Buchungsstand abgeschlossen ist.
+
+  ANF-SC-06 (BASE-020)
+    Neuer Ablehnungsgrund R_SIMUSE_GUARD_BUSY (voruebergehend); Beschreibung
+    von R_SIMUSE_ACTIVE auf Sonde und radacct umstellen; SimUse-Ablehnungen
+    stehen im AAA-Protokoll, nicht im Lifecycle-Log.
+
+  ANF-SC-07 (BASE-080)
+    a) Bewertung der Quota in eigenem kurzem Takt mit den Limits aus
+       BASE-100/MOD-010; Neubewertung nach Periodenwechsel und nach
+       Datenbankstoerung.
+    b) Bei Wechsel nach DISABLED, Rollenwechsel und fehlgeschlagener
+       Policy-Herstellung: Hard-Cut-Kern mit "Laufzeit zuerst".
+    c) Rollenwechsel-Kaskade: Sperren, Transaktion mit Allokator und
+       Quarantaene, Hard-Cut, Freigabe in der Reihenfolge aus _030
+       Abschnitt 6 und _060 Abschnitt 5.
+    d) Marke policy_reconcile_last_ok_at schreiben.
+
+  ANF-SC-08 (BASE-090)
+    Keys aus _070 Abschnitt 3 katalogisieren (Grenzen, Konsistenzregeln
+    K-a bis K-e, Alias fuer Altnamen); Default von
+    radius_acct_interim_seconds entscheiden (VB-0020).
+
+  ANF-SC-09 (BASE-040)
+    Buchungslauf auf Anforderung (Signal) fuer die Stichtagsbuchung;
+    Tagesreihe im Buchungslauf (in BASE-040_050 F4 nachgetragen);
+    WG-Adapter mit list, probe, kill; Marken nach _070 Abschnitt 1.
+
+  ANF-SC-10 (BASE-110, MOD-006)
+    Sichten auf log_runtime_activity (mit und ohne Gegenstelle),
+    log_usage_daily, log_quota_period, Pool-Kennzahlen; privilegierter
+    Auftragsweg fuer Hard-Cut, Live-Auskunft, Pool-Stellgroessen und
+    Reservefreigabe; Kennzeichnung "zuletzt gesehen"; keine Bearbeitung
+    von Sperren, Marken, Hinweisfeldern, Buchungsstaenden.
+
+  ANF-SC-11 (MOD-007)
+    Meldeweg der Ereignisse aus _070 Abschnitt 6, auch ohne Datenbank;
+    Aufbewahrung und Loeschlaeufe fuer log_runtime_activity (Gegenstelle
+    und Zeile getrennt), log_usage_daily, log_quota_period, radacct.
+
+  ANF-SC-12 (BASE-100, MOD-010)
+    Aufloesung des Limits je Connection; Verhaeltnis geteilter Kontingente
+    zur Buchungsebene Connection (D004-E04); Planwechsel ohne Reset.
+
+  ANF-SC-13 (MOD-008)
+    Sicherungsumfang: Tabellen dieses Moduls und der Spool-Bereich.
+    Wiederherstellung: Sperren verwerfen; nach Rueckkehr zu einem aelteren
+    Datenbankstand buchen die Laeufe aus den weitergelaufenen Zaehlern
+    nach (WireGuard: Cursor kleiner als Kernelzaehler; L2TP: spaetere
+    Meldungen). Verloren ist, was in der Zwischenzeit endete und nicht
+    mehr gemeldet wird - als Grenze der Wiederherstellung auszuweisen.
+
+  ANF-SC-14 (BASE-060)
+    Synchronisierte Systemzeit; aktuelle Zeitzonendaten; Datenbankzeit
+    gleich Systemzeit.
+
+  ANF-SC-15 (BASE-005, Nachzug AP-Q04)
+    Registry: Units, Werkzeuge, Pfade, Gruppe fuer den Socket,
+    Spool-Grenzen; das Kennwort der Verwaltungsschnittstelle von accel-ppp
+    im Secret-Inventar.
+
+================================================================================
+6) ZU VERIFIZIERENDE ANNAHMEN
+================================================================================
+
+  Die folgenden Punkte stuetzen sich auf dokumentiertes Verhalten fremder
+  Software oder auf Abschaetzungen. Sie sind NICHT praktisch geprueft. Je
+  Annahme ist der Ausweichweg genannt, falls sie nicht haelt.
+
+  E-SC-01  accel-ppp weist mit single-session=deny eine zweite Sitzung
+           desselben Anmeldenamens ab, auch wenn die erste noch im Aufbau
+           ist und wenn beide gleichzeitig authentisiert werden.
+           AUSWEICHWEG: Die On-Demand-Pruefung wird Pflicht mit strenger
+           Auslegung (UNKNOWN fuehrt zur Ablehnung); das kostet
+           Verfuegbarkeit bei gestoerter Sonde.
+  E-SC-02  Die Verwaltungsschnittstelle von accel-ppp liefert je Sitzung
+           Anmeldename, Interface, Adresse, Zustand und Beginn, erlaubt
+           gezieltes hartes Beenden, ist lokal und per Kennwort
+           schuetzbar und antwortet unter Last innerhalb des Zeitlimits.
+           AUSWEICHWEG: Adapter ueber Interface-Liste des Kernels und
+           Laufzeit-Spiegel; mehr UNKNOWN, laengere Aussperrzeiten.
+  E-SC-03  accel-ppp sendet nach hartem Beenden Accounting-Stop und fuehrt
+           kumulative 64-Bit-Zaehler in Interim- und Stop-Meldungen.
+           AUSWEICHWEG: Schlusswerte ueber den ip-down-Hook in den Spool
+           (Muster des Vorgaengers B165).
+  E-SC-04  FreeRADIUS: Eine Interim-Meldung legt eine fehlende Zeile an;
+           acctuniqueid bleibt ueber die Sitzung gleich; eine Stop-Meldung
+           ueberschreibt auch eine bereits geschlossene Zeile; der
+           Pufferbetrieb mit Verwerfen nach Art der Meldung ist
+           herstellbar.
+           AUSWEICHWEG: wie E-SC-03; ohne Puffer ist der Verlust bei
+           Datenbankstoerung auf Sitzungen begrenzt, die waehrend der
+           Stoerung enden.
+  E-SC-05  Clients, insbesondere Windows XP und Vista ueber L2TP, arbeiten
+           mit Tunneladressen, deren letztes Oktett 0 oder 255 ist.
+           AUSWEICHWEG: skip_edge_octets = 1.
+  E-SC-06  MariaDB und der Datenbanktreiber des AAA-Dienstes verhalten
+           sich wie vorausgesetzt: Zeilensperre auf vpn_pool_config,
+           Schluesselkonflikt beim Sperrerwerb als eindeutiges
+           Fehlersignal.
+           AUSWEICHWEG: Sperrerwerb ueber eine gespeicherte Routine mit
+           eindeutigem Rueckgabewert.
+  E-SC-07  Die On-Demand-Pruefung bleibt auch unter Last unter dem
+           Zeitlimit, das der Daemon dem AAA-Dienst laesst (Regel K-d).
+           AUSWEICHWEG: Zeitlimit des Daemons anheben oder die Pruefung
+           auf den Abgleich beschraenken (laengere Aussperrzeit bei
+           Geistern).
+  E-SC-08  L2TP-Abgleich und Tagesreihe bleiben bei den Zielgroessen
+           (WireGuard 5.000 Peers) innerhalb ihrer Takte.
+           AUSWEICHWEG: Buendelung der Schreiboperationen; laengerer Takt.
+  E-SC-09  Die Monatsgrenze in vpn_quota_timezone wird auch in Monaten mit
+           Zeitumstellung korrekt berechnet.
+           AUSWEICHWEG: keiner noetig; reine Implementierungspruefung.
+
+================================================================================
+7) VERBLEIB DER INVARIANTEN AUS SM_SESSION
+================================================================================
+
+  SM_SESSION    Verbleib
+  ------------- ----------------------------------------------------------
+  SES-01, -02   entfallen mit vpn_sessions; an ihre Stelle treten die
+                Episoden-Ereignisse (genau ein Beginn, hoechstens ein Ende
+                mit Grund)
+  SES-03        SZ-1, vier Schichten (_030 Abschnitt 1)
+  SES-04, -05,  Vorbedingungen von SV-1 und Regel S-3 (_020)
+  SES-06, -06b
+  SES-07, -08   Regeln zu den Hinweisfeldern (nie verringern, nie Zukunft)
+  SES-09        Vorbedingung b von SV-1; Zulassungswaechter (L7)
+  SES-10, -11   K-1, K-2 (_030)
+  SES-12, -13,  G-Regeln, AD-2, Idempotenz der Laeufe (_040)
+  SES-14        Zwei-Stufen-Modell (_030 Abschnitt 4, _040 Abschnitt 3)
+  SES-15, -16   HC-1, _040 Abschnitt 6; _020 Abschnitt 8
+  SES-17, -18,  _020 Abschnitt 8
+  SES-19
+  SES-20        Roaming ist Fortsetzung (BASE-040_050 Fall A; SV-3)
+  SES-21        BASE-040_030 Abschnitt 5 (Wiedereintrag bei unveraendertem
+                SOLL)
+  SES-22        angepasst: allein der Handshake-Zeitstempel zaehlt
+                (_020 Abschnitt 1)
+  SES-23        INV-39 (BASE-010); _020 Abschnitt 8
+  SES-24        J1; Sperren laufen selbst ab (_030, _040)
+  SES-25        angepasst: Freigabe nach dem Schreiben der radacct-Zeile
+                (_030 Abschnitt 4)
+  SES-26        last_runtime_seen_at nur bei beobachteter Aktivitaet
+                (_020 Abschnitt 2)
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
