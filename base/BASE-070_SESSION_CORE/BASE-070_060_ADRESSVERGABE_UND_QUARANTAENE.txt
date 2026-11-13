@@ -1,0 +1,355 @@
+================================================================================
+BASE-070 — ADRESSVERGABE, QUARANTAENE UND POOL-RUECKGABE
+================================================================================
+DATEI: BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Mechanik der Tunneladressen: Pool-Konfiguration, Slot-Raum und
+  Ableitung der Adressen, der Allokator, die Behandlung des
+  Rollenwechsels, Quarantaene, Rueckgabe in den Pool, Fuellstands-
+  ueberwachung. Loest den Entwurf entwuerfe/ENTWURF_IPV6_ALLOKATOR.txt auf
+  (dort gewaehlte Option B).
+
+  ABGRENZUNG: Die Spalten ip_slot, fixed_ip, fixed_ipv6, v6_addr_policy,
+  revoked_at und quarantine_until gehoeren zum Schema von BASE-010. Dieses
+  Modul besitzt die MECHANIK (PRIORITAETENLISTE M2-070, Scope-Erweiterung
+  2026-04-18).
+
+================================================================================
+1) GRUNDSAETZE
+================================================================================
+
+  AV-1 ip_slot ist die Quelle; fixed_ip und fixed_ipv6 sind daraus
+       materialisiert und danach unveraenderlich (INV-30). Einzige
+       Ausnahme ist der Rollenwechsel (neue Vergabe, INV-32).
+  AV-2 Der Pool ergibt sich aus access_role, nicht aus tunnel_type
+       (INV-31). L2TP_IPSEC erhaelt keine IPv6-Adresse (fixed_ipv6 NULL,
+       v6_addr_policy NONE).
+  AV-3 Der Allokator ist die EINZIGE Stelle, die ip_slot, fixed_ip und
+       fixed_ipv6 schreibt. Kein Daemon vergibt Adressen selbst: accel-ppp
+       erhaelt die Adresse aus der RADIUS-Antwort, WireGuard aus dem
+       Peer-Eintrag.
+  AV-4 Vergabe geschieht bei der Anlage der Connection, in derselben
+       Transaktion (BASE-010_070 Abschnitt 4); es gibt keine spaetere,
+       verzoegerte Vergabe.
+  AV-5 Die Slot-Wahl ist zufaellig (kryptografischer Zufallsgenerator):
+       Aus einer Adresse laesst sich weder die Reihenfolge der Anlage
+       noch die Zahl der Kunden ablesen (INV-83 laut Changelog v2.0).
+  AV-6 Ist kein Slot frei, scheitert die Anlage (Fail-Closed). Es gibt
+       kein Ausweichen in einen anderen Pool und keine Adresse ausserhalb
+       der Pools.
+
+================================================================================
+2) TABELLE vpn_pool_config
+================================================================================
+
+  Feld                 Typ              Constraint  Beschreibung
+  -------------------- ---------------- ----------- ------------------------
+  access_role          ENUM             PK          USER|VIP|MODERATOR|ADMIN
+  pool_base_v4         VARCHAR(15)      NOT NULL    Netzadresse IPv4
+  pool_cidr_v4         TINYINT UNSIGNED NOT NULL    Praefixlaenge IPv4
+  v6_visual            SMALLINT UNSIGNED NOT NULL   visueller Rollen-Anteil
+                                                    der IPv6-Adresse
+  pool_prefix_v6       VARCHAR(45)      NOT NULL    IPv6-Praefix des Pools
+  pool_cidr_v6         TINYINT UNSIGNED NOT NULL    Praefixlaenge IPv6 (64)
+  tail_reserve_slots   INT UNSIGNED     NOT NULL    Reserve am Ende des
+                                                    Slot-Raums
+  warn_free_slots      INT UNSIGNED     NOT NULL    Schwelle "gelb"
+  critical_free_slots  INT UNSIGNED     NOT NULL    Schwelle "rot"
+  skip_edge_octets     TINYINT(1)       NOT NULL    1 = Adressen mit
+                                        DEFAULT 0   letztem Oktett 0 oder
+                                                    255 nicht vergeben
+  updated_at           TIMESTAMP        NOT NULL
+
+  AUSGANGSWERTE (Netze laut MANIFEST 4.3 und NETWORK_MODEL; Reserve und
+  Schwellen sind Vorschlaege):
+
+  Rolle      IPv4            v6_visual  IPv6-Praefix       Res.  gelb  rot
+  ---------  --------------  ---------  -----------------  ----  ----  ----
+  ADMIN      10.77.2.0/24    2          fd77:0:0:2::/64    4     32    8
+  MODERATOR  10.77.3.0/24    3          fd77:0:0:3::/64    4     32    8
+  VIP        10.77.4.0/22    4          fd77:0:0:4::/64    8     128   32
+  USER       10.77.16.0/20   16         fd77:0:0:16::/64   16    512   128
+
+  GUELTIGKEITSREGELN (geprueft beim Schreiben der Tabelle, vom Allokator
+  vor jeder Vergabe und vom Firewall-Renderer; BASE-050_070):
+    PC-1  Genau eine Zeile je Rolle.
+    PC-2  Alle IPv4-Pools liegen in 10.77.0.0/16, alle IPv6-Pools in
+          fd77:0:0::/48; kein Pool ueberschneidet einen anderen, das
+          SERVICE_NET (10.77.0.0/28) oder das Notzugangs-Netz
+          (10.77.1.0/29).
+    PC-3  pool_prefix_v6 ist genau "fd77:0:0:<v6_visual>::" und
+          pool_cidr_v6 ist 64.
+    PC-4  tail_reserve_slots < Zahl der nutzbaren Slots;
+          critical_free_slots <= warn_free_slots.
+  Ist eine Regel verletzt, wird nicht vergeben (und kein Regelwerk
+  gerendert): Fehlerzustand POOL_CONFIG_INVALID.
+
+  SCHREIBWEG:
+    - Die Tabelle wird bei der Installation befuellt.
+    - Netz, Praefix und v6_visual sind UNVERAENDERLICH, sobald eine
+      Connection der Rolle einen Slot traegt. Eine Aenderung waere eine
+      Migration aller materialisierten Adressen und ist nicht Teil dieses
+      Vertrags.
+    - Reserve, Schwellen und skip_edge_octets aendert nur der DB-User
+      system im Auftrag einer ADMIN-Handlung (privilegierter Auftragsweg
+      des Panels, protokolliert). Die Aenderung wirkt auf kuenftige
+      Vergaben.
+    - Lesen: Allokator, Firewall-Renderer, Panel.
+
+================================================================================
+3) SLOT-RAUM UND ABLEITUNG DER ADRESSEN
+================================================================================
+
+  Fuer einen Pool mit Praefixlaenge p hat der Slot-Raum 2^(32-p) Werte:
+
+    Slot 0                   Netzadresse           nie vergeben
+    Slot 1                   Anker des Pools       SYSTEM-RESERVIERT
+    Slot 2 .. MAX-R          Normalbereich
+    Slot MAX-R+1 .. MAX      Reserve               nur mit Freigabe
+    Slot MAX+1               Broadcast-Adresse     nie vergeben
+    mit MAX = 2^(32-p) - 2 und R = tail_reserve_slots
+
+  Nutzbare Slots: ADMIN und MODERATOR 2..254 (253), VIP 2..1022 (1021),
+  USER 2..4094 (4093).
+
+  ABLEITUNG:
+    fixed_ip   = pool_base_v4 + ip_slot              (als IPv4-Adresse)
+    A, B       = drittes und viertes Oktett von fixed_ip, dezimal
+    fixed_ipv6 = "fd77:0:0:" + v6_visual + "::" + A + ":" + B
+                 nur bei v6_addr_policy = FIXED_SQL, sonst NULL
+
+  TEXTFORM (Projektform, verbindlich):
+    - A, B und v6_visual als Dezimalzahlen ohne fuehrende Nullen; sie
+      stehen als Ziffernfolge in der Adresse (visuelle Kodierung: die
+      IPv6-Adresse zeigt Rolle und IPv4-Oktette lesbar).
+    - Genau diese Form; keine Umformung nach RFC 5952, keine ausgeschriebene
+      Form.
+    - Die Datenbank vergleicht diese Werte als Zeichenketten; die
+      UNIQUE-Bedingungen auf fixed_ip und fixed_ipv6 (INV-79) wirken auf
+      genau dieser Form.
+    - Kein Verbraucher rechnet aus einer Adresse Slot oder Rolle zurueck;
+      wer sie braucht, liest ip_slot und access_role.
+    - Komponenten, die Adressen aus dem Kernel lesen, vergleichen geparst
+      (BASE-050_030 Abschnitt 7).
+
+  RANDADRESSEN: Adressen mit letztem Oktett 0 oder 255 innerhalb eines
+  groesseren Pools (zum Beispiel 10.77.17.0) sind gueltige Hostadressen und
+  werden vergeben. Ob aeltere Clients sie korrekt behandeln, ist eine zu
+  pruefende Annahme (E-SC-05); skip_edge_octets = 1 nimmt sie aus der
+  Vergabe.
+
+  TESTVEKTOREN: Entwurf Abschnitt 5; uebernommen in BASE-070_095.
+
+================================================================================
+4) DER ALLOKATOR
+================================================================================
+
+  Eine Routine in genau einer Implementierung. Sie laeuft INNERHALB der
+  Transaktion ihres Aufrufers (Provisionierung, Rollenwechsel) als DB-User
+  system.
+
+  EINGABE: access_role, Liste der zu versorgenden Connections (mit
+  v6_addr_policy), Reservefreigabe (ja/nein).
+
+  ABLAUF:
+    AL1  POOL SPERREN: SELECT ... FROM vpn_pool_config
+         WHERE access_role = :rolle FOR UPDATE. Vergaben je Pool laufen
+         damit nacheinander. Gueltigkeit pruefen (PC-1..PC-4).
+    AL2  BELEGUNG LESEN:
+           belegt   = alle ip_slot der Rolle in vpn_connections (jede
+                      Zeile zaehlt, gleich in welchem Zustand)
+           gesperrt = alle ip_slot der Rolle in vpn_ip_quarantine mit
+                      quarantine_until > NOW()
+    AL3  FREIMENGE: Normalbereich ohne belegt, gesperrt und - falls
+         skip_edge_octets - Randadressen; mit Reservefreigabe zusaetzlich
+         der Reservebereich.
+    AL4  Ist die Freimenge kleiner als die Zahl der Connections:
+         Abbruch POOL_EXHAUSTED_OR_QUARANTINED. Keine Teilvergabe.
+    AL5  ZIEHEN: je Connection ein Slot, gleichverteilt und ohne
+         Wiederholung aus der Freimenge, mit dem kryptografischen
+         Zufallsgenerator des Betriebssystems.
+    AL6  SCHREIBEN: ip_slot, fixed_ip, fixed_ipv6 in die Connection-Zeile
+         (bei Anlage als Teil des INSERT).
+    AL7  Verletzt das Schreiben dennoch eine UNIQUE-Bedingung, scheitert
+         die Transaktion des Aufrufers als Ganzes. Der Aufrufer darf den
+         gesamten Vorgang hoechstens vpn_pool_alloc_max_attempts
+         (Vorschlag 3) mal wiederholen; Ereignis POOL_ALLOC_COLLISION.
+
+  EIGENSCHAFTEN:
+    - BESCHRAENKT: eine Lesung, eine Ziehung; keine Suche mit offenem Ende.
+    - EXAKT: "kein Slot frei" ist ein Befund ueber die ganze Freimenge.
+    - ATOMAR mit dem Vorgang des Aufrufers: Scheitert dieser, ist kein
+      Slot verbraucht.
+    - IDEMPOTENT: Eine Connection mit gesetztem ip_slot erhaelt keinen
+      neuen (ausser im Rollenwechsel).
+    - SPERR-REIHENFOLGE: erst Pool-Zeile, dann Connection-Zeilen. Braucht
+      ein Vorgang zwei Pools, werden sie in der festen Reihenfolge ADMIN,
+      MODERATOR, VIP, USER gesperrt.
+    - Ohne Datenbank gibt es keine Vergabe.
+
+  RESERVE: Der Reservebereich wird nur mit ausdruecklicher Freigabe einer
+  ADMIN-Handlung benutzt (Ereignis POOL_RESERVE_USED mit Akteur). Er
+  haelt Handlungsfaehigkeit, wenn ein Pool im Normalbereich erschoepft
+  ist. Der datenbankunabhaengige Notzugang des Betreibers haengt nicht an
+  ihm (BASE-050_040 Abschnitt 6).
+
+================================================================================
+5) ROLLENWECHSEL (T-09, D002)
+================================================================================
+
+  Je betroffener Connection, alles in der EINEN Transaktion der Kaskade
+  (D002 Abschnitt 7.4):
+    RW1  Vorpruefung: Die Freimenge des Zielpools reicht fuer ALLE
+         Connections des Customers, die einen Slot tragen (D002 7.5).
+         Sonst Abbruch ohne Aenderung.
+    RW2  Alte Adresse in vpn_ip_quarantine eintragen (Ursache ROLE_CHANGE).
+    RW3  Neue Slots ueber den Allokator aus dem Zielpool; access_role,
+         ip_slot, fixed_ip, fixed_ipv6 der Zeile aendern.
+    RW4  Lifecycle-Ereignisse ROLE_CHANGE und SLOT_CHANGE (BASE-010).
+  Nach dem Commit: Hard-Cut und Policy-Herstellung (BASE-080), fuer
+  WireGuard neues Profil (BASE-040). Die Sperren nach BASE-070_030
+  Abschnitt 6 werden VOR der Transaktion erworben und nach dem Hard-Cut
+  freigegeben.
+
+================================================================================
+6) QUARANTAENE UND RUECKGABE
+================================================================================
+
+  SPERRBEDINGUNG (erweitert INV-82): Slot s des Pools r ist NICHT
+  vergebbar, solange
+    (a) irgendeine Zeile in vpn_connections (r, s) traegt - aktiv,
+        eingeschraenkt, gesperrt, widerrufen oder Tombstone -, ODER
+    (b) vpn_ip_quarantine (r, s) mit quarantine_until > NOW() fuehrt.
+
+  FRIST: vpn_quarantine_days (belegt: 365; reduzierbar auf 180 oder 90).
+  Sie gilt fuer alle Wege gleich.
+
+  TABELLE vpn_ip_quarantine:
+
+  Feld                  Typ              Constraint   Beschreibung
+  --------------------- ---------------- ------------ ----------------------
+  id                    BIGINT UNSIGNED  PK AUTO_INCR
+  access_role           ENUM             NOT NULL     Pool
+  ip_slot               INT UNSIGNED     NOT NULL
+  fixed_ip              VARCHAR(15)      NOT NULL     zur Lesbarkeit
+  fixed_ipv6            VARCHAR(45)      NULL
+  cause                 ENUM             NOT NULL     ROLE_CHANGE|
+                                                      EARLY_DELETE
+  origin_connection_ref VARCHAR(20)      NULL         Herkunft; NULL bei
+                                                      EARLY_DELETE
+  released_at           TIMESTAMP        NOT NULL
+  quarantine_until      TIMESTAMP        NOT NULL
+
+  Indices: UNIQUE(access_role, ip_slot), INDEX(quarantine_until)
+  Schreiber: system. Ein abgelaufener Eintrag desselben Slots wird beim
+  Eintragen ersetzt.
+
+  WEGE IN DIE QUARANTAENE:
+    W1  WIDERRUF AM DATENSATZ: revoked_at und quarantine_until auf der
+        Connection-Zeile (BASE-010, LR-01..LR-03). Die Adresse bleibt an
+        der Zeile.
+    W2  ROLLENWECHSEL: die alte Adresse (Abschnitt 5). Schliesst D002
+        Risiko 2.
+    W3  VORZEITIGE PHYSISCHE LOESCHUNG einer Connection (Loeschanspruch,
+        BASE-010_070 "DSGVO-Sonderpfad"): Fuer die Restfrist wird ein
+        Eintrag OHNE Herkunftsangabe angelegt. Die Adresse bleibt
+        gesperrt, ohne dass ein Personenbezug zurueckbleibt. Der bisher
+        hingenommene Verlust des Schutzes entfaellt.
+
+  RUECKGABE (die einzigen beiden Wege):
+    R1  ABLAUF EINES QUARANTAENE-EINTRAGS: Der Bereinigungslauf (J4)
+        loescht Eintraege mit quarantine_until <= NOW(). Traegt der
+        Eintrag eine Herkunft, wird zuvor das Lifecycle-Ereignis
+        POOL_RETURN geschrieben.
+    R2  PHYSISCHE LOESCHUNG EINER WIDERRUFENEN CONNECTION nach Ablauf
+        ihrer Quarantaene. Je Zeile EINE Transaktion:
+          1  Zeile sperren und Bedingung erneut pruefen:
+             op_status = DISABLED, revoked_at IS NOT NULL,
+             quarantine_until <= NOW()
+          2  Lifecycle-Ereignis CONNECTION_DELETED schreiben (INV-78: vor
+             dem Loeschen), mit Slot und Adressen in metadata
+          3  DELETE der Connection-Zeile. Abhaengige Zeilen: Sperren
+             fallen mit (CASCADE); Protokolle, Buchungsstaende und
+             Ereignisse behalten ihre Snapshot-Felder (SET NULL).
+        Das gilt EINHEITLICH fuer jede widerrufene Connection, nicht nur
+        fuer Tombstones nach Loeschung des Customers: Ein Widerruf ist
+        endgueltig (INV-19: kein Restore-Fenster mehr), die Zeile hat
+        danach keine Funktion ausser dem Halten der Adresse.
+        Damit ist der in OPEN-010-01 d offen gelassene Owner bestimmt:
+        Der Lauf gehoert zu vpn-session-janitor (BASE-070).
+
+  WAS NICHT ZURUECKKEHRT: Eine Connection, die DISABLED ist, aber NICHT
+  widerrufen (Restore-Fenster offen oder Widerruf nur von Hand, LR-03),
+  haelt ihre Adresse unbegrenzt. Die Statistik weist diese Slots
+  gesondert aus, damit der Betreiber sie bei Bedarf widerruft.
+
+================================================================================
+7) FUELLSTAND UND ERSCHOEPFUNG
+================================================================================
+
+  KENNZAHLEN JE POOL (berechnet vom Bereinigungslauf J6 und auf Abruf):
+    nutzbar        Zahl der Slots 2..MAX
+    reserve        tail_reserve_slots
+    belegt         Slots mit Connection-Zeile, davon:
+                   in Nutzung (ACTIVE, RESTRICTED), gesperrt ohne Widerruf,
+                   in Quarantaene am Datensatz
+    quarantaene    gueltige Eintraege in vpn_ip_quarantine
+    frei           Slots des Normalbereichs, die der Allokator jetzt
+                   vergeben koennte (genau die Freimenge aus AL3 ohne
+                   Reservefreigabe)
+
+  AMPEL:  GRUEN  frei >= warn_free_slots
+          GELB   critical_free_slots <= frei < warn_free_slots
+          ROT    frei < critical_free_slots
+  EREIGNISSE bei Wechsel der Stufe (je Wechsel einmal): POOL_WARN,
+  POOL_CRITICAL, POOL_EXHAUSTED (frei = 0), POOL_RECOVERED. Meldeweg:
+  MOD-007.
+
+  BEI ERSCHOEPFUNG: Anlage und Rollenwechsel scheitern mit
+  POOL_EXHAUSTED_OR_QUARANTINED und einer eindeutigen Meldung im Panel
+  (Pool, benoetigte und freie Zahl). Bestehende Connections sind nicht
+  betroffen. Abhilfen des Betreibers: gesperrte Connections widerrufen,
+  Quarantaenefrist verkuerzen (wirkt auf kuenftige Eintraege),
+  Reservefreigabe im Einzelfall.
+
+  SICHTBARKEIT: Kunden sehen nur ihre eigenen Adressen. Listen belegter
+  oder freier Adressen eines Pools erhaelt nur ADMIN; die Ampel zeigt
+  Zahlen, keine Adressen.
+
+================================================================================
+8) FAELLE
+================================================================================
+
+  Fall                                 Verhalten
+  ------------------------------------ --------------------------------------
+  Zwei Anlagen gleichzeitig, ein Pool  nacheinander (AL1); verschiedene Slots
+  Anlage scheitert nach der Ziehung    Rollback; Slot bleibt frei
+  Rollenwechsel, Zielpool zu klein     Abbruch in RW1; nichts geaendert
+  Rollenwechsel hin und zurueck        alte Adresse ist in Quarantaene; die
+                                       Connection erhaelt eine andere
+  Tombstone, Frist laeuft              Adresse belegt (a)
+  Tombstone, Frist abgelaufen,         Adresse weiter belegt (a), bis R2
+  Bereinigung noch nicht gelaufen      laeuft; nie eine Luecke im Schutz
+  Vorzeitige Loeschung                 W3; Adresse gesperrt bis zum
+                                       urspruenglichen Fristende
+  Pool-Konfiguration ungueltig         keine Vergabe, kein Rendern; Alarm
+  Datenbank nicht erreichbar           keine Vergabe; Anlage scheitert
+
+================================================================================
+9) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  - Ampel und Kennzahlen je Pool; Verlauf der Stufenwechsel.
+  - ADMIN: Liste der Quarantaene-Eintraege mit Fristende und Ursache;
+    gesperrte Connections ohne Widerruf als Kandidaten.
+  - Fehlermeldung bei Erschoepfung mit Handlungshinweisen.
+  - Aenderung von Reserve, Schwellen, skip_edge_octets als ADMIN-Handlung
+    mit Protokoll; Netze und Praefixe sind nicht editierbar.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
