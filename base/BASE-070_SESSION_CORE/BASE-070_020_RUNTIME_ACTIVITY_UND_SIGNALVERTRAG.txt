@@ -1,0 +1,395 @@
+================================================================================
+BASE-070 — RUNTIME_ACTIVITY UND SIGNALVERTRAG
+================================================================================
+DATEI: BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Tunnelneutrale Definition von runtime_activity, Episoden und Hinweis-
+  feldern; der Session-Signal-Vertrag als Satz normativer Schreibvorgaenge;
+  die Ereignistabelle; der L2TP-Abgleich. Fuer WireGuard fuehrt der AWG
+  Session Controller diesen Vertrag aus (BASE-040_050).
+
+================================================================================
+1) RUNTIME_ACTIVITY JE TUNNEL
+================================================================================
+
+  L2TP_IPSEC
+    LIVE(c)      :=  Der Laufzeit-Adapter L2TP meldet eine Sitzung im Zustand
+                     "aktiv" (PPP aufgebaut, Adresse zugewiesen), deren
+                     Anmeldename gleich dem subaccount_login von c ist.
+    GEMELDET(c)  :=  radacct enthaelt fuer diesen Anmeldenamen und diesen NAS
+                     eine Zeile mit acctstoptime IS NULL.
+    AKTIV(c)     :=  LIVE(c).
+
+    Kombination              Bedeutung             Behandlung
+    ------------------------ --------------------- --------------------------
+    LIVE und GEMELDET        Regelfall             Episode laeuft
+    LIVE, nicht GEMELDET     ungebuchte Sitzung    Drift L2TP_UNACCOUNTED;
+                                                   SimUse lehnt trotzdem ab
+                                                   (Sonde); Schlussriegel
+    nicht LIVE, GEMELDET     Geist                 Bereinigung (_040)
+    weder noch               inaktiv               -
+
+  WIREGUARD
+    AKTIV(c)     :=  latest_handshake > 0 UND
+                     jetzt - latest_handshake <=
+                     wg_handshake_stale_threshold_seconds
+    (BASE-040_050 Abschnitt 3; allein der Handshake-Zeitstempel zaehlt.)
+
+  UNBEKANNT
+    Kann der Adapter nicht antworten, ist runtime_activity UNBEKANNT. In
+    diesem Zustand wird kein Beginn und kein Ende gemeldet und nichts
+    geschlossen.
+
+================================================================================
+2) EPISODE UND HINWEISFELDER
+================================================================================
+
+  Eine EPISODE ist ein zusammenhaengender Zeitraum AKTIV. Bei L2TP
+  entspricht sie genau einer Abrechnungssitzung (eine radacct-Zeile), bei
+  WireGuard dem Zeitraum zwischen erstem Handshake und Ablauf der
+  Stale-Schwelle (Roaming ist Fortsetzung, BASE-040_050 Fall A).
+
+  HINWEISFELDER auf vpn_connections (Gruppe D; Schema-Owner BASE-010):
+
+    runtime_active_since   TIMESTAMP NULL   Beginn der laufenden Episode
+                                            laut letztem Abgleich; NULL =
+                                            keine offene Episode bekannt
+    last_runtime_seen_at   TIMESTAMP NULL   letzter Zeitpunkt, zu dem die
+                                            Connection als AKTIV beobachtet
+                                            wurde
+
+  LESEREGELN (MUST):
+    H-1  Kein Hinweisfeld wird fuer eine Zulassungs-, SimUse-,
+         Bereinigungs- oder Sperrentscheidung gelesen. Diese Entscheidungen
+         fragen die Laufzeit (Adapter) bzw. radacct.
+    H-2  Anzeigen, die aus Hinweisfeldern stammen, sind als "zuletzt
+         gesehen" bzw. "verbunden seit (laut letztem Abgleich)" zu
+         kennzeichnen (D004 R2). "Jetzt verbunden" darf nur behaupten, wer
+         die Laufzeit gefragt hat.
+    H-3  Beide Felder liegen nie in der Zukunft der Datenbankzeit.
+
+  AKTUALITAET (Zusage an Leser):
+    WireGuard: last_runtime_seen_at wird bei Aktivitaet mit jedem
+               Buchungslauf fortgeschrieben
+               (wg_accounting_flush_interval_seconds).
+    L2TP:      mit jedem L2TP-Abgleich, in dem die Sitzung LIVE gesehen
+               wurde, sofern der Wert aelter ist als
+               vpn_runtime_seen_refresh_seconds.
+    Ein Hinweis ist damit im ungestoerten Betrieb hoechstens so alt wie das
+    jeweilige Intervall plus Lauf-Dauer. Bei Datenbankstoerung altert er;
+    Leser muessen das Alter beruecksichtigen (H-2).
+
+================================================================================
+3) DER SIGNALVERTRAG (acht Pflichtfelder)
+================================================================================
+
+  Jedes Signal (Beginn, Ende, Endpunktwechsel) traegt:
+
+  Feld               L2TP_IPSEC                   WIREGUARD
+  ------------------ ---------------------------- --------------------------
+  vpn_connection_id  ueber den Anmeldenamen aus   aus dem SOLL-Abbild des
+                     der Auth-Tabelle; danach aus Controllers
+                     dem Buchungsstand
+  tunnel_type        L2TP_IPSEC                   WIREGUARD
+  client_ipv4        radacct.framedipaddress      vpn_connections.fixed_ip
+  client_ipv6        NULL                         vpn_connections.fixed_ipv6
+  truth_source       RADIUS_ACCT                  AWG_CONTROLLER
+  session_token      "l2tp:" + acctuniqueid       "wg:" + connection_ref +
+                                                  ":" + UNIX-Zeit des
+                                                  Episodenbeginns
+  runtime_ref        Interface-Name laut Adapter  wg_public_key
+                     (NULL, wenn nicht bekannt)
+  source_event_at    Beginn: acctstarttime        Handshake-Zeit laut Kernel
+                     Ende:   acctstoptime
+
+  REGELN:
+    S-1  session_token ist je Episode eindeutig und aus dauerhaft
+         vorhandenen Daten wiederherstellbar. Ein wiederholtes Melden
+         derselben Episode erzeugt dieselbe Kennung.
+    S-2  source_event_at ist die Zeit des Laufzeitereignisses, nicht die
+         Schreibzeit.
+    S-3  tunnel_type und Adressen muessen mit der Connection-Zeile
+         uebereinstimmen (client_ipv4 = fixed_ip; client_ipv6 = fixed_ipv6
+         bzw. NULL bei v6_addr_policy = NONE). Eine Abweichung ist ein
+         Fehlerzustand: kein Beginn, Ereignis RT_ADDRESS_MISMATCH,
+         Hard-Cut ueber den Adapter (die Policy-Zustaende der Firewall
+         haengen an der Adresse).
+    S-4  runtime_ref dient nur Diagnose und Hard-Cut; es ist kein
+         Schluessel fuer Entscheidungen.
+
+  Die bisherige Formulierung "nach ACCEPT folgt ein INSERT in vpn_sessions"
+  (AAA-06) ist damit ersetzt durch: Nach Zulassung folgt die Meldung des
+  Beginns nach SV-1, sobald die Laufzeit die Nutzung zeigt.
+
+================================================================================
+4) SCHREIBVORGAENGE SV-1 BIS SV-3 (normativ)
+================================================================================
+
+  GEMEINSAME REGELN:
+    W-1  Jeder Vorgang ist EINE Transaktion. Ereignis und Hinweisfelder
+         werden gemeinsam oder gar nicht geschrieben.
+    W-2  Es schreibt der DB-User system. Der AAA-Dienst (DB-User radius)
+         schreibt keine Hinweisfelder und keine Ereignisse.
+    W-3  Es gibt genau eine Implementierung von SV-1..SV-3 (gemeinsame
+         Bibliothek oder gespeicherte Routine), die alle Runner benutzen.
+    W-4  Scheitert ein Vorgang (Datenbank nicht erreichbar, Zeitlimit),
+         wird NICHTS gepuffert. Der naechste Lauf leitet den Vorgang aus
+         Laufzeit, radacct und Hinweisfeldern erneut ab.
+    W-5  Zeitwerte, die in der Zukunft der Datenbankzeit laegen, werden auf
+         die Datenbankzeit begrenzt; das Ereignis RT_CLOCK_ANOMALY wird
+         gezaehlt (Zeitbasis: BASE-060).
+
+  SV-1  BEGINN(c, Kennung, t_begin, Signalfelder, Gegenstelle)
+    Vorbedingungen (im selben Lesezugriff geprueft):
+      a) Connection-Zeile existiert, tunnel_type stimmt, Adressen stimmen
+         (S-3).
+      b) op_status IN (ACTIVE, RESTRICTED) UND revoked_at IS NULL.
+         Sonst: kein Beginn; Ereignis RT_ACTIVITY_NOT_ALLOWED; Hard-Cut
+         ueber den Adapter bzw. vpn-policy-apply (Fail-Closed). Eine
+         gesperrte Connection kann keine Episode haben.
+    Transaktion:
+      1  INSERT log_runtime_activity (ACTIVITY_START, Kennung, ...).
+         Existiert der Eintrag bereits, endet SV-1 erfolgreich OHNE
+         weitere Wirkung (Idempotenz).
+      2  Ist eine ANDERE Episode als offen vermerkt
+         (runtime_active_since NOT NULL und ungleich t_begin), wird sie
+         zuvor nach SV-2 beendet (Grund aus dem Kontext des Runners, sonst
+         SUPERSEDED).
+      3  UPDATE vpn_connections
+            SET runtime_active_since = :t_begin,
+                last_runtime_seen_at = GREATEST(
+                    COALESCE(last_runtime_seen_at, :t_begin), :t_begin)
+          WHERE id = :c
+
+  SV-2  ENDE(c, Kennung, t_begin, t_end, Grund)
+    Transaktion:
+      1  INSERT log_runtime_activity (ACTIVITY_END, Kennung, Grund,
+         source_event_at = t_end). Existiert der Eintrag bereits: Ende ohne
+         weitere Wirkung.
+      2  UPDATE vpn_connections
+            SET runtime_active_since = NULL,
+                last_runtime_seen_at = GREATEST(
+                    COALESCE(last_runtime_seen_at, :t_end), :t_end)
+          WHERE id = :c AND runtime_active_since = :t_begin
+         (Vergleich auf den Beginn: Das Ende einer alten Episode loescht
+         nie den Vermerk einer neueren.)
+    t_end ist der letzte belegte Zeitpunkt der Aktivitaet, nicht der
+    Zeitpunkt der Feststellung.
+
+  SV-3  ENDPUNKTWECHSEL(c, Kennung, t, Gegenstelle)   (nur WireGuard)
+    INSERT log_runtime_activity (ENDPOINT_CHANGE, Kennung, event_seq =
+    UNIX-Zeit von t, Gegenstelle). Hoechstens ein Eintrag je Minute und
+    Connection (BASE-040_050 Abschnitt 4). Keine Aenderung an
+    Hinweisfeldern.
+
+  FORTSCHREIBEN OHNE EREIGNIS:
+    last_runtime_seen_at darf ausserhalb von SV-1/SV-2 nur zusammen mit
+    einer Buchung oder als eigener UPDATE des Runners erhoeht werden, nie
+    verringert:  SET last_runtime_seen_at = GREATEST(
+                     COALESCE(last_runtime_seen_at, :t), :t)
+
+================================================================================
+5) TABELLE log_runtime_activity
+================================================================================
+
+  Feld                Typ               Constraint     Beschreibung
+  ------------------- ----------------- -------------- ----------------------
+  id                  BIGINT UNSIGNED   PK AUTO_INCR
+  vpn_connection_id   BIGINT UNSIGNED   NULL, FK       ON DELETE SET NULL
+  connection_ref      VARCHAR(20)       NOT NULL       Snapshot
+  customer_id         BIGINT UNSIGNED   NULL           Snapshot
+  tunnel_type         ENUM              NOT NULL       L2TP_IPSEC|WIREGUARD
+  event_type          ENUM              NOT NULL       ACTIVITY_START|
+                                                       ACTIVITY_END|
+                                                       ENDPOINT_CHANGE
+  session_token       VARCHAR(96)       NOT NULL       Episodenkennung
+  event_seq           INT UNSIGNED      NOT NULL       0 bei START/END;
+                                        DEFAULT 0      UNIX-Zeit bei
+                                                       ENDPOINT_CHANGE
+  truth_source        ENUM              NOT NULL       RADIUS_ACCT|
+                                                       AWG_CONTROLLER
+  runtime_ref         VARCHAR(64)       NULL           Interface bzw.
+                                                       PublicKey
+  client_ipv4         VARCHAR(15)       NULL           Tunneladresse
+  client_ipv6         VARCHAR(45)       NULL           Tunneladresse
+  remote_endpoint     VARCHAR(64)       NULL           oeffentliche
+                                                       Gegenstelle;
+                                                       PERSONENBEZOGEN
+  end_reason          VARCHAR(32)       NULL           nur ACTIVITY_END
+  source_event_at     TIMESTAMP         NOT NULL       Laufzeit-Zeit
+  created_at          TIMESTAMP         NOT NULL       Schreibzeit
+
+  Indices:
+    UNIQUE(session_token, event_type, event_seq)
+    INDEX(vpn_connection_id, source_event_at)
+    INDEX(source_event_at)
+
+  REGELN:
+    E-1  INSERT-only. Einzige Ausnahme: Das Feld remote_endpoint darf nach
+         Ablauf seiner Aufbewahrungsfrist auf NULL gesetzt werden, und
+         ganze Zeilen duerfen nach Ablauf der Ereignis-Aufbewahrung
+         geloescht werden (Loeschlauf: MOD-007).
+    E-2  Es schreibt nur der DB-User system ueber SV-1..SV-3.
+    E-3  Lesen: Panel ueber eine Sicht OHNE remote_endpoint fuer Kunden;
+         mit remote_endpoint nur fuer ADMIN (BASE-110). Der DB-User radius
+         hat keinen Zugriff.
+    E-4  Die Tabelle ist Projektion: Aus ihr wird keine Zulassungs- oder
+         SimUse-Entscheidung abgeleitet (H-1 gilt sinngemaess).
+    E-5  Je Episode hoechstens ein ACTIVITY_START und ein ACTIVITY_END
+         (durch den UNIQUE-Schluessel erzwungen).
+
+  AUFBEWAHRUNG (Vorschlag; Festlegung MOD-007, Keys BASE-090):
+    vpn_runtime_endpoint_retention_days   14    danach remote_endpoint NULL
+    vpn_runtime_activity_retention_days   180   danach Zeile loeschen
+  Die Fristen sind eine Betreiber- und Rechtsfrage; der Vorschlag ist
+  bewusst kurz fuer die Gegenstelle (Datensparsamkeit, SZ-10).
+
+================================================================================
+6) ENDE-GRUENDE
+================================================================================
+
+  Grund                    Setzer                 Bedeutung
+  ------------------------ ---------------------- --------------------------
+  USER_DISCONNECT          L2TP-Abgleich          Client hat getrennt
+  LINK_LOST                L2TP-Abgleich          Leitung verloren (LCP,
+                                                  DPD, Traeger)
+  IDLE_TIMEOUT             L2TP-Abgleich          Leerlaufgrenze
+  SESSION_TIMEOUT          L2TP-Abgleich          Hoechstdauer
+  TIMEOUT_STALE            Controller             WG: Handshake zu alt
+  JANITOR_GHOST            Bereinigung            Geist geschlossen
+  SYSTEM_RESTART           Abgleich/Controller    Daemon-, Interface- oder
+                                                  Systemneustart
+  SERVICE_STOP_DB_GRACE    Controller             WG-Stop nach Grace
+  SERVICE_STOP             Controller             WG-Stop durch Betreiber
+  CONNECTION_DISABLED      Hard-Cut-Ausloeser     Wechsel nach DISABLED
+  CONNECTION_ROLE_CHANGE   Hard-Cut-Ausloeser     T-09
+  AUTH_KEY_ROTATED         Hard-Cut-Ausloeser     Schluesselwechsel
+  ADMIN_HARDCUT            vpn-session-kill       Betreiberhandlung
+  POLICY_FAIL_CLOSED       Runner                 Beendet, weil Policy nicht
+                                                  hergestellt werden konnte
+  SUPERSEDED               SV-1                   aeltere Episode ohne
+                                                  gemeldetes Ende
+  OTHER                    Runner                 nicht zuordenbar
+
+  ZUORDNUNG acctterminatecause -> Grund (L2TP), sofern kein Grund-Hinweis
+  im Buchungsstand vorliegt (_050 Abschnitt 3):
+    User-Request -> USER_DISCONNECT; Lost-Carrier, Lost-Service, Port-Error
+    -> LINK_LOST; Idle-Timeout -> IDLE_TIMEOUT; Session-Timeout ->
+    SESSION_TIMEOUT; NAS-Reboot, NAS-Error, Admin-Reboot -> SYSTEM_RESTART;
+    Admin-Reset -> ADMIN_HARDCUT; alles andere -> OTHER.
+  Ein vor dem Beenden hinterlegter Grund-Hinweis (Hard-Cut-Ausloeser) hat
+  Vorrang vor der Zuordnung.
+
+================================================================================
+7) L2TP-ABGLEICH (Vertrag fuer den Runner BASE-030)
+================================================================================
+
+  Werkzeug vpn-l2tp-sync. Takt runtime_activity_check_interval_seconds
+  (Vorschlag 30 s); zusaetzlich Anstoss fuer EINEN Anmeldenamen durch die
+  Hooks ip-up und ip-down. Einzel-Lock; begrenzte Laufzeit; DB-User system.
+  Ist die Datenbank nicht erreichbar, endet der Lauf ohne Wirkung.
+
+  REIHENFOLGE (normativ):
+    L1  LAUFZEIT LESEN: S := list() des Adapters mit Lesezeit t_s, dazu die
+        Startzeit d_start des Daemons. Bei Fehler oder Zeitlimit:
+        S := UNBEKANNT.
+    L2  DANACH DATENBANK LESEN: offene radacct-Zeilen dieses NAS;
+        geschlossene Zeilen mit fehlendem, nicht abgeschlossenem oder vom
+        Zaehler abweichendem Buchungsstand (Horizont _050 Abschnitt 3);
+        Buchungsstaende; Zuordnung Anmeldename -> Connection; Marke
+        l2tp_daemon_started_at.
+    L3  DAEMON-NEUSTART: Ist d_start juenger als die Marke, sind alle
+        offenen Zeilen mit acctstarttime < d_start Geister (der neue
+        Prozess kann sie nicht fuehren). Sie werden ohne Mindestalter
+        geschlossen (Grund SYSTEM_RESTART); die Marke wird in derselben
+        Transaktion fortgeschrieben.
+    L4  JE OFFENE ZEILE r (aelteste zuerst), Connection c:
+        a) S bekannt, r in S                         -> LEBEND
+             Buchungsstand anlegen, falls er fehlt (haelt c fest)
+             SV-1, falls der Beginn noch nicht gemeldet ist
+             Buchung (_050)
+             last_runtime_seen_at fortschreiben (Abschnitt 2)
+           Fuehrt radacct mehrere offene Zeilen desselben Anmeldenamens,
+           gilt nur die juengste als die lebende; aeltere sind Geister.
+        b) S bekannt, r nicht in S,
+           Alter von r > vpn_ghost_min_age_seconds   -> GEIST
+             Zeile schliessen (_040 Abschnitt 4), weiter mit L5
+        c) S bekannt, r nicht in S, r juenger        -> abwarten
+        d) S UNBEKANNT                               -> nichts schliessen;
+             Buchung trotzdem (die gemeldeten Zaehler gelten unabhaengig
+             von der Sonde)
+    L5  JE GESCHLOSSENE, NICHT ABGESCHLOSSENE ZEILE: Schlussbuchung;
+        SV-1, falls der Beginn nie gemeldet wurde (sehr kurze Sitzung);
+        SV-2 mit Grund (Abschnitt 6); Buchungsstand abschliessen.
+    L6  LAUFZEITSITZUNG OHNE OFFENE ZEILE, aelter als das Mindestalter:
+        Drift L2TP_UNACCOUNTED (Zaehler; ein Ereignis je Sitzung). Haelt
+        der Zustand laenger als l2tp_radacct_stale_threshold_seconds an:
+        Alarm. Die Sitzung wird NICHT beendet (LT-39); sobald eine
+        Abrechnungsmeldung eintrifft, wird der gesamte bis dahin
+        aufgelaufene Verbrauch gebucht (kumulative Zaehler).
+    L7  LAUFZEITSITZUNG OHNE BERECHTIGUNG: Gehoert der Anmeldename zu
+        keiner Connection oder ist die Connection DISABLED bzw.
+        widerrufen: kill() ueber den Adapter, Ereignis
+        L2TP_ORPHAN_SESSION (Zulassungswaechter, Gegenstueck zu
+        BASE-040_050 Abschnitt 3 Schritt B2).
+    L8  MELDEVERZUG: Lebende Sitzung, deren radacct-Zeile seit mehr als
+        l2tp_radacct_stale_threshold_seconds nicht fortgeschrieben wurde:
+        Drift L2TP_ACCT_STALLED (Alarm). Keine Beendigung.
+    L9  Marke l2tp_sync_last_ok_at setzen; Statusdatei fortschreiben.
+
+  WARUM L1 VOR L2: Eine Zeile, die erst nach t_s entstanden ist, ist
+  juenger als das Mindestalter und kann nicht als Geist gelten. Eine
+  Sitzung, die nach t_s endete, erscheint in L2 bereits geschlossen oder
+  im naechsten Lauf. Die umgekehrte Reihenfolge wuerde eine soeben
+  beendete Sitzung als Geist behandeln.
+
+  EIGENSCHAFTEN: idempotent; jeder Schritt je Zeile atomar; ein Abbruch an
+  beliebiger Stelle wird vom naechsten Lauf fortgesetzt; kein Schritt
+  haengt von der Reihenfolge eintreffender Hook-Aufrufe ab.
+
+================================================================================
+8) ZUSTANDSWECHSEL DER CONNECTION UND EPISODEN
+================================================================================
+
+  Ereignis (Owner BASE-010)        Wirkung auf die Episode
+  -------------------------------- ----------------------------------------
+  ACTIVE -> RESTRICTED (T-02/T-03) KEIN Ende. Der Tunnel bleibt; die Policy
+                                   wechselt (Walled Garden).
+  RESTRICTED -> ACTIVE (T-05)      keine
+  -> DISABLED (T-04/T-06/T-07)     Hard-Cut; Ende mit CONNECTION_DISABLED
+  Restore (T-08)                   KEIN automatischer Beginn; das Geraet
+                                   verbindet sich neu
+  Rollenwechsel (T-09)             Hard-Cut je betroffener Connection; Ende
+                                   mit CONNECTION_ROLE_CHANGE; neue Episode
+                                   erst mit neuer Adresse
+  Schluesselrotation (WG)          Ende mit AUTH_KEY_ROTATED; keine
+                                   Fortsetzung unter neuem Schluessel
+  Tombstone (Customer DELETED)     wie DISABLED
+  Physische Loeschung nach         keine offene Episode moeglich (die
+  Quarantaene                      Connection ist seit Langem DISABLED);
+                                   Ereignisse bleiben ueber die Snapshot-
+                                   Felder lesbar
+  tunnel_type                      unveraenderlich (INV-39); ein Wechsel
+                                   des Tunneltyps ist eine neue Connection
+
+================================================================================
+9) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  - Je Connection: "zuletzt gesehen" (last_runtime_seen_at), "verbunden
+    seit (laut letztem Abgleich)" (runtime_active_since), jeweils mit
+    Alter des Hinweises.
+  - Verlauf der Episoden aus log_runtime_activity (Beginn, Ende, Grund,
+    Dauer); Gegenstelle nur fuer ADMIN.
+  - Live-Zustand (LIVE/NOT_LIVE/UNKNOWN) nur ueber die privilegierte
+    Einzelabfrage des Adapters (BASE-070_040), nie aus SQL.
+  - Driftzaehler L2TP_UNACCOUNTED, L2TP_ACCT_STALLED, L2TP_ORPHAN_SESSION,
+    RT_ADDRESS_MISMATCH aus der Statusdatei (BASE-070_070).
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
