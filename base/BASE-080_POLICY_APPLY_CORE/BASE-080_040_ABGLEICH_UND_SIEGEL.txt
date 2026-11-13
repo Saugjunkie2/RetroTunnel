@@ -1,0 +1,417 @@
+================================================================================
+BASE-080 — ABGLEICH UND SIEGEL (vpn-policy-apply --reconcile-all)
+================================================================================
+DATEI: BASE-080_040_ABGLEICH_UND_SIEGEL.txt
+STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
+
+ZWECK:
+  Vertrag des vollstaendigen Abgleichs: Er bringt den durchsetzenden
+  Kernel-Zustand ALLER Connections auf den Stand von SQL, raeumt Reste,
+  stellt nach Start und nach einem Verlust des Regelwerks den Betrieb
+  wieder her und loest das Siegel der Firewall. Der Abgleich ist das
+  Netz unter den Einzelauftraegen: Was ein Einzelauftrag nicht erreicht
+  hat, erreicht er - mit denselben Bausteinen (BASE-080_030).
+
+================================================================================
+1) ZUSAGE UND GRENZE
+================================================================================
+
+  ZUSAGE: Jede Abweichung zwischen SQL und Kernel, die kein Einzelauftrag
+  behebt, ist spaetestens nach vpn_reconcile_interval_seconds zuzueglich
+  des Rasters des Zeitgebers erkannt und - soweit sie sich beheben
+  laesst - behoben (PF-18; fuer Peers dieselbe Schranke wie
+  BASE-040_030 Abschnitt 6).
+
+  DER ABGLEICH ENTSCHEIDET NICHTS: Er bewertet keine Bedingungen und
+  schreibt keinen Status. Er liest op_status, wie er ist.
+
+  DER ABGLEICH ERLEDIGT KEINE AUFTRAEGE: Offene Auftraege bleiben stehen
+  und werden vom Auftragslauf abgeschlossen (das ist nach einem
+  erfolgreichen Abgleich ein Lauf ohne Wirkung). So gibt es genau eine
+  Stelle, die einen Auftrag als erledigt bestaetigt.
+
+================================================================================
+2) ANLAESSE
+================================================================================
+
+  Anlass                         Ausloeser
+  ------------------------------ --------------------------------------------
+  Takt                           Zeitgeber im festen Raster ; faellig nach
+                                 vpn_reconcile_interval_seconds seit
+                                 policy_reconcile_last_run_at (DEC-PA-21)
+  Systemstart                    Unit des Startabgleichs (Phase 5 der
+                                 Startfolge, BASE-050_070 Abschnitt 8)
+  Regelwerk neu geladen          vpn-fw-load recover stoesst an
+  (recover)                      (Anforderungsdatei und Start der Unit, ohne
+                                 zu warten)
+  Firewall VERSIEGELT            solange der Zustand VERSIEGELT ist, gilt der
+                                 Abgleich bei JEDEM Durchgang des
+                                 Auftragslaufs als faellig
+  Datenbank wieder erreichbar    Auftragslauf stellt die Rueckkehr fest
+                                 (BASE-080_050) ; zuvor laeuft der Bewerter
+  WG-Schnittstelle neu           Start-Aktion des Controllers
+  gestartet                      (BASE-040_060 Abschnitt 5)
+  Auftrag der Art GESAMT         Verwaltungshandlung "jetzt abgleichen",
+                                 Wartungsmodus an/aus, geaenderte
+                                 Einstellungen mit Wirkung auf alle
+  Betreiber                      Aufruf von Hand (root)
+
+  ANFORDERUNGSDATEI: /run/retrotunnel/policy/reconcile.request (nur root
+  schreibbar). Sie macht den Anstoss unabhaengig von der Datenbank und
+  von der Dienstverwaltung: Der Auftragslauf prueft sie bei jedem
+  Durchgang und startet den Abgleich, falls keiner laeuft. Sie wird erst
+  nach einem Abgleich ohne Fehler entfernt.
+
+================================================================================
+3) ABLAUF (verbindlich)
+================================================================================
+
+  Der Abgleich laeuft in ABSCHNITTEN. Jeder Abschnitt erwirbt den
+  Einzel-Lock, liest SQL fuer seinen Teil FRISCH, liest den Kernel,
+  handelt und gibt den Lock frei (DEC-PA-04). Zwischen den Abschnitten
+  kommen wartende Einzelauftraege zum Zug. Kein Abschnitt haelt den Lock
+  laenger als vpn_reconcile_section_seconds; reicht die Zeit nicht, endet
+  der Abschnitt an einer sicheren Stelle und der naechste setzt fort.
+
+  GRUNDSATZ DER REIHENFOLGE: ERST SCHLIESSEN, DANN OEFFNEN. Alle
+  Handlungen, die Zugang entziehen oder einschraenken, kommen vor allen
+  Handlungen, die Zugang geben.
+
+  V0  VORBEDINGUNGEN (ohne Lock)
+      Datenbank lesbar, sonst Ende mit Code 2 ohne Wirkung. Zustand der
+      Firewall BETRIEB oder VERSIEGELT, sonst Ende mit Code 8 ohne
+      Wirkung. Generation des Regelwerks merken (G0).
+
+  V1  ABSCHNITT "SCHLIESSEN"
+      a) SQL mengenweise lesen (kein Zugriff je Zeile): fuer alle
+         Connections die Felder der Soll-Funktion und der Zuordnung
+         (BASE-080_030 Abschnitt 4), noch ohne Schluesselmaterial.
+      b) Kernel lesen: WireGuard-Peers mit AllowedIPs ; ppp-
+         Schnittstellen mit Index und Gegenstellen-Adresse ; Elemente von
+         restricted_*, allowed_l2tp_v4, connect_pending_*.
+      c) Einordnen (WireGuard nach BASE-040_030 Abschnitt 6: unveraendert,
+         zu ersetzen, zu entfernen, zu ergaenzen ; L2TP nach den Faellen
+         L-A bis L-D ; nicht auswertbare Zeilen fuer sich).
+      d) MENGENBREMSE pruefen (Abschnitt 7).
+      e) SCHLIESSENDE HANDLUNGEN, Sicherheitsfaelle zuerst:
+         1. Peers von Connections mit Status DISABLED oder mit Widerruf
+            entfernen (WG_PEER_DISABLED_ACTIVE) ; Freigaben und Sitzungen
+            nicht zugelassener L2TP-Connections entziehen und beenden
+            (Fall L-C)
+         2. uebrige Peers "zu entfernen" und "zu ersetzen" entfernen
+            (Remove-Sequenz) ; unbekannte Adressen an ppp-Schnittstellen
+            beenden
+         3. Freigabe-Reste entfernen (Schnittstelle fehlt, Adresse passt
+            nicht, mehr als ein Element je Adresse)
+         4. FEHLENDE Mitglieder von restricted_* einfuegen - eine
+            Transaktion fuer beide Familien - und fuer jede neu
+            eingefuegte Connection den Fluss-Schnitt ausfuehren
+            (BASE-080_030 Abschnitt 7)
+         5. Gate setzen: Adressen aller Peers "zu ergaenzen" und "zu
+            ersetzen" in connect_pending_* eintragen (eine Transaktion)
+         6. Sperrliste abgleichen (Helfer MOD-005, Operation "sync")
+      Scheitert das Entfernen eines Peers, kommen seine Adressen sofort
+      in connect_pending_* (ANF-FW-03 c).
+
+  V2  SIEGEL (nur im Zustand VERSIEGELT) - Abschnitt 6.
+      Steht vor dem Oeffnen, damit unveraenderte Peers nach einem
+      Neuladen des Regelwerks so frueh wie moeglich wieder Verkehr haben.
+
+  V3  ABSCHNITTE "OEFFNEN" (in Buendeln ; je Buendel die betroffenen
+      Zeilen FRISCH lesen, erst dann handeln)
+      1. L2TP: fehlende Freigaben zugelassener Sitzungen herstellen
+         (l2tp_ensure, Fall L-B - Policy vor Freigabe)
+      2. Mitglieder aus restricted_* entfernen, deren Connection nicht
+         mehr eingeschraenkt ist oder keine Kernel-Repraesentation hat
+      3. WireGuard: Peers in Buendeln eintragen (mit Schluesselmaterial
+         erst jetzt gelesen), je Buendel pruefen, Gate nur fuer gepruefte
+         Peers loesen ; fuer gescheiterte bleibt das Gate und der Peer
+         wird entfernt (BASE-040_030 S7, S8)
+      4. Verwaltungsfreigabe abgleichen (Helfer BASE-110, Operation
+         "sync")
+      Ergibt die frische Lesung eines Buendels, dass eine Connection
+      inzwischen nicht mehr zugelassen ist, entfaellt das Oeffnen; ihr
+      Auftrag fuehrt den Abbau.
+
+  V4  ABSCHNITT "HYGIENE"
+      connect_pending_* (Abschnitt 5) ; Verkehrsformung (Helfer MOD-003,
+      Operation "sync") ; Laufzeit-Spiegel ohne Schnittstelle melden
+      (Owner BASE-030).
+
+  V5  ABSCHLUSS (ohne Lock)
+      Generation des Regelwerks erneut lesen: weicht sie von G0 ab, hat
+      waehrend des Laufs ein Neuladen stattgefunden - der Lauf gilt als
+      NICHT fehlerfrei und der Abgleich wird sofort erneut angefordert.
+      Zaehler, Statusdatei, Marken (Abschnitt 9), Ergebniscode.
+
+  ZUORDNUNG ZUM MASSENABGLEICH DES WG-TREIBERS (BASE-040_030 Abschnitt 6):
+    S1 bis S3  = V1 a bis c        S6  = V1 e4 und V3 Schritt 2
+    S4, S5     = V1 e1, e2, e5     S7, S8 = V3 Schritt 3
+    S9         = V5 (die Marke wg_peer_sync_last_ok_at gehoert BASE-040)
+  Der in S6 genannte "vollstaendige Neuaufbau" der Sets ist hier als
+  Angleichen in EINER Transaktion ausgefuehrt (fehlende einfuegen,
+  ueberzaehlige entfernen - Letzteres erst in V3). Ein Leeren mit
+  anschliessendem Neuaufbau ist nur innerhalb derselben Transaktion
+  zulaessig: Es darf keinen Augenblick geben, in dem ein eingeschraenkter
+  Client nicht im Set steht.
+
+================================================================================
+4) EXAKTHEIT DER SETS
+================================================================================
+
+  restricted_v4 / restricted_v6
+    SOLL: Tunneladressen aller Connections mit eingeschraenkt(c), die
+    eine Kernel-Repraesentation haben oder in diesem Lauf erhalten
+    (WireGuard: Peer vorhanden oder "zu ergaenzen" ; L2TP: Sitzung
+    besteht). IPv6 nur bei vorhandener fixed_ipv6. Nie ADMIN.
+    Nach V1 fehlt kein Soll-Mitglied ; nach V3 gibt es kein Mitglied
+    ausserhalb des Solls. Fremde Elemente (keiner Connection zuzuordnen)
+    werden in V3 entfernt und gemeldet.
+
+  allowed_l2tp_v4
+    SOLL: je ppp-Schnittstelle, deren Gegenstellen-Adresse einer
+    zugelassenen L2TP-Connection gehoert und deren Policy-Zustand
+    hergestellt ist, genau das Element (Index, Adresse). Alles andere ist
+    Rest.
+
+  connect_pending_v4 / connect_pending_v6
+    Kein Soll aus SQL: Das Set traegt nur laufende Add-Sequenzen und
+    Reste. Behandlung: Abschnitt 5.
+
+  banned_*, admin_panel_allowed_*
+    Gehoeren den Helfern ; der Abgleich ruft deren Operation "sync" und
+    wertet nur ihr Ergebnis.
+
+  VERGLEICH: Adressen werden geparst verglichen, nie als Zeichenkette
+  (BASE-050_030 Abschnitt 7).
+
+================================================================================
+5) HYGIENE VON connect_pending (Reste des WireGuard-Gates)
+================================================================================
+
+  Fuer jedes Adresspaar in connect_pending_* (beide Familien einer
+  Connection werden gemeinsam behandelt):
+
+  P-1  HARMLOS: Kein Peer im Kernel fuehrt eine der Adressen in seinen
+       AllowedIPs. -> Element entfernen. (Rest einer abgebrochenen
+       Add-Sequenz oder eines entfernten Peers ; ohne Peer gibt es keinen
+       Verkehr, den das Gate halten muesste.)
+  P-2  KRITISCH, ZUGELASSEN: Ein Peer fuehrt die Adresse, und die
+       Connection ist laut frischer Lesung zugelassen. -> wg_ensure
+       vollendet die Add-Sequenz (pruefen, Policy, Gate loesen).
+  P-3  KRITISCH, NICHT ZUGELASSEN: Ein Peer fuehrt die Adresse, die
+       Connection ist nicht zugelassen (ein frueheres Entfernen ist
+       gescheitert). -> Entfernen erneut versuchen. Solange der Peer
+       besteht, BLEIBT das Element.
+  P-4  KRITISCH, NICHT AUSWERTBAR oder Datenbank nicht lesbar: Das
+       Element BLEIBT.
+
+  REGELN:
+    P-5  Ein Element wird NIE wegen seines Alters entfernt (DEC-PA-11).
+         Das einzige Kriterium fuer das Entfernen ist P-1.
+    P-6  Bleibt ein Element in P-2 bis P-4 stehen, wird das Ereignis
+         CONNECT_PURGE_DEFERRED gemeldet (Changelog v1.9) - beim ersten
+         Mal als WARN, nach vpn_connect_gate_ttl_seconds als ALERT
+         (Drift-Klasse WG_PEER_GATE_STALE, BASE-040_030 Abschnitt 8).
+    P-7  Elemente, die zu einer in DIESEM Lauf begonnenen Add-Sequenz
+         gehoeren, sind keine Reste und werden hier nicht angefasst.
+
+================================================================================
+6) SIEGEL LOESEN
+================================================================================
+
+  VORBEDINGUNG laut BASE-050_070 Abschnitt 3 und wie sie hier hergestellt
+  wird:
+
+    a) "restricted_* vollstaendig aus SQL neu aufgebaut"
+       hergestellt durch V1 e4 ; erfuellt, wenn das Einfuegen fuer KEIN
+       Soll-Mitglied gescheitert ist.
+    b) "jeder Peer im Kernel: Connection zugelassen und Policy-Zustand
+       hergestellt, ODER Adressen in connect_pending"
+       hergestellt durch V1 e1, e2 (Entfernen ; bei Scheitern Gate),
+       e4 (Policy-Zustand der verbleibenden Peers) und e5 (Gate der
+       neuen). Fuer Peers nicht auswertbarer Connections werden die
+       Adressen in connect_pending_* eingetragen: Das Loesen des Siegels
+       waere fuer sie ein Oeffnen (DEC-PA-22).
+
+  PRUEFUNG UND AUFRUF (ein Abschnitt, Lock durchgehend gehalten):
+    G1  Generation des Regelwerks = G0, sonst Abbruch des Laufs.
+    G2  Kernel erneut lesen und a) und b) Peer fuer Peer nachweisen -
+        nicht aus den Ergebnissen von V1 schliessen.
+    G3  vpn-fw-load unseal aufrufen und dabei den gehaltenen Lock
+        uebergeben (ANF-PA-08): Zwischen Nachweis und Loesen darf kein
+        anderer Schreiber zum Zug kommen.
+    G4  Ergebnis pruefen: Zustand BETRIEB. Ereignis POLICY_UNSEALED mit
+        Zahl der Peers, der Gate-Elemente und der Dauer seit dem Laden.
+
+  NICHT ERFUELLT: Das Siegel bleibt. Der Abgleich bleibt faellig
+  (Abschnitt 2) ; nach vpn_fw_seal_alert_seconds meldet die Firewall die
+  Stoerung (BASE-050_070). Es gibt keinen Weg, das Siegel ohne Nachweis
+  zu loesen - auch nicht fuer den Betreiber ueber dieses Werkzeug.
+
+  L2TP ist vom Siegel nicht erfasst: Es ist ohne Freigabe geschlossen.
+  Die Freigaben stellt V3 Schritt 1 her.
+
+================================================================================
+7) MENGENBREMSE FUER SCHLIESSENDE KORREKTUREN OHNE AUFTRAG
+================================================================================
+
+  LAGE: Jeder Statuswechsel, der eine Connection schliesst, traegt einen
+  Auftrag (BASE-080_050). Findet der Abgleich schliessende Abweichungen
+  OHNE Auftrag, hat sich SQL am Auftragsbuch vorbei geaendert (Eingriff
+  von Hand, Wiederherstellung einer Sicherung, Fehler in der Datenhaltung)
+  - oder die Lesung selbst ist nicht vertrauenswuerdig. Betrifft das
+  viele Connections zugleich, ist der Zustand nicht eindeutig (im Sinn
+  von B052: INVARIANT_BROKEN).
+
+  REGEL:
+    M-1  Gezaehlt werden in V1 die Connections, fuer die ein Peer
+         entfernt oder eine Sitzung beendet werden muesste und fuer die
+         KEIN offener Auftrag besteht.
+    M-2  Uebersteigt die Zahl vpn_reconcile_mass_close_limit (Vorschlag:
+         20) UND zugleich vpn_reconcile_mass_close_percent (Vorschlag: 10)
+         Prozent der bestehenden Laufzeit-Repraesentationen, fuehrt der
+         Lauf KEINE dieser Handlungen aus.
+    M-3  Alles andere laeuft: Handlungen mit Auftrag, Einfuegen in
+         restricted_*, Gate, Hygiene, Oeffnen.
+    M-4  Ereignis POLICY_RECONCILE_MASS_HOLD (CRITICAL) mit Zahl und
+         Aufteilung nach Tunnel ; die Statusdatei fuehrt die
+         zurueckgestellten Connections.
+    M-5  FREIGABE durch den Betreiber: vpn-policy-apply --reconcile-all
+         --confirm-mass-close <Zahl> ueber den privilegierten Auftragsweg
+         (Klasse C). Die Zahl muss der gemeldeten entsprechen ; die
+         Freigabe gilt fuer einen Lauf.
+    M-6  IM ZUSTAND VERSIEGELT gilt die Bremse nicht fuer das Gate:
+         Peers, deren Entfernen zurueckgestellt ist, erhalten vor dem
+         Loesen des Siegels ein Gate-Element. Sie bleiben damit so
+         geschlossen, wie sie es unter dem Siegel schon sind.
+
+  ABWAEGUNG (offen ausgewiesen): Solange die Bremse haelt, bleiben
+  moeglicherweise nicht mehr berechtigte Peers oder Sitzungen bestehen.
+  Dem steht gegenueber, dass ein einzelner Datenfehler sonst alle Kunden
+  trennt. Die Bremse wirkt nur auf den Weg OHNE Auftrag ; jede
+  ordentliche Sperrung laeuft ueber einen Auftrag und wird nie gebremst.
+  Verbesserung VB-0024.
+
+================================================================================
+8) NACH STOERUNGEN
+================================================================================
+
+  SYSTEMSTART
+    Die Firewall startet VERSIEGELT mit leeren Sets ; die WG-Schnittstelle
+    ohne Peers ; L2TP-Sitzungen entstehen erst nach dem Start des
+    Daemons. Der Startabgleich fuehrt V1 (nichts zu schliessen), loest
+    das Siegel (b ist ohne Peers erfuellt) und traegt die Peers ueber das
+    Gate ein. Ist die Datenbank nicht erreichbar, bleibt das Siegel ; der
+    Auftragslauf wiederholt den Abgleich, bis er gelingt.
+
+  REGELWERK NEU GELADEN (recover)
+    Alle dynamischen Sets sind leer, das Siegel ist aktiv ; die Peers
+    stehen noch im Kernel, die L2TP-Sitzungen bestehen. V1 baut
+    restricted_* neu auf, V2 loest das Siegel, V3 stellt die Freigaben
+    aller Sitzungen wieder her. Die Frist aus BASE-080_030 Abschnitt 6.5
+    beginnt erst mit dem Loesen des Siegels.
+    Reihenfolge fuer L2TP: In V3 werden zuerst die Sitzungen
+    eingeschraenkter Connections bearbeitet - fuer sie steht restricted
+    schon aus V1.
+
+  DATENBANK WAR NICHT ERREICHBAR
+    Nach der Rueckkehr: erst Bewerter (--all), dann Auftragslauf, dann
+    Abgleich. Fuer WireGuard gelten waehrend der Stoerung die Regeln von
+    BASE-040_060 (Schonfrist, danach geschlossen) ; der Abgleich oeffnet
+    wieder, was SQL deckt.
+
+  DAEMON DES L2TP-PFADS NEU GESTARTET
+    Alle Sitzungen sind beendet ; ihre Freigaben sind Reste (V1 e3).
+
+  ABGLEICH BRICHT AB
+    Alles Erreichte ist gueltig und hoechstens strenger als das Ziel
+    (BASE-080_030 Abschnitt 10). Der naechste Lauf beginnt von vorn ;
+    es gibt keinen gespeicherten Fortschritt.
+
+  ZWEI ABGLEICHE ZUGLEICH
+    Ein eigener Einzel-Lock des Abgleichs (nicht der Kernel-Lock)
+    verhindert das ; der zweite endet sofort ohne Wirkung.
+
+================================================================================
+9) ERGEBNIS, MARKEN, STATUS
+================================================================================
+
+  Ergebniscode: 0, wenn kein Schritt gescheitert ist und nichts
+  zurueckgestellt wurde ; 1 (PARTIAL_OK), wenn einzelne Ziele gescheitert
+  oder zurueckgestellt sind ; 2 bzw. 8 bei V0.
+
+  Marken (vpn_runtime_marks, BASE-070_070):
+    policy_reconcile_last_run_at   bei jedem Lauf, der V1 erreicht hat
+    policy_reconcile_last_ok_at    nur bei Ergebniscode 0
+  Ohne Datenbank werden keine Marken geschrieben ; die Statusdatei
+  /run/retrotunnel/policy/status-reconcile.json wird immer geschrieben.
+
+  Zaehler je Lauf: gelesene Connections ; Peers unveraendert, ersetzt,
+  entfernt, ergaenzt, gescheitert ; Freigaben hergestellt, entfernt ;
+  Sitzungen beendet ; Mitglieder von restricted eingefuegt, entfernt ;
+  Fluss-Schnitte nach Art ; Gate-Reste harmlos, kritisch ; nicht
+  auswertbare Zeilen ; zurueckgestellte Handlungen ; Dauer je Abschnitt
+  und laengste Haltedauer des Locks.
+
+  ALARME: POLICY_RECONCILE_OVERDUE (Marke aelter als das Doppelte des
+  Takts), POLICY_RECONCILE_FAILED (Code ungleich 0 in Folge),
+  POLICY_RECONCILE_MASS_HOLD, CONNECT_PURGE_DEFERRED, POLICY_UNSEALED
+  (Information).
+
+================================================================================
+10) LEISTUNG
+================================================================================
+
+  Zielgroesse wie BASE-040: 5.000 Peers, dazu einige hundert
+  L2TP-Sitzungen. SQL wird mengenweise gelesen (kein Zugriff je
+  Connection) ; die Sets werden je Familie einmal gelesen und in wenigen
+  Transaktionen geschrieben ; das Eintragen von Peers laeuft in Buendeln.
+  Die Haltedauer des Locks je Abschnitt ist begrenzt
+  (vpn_reconcile_section_seconds, Vorschlag 5) ; ein Verbindungsaufbau
+  wartet daher hoechstens diese Zeit zuzueglich seiner eigenen Arbeit.
+  Die Erwartung "Erstabgleich nach dem Start unter 60 s" ist eine zu
+  messende Annahme (T-WT-22), keine Zusage.
+
+================================================================================
+11) FEHLERBILDER
+================================================================================
+
+  Stoerung                        Verhalten
+  ------------------------------- -------------------------------------------
+  Datenbank faellt im Lauf aus    der laufende Abschnitt endet ohne weitere
+                                  Wirkung ; Code 2 ; Erreichtes bleibt
+  Regelwerk wird im Lauf neu      V5 erkennt die Generation ; Lauf zaehlt
+  geladen                         als gescheitert ; sofort neuer Abgleich
+  Einfuegen in restricted         Vorbedingung a) nicht erfuellt ; Siegel
+  scheitert                       bleibt ; die betroffene Connection wird
+                                  NICHT geoeffnet (kein Peer, keine Freigabe)
+  Peer laesst sich nicht          Adressen ins Gate ; CRITICAL ; Abschnitt 5
+  entfernen                       haelt das Gate, bis der Peer weg ist
+  Sitzung laesst sich nicht       Freigabe bleibt entzogen ; CRITICAL
+  beenden
+  Helfer scheitert                Ergebnis 1 ; Meldung ; die Sets des
+                                  Helfers bleiben, wie sie sind
+  Viele schliessende              Mengenbremse (Abschnitt 7)
+  Abweichungen ohne Auftrag
+  Abgleich laeuft nicht           Marke altert ; Alarm ; Einzelauftraege
+                                  wirken weiter ; ein versiegelter Zustand
+                                  bleibt geschlossen
+
+================================================================================
+12) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  - Betriebsseite: letzter Lauf und letzter fehlerfreier Lauf, Zaehler,
+    Dauer, Zustand der Firewall, Alter eines bestehenden Siegels,
+    zurueckgestellte Handlungen, kritische Gate-Reste.
+  - Handlungen (privilegierter Auftragsweg): "jetzt abgleichen" ;
+    Freigabe einer zurueckgestellten Massenkorrektur (Klasse C, mit
+    Angabe der gemeldeten Zahl).
+  - Keine Handlung "Siegel loesen" und keine Bearbeitung von Sets.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

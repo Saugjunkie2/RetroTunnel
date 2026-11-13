@@ -193,16 +193,27 @@ DEC-PA-07  L2TP: FREIGABE ALS LETZTER SCHRITT; KEIN STUMMER DAUERZUSTAND
   Eine L2TP-Sitzung ist bis zum Eintrag in allowed_l2tp_v4 vollstaendig
   gesperrt (BASE-050, Changelog v2.1.15). vpn-policy-apply traegt sie
   erst ein, wenn Berechtigung, Adresse und Policy-Zustand stimmen.
-  Ist die Sitzung nicht berechtigt, wird sie beendet. Scheitert die
-  Herstellung nur voruebergehend, bleibt sie gesperrt und wird ueber das
+  Ist die Sitzung nicht berechtigt, ist ihre Zuordnung widerspruechlich
+  oder ist die Datenbank nicht lesbar, wird sie sofort beendet. Scheitert
+  die Herstellung nur voruebergehend im Kernelzugriff (Lock, Zustand der
+  Firewall, Set-Schreiben), bleibt sie gesperrt und wird ueber das
   Auftragsbuch erneut versucht; ist sie nach vpn_connect_gate_ttl_seconds
-  noch nicht freigegeben, wird sie beendet.
+  noch nicht freigegeben, wird sie beendet - auch ohne Datenbank.
+  HERKUNFT: D009 (Connect Gating D1a) und B052 (Datenbankausfall)
+  verlangen "kein Verkehr vor hergestellter Policy", "kein Ersatzzustand
+  eingeschraenkt" und das Beenden der Sitzung bei jedem Fehler der
+  Herstellung. Die ersten beiden gelten unveraendert. Das Beenden ist
+  fuer endgueltige Ursachen und den Datenbankausfall uebernommen und fuer
+  voruebergehende Ursachen im Kernelzugriff um eine begrenzte Frist
+  aufgeschoben: Im Vorgaenger hing die Schutzwirkung am Beenden, weil
+  das Gate eine Negativliste war; hier ist die Sitzung bis zur Freigabe
+  ohnehin vollstaendig gesperrt (BASE-080_030 Abschnitt 6.3).
   ABWEICHUNG vom Bestand BASE-030_040 ("die Sitzung laeuft ohne Freigabe
   weiter"): Eine verbundene, aber dauerhaft stumme Sitzung ist fuer den
   Kunden nicht von einer Stoerung zu unterscheiden und haelt SimUse
-  belegt. Das Beenden entspricht POL-14 des Vorgaengers (Kill-Pfad MUSS
-  versucht werden); der sichere Zustand "gesperrt" bleibt bestehen, wenn
-  das Beenden scheitert.
+  belegt. Das Beenden entspricht D009 und POL-14 des Vorgaengers
+  (Kill-Pfad MUSS versucht werden); der sichere Zustand "gesperrt" bleibt
+  bestehen, wenn das Beenden scheitert.
 
 DEC-PA-08  FLUSS-SCHNITT: SETS ZUERST, DANN CONNTRACK, KILL ALS RUECKFALL
   Beim Eintritt in RESTRICTED wird die Adresse in das Sperr-Set
@@ -295,6 +306,15 @@ DEC-PA-18  DATENBANKSTOERUNG: NICHTS AENDERN, NICHTS ENTSCHEIDEN
   Es gibt keine Herstellung aus zwischengespeicherten Werten und keinen
   Ersatzzustand "eingeschraenkt". Nach der Rueckkehr: Bewertung aller
   Connections, Auftragslauf, vollstaendiger Abgleich.
+  HERKUNFT: B052 (DB Outage Contract): neue Sitzungen werden abgewiesen,
+  bestehende Durchsetzung bleibt, wie der Kernel steht ("Freeze"), keine
+  Ausweitung, keine Umschaltung nach "eingeschraenkt"; D009 lehnt den
+  Ersatzzustand ausdruecklich ab, damit ein gesperrter Nutzer bei einem
+  Ausfall nicht ploetzlich interne Dienste erreicht.
+  ZULAESSIG OHNE DATENBANK ist allein, was nichts oeffnet und kein SQL
+  braucht: Reste beendeter Sitzungen raeumen und eine nie freigegebene
+  Sitzung nach Fristablauf beenden (BASE-080_030 Abschnitte 6.4, 6.5).
+  Fuer WireGuard regelt BASE-040_060 die Schonfrist und ihr Ende.
 
 DEC-PA-19  ERGEBNISCODES DES VORGAENGERS BLEIBEN; EIN CODE KOMMT HINZU
   0 bis 7 wie in SM_POLICY_RESTRICT 3.2. Neu ist 8 TEMPFAIL_FIREWALL: Das
@@ -313,6 +333,22 @@ DEC-PA-21  ZEITGEBER FEST, TAKT AUS SETTINGS
   entscheidet aus Setting und Marke, ob er faellig ist. Ersetzt den
   "Wiring-Tick 60 s" des Vorgaengers durch dieselbe Bauart mit kuerzerem
   Raster.
+
+DEC-PA-22  NICHT AUSWERTBAR HEISST: NICHTS OEFFNEN, NICHTS UMSCHALTEN
+  Antwortet die Datenbank, ergibt das Gelesene aber kein eindeutiges SOLL
+  (Wert ausserhalb des Wertevorrats, widerspruechliche Felder,
+  widerspruechliche Zuordnung von Sitzung und Connection, fehlendes
+  Pflicht-Setting), behandelt BASE-080 die betroffene Connection wie bei
+  einer Datenbankstoerung: keine neue Zulassung, kein Wechsel eines
+  bestehenden Kernel-Zustands, Meldung. Der Bewerter verfaehrt ebenso
+  (BASE-080_020 Regel Z-1).
+  HERKUNFT: B052 Abschnitt 1 und 4 ("DB_UNKNOWN verhaelt sich exakt wie
+  DB_DOWN"; Ausloeser SETTINGS_DRIFT, ENUM_DRIFT, INVARIANT_BROKEN,
+  LOCK_TX_ANOMALY). Im Bestand ist davon nur die Auswirkung auf einzelne
+  Settings erhalten (TRUTH_MODEL 2.3 und 4.2: key_state DB_UNKNOWN); die
+  Regel fuer nicht auswertbare Zeilen fehlte.
+  ANWENDUNG je Connection, nicht fuer das ganze System: Ein Fehler in
+  einer Zeile sperrt nicht alle. Einzelheiten: BASE-080_030 Abschnitt 9.
 
 ================================================================================
 6) DAMIT GESCHLOSSENE OFFENE PUNKTE
@@ -334,6 +370,8 @@ DEC-PA-21  ZEITGEBER FEST, TAKT AUS SETTINGS
   (ANF-FW-03 d)
   Verzoegertes Raeumen kritischer Gate-Reste    -> BASE-080_040 Abschnitt 5
   (Changelog v1.9: CONNECT_PURGE_DEFERRED)
+  Nicht auswertbare Lage (B052: DB_UNKNOWN)     -> DEC-PA-22,
+                                                   BASE-080_030 Abschnitt 9
   ANF-WT-07, ANF-WT-08, ANF-SC-07               -> BASE-080_080 Abschnitt 4
   boot-reconcile.service, Reconcile-Zeitgeber   -> BASE-080_070
   (BASE-005_070)

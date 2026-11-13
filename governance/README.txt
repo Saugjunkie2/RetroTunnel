@@ -47,6 +47,10 @@ INHALT
     MODULPRUEFUNG.yaml      Liste der maschinell geprüften Module (Invarianten/Tests)
     trace/                  Q2: Rückverfolgung Quelle <-> aktuelle Spezifikation
                             (wird arbeitspaketweise gefüllt)
+  pruefungen/               Berichte unabhängiger Gegenprüfungen einzelner Module
+                            (getrennter Kontext, unverändert abgelegt). Kein
+                            Vollaudit, kein Freigabegate; die Befunde stehen im
+                            Befundregister.
 
 VERHÄLTNIS ZU BESTEHENDEN REGISTERN (keine Parallelsysteme)
   PRIORITAETENLISTE.txt  bleibt die Arbeitspaket-Liste der Modellphasen M0–M4
