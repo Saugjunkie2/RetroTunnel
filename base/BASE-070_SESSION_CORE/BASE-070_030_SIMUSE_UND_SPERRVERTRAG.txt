@@ -1,0 +1,322 @@
+================================================================================
+BASE-070 — SIMUSE UND SPERRVERTRAG
+================================================================================
+DATEI: BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Wie "eine Nutzung je Connection, keine Uebernahme" durchgesetzt wird;
+  der Vertrag der Tabelle vpn_session_locks (Owner BASE-070, tunnelneutral,
+  Grenzregel G5 in BASE-020_060); der SimUse-Baustein des L2TP-Anmeldepfads
+  als Vorgabe an den Runner BASE-020; Sperren fuer Umbauten.
+
+================================================================================
+1) AUSSAGE UND SCHICHTEN
+================================================================================
+
+  SimUse=1: Je vpn_connection_id besteht hoechstens EINE Nutzung. Ein
+  weiterer Anmeldeversuch wird abgelehnt; er verdraengt die bestehende
+  Nutzung nicht (SZ-1, SZ-2).
+
+  Schicht  Mittel                         Zweck
+  -------  -----------------------------  ----------------------------------
+  1        Wahrheitspruefung              Besteht bereits eine Nutzung?
+           (Sonde, radacct)               Antwort mit Ablehnungsgrund
+  2        Sperre (vpn_session_locks)     Fenster zwischen Zusage und
+                                          sichtbarer Wahrheit schliessen;
+                                          parallele Versuche entscheiden
+  3        Bereinigung (_040)             Geister und Sperr-Leichen
+                                          entfernen, damit Schicht 1 und 2
+                                          niemanden zu Unrecht aussperren
+  4        Schlussriegel im Daemon        haelt auch, wenn 1 bis 3 versagen
+           L2TP: single-session=deny
+           WG:   ein Endpunkt je Peer
+
+  Die Schichten 1 bis 3 liefern Ablehnungsgrund, Nachvollziehbarkeit und
+  Schutz vor Aussperren; Schicht 4 liefert die Garantie.
+
+================================================================================
+2) TABELLE vpn_session_locks
+================================================================================
+
+  Feld                Typ               Constraint       Beschreibung
+  ------------------- ----------------- ---------------- --------------------
+  vpn_connection_id   BIGINT UNSIGNED   PK, FK ->        je Connection
+                                        vpn_connections  hoechstens eine
+                                        ON DELETE        Sperre
+                                        CASCADE
+  purpose             ENUM              NOT NULL         Zweck, Abschnitt 5
+  holder              VARCHAR(64)       NOT NULL         Halterkennung
+  acquired_at         TIMESTAMP         NOT NULL         Datenbankzeit
+  expires_at          TIMESTAMP         NOT NULL         Datenbankzeit
+
+  Indices: PRIMARY(vpn_connection_id), INDEX(expires_at)
+
+  GRUNDREGELN:
+    K-1  Eine Sperre ist ein Mutex, kein Zustand. Aus ihrem Vorhandensein
+         wird nie geschlossen, dass eine Connection genutzt wird, und sie
+         dient keiner Anzeige ("online").
+    K-2  Jede Sperre laeuft ab. Es gibt keine Sperre ohne expires_at und
+         keinen Ablauf jenseits der Obergrenze des jeweiligen Zwecks.
+    K-3  Eine abgelaufene Sperre ist wirkungslos; sie darf von jedem
+         Erwerber entfernt werden.
+    K-4  Verglichen wird ausschliesslich mit der Datenbankzeit (NOW()).
+         Kein Aufrufer rechnet Fristen mit seiner eigenen Uhr.
+    K-5  Freigeben darf nur der Halter (Vergleich auf purpose und holder).
+         Ausnahme: der Zweck L2TP_ADMISSION, Abschnitt 4.
+    K-6  Es gibt keine Verwaltungshandlung "Sperre loeschen". Wer eine
+         Nutzung beenden will, benutzt den Hard-Cut (_040).
+
+================================================================================
+3) ERWERB, VERLAENGERUNG, FREIGABE (normativ)
+================================================================================
+
+  ERWERB (zwei Anweisungen, in dieser Reihenfolge):
+    E1  DELETE FROM vpn_session_locks
+         WHERE vpn_connection_id = :id AND expires_at <= NOW()
+    E2  INSERT INTO vpn_session_locks
+               (vpn_connection_id, purpose, holder, acquired_at, expires_at)
+        VALUES (:id, :purpose, :holder, NOW(),
+                NOW() + INTERVAL :ttl SECOND)
+    ERWORBEN genau dann, wenn E2 eine Zeile einfuegt. Jeder andere Ausgang
+    (Schluesselkonflikt, sonstiger Fehler, Zeitlimit) heisst NICHT
+    ERWORBEN.
+
+    Der Primaerschluessel stellt sicher, dass von gleichzeitigen Erwerbern
+    genau einer gewinnt. E1 kann keine gueltige Sperre entfernen, weil es
+    nur Abgelaufenes loescht.
+
+    NICHT ZULAESSIG ist der Erwerb als eine Anweisung "Einfuegen, bei
+    Konflikt aktualisieren". Deren Rueckmeldung (Zahl betroffener Zeilen)
+    unterscheidet je nach Verbindungsoption des Datenbanktreibers nicht
+    zwischen "eingefuegt" und "vorhandene Zeile unveraendert gelassen";
+    ein Erwerber koennte eine fremde Sperre fuer die eigene halten.
+
+  KEIN WARTEN: Erwerb blockiert nicht. Der Anmeldepfad lehnt ab; der
+  Controller verschiebt auf den naechsten Zyklus; Umbauten wiederholen
+  begrenzt (Abschnitt 6).
+
+  VERLAENGERUNG (nur Umbau-Zwecke):
+        UPDATE vpn_session_locks
+           SET expires_at = NOW() + INTERVAL :ttl SECOND
+         WHERE vpn_connection_id = :id AND purpose = :purpose
+           AND holder = :holder AND expires_at > NOW()
+    Trifft das keine Zeile, ist die Sperre verloren; der Vorgang bricht ab
+    und beginnt nach erneutem Erwerb von vorn (seine Schritte sind
+    idempotent).
+
+  FREIGABE:
+        DELETE FROM vpn_session_locks
+         WHERE vpn_connection_id = :id AND purpose = :purpose
+           AND holder = :holder
+    Die Freigabe erfolgt erst, nachdem der geschuetzte Vorgang dauerhaft
+    wirksam ist (Commit bzw. bestaetigte Laufzeitaenderung). Scheitert die
+    Freigabe, laeuft die Sperre ab.
+
+================================================================================
+4) L2TP-ANMELDEPFAD: SIMUSE-BAUSTEIN (Vorgabe an den Runner BASE-020)
+================================================================================
+
+  Der Baustein laeuft NACH erfolgreicher Pruefung von Identitaet, Status
+  und Credential (BASE-020_030 Schritte 2.1 bis 2.4), also nur fuer
+  Anfragen mit gueltigem Kennwort. Er ersetzt die Schritte 2.5 bis 2.7 in
+  ihrer bisherigen, auf vpn_sessions bezogenen Fassung.
+
+  P1  ON-DEMAND-PRUEFUNG
+      Aufruf vpn-session-check fuer die vpn_connection_id (_040 Abschnitt
+      3). Ergebnis LIVE, NOT_LIVE oder UNKNOWN. Zeitlimit
+      vpn_cleanup_timeout_seconds; jedes Scheitern des Aufrufs gilt als
+      UNKNOWN. Bei NOT_LIVE hat der Dienst belegte Geister bereits
+      geschlossen.
+  P2  LIVE                          -> REJECT R_SIMUSE_ACTIVE
+  P3  WAHRHEIT LAUT PROTOKOLL
+      Existiert in radacct eine Zeile mit diesem Anmeldenamen, diesem NAS
+      und acctstoptime IS NULL?     -> REJECT R_SIMUSE_ACTIVE
+      (Gilt bei NOT_LIVE und bei UNKNOWN gleichermassen: streng.)
+  P4  SPERRE ERWERBEN
+      Zweck L2TP_ADMISSION, TTL vpn_active_session_lock_ttl_seconds.
+      NICHT ERWORBEN                -> REJECT R_SIMUSE_GUARD_BUSY
+  P5  ACCEPT
+
+  NACH DER ZUSAGE:
+    - Der Daemon baut die Sitzung auf und meldet Accounting-Start. Der
+      AAA-Dienst schreibt die radacct-Zeile und gibt DANACH, im selben
+      Verarbeitungsschritt, die Sperre frei:
+          DELETE FROM vpn_session_locks
+           WHERE vpn_connection_id = :id AND purpose = 'L2TP_ADMISSION'
+      (ohne Haltervergleich: Die Meldung kann nur von der zugelassenen
+      Sitzung stammen, Abschnitt 7 Fall F.) Erst die geschriebene
+      radacct-Zeile macht die Nutzung fuer P3 sichtbar; vorher wird nicht
+      freigegeben.
+    - Bleibt Accounting-Start aus (Abbruch des Aufbaus, Ablehnung durch
+      den Schlussriegel, verlorene Meldung), laeuft die Sperre nach ihrer
+      TTL ab. Es entsteht kein dauerhaftes Aussperren.
+
+  FEHLER: Jeder Datenbankfehler in P3 oder P4 fuehrt zur Ablehnung mit dem
+  Backend-Grund (R_AUTH_BACKEND_SQL_DOWN / _FAIL), nie zur Zusage (AAA-03).
+
+  WARUM DIESE REIHENFOLGE:
+    P1 vor P3: Ohne vorherige Geisterpruefung wuerde eine verwaiste Zeile
+       zur Ablehnung fuehren (AAA-05: keine SimUse-Ablehnung ohne
+       vorherige Geisterpruefung).
+    P3 trotz P1: Die Sonde kann UNKNOWN liefern; das Protokoll ist die
+       strenge Rueckfallebene (Zwei-Stufen-Modell: Bereinigung best
+       effort, Pruefung streng).
+    P1 trotz P3: radacct zeigt eine lebende Sitzung nicht, deren
+       Accounting-Start (noch) fehlt; die Sonde zeigt sie.
+    P4 zuletzt: Die Sperre schuetzt genau das Fenster ab der Zusage.
+
+  DB-RECHTE: Der DB-User radius besitzt auf vpn_session_locks SELECT,
+  INSERT, DELETE (BASE-000_010). Vertraglich benutzt er ausschliesslich
+  den Zweck L2TP_ADMISSION; andere Zwecke fasst er nicht an.
+
+================================================================================
+5) ZWECKE
+================================================================================
+
+  purpose             Erwerber             TTL                     Freigabe
+  ------------------- -------------------- ----------------------- ----------
+  L2TP_ADMISSION      AAA-Dienst (P4)      vpn_active_session_     AAA-Dienst
+                                           lock_ttl_seconds        bei Acct-
+                                           (Vorschlag 20,          Start;
+                                           Grenzen 10..60)         sonst
+                                                                   Ablauf
+  WG_ACTIVITY_START   AWG Session          vpn_session_lock_       Controller
+                      Controller           operation_ttl_seconds   nach Commit
+                      (BASE-040_050 B1)    (Vorschlag 60,          von SV-1
+                                           Grenzen 15..300)
+  KEY_ROTATION        Rotationsvorgang     wie oben, verlaengerbar Vorgang
+                      (BASE-040_040)
+  ROLE_CHANGE         Rollenwechsel-       wie oben, verlaengerbar Vorgang
+                      Kaskade (D002)
+  HARDCUT             vpn-session-kill     wie oben                Werkzeug
+
+  Die Halterkennung ist je Vorgang ein frischer Zufallswert (mindestens
+  96 Bit); beim Zweck L2TP_ADMISSION die Kennung des Anmeldeversuchs,
+  sofern der Daemon sie in der Anfrage mitsendet, sonst der feste Wert
+  "aaa".
+
+================================================================================
+6) SPERREN FUER UMBAUTEN
+================================================================================
+
+  Ein UMBAU ist ein Vorgang, der SQL und Laufzeit einer Connection in
+  mehreren Schritten aendert, waehrend die Connection zugelassen bleibt:
+  Schluesselrotation, Rollenwechsel, Hard-Cut ohne Statuswechsel.
+
+  ABLAUF:
+    U1  Sperre erwerben (Zweck, frische Halterkennung). Ist sie belegt:
+        hoechstens bis zur TTL des belegenden Zwecks in kurzen Abstaenden
+        wiederholen, danach Abbruch mit TEMPFAIL_LOCKED ohne Teilwirkung.
+    U2  SQL aendern (Commit), Laufzeit aendern (ueber vpn-policy-apply
+        bzw. den Adapter), Erfolg pruefen.
+    U3  Laufende Episode nach SV-2 beenden (Grund laut _020 Abschnitt 6).
+    U4  Sperre freigeben.
+  Dauert der Vorgang laenger als die halbe TTL, wird vor jedem weiteren
+  Schritt verlaengert.
+
+  MEHRERE CONNECTIONS (Rollenwechsel-Kaskade): Sperren werden in
+  aufsteigender Reihenfolge der vpn_connection_id erworben. Gelingt eine
+  nicht, werden die bereits erworbenen freigegeben und der Vorgang endet
+  mit TEMPFAIL_LOCKED; es bleibt kein Teilzustand (D002 Abschnitt 7.4).
+
+  WIRKUNG AUF ANDERE:
+    - L2TP-Anmeldung waehrend eines Umbaus: R_SIMUSE_GUARD_BUSY
+      (voruebergehend; der Client waehlt erneut).
+    - AWG Session Controller: verschiebt die Meldung eines Beginns auf den
+      naechsten Zyklus; der Verkehr ist davon unberuehrt.
+    - Bereinigung: fasst gueltige Sperren nicht an.
+
+  STATUSWECHSEL NACH DISABLED brauchen keine Sperre: Mit dem Commit lehnt
+  der Anmeldepfad ueber den Status ab; der Hard-Cut folgt.
+
+================================================================================
+7) FALLANALYSE
+================================================================================
+
+  Fall                               Verlauf                       Ergebnis
+  ---------------------------------- ----------------------------- ----------
+  A  Zwei Anmeldungen gleichzeitig   beide P1 NOT_LIVE, P3 leer;   genau eine
+     fuer dieselbe Connection        P4: eine erwirbt, eine nicht  Zusage
+  B  Anmeldung bei bestehender       P1 LIVE                       Ablehnung,
+     Sitzung                                                       Sitzung
+                                                                   bleibt
+  C  Anmeldung nach unbemerktem      P1 NOT_LIVE, Geist            Zusage
+     Sitzungsverlust (Geist)         geschlossen; P3 leer; P4
+  D  Zusage, aber Sitzung entsteht   Sperre laeuft ab              naechster
+     nicht                                                         Versuch
+                                                                   nach <= TTL
+  E  Sitzung lebt, Accounting-Start  P1 LIVE -> Ablehnung;         keine
+     ging verloren                   antwortet die Sonde nicht:    zweite
+                                     P3 leer, P4 erworben, Zusage; Sitzung
+                                     der Daemon weist ab
+                                     (Schlussriegel)
+  F  Sperre von Versuch 1 laeuft ab, Versuch 2 erhaelt Zusage; der eine
+     waehrend dessen Aufbau noch     Daemon laesst nur die erste   Sitzung
+     laeuft; Versuch 2 kommt         Sitzung zu; deren Acct-Start
+                                     gibt die (zweite) Sperre
+                                     frei - folgenlos, weil die
+                                     Nutzung nun in radacct steht
+  G  Sonde antwortet nicht, Geist    P3 findet die offene Zeile    Ablehnung,
+     vorhanden                                                     bis Sonde
+                                                                   oder
+                                                                   Abgleich
+                                                                   wieder
+                                                                   arbeiten
+  H  Umbau laeuft                    P4 nicht erworben             Ablehnung
+                                                                   (voruebergehend)
+  I  Datenbank nicht erreichbar      P3/P4 schlagen fehl           Ablehnung
+
+  ZUSAGEN ZUM AUSSPERREN (SZ-3):
+    Sperr-Leiche                  hoechstens die TTL des Zwecks
+    Geist, Sonde arbeitet         keine Wartezeit (On-Demand), sofern die
+                                  Zeile aelter ist als
+                                  vpn_ghost_min_age_seconds; sonst dieses
+                                  Mindestalter
+    Geist, vpn-sessiond steht     hoechstens Takt des L2TP-Abgleichs plus
+                                  Mindestalter
+    Verwaltungsschnittstelle des  unbegrenzt, solange die Stoerung anhaelt
+    Daemons gestoert (Fall G)     (Fail-Closed); Alarm
+                                  SESSION_PROBE_UNAVAILABLE
+
+================================================================================
+8) WIEDEREINWAHL NACH LEITUNGSABRISS (Eigenschaft, kein Fehler)
+================================================================================
+
+  Verliert ein L2TP-Client seine Leitung, ohne sich abzumelden, bleibt die
+  Sitzung auf dem Server LIVE, bis der Daemon den Ausfall erkennt
+  (LCP-Echo 30 s mal 3, DPD; BASE-030). Eine sofortige Wiedereinwahl wird
+  in dieser Zeit mit R_SIMUSE_ACTIVE abgelehnt (Fall B). Das ist die
+  unmittelbare Folge von SZ-2 und entspricht dem Vorgaenger (D012). Die
+  Wartezeit ist durch die Erkennungszeit des Daemons begrenzt, nicht durch
+  dieses Modul. Verkuerzungsmoeglichkeiten sind als Verbesserung VB-0016
+  erfasst und nicht Teil dieses Vertrags.
+
+================================================================================
+9) WIREGUARD (Einordnung)
+================================================================================
+
+  WireGuard kennt keine Anmeldung und keine Ablehnung. Der Peer-Eintrag
+  laesst genau einen Endpunkt zu; ein zweites Geraet mit demselben Profil
+  erzeugt keinen zweiten Tunnel, sondern springende Endpunkte (Ereignis
+  WG_ENDPOINT_FLAPPING, BASE-040_050 Abschnitt 4). SimUse=1 ist damit
+  durch den Schlussriegel erfuellt; die Schichten 1 bis 3 entfallen. Die
+  Sperre dient bei WireGuard allein der Serialisierung von Umbau und
+  Aktivitaetsbeginn. Identitaets-Sharing ist serverseitig nicht von
+  Roaming unterscheidbar (D004 R3).
+
+================================================================================
+10) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  - Anzahl gueltiger Sperren je Zweck, aelteste Sperre, Zaehler
+    abgelaufener und entfernter Sperren (Statusdatei, BASE-070_070).
+  - Ablehnungen R_SIMUSE_ACTIVE und R_SIMUSE_GUARD_BUSY je Connection aus
+    dem AAA-Protokoll (BASE-020).
+  - Keine Schaltflaeche zum Loeschen einer Sperre (K-6).
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
