@@ -10,6 +10,12 @@ WERKZEUGE
   quelleninventar.py     Q1: Abgleich governance/register/QUELLENINVENTAR.yaml mit
                          den Baseline-Commits beider Repositories (Blob-ID, Größe,
                          Zeilen); Pflege des Lesestatus (--update --lese …).
+                         Dritte Quelle NL: Nachlieferungen des Betreibers unter
+                         nachlieferung/ am Liefer-Commit. Eine veränderte oder
+                         entfernte Lieferdatei ist ein Fehler; eine noch nicht
+                         inventarisierte Datei (neue Lieferung) ist ein Hinweis,
+                         mit --require-nl ein Fehler. Neue Lieferung aufnehmen:
+                         --update --nl-commit <Commit der Lieferung>.
   pruefe_register.py     Schema-, Querverweis- und Konsistenzprüfung von STATUS,
                          UMGEBUNGSPRUEFUNG, ARBEITSPAKETE (inkl. Abgleich mit
                          PRIORITAETENLISTE.txt), BEFUNDE (Fundstellen auflösbar),
@@ -29,6 +35,8 @@ WERKZEUGE
 
 AUFRUF (aus dem Repository-Wurzelverzeichnis)
   python3 qa/quelleninventar.py --rt . --xpn <xp-vpn-stack-Checkout> --check
+      (an Checkpoints und vor dem Einfrieren eines Kandidaten zusätzlich mit
+       --require-xpn --require-nl)
   python3 qa/pruefe_register.py --root . --xpn <xp-vpn-stack-Checkout>
   python3 -m unittest discover -s qa/tests -v
   Voraussetzung: Python 3, PyYAML, git; vollständige Historie (Baseline-Commit).
@@ -40,6 +48,9 @@ GRENZEN (ausdrücklich)
     Freigabegate G4 (Betreiberregeln §6.4, §10.5).
   - "lesestatus" im Quelleninventar ist Selbstauskunft; belastbar sind die
     Rückverfolgungs-Records mit maschinell geprüftem Zitat und Zeilenbereich.
+  - Der CI-Lauf prüft die Nachlieferung OHNE --require-nl: Legt der Betreiber
+    neue Dateien unter nachlieferung/ ab, bleibt der Lauf grün und meldet sie
+    als Hinweis. Verbindlich streng ist die Prüfung an Checkpoints.
   - Der CI-Workflow .github/workflows/konzept-qa.yml führt dieselben Prüfungen
     aus; ein grüner Lauf ist keine Freigabe.
 ================================================================================

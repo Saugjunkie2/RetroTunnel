@@ -4,6 +4,9 @@ woertlichen Zitats ein. Der Bearbeiter liefert nur 'zitat'; das Werkzeug sucht e
 Quelldatei am Baseline-Commit (Leerraum normalisiert) und schreibt 'zeilen: [von, bis]'.
 Mehrdeutige oder nicht auffindbare Zitate sind Fehler - nichts wird geraten.
 
+Quellen: RT und XPN am jeweiligen Baseline-Commit, NL (Nachlieferung des Betreibers unter
+nachlieferung/) am Liefer-Commit laut governance/STATUS.yaml.
+
 Aufruf: trace_zeilen.py --root <Arbeitsbaum> [--xpn <XPN-Checkout>] [datei.yaml ...]
 """
 import argparse, glob, os, re, subprocess, sys
@@ -12,10 +15,15 @@ import yaml
 norm = lambda s: re.sub(r"\s+", " ", s).strip()
 
 
-def zeilen_von(repo, commit, pfad):
+def zeilen_von(repo, commit, pfad, quelle="RT"):
     out = subprocess.run(["git", "-C", repo, "show", f"{commit}:{pfad}"], capture_output=True)
     if out.returncode != 0:
         return None
+    if quelle == "NL":  # Nachlieferungen koennen in Windows-1252 vorliegen
+        try:
+            return out.stdout.decode("utf-8").splitlines()
+        except UnicodeDecodeError:
+            return out.stdout.decode("cp1252", errors="replace").splitlines()
     return out.stdout.decode("utf-8", errors="replace").splitlines()
 
 
@@ -48,8 +56,9 @@ def main():
     ap.add_argument("dateien", nargs="*")
     a = ap.parse_args()
     st = yaml.safe_load(open(os.path.join(a.root, "governance/STATUS.yaml"), encoding="utf-8"))
-    commits = {"RT": st["identitaeten"]["quellen_commit_rt"], "XPN": st["identitaeten"]["quellen_commit_xpn"]}
-    repos = {"RT": a.root, "XPN": a.xpn}
+    commits = {"RT": st["identitaeten"]["quellen_commit_rt"], "XPN": st["identitaeten"]["quellen_commit_xpn"],
+               "NL": st["identitaeten"].get("quellen_commit_nl")}
+    repos = {"RT": a.root, "XPN": a.xpn, "NL": a.root}
     dateien = a.dateien or sorted(glob.glob(os.path.join(a.root, "governance/register/trace/*.yaml")))
     fehler = 0
     for f in dateien:
@@ -57,10 +66,10 @@ def main():
         if not t or "records" not in t or "quelle" not in t:
             continue
         repo = repos.get(t["quelle"])
-        if not repo:
+        if not repo or not commits.get(t["quelle"]):
             print(f"UEBERSPRUNGEN (kein Checkout fuer {t['quelle']}): {f}")
             continue
-        z = zeilen_von(repo, commits[t["quelle"]], t["datei"])
+        z = zeilen_von(repo, commits[t["quelle"]], t["datei"], t["quelle"])
         if z is None:
             print(f"FEHLER {f}: Quelldatei nicht lesbar: {t['datei']}")
             fehler += 1

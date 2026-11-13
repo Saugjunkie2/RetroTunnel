@@ -21,6 +21,8 @@ VERB = "governance/register/VERBESSERUNGEN.yaml"
 MITT = "governance/register/BETREIBERMITTEILUNGEN.yaml"
 REGELN = "governance/betreiberregeln/RETROTUNNEL_BETREIBERREGELN_v1.0_2026-11-11.md"
 TRACE = "governance/register/trace/_TEST_README.yaml"
+TRACE_NL = "governance/register/trace/_TEST_NL.yaml"
+NL_DATEI = "nachlieferung/B052_DB_OUTAGE_CONTRACT.txt"
 
 
 class Basis(unittest.TestCase):
@@ -229,6 +231,55 @@ class Rueckverfolgung(Basis):
         self.erwarte_fehler("ohne erfuellt_in")
 
 
+class Nachlieferung(Basis):
+    """Nachlieferungen des Betreibers (nachlieferung/) sind eine dritte Quelle (NL) mit eigener
+    Commit-Bindung; Zitate und Fundstellen daraus werden genauso streng geprueft wie bei RT und XPN."""
+
+    def nl_fixture(self, datei=NL_DATEI, **aenderung):
+        commit = self.lade(STATUS)["identitaeten"]["quellen_commit_nl"]
+        z = subprocess.run(["git", "-C", ROOT, "show", f"{commit}:{NL_DATEI}"],
+                           capture_output=True, text=True).stdout.splitlines()
+        zeile = next(i for i, l in enumerate(z, 1) if len(l.strip()) > 40)
+        rec = {"id": "T-TEST-NL-01", "zeilen": [zeile, zeile], "zitat": z[zeile - 1].strip()[:40],
+               "art": "DEFINITION", "aussage": "Testaussage", "einordnung": "UEBERNOMMEN",
+               "erfuellt_in": ["README.md#RetroTunnel"], "begruendung": "Test"}
+        rec.update(aenderung)
+        self.schreibe(TRACE_NL, {"schema": "trace/1", "quelle": "NL", "datei": datei, "records": [rec]})
+
+    def test_gueltiger_trace_aus_nachlieferung_besteht(self):
+        self.nl_fixture()
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_gefaelschtes_zitat_aus_nachlieferung(self):
+        self.nl_fixture(zitat="Dieser Satz steht nicht in der nachgelieferten Datei")
+        self.erwarte_fehler(f"zitat nicht in NL:{NL_DATEI}")
+
+    def test_nl_quelle_ausserhalb_des_lieferordners(self):
+        self.nl_fixture(datei="README.md")
+        self.erwarte_fehler("NL-Quelle ausserhalb von nachlieferung/")
+
+    def test_nl_fundstelle_ausserhalb_der_datei(self):
+        bf = self.lade(BEFUNDE)
+        bf["befunde"].append({"id": "BF-TEST", "klasse": "GERINGFUEGIG", "status": "OFFEN", "titel": "t",
+                              "beschreibung": "b", "beleg": "b", "massnahme": "m",
+                              "fundstellen": [f"NL:{NL_DATEI}:999999"]})
+        self.schreibe(BEFUNDE, bf)
+        self.erwarte_fehler("Zeile ausserhalb der Datei")
+
+    def test_liefer_commit_weicht_vom_inventar_ab(self):
+        st = self.lade(STATUS)
+        st["identitaeten"]["quellen_commit_nl"] = "f" * 40
+        self.schreibe(STATUS, st)
+        self.erwarte_fehler("quellen_commit_nl weicht vom Quelleninventar ab")
+
+    def test_liefer_commit_fehlt_trotz_lieferordner(self):
+        st = self.lade(STATUS)
+        st["identitaeten"].pop("quellen_commit_nl")
+        self.schreibe(STATUS, st)
+        self.erwarte_fehler("identitaeten.quellen_commit_nl ist keine 40-stellige Commit-ID")
+
+
 class Modulpruefung(Basis):
     """Invarianten <-> Tests <-> Index <-> Herkunft muessen maschinell erzwungen sein."""
     MOD = "base/BASE-040_TUNNEL_WIREGUARD"
@@ -277,9 +328,24 @@ class Quelleninventar(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def lauf(self):
-        r = subprocess.run([sys.executable, INVENTAR, "--rt", self.tmp, "--check"], capture_output=True, text=True)
+    def lauf(self, *zusatz):
+        r = subprocess.run([sys.executable, INVENTAR, "--rt", self.tmp, "--check", *zusatz],
+                           capture_output=True, text=True)
         return r.returncode, r.stdout + r.stderr
+
+    def commit_im_klon(self, pfad, inhalt):
+        """Legt im Klon (ohne Arbeitsbaum) einen Commit an, der genau eine Datei setzt."""
+        env = dict(os.environ, GIT_AUTHOR_NAME="qa-test", GIT_AUTHOR_EMAIL="qa-test@example.invalid",
+                   GIT_COMMITTER_NAME="qa-test", GIT_COMMITTER_EMAIL="qa-test@example.invalid")
+
+        def g(*args, eingabe=None):
+            return subprocess.run(["git", "-C", self.tmp, *args], input=eingabe, check=True,
+                                  capture_output=True, env=env).stdout.decode().strip()
+        g("read-tree", "HEAD")
+        blob = g("hash-object", "-w", "--stdin", eingabe=inhalt.encode("utf-8"))
+        g("update-index", "--add", "--cacheinfo", f"100644,{blob},{pfad}")
+        commit = g("commit-tree", g("write-tree"), "-p", "HEAD", "-m", "qa-test")
+        g("update-ref", "HEAD", commit)
 
     def aendere(self, fn):
         with open(self.reg, encoding="utf-8") as f:
@@ -319,6 +385,46 @@ class Quelleninventar(unittest.TestCase):
         rc, out = self.lauf()
         self.assertNotEqual(rc, 0, out)
         self.assertIn("ohne einheit", out)
+
+    # --- Nachlieferung des Betreibers (Quelle NL) ---------------------------------------------
+
+    def test_nl_falsche_blob_id(self):
+        self.aendere(lambda d: d["quellen"]["NL"]["dateien"][0].__setitem__("blob", "0" * 40))
+        rc, out = self.lauf()
+        self.assertNotEqual(rc, 0, out)
+        self.assertIn("NL:", out)
+        self.assertIn("blob Inventar=", out)
+
+    def test_nl_lieferdatei_aus_inventar_entfernt(self):
+        self.aendere(lambda d: d["quellen"]["NL"]["dateien"].pop(0))
+        rc, out = self.lauf()
+        self.assertNotEqual(rc, 0, out)
+        self.assertIn("NL: Datei im Baseline-Commit, aber nicht im Inventar", out)
+
+    def test_nl_neue_lieferung_ist_hinweis_und_streng_ein_fehler(self):
+        self.commit_im_klon("nachlieferung/_QA_TEST_NEUE_LIEFERUNG.txt", "neu geliefert\n")
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("neue Lieferung?", out)
+        rc, out = self.lauf("--require-nl")
+        self.assertNotEqual(rc, 0, out)
+        self.assertIn("nicht im Inventar (neue Lieferung?)", out)
+
+    def test_nl_veraenderte_lieferdatei(self):
+        with open(self.reg, encoding="utf-8") as f:
+            pfad = yaml.safe_load(f)["quellen"]["NL"]["dateien"][0]["pfad"]
+        self.commit_im_klon(pfad, "nachtraeglich veraenderter Inhalt\n")
+        rc, out = self.lauf()
+        self.assertNotEqual(rc, 0, out)
+        self.assertIn("Lieferdatei wurde nach der Inventur veraendert", out)
+
+    def test_nl_inventarteil_fehlt_trotz_lieferordner(self):
+        self.aendere(lambda d: d["quellen"].pop("NL"))
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("kein Inventarteil NL", out)
+        rc, out = self.lauf("--require-nl")
+        self.assertNotEqual(rc, 0, out)
 
 
 class Betreibermitteilungen(Basis):

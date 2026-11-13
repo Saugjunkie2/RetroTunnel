@@ -34,6 +34,21 @@ PRIO_MAP = {"DONE": {"ERLEDIGT"}, "ACTIVE": {"IN_ARBEIT"}, "NEXT": {"OFFEN", "IN
             "WAITING": {"OFFEN", "BLOCKIERT"}, "DEFERRED": {"OFFEN", "BLOCKIERT"}, "LAUFEND": {"IN_ARBEIT", "OFFEN"}}
 
 
+QUELLEN = ("RT", "XPN", "NL")
+NL_PRAEFIX = "nachlieferung/"
+
+
+def dekodiere(daten, quelle):
+    """Quelltext dekodieren. Nachgelieferte Dateien (NL) koennen in Windows-1252 vorliegen; dann wird
+    das statt eines Ersatzzeichens gelesen, damit Zitate mit Umlauten pruefbar bleiben."""
+    if quelle == "NL":
+        try:
+            return daten.decode("utf-8")
+        except UnicodeDecodeError:
+            return daten.decode("cp1252", errors="replace")
+    return daten.decode("utf-8", errors="replace")
+
+
 class Pruefung:
     def __init__(self, root, git, xpn):
         self.root, self.git, self.xpn = root, git or root, xpn
@@ -58,16 +73,17 @@ class Pruefung:
             return None
 
     def baseline_zeilen(self, quelle, commit, pfad):
-        """Zeilen einer Quelldatei am Baseline-Commit (RT via git show; XPN via Checkout)."""
+        """Zeilen einer Quelldatei am Baseline-Commit (RT und NL via git show im RetroTunnel-Repository;
+        XPN via Checkout). NL = Nachlieferung des Betreibers unter nachlieferung/ am Liefer-Commit."""
         key = (quelle, pfad)
         if key in self._cache:
             return self._cache[key]
-        repo = self.git if quelle == "RT" else self.xpn
+        repo = self.xpn if quelle == "XPN" else self.git
         z = None
-        if repo:
+        if repo and commit:
             out = subprocess.run(["git", "-C", repo, "show", f"{commit}:{pfad}"], capture_output=True)
             if out.returncode == 0:
-                z = out.stdout.decode("utf-8", errors="replace").splitlines()
+                z = dekodiere(out.stdout, quelle).splitlines()
         self._cache[key] = z
         return z
 
@@ -119,9 +135,22 @@ class Pruefung:
                              f"STATUS {str(br.get('sha256_arbeitskopie'))[:16]}…)")
         else:
             self.err("STATUS: identitaeten.betreiberregeln.arbeitskopie fehlt")
-        for k in ("quellen_commit_rt", "quellen_commit_xpn"):
+        pflicht = ["quellen_commit_rt", "quellen_commit_xpn"]
+        if os.path.isdir(os.path.join(self.root, NL_PRAEFIX)):
+            pflicht.append("quellen_commit_nl")
+        for k in pflicht:
             if not re.fullmatch(r"[0-9a-f]{40}", str((st.get("identitaeten") or {}).get(k, ""))):
                 self.err(f"STATUS: identitaeten.{k} ist keine 40-stellige Commit-ID")
+        # Quellenbindung: STATUS und Quelleninventar muessen dieselben Baseline-Commits nennen.
+        inv = self.lade("governance/register/QUELLENINVENTAR.yaml", pflicht=False) or {}
+        for q in QUELLEN:
+            teil = (inv.get("quellen") or {}).get(q)
+            soll = (st.get("identitaeten") or {}).get("quellen_commit_" + q.lower())
+            if teil and soll and teil.get("baseline_commit") != soll:
+                self.err(f"STATUS: identitaeten.quellen_commit_{q.lower()} weicht vom Quelleninventar ab "
+                         f"({str(soll)[:12]} gegen {str(teil.get('baseline_commit'))[:12]})")
+            if q == "NL" and bool(teil) != bool(soll):
+                self.err("STATUS: quellen_commit_nl und Inventarteil NL muessen beide vorhanden sein oder beide fehlen")
 
     def pruefe_umgebung(self, up):
         ids = set()
@@ -190,9 +219,10 @@ class Pruefung:
         return by
 
     def pruefe_fundstelle(self, wer, fs, commits):
-        m = re.fullmatch(r"(RT|XPN):(.+?)(?::(\d+))?", fs)
+        m = re.fullmatch(r"(RT|XPN|NL):(.+?)(?::(\d+))?", fs)
         if not m:
-            self.err(f"{wer}: Fundstelle nicht im Format RT:<pfad>[:<zeile>] / XPN:<pfad>[:<zeile>]: {fs}")
+            self.err(f"{wer}: Fundstelle nicht im Format RT:<pfad>[:<zeile>] / XPN:<pfad>[:<zeile>] / "
+                     f"NL:<pfad>[:<zeile>]: {fs}")
             return
         quelle, pfad, zeile = m.group(1), m.group(2), m.group(3)
         if quelle == "XPN" and not self.xpn:
@@ -303,8 +333,11 @@ class Pruefung:
             if not t or str(t.get("schema", "")).startswith("neu_begruendet"):
                 continue
             quelle, datei = t.get("quelle"), t.get("datei")
-            if quelle not in ("RT", "XPN") or not datei:
+            if quelle not in QUELLEN or not datei:
                 self.err(f"{rel}: quelle/datei fehlt oder ungueltig")
+                continue
+            if quelle == "NL" and not str(datei).startswith(NL_PRAEFIX):
+                self.err(f"{rel}: NL-Quelle ausserhalb von {NL_PRAEFIX}: {datei}")
                 continue
             if quelle == "XPN" and not self.xpn:
                 self.hinweise.append(f"{rel}: Zitate NICHT_GEPRUEFT (kein XPN-Checkout)")
@@ -442,7 +475,8 @@ class Pruefung:
         vb = self.lade("governance/register/VERBESSERUNGEN.yaml")
         bm = self.lade("governance/register/BETREIBERMITTEILUNGEN.yaml")
         ident = (st or {}).get("identitaeten") or {}
-        commits = {"RT": ident.get("quellen_commit_rt"), "XPN": ident.get("quellen_commit_xpn")}
+        commits = {"RT": ident.get("quellen_commit_rt"), "XPN": ident.get("quellen_commit_xpn"),
+                   "NL": ident.get("quellen_commit_nl")}
         self.pruefe_status(st, bf)
         self.pruefe_umgebung(up)
         pakete = self.pruefe_pakete(ap) or {}

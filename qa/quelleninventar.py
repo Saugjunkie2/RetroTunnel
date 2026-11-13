@@ -8,14 +8,24 @@ Maschinelle Fakten (Pfad, Git-Blob-ID, Bytes, Zeilen) werden aus den im Register
 festgelegten Baseline-Commits gelesen. Manuelle Annotationen (kategorie,
 lesestatus, einheit, hinweis) bleiben beim Aktualisieren erhalten.
 
+Drei Quellen:
+  RT   RetroTunnel am Baseline-Commit (Ausgangsbestand des Auftrags)
+  XPN  xp-vpn-stack am Baseline-Commit (unveraenderliche Lesequelle)
+  NL   Nachlieferungen des Betreibers: Dateien unter nachlieferung/ im
+       RetroTunnel-Repository am Liefer-Commit (unveraenderliche Lesequelle).
+       Zusaetzlich wird der aktuelle Stand (HEAD) geprueft: eine veraenderte oder
+       entfernte Lieferdatei ist ein Fehler; eine noch nicht inventarisierte
+       Datei (neue Lieferung) ist ein Hinweis, mit --require-nl ein Fehler.
+
 Aufruf:
   quelleninventar.py --rt <RetroTunnel-Checkout> [--xpn <xp-vpn-stack-Checkout>] --update
   quelleninventar.py --rt <RetroTunnel-Checkout> [--xpn <xp-vpn-stack-Checkout>] --check
+  quelleninventar.py --rt <RetroTunnel-Checkout> --update --nl-commit <Liefer-Commit>
 
 Ohne --xpn werden XPN-Fakten NICHT geprueft; das wird sichtbar als NICHT_GEPRUEFT
 gemeldet und mit --require-xpn als Fehler gewertet.
 """
-import argparse, os, subprocess, sys
+import argparse, os, re, subprocess, sys
 import yaml
 
 REG = "governance/register/QUELLENINVENTAR.yaml"
@@ -25,7 +35,10 @@ KATEGORIEN = {
     "RT_IMPLEMENTATION_ARTEFAKT", "RT_PROOF", "RT_SONSTIGES",
     "XPN_KANON_ROOT", "XPN_KANON_BLOCK", "XPN_KANON_DECISION", "XPN_KANON_DOC",
     "XPN_ARBEITSANWEISUNG_ODER_ENTWURF", "XPN_VORLAGE", "XPN_SCHNAPPSCHUSS", "XPN_SONSTIGES",
+    "NL_XPN_KANON_BLOCK", "NL_XPN_KANON_DECISION", "NL_XPN_ENTWURF", "NL_PANEL_SAMMELSTELLE", "NL_SONSTIGES",
 }
+QUELLEN = ("RT", "XPN", "NL")
+NL_PRAEFIX = "nachlieferung/"
 LESESTATUS = {"UNGELESEN", "TEILWEISE", "VOLLSTAENDIG", "NICHT_TEXT"}
 
 
@@ -36,7 +49,7 @@ def git(repo, *args):
     return out.stdout
 
 
-def fakten(repo, commit):
+def fakten(repo, commit, praefix=None):
     res = {}
     raw = git(repo, "ls-tree", "-r", "-l", "-z", commit).decode("utf-8", errors="replace")
     for ent in raw.split("\0"):
@@ -46,6 +59,8 @@ def fakten(repo, commit):
         _mode, typ, blob, size = meta.split()
         if typ != "blob":
             continue
+        if praefix and not path.startswith(praefix):
+            continue
         data = git(repo, "cat-file", "blob", blob)
         binaer = b"\0" in data[:8192]
         zeilen = None if binaer else len(data.decode("utf-8", errors="replace").splitlines())
@@ -53,8 +68,44 @@ def fakten(repo, commit):
     return res
 
 
+def kopf_baum(repo, praefix):
+    """Pfad -> Blob-ID des aktuellen Standes (HEAD) unter einem Praefix; None, wenn nicht lesbar."""
+    try:
+        raw = git(repo, "ls-tree", "-r", "-z", "HEAD", "--", praefix.rstrip("/")).decode("utf-8", errors="replace")
+    except RuntimeError:
+        return None
+    res = {}
+    for ent in raw.split("\0"):
+        if not ent:
+            continue
+        meta, path = ent.split("\t", 1)
+        _mode, typ, blob = meta.split()
+        if typ == "blob":
+            res[path] = blob
+    return res
+
+
+def geliefert_mit(repo, commit, path):
+    """Commit, der die Datei erstmals angelegt hat (Zuordnung zur Lieferung); None, wenn nicht bestimmbar."""
+    try:
+        out = git(repo, "log", "--diff-filter=A", "--format=%H", commit, "--", path).decode().split()
+    except RuntimeError:
+        return None
+    return out[-1] if out else None
+
+
 def default_kategorie(quelle, path):
     p = path.lower()
+    if quelle == "NL":
+        if "/decisions/" in p:
+            return "NL_XPN_KANON_DECISION"
+        if re.match(r"nachlieferung/b\d{3}_", p):
+            return "NL_XPN_KANON_BLOCK"
+        if "/entwuerfe/" in p:
+            return "NL_XPN_ENTWURF"
+        if "/webpanel sammelstelle/" in p:
+            return "NL_PANEL_SAMMELSTELLE"
+        return "NL_SONSTIGES"
     if quelle == "RT":
         if "/entwuerfe/" in p or p.startswith("entwuerfe/"):
             return "RT_ENTWURF"
@@ -115,6 +166,9 @@ def main():
     ap.add_argument("--update", action="store_true")
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--require-xpn", action="store_true")
+    ap.add_argument("--require-nl", action="store_true",
+                    help="nicht inventarisierte Dateien unter nachlieferung/ als Fehler werten (sonst Hinweis)")
+    ap.add_argument("--nl-commit", help="Liefer-Commit der Nachlieferung festlegen/fortschreiben (nur mit --update)")
     ap.add_argument("--lese", action="append", default=[],
                     help="Lesestatus setzen: QUELLE|PFAD|STATUS|EINHEIT[|von-bis,von-bis] (nur mit --update)")
     a = ap.parse_args()
@@ -123,9 +177,28 @@ def main():
         print(f"FEHLER: {REG} fehlt (Baseline-Commits muessen dort stehen)")
         return 2
     fehler, hinweise = [], []
-    repos = {"RT": a.rt, "XPN": a.xpn}
-    for quelle in ("RT", "XPN"):
-        teil = reg["quellen"][quelle]
+    repos = {"RT": a.rt, "XPN": a.xpn, "NL": a.rt}
+    for quelle in QUELLEN:
+        teil = reg["quellen"].get(quelle)
+        praefix = None
+        if quelle == "NL":
+            if a.update and a.nl_commit:
+                if teil is None:
+                    teil = reg["quellen"]["NL"] = {
+                        "repo": reg["quellen"]["RT"].get("repo"), "pfad_praefix": NL_PRAEFIX,
+                        "baseline_commit": None, "dateien": []}
+                try:
+                    teil["baseline_commit"] = git(a.rt, "rev-parse", "--verify", a.nl_commit + "^{commit}").decode().strip()
+                except RuntimeError as e:
+                    fehler.append(f"NL: --nl-commit nicht aufloesbar: {e}")
+                    continue
+            if teil is None:
+                kopf = kopf_baum(a.rt, NL_PRAEFIX)
+                if kopf:
+                    msg = f"NL: {len(kopf)} Dateien unter {NL_PRAEFIX} im aktuellen Stand (HEAD), aber kein Inventarteil NL"
+                    (fehler if a.require_nl else hinweise).append(msg)
+                continue
+            praefix = teil.get("pfad_praefix") or NL_PRAEFIX
         commit = teil["baseline_commit"]
         alt = {e["pfad"]: e for e in teil.get("dateien") or []}
         if not repos[quelle]:
@@ -134,7 +207,7 @@ def main():
             neu = alt
         else:
             try:
-                fk = fakten(repos[quelle], commit)
+                fk = fakten(repos[quelle], commit, praefix)
             except RuntimeError as e:
                 fehler.append(f"{quelle}: Baseline-Commit {commit} nicht lesbar: {e}")
                 continue
@@ -152,10 +225,26 @@ def main():
                     e.update({"pfad": path, **f})
                     e.setdefault("kategorie", default_kategorie(quelle, path))
                     e.setdefault("lesestatus", "NICHT_TEXT" if f["zeilen"] is None else "UNGELESEN")
+                    if quelle == "NL" and not e.get("geliefert_mit"):
+                        g = geliefert_mit(repos[quelle], commit, path)
+                        if g:
+                            e["geliefert_mit"] = g
                 neu[path] = e
             for path in alt:
                 if path not in fk:
                     fehler.append(f"{quelle}: Inventar-Eintrag ohne Datei im Baseline-Commit: {path}")
+            if quelle == "NL":
+                # Der aktuelle Stand muss die Lieferung unveraendert enthalten; Neues wird gemeldet.
+                kopf = kopf_baum(repos[quelle], praefix)
+                if kopf is not None:
+                    for path in sorted(set(kopf) - set(fk)):
+                        msg = f"NL: Datei im aktuellen Stand (HEAD), aber nicht im Inventar (neue Lieferung?): {path}"
+                        (fehler if a.require_nl else hinweise).append(msg)
+                    for path, f in sorted(fk.items()):
+                        if path not in kopf:
+                            fehler.append(f"NL: inventarisierte Lieferdatei fehlt im aktuellen Stand (HEAD): {path}")
+                        elif kopf[path] != f["blob"]:
+                            fehler.append(f"NL: Lieferdatei wurde nach der Inventur veraendert: {path}")
         for path, e in neu.items():
             if e.get("kategorie") not in KATEGORIEN:
                 fehler.append(f"{quelle}:{path}: unbekannte kategorie {e.get('kategorie')}")
@@ -194,7 +283,10 @@ def main():
             f.write("# Quelleninventar (Q1). Maschinelle Fakten via qa/quelleninventar.py --update;\n"
                     "# Annotationen (kategorie, lesestatus, gelesen_zeilen, einheit, hinweis) manuell.\n"
                     "# lesestatus ist eine Selbstauskunft des Hauptarchitekten; Lesebelege mit maschinell\n"
-                    "# geprueften Zitaten stehen im Anforderungs-/Entscheidungsregister. Pruefer verifizieren eigenstaendig.\n")
+                    "# geprueften Zitaten stehen im Anforderungs-/Entscheidungsregister. Pruefer verifizieren eigenstaendig.\n"
+                    "# Quelle NL = Nachlieferungen des Betreibers unter nachlieferung/ (Liefer-Commit als Baseline).\n"
+                    "# Das Feld erschliessung (nur NL) nennt eine Auswertung durch Leseagenten; sie ersetzt den\n"
+                    "# lesestatus NICHT: der bleibt die Auskunft, was der Hauptarchitekt selbst gelesen hat.\n")
             yaml.safe_dump(reg, f, allow_unicode=True, sort_keys=False, width=110)
     for h in hinweise:
         print("HINWEIS:", h)
