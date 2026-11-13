@@ -1,0 +1,392 @@
+================================================================================
+BASE-070 — VERBRAUCHSBUCHUNG UND QUOTA-PERIODE
+================================================================================
+DATEI: BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt
+STATUS: ACTIVE
+
+ZWECK:
+  Schreibvertrag der Gruppe D auf vpn_connections; Buchung des Verbrauchs
+  fuer WireGuard (Verweis) und L2TP (Buchungsstand je Abrechnungssitzung);
+  Verhalten bei Datenbankstoerung; Quota-Periode und ihr Wechsel;
+  Abgrenzung zur Bewertung. Setzt D004-E03 b bis d, E04 bis E06, E08 und
+  P-01, P-02 um.
+
+================================================================================
+1) GRUPPE D: SPALTEN UND SCHREIBER
+================================================================================
+
+  Schema-Owner der Spalten ist BASE-010 (Nachzug ANF-SC-01); die Semantik
+  und alle Schreibvorgaenge legt dieses Modul fest.
+
+  Spalte                 Typ                  Bedeutung
+  ---------------------- -------------------- ------------------------------
+  quota_used             BIGINT UNSIGNED      EINZIGES Aggregat: Bytes
+                         NOT NULL DEFAULT 0   (empfangen + gesendet) der
+                                              laufenden Quota-Periode
+  quota_period_start     TIMESTAMP NOT NULL   Beginn der laufenden Periode
+  quota_period_end       TIMESTAMP NOT NULL   Ende (ausschliesslich)
+  last_known_rx_bytes    BIGINT UNSIGNED      Cursor WireGuard; bei L2TP
+                         NOT NULL DEFAULT 0   unbenutzt (bleibt 0)
+  last_known_tx_bytes    BIGINT UNSIGNED      wie oben
+                         NOT NULL DEFAULT 0
+  counter_epoch          INT UNSIGNED         +1 nur bei Zaehler-Reset bzw.
+                         NOT NULL DEFAULT 0   kontrolliertem Cursor-Reset
+                                              (WireGuard)
+  last_counter_seen_at   TIMESTAMP NULL       letzter Zeitpunkt, zu dem die
+                                              Zaehler geprueft wurden (auch
+                                              bei Delta 0)
+  last_runtime_seen_at   TIMESTAMP NULL       Hinweisfeld (_020)
+  runtime_active_since   TIMESTAMP NULL       Hinweisfeld (_020)
+
+  SCHREIBER (abschliessend; alle als DB-User system):
+    Vorgang                       Schreibt
+    ----------------------------- -----------------------------------------
+    Anlage der Connection         quota_used = 0, Periode, Cursor 0, Epoche
+    (Provisionierer, BASE-010)    0, Hinweise NULL
+    SV-1 / SV-2 (_020)            Hinweisfelder
+    SV-4 Buchung WireGuard        quota_used (relativ), Cursor, Epoche,
+    (Controller)                  last_counter_seen_at, last_runtime_seen_at
+    Kontrollierter Cursor-Reset   Cursor := 0, Epoche + 1 (D004 P-01)
+    (WG-Treiber, Generations-
+    wechsel)
+    SV-5 Buchung L2TP             quota_used (relativ),
+    (L2TP-Abgleich)               last_counter_seen_at, last_runtime_seen_at
+    SV-6 Periodenwechsel          quota_used := 0, Periode
+    (vpn-quota-period)
+  Kein anderer Vorgang und kein anderer DB-User schreibt diese Spalten;
+  insbesondere schreiben weder das Panel noch der AAA-Dienst. Eine
+  Verwaltungskorrektur des Verbrauchs ist nicht Teil dieses Vertrags
+  (Verbesserung VB-0017).
+
+================================================================================
+2) BUCHUNGSREGELN
+================================================================================
+
+  B-1  Buchungen sind RELATIV: quota_used = quota_used + :delta. Ein
+       absoluter Wert wird nur beim Periodenwechsel geschrieben (Null).
+  B-2  Ein Delta ist nie negativ. Ergibt die Rechnung einen negativen Wert,
+       wird nichts geschrieben und eine Anomalie gezaehlt.
+  B-3  Buchung und Fortschreiben des Buchungsstands (Cursor bzw.
+       vpn_l2tp_acct_state) geschehen in EINER Transaktion und sind gegen
+       gleichzeitige Buchungslaeufe durch einen Vergleich abgesichert
+       (WireGuard: counter_epoch; L2TP: bisher gebuchter Stand).
+  B-4  Gezaehlt wird, was der Server gemessen hat (Kernel bzw. Daemon),
+       nie eine Angabe des Clients.
+  B-5  quota_used zaehlt beide Richtungen zusammen.
+  B-6  Eine Buchung aendert keinen Status und loest selbst keine
+       Einschraenkung aus (Abschnitt 7).
+  B-7  Die Periode einer Buchung ist die zum Zeitpunkt des Schreibens
+       laufende. Verkehr, der vor einer Periodengrenze floss und danach
+       gebucht wird, zaehlt zur neuen Periode (Messgrenze, Abschnitt 5).
+  B-8  Der Periodenwechsel beruehrt weder Cursor noch counter_epoch noch
+       Buchungsstaende: Der Rohzaehler laeuft ueber die Grenze weiter.
+
+================================================================================
+3) L2TP: BUCHUNG AUS radacct (SV-5)
+================================================================================
+
+  QUELLE: radacct.acctinputoctets + radacct.acctoutputoctets der
+  Abrechnungssitzung. Die Werte sind kumulativ seit Sitzungsbeginn und
+  werden mit jeder Interim- und der Stop-Meldung ueberschrieben.
+
+  TABELLE vpn_l2tp_acct_state (Buchungsstand je Abrechnungssitzung):
+
+  Feld                Typ               Constraint     Beschreibung
+  ------------------- ----------------- -------------- ----------------------
+  acctuniqueid        VARCHAR(32)       PK             wie in radacct
+  vpn_connection_id   BIGINT UNSIGNED   NULL, FK       ON DELETE SET NULL;
+                                                       bei erster Sichtung
+                                                       ueber den Anmelde-
+                                                       namen bestimmt und
+                                                       danach massgeblich
+  started_at          TIMESTAMP         NOT NULL       acctstarttime
+  booked_octets       BIGINT UNSIGNED   NOT NULL       bereits gebuchte
+                                        DEFAULT 0      Summe beider
+                                                       Richtungen
+  start_signalled     TINYINT(1)        NOT NULL       SV-1 erfolgt
+                                        DEFAULT 0
+  end_signalled       TINYINT(1)        NOT NULL       SV-2 erfolgt
+                                        DEFAULT 0
+  end_reason_hint     VARCHAR(32)       NULL           vorab hinterlegter
+                                                       Ende-Grund
+  last_booked_at      TIMESTAMP         NULL
+  finalized_at        TIMESTAMP         NULL           Zeile geschlossen,
+                                                       gebucht, Ende
+                                                       gemeldet
+
+  Indices: PRIMARY(acctuniqueid), INDEX(vpn_connection_id),
+           INDEX(finalized_at)
+
+  REGELN:
+    A-1  Die Tabelle ist ein Buchungsstand, kein Sitzungsdatensatz. Sie
+         wird fuer KEINE Entscheidung ueber Liveness, Zulassung oder
+         SimUse gelesen (D004-E02).
+    A-2  Es schreibt nur der DB-User system (L2TP-Abgleich, vpn-sessiond
+         und vpn-session-kill fuer den Grund-Hinweis). Der DB-User radius
+         hat keinen Zugriff.
+    A-3  Die Zuordnung zur Connection wird bei der ersten Sichtung
+         festgehalten. Wird die Auth-Zeile spaeter geloescht (Tombstone),
+         bleiben Schlussbuchung und Ende zuordenbar.
+
+  SV-5  BUCHUNG(r, s)      r = radacct-Zeile, s = ihr Buchungsstand
+      gesamt = r.acctinputoctets + r.acctoutputoctets
+      delta  = gesamt - s.booked_octets
+      delta < 0:  nichts schreiben; Anomalie L2TP_ACCT_COUNTER_REGRESSION
+                  (verspaetet eingespielte aeltere Meldung); abwarten
+      delta = 0:  nichts schreiben
+      delta > 0:  EINE Transaktion
+        1  UPDATE vpn_l2tp_acct_state
+              SET booked_octets = :gesamt, last_booked_at = NOW()
+            WHERE acctuniqueid = :u AND booked_octets = :bisher
+           Trifft das keine Zeile, hat ein anderer Lauf gebucht:
+           Transaktion verwerfen.
+        2  falls s.vpn_connection_id gesetzt:
+           UPDATE vpn_connections
+              SET quota_used = quota_used + :delta,
+                  last_counter_seen_at = NOW()
+            WHERE id = :c
+    Eine Wiederholung ergibt delta = 0. Zwei gleichzeitige Laeufe (Takt und
+    Hook-Anstoss) koennen nicht doppelt buchen (Vergleich in Schritt 1).
+
+  ABSCHLUSS: Ist r geschlossen, gebucht und das Ende gemeldet, wird
+  finalized_at gesetzt.
+
+  NACHZUEGLER: Steigt der Zaehler einer bereits abgeschlossenen Zeile
+  nachtraeglich (verspaetete Stop-Meldung, Nachspielen aus dem Puffer),
+  wird die Differenz gebucht. Der Abgleich betrachtet dazu alle Zeilen des
+  eigenen NAS, die offen sind oder deren acctstoptime juenger ist als
+  vpn_l2tp_acct_state_retention_days (Vorschlag 35 Tage), und vergleicht
+  sie mit dem Buchungsstand.
+
+  AUFBEWAHRUNG UND REIHENFOLGE:
+    - Abgeschlossene Buchungsstaende werden fruehestens nach
+      vpn_l2tp_acct_state_retention_days geloescht (Bereinigungslauf J5).
+    - Eine radacct-Zeile darf erst geloescht werden, wenn ihr
+      Buchungsstand abgeschlossen ist (Anforderung an die Aufbewahrung in
+      MOD-007). Sonst ginge ungebuchter Verbrauch verloren.
+    - Die Frist muss groesser sein als die laengste Verzoegerung, mit der
+      der AAA-Dienst gepufferte Meldungen nachspielt.
+
+  MESSLATENZ UND MESSGRENZEN (offen ausgewiesen):
+    Latenz      hoechstens radius_acct_interim_seconds + Takt des
+                Abgleichs (bei Datenbankstoerung zusaetzlich deren Dauer)
+    Grenze 1    Endet eine Sitzung ohne Stop-Meldung (Absturz von Daemon
+                oder Host), fehlt der Verbrauch seit der letzten
+                Interim-Meldung: hoechstens ein Interim-Intervall.
+    Grenze 2    Bis zur Durchsetzung einer ausgeschoepften Quota fliesst
+                Verkehr weiter: hoechstens Latenz + Bewertungstakt.
+  EMPFEHLUNG: radius_acct_interim_seconds = 60 statt bisher 300. Bei
+  300 s kann ein L2TP-Kunde eine kleine Quota um mehrere Minuten Volllast
+  ueberziehen; 60 s gleicht die Latenz an WireGuard an
+  (wg_accounting_flush_interval_seconds). Die Last ist bei den erwarteten
+  Sitzungszahlen unerheblich. Festlegung des Defaults: BASE-090.
+  KONSISTENZREGEL: l2tp_radacct_stale_threshold_seconds >=
+  2 * radius_acct_interim_seconds + runtime_activity_check_interval_seconds
+  (Vorschlag 900 bei Interim 300, 180 bei Interim 60).
+
+================================================================================
+4) WIREGUARD: BUCHUNG (SV-4, Verweis)
+================================================================================
+
+  Normativ sind D004 P-01 und BASE-040_050 Abschnitt 5: Lesereihenfolge
+  (erst Datenbank, dann Kernel), Delta gegen den Cursor, Reset-Zweig,
+  Compare-and-Set auf counter_epoch, kontrollierter Reset vor jedem
+  (Wieder-)Eintrag eines Peers, Generationswechsel. BASE-070 verlangt
+  zusaetzlich nur:
+    - Der Controller fuehrt auf Anforderung (Signal) einen sofortigen
+      Buchungslauf aus (Stichtagsbuchung, Abschnitt 5; ANF-SC-09).
+    - Der Periodenwechsel aendert weder Cursor noch Epoche (B-8); der
+      Controller muss von ihm nichts wissen.
+  Messgrenzen WireGuard: BASE-040_050 Abschnitt 5 und D004 R1.
+
+================================================================================
+5) QUOTA-PERIODE UND PERIODENWECHSEL (SV-6)
+================================================================================
+
+  DEFINITION:
+    - Die Quota-Periode ist der KALENDERMONAT in der Geschaeftszeitzone
+      vpn_quota_timezone (Vorschlag Europe/Berlin). quota_reset_mode kennt
+      nur den Wert calendar_month.
+    - Gespeichert werden Zeitpunkte: [quota_period_start,
+      quota_period_end). Die Grenze ist 00:00 Uhr Ortszeit am Monatsersten.
+      Die Umrechnung erfolgt mit Zeitzonendaten in der Anwendung, nicht
+      mit einer festen Verschiebung (Sommer- und Winterzeit haben
+      unterschiedliche Abstaende zur Weltzeit).
+    - quota_scope kennt nur den Wert per_connection (D004-E04).
+    - Bei Anlage einer Connection setzt der Provisionierer die laufende
+      Periode (ANF-SC-01).
+
+  SV-6  PERIODENWECHSEL(c)
+    Bedingung: quota_period_end <= NOW()
+    Neue Grenzen: die Periode, die NOW() enthaelt. (Nach langem Stillstand
+    werden uebersprungene Monate nicht einzeln nachgeholt.)
+    EINE Transaktion:
+      1  SELECT quota_used, quota_period_start, quota_period_end
+           FROM vpn_connections WHERE id = :c FOR UPDATE
+      2  Ist quota_period_end > NOW(): Ende (ein anderer Lauf war
+         schneller).
+      3  INSERT log_quota_period (Abschluss der alten Periode mit dem
+         gelesenen quota_used)
+      4  UPDATE vpn_connections
+            SET quota_used = 0,
+                quota_period_start = :neu_start,
+                quota_period_end   = :neu_ende
+          WHERE id = :c AND quota_period_end = :alt_ende
+    Wiederholung ist wirkungslos (Schritt 2 bzw. der UNIQUE-Schluessel des
+    Protokolls).
+
+  STICHTAGSBUCHUNG: Unmittelbar vor dem Wechsel fordert vpn-quota-period
+  einen Buchungslauf beider Tunnel an und wartet darauf hoechstens
+  vpn_quota_cutover_wait_seconds (Vorschlag 20). Der Wechsel findet auch
+  statt, wenn die Bestaetigung ausbleibt.
+
+  ZUORDNUNG AN DER GRENZE (Messgrenze): Verkehr aus der alten Periode, der
+  erst nach dem Wechsel gebucht wird, zaehlt zur neuen. Schranke:
+  WireGuard wenige Sekunden (Stichtagsbuchung), ohne sie ein
+  Buchungsintervall; L2TP ein Interim-Intervall. Verlust oder
+  Doppelzaehlung entsteht dabei nicht.
+
+  LAUF vpn-quota-period:
+    - Zeitgesteuert kurz nach jeder Monatsgrenze der Geschaeftszeitzone und
+      danach in kurzem Abstand zur Wiederholung; zusaetzlich holt der
+      Bereinigungslauf (J7) Versaeumtes nach.
+    - Bearbeitet alle Connections mit quota_period_end <= NOW() in
+      Stapeln, jede fuer sich atomar. Auch DISABLED-Connections erhalten
+      die neue Periode (einheitlicher Zustand nach Restore).
+    - Nach Abschluss: Neubewertung anstossen (Abschnitt 7), damit
+      Einschraenkungen wegen ausgeschoepfter Quota zeitnah enden.
+    - Marke quota_period_last_ok_at.
+    - Datenbank nicht erreichbar: ohne Wirkung; der Wechsel wird
+      nachgeholt. Bis dahin gilt die alte Periode weiter (kein Verlust,
+      aber verspaetete Entlastung der Kunden; Alarm, wenn eine faellige
+      Periode aelter ist als vpn_quota_overdue_alert_seconds, Vorschlag
+      900).
+
+  WAS DEN VERBRAUCH NICHT ZURUECKSETZT: Planwechsel (D004-E08; bei
+  Herabstufung gilt fuer den Restmonat sofort das neue Limit), Restore,
+  Rollenwechsel, Schluesselrotation, Hard-Cut, Neustarts.
+
+================================================================================
+6) TABELLE log_quota_period
+================================================================================
+
+  Feld                Typ               Constraint     Beschreibung
+  ------------------- ----------------- -------------- ----------------------
+  id                  BIGINT UNSIGNED   PK AUTO_INCR
+  vpn_connection_id   BIGINT UNSIGNED   NULL, FK       ON DELETE SET NULL
+  connection_ref      VARCHAR(20)       NOT NULL       Snapshot
+  customer_id         BIGINT UNSIGNED   NULL           Snapshot
+  period_start        TIMESTAMP         NOT NULL
+  period_end          TIMESTAMP         NOT NULL
+  quota_used_final    BIGINT UNSIGNED   NOT NULL       Stand beim Abschluss
+  closed_at           TIMESTAMP         NOT NULL
+
+  Indices: UNIQUE(connection_ref, period_start),
+           INDEX(vpn_connection_id, period_start)
+
+  INSERT-only, Schreiber system (SV-6). Lesen: Panel (Verbrauch
+  vergangener Monate), MOD-010. Aufbewahrung: MOD-007 (Vorschlag 24
+  Monate). Die Tabelle belegt jeden Periodenwechsel und macht ihn
+  nachpruefbar (SZ-6).
+
+================================================================================
+7) BEWERTUNG (ABGRENZUNG)
+================================================================================
+
+  BASE-070 MISST. Es entscheidet nicht, ob eine Quota ausgeschoepft ist,
+  und schreibt keinen Status.
+
+  ZUSAGEN AN DEN BEWERTER (BASE-080 mit den Limits aus BASE-100/MOD-010):
+    Q-1  quota_used ist im ungestoerten Betrieb hoechstens um die
+         Messlatenz des Tunnels alt (WireGuard: Buchungsintervall; L2TP:
+         Abschnitt 3).
+    Q-2  quota_used bezieht sich immer auf [quota_period_start,
+         quota_period_end); nach dem Wechsel ist es 0 bzw. der seither
+         gebuchte Verbrauch.
+    Q-3  last_counter_seen_at zeigt, wann die Zaehler zuletzt geprueft
+         wurden. Ein alter Wert bei aktiver Connection bedeutet: Der
+         Verbrauch ist moeglicherweise hoeher als gebucht.
+    Q-4  Nach einem Periodenwechsel stoesst vpn-quota-period die
+         Neubewertung an.
+  ERWARTUNG AN DEN BEWERTER (ANF-SC-07): eigener, kurzer Bewertungstakt
+  ueber alle Connections mit Limit; Neubewertung nach Datenbankstoerung
+  aus SQL (keine vorgemerkten Entscheidungen, BASE-040_060 Abschnitt 4).
+
+================================================================================
+8) DATENBANKSTOERUNG
+================================================================================
+
+  Tunnel      Waehrend der Stoerung            Nach der Stoerung
+  ----------- -------------------------------- ----------------------------
+  WireGuard   Kernelzaehler laufen weiter;     ein Buchungslauf bucht alles
+              vor einem Stop Snapshot im       nach; Snapshots zuerst
+              Spool (D004 P-02)                (BASE-040_060 Abschnitt 5)
+  L2TP        Der AAA-Dienst nimmt             Nachspielen in Eingangs-
+              Abrechnungsmeldungen ohne        reihenfolge; der Abgleich
+              Datenbank an und legt sie        bucht die Differenzen
+              dauerhaft im Puffer ab
+              (ANF-SC-04)
+
+  ANFORDERUNGEN AN DEN L2TP-PUFFER (Runner BASE-020):
+    P-a  Ort unter /var/lib/vpn-accounting/ (ein Spool-Bereich fuer beide
+         Tunnel); Groessen- und Altersgrenze; es gilt zusaetzlich die
+         Sicherheitsgrenze SPOOL_HARD_MAX_BYTES (BASE-005_040).
+    P-b  Die Antwort an den Daemon erfolgt erst, wenn die Meldung
+         dauerhaft in der Datenbank ODER im Puffer steht.
+    P-c  Nachspielen in Eingangsreihenfolge je Sitzung.
+    P-d  Bei Erreichen einer Grenze werden zuerst Interim-Meldungen
+         verworfen (jede spaetere Meldung derselben Sitzung ersetzt sie
+         vollstaendig), Start- und Stop-Meldungen zuletzt. Jeder Verwurf
+         wird gezaehlt und gemeldet (Fuellstand, Alter des aeltesten
+         Eintrags, Grenze).
+    P-e  Der Puffer enthaelt keine Kennwoerter.
+  Damit bleiben die Eigenschaften des Vorgaenger-Spools (B165: dauerhaft,
+  begrenzt, aelteste zuerst verwerfen, Alarm) erhalten.
+
+  Entscheidungen, die vom Verbrauch abhaengen, werden waehrend der Stoerung
+  nicht getroffen und danach neu bewertet.
+
+================================================================================
+9) FALLANALYSE ZUR ATOMARITAET
+================================================================================
+
+  Verschraenkung                       Ergebnis
+  ------------------------------------ --------------------------------------
+  Buchung vor Wechsel                  Delta in der alten Periode; Abschluss-
+                                       protokoll enthaelt es
+  Wechsel vor Buchung                  Delta in der neuen Periode (B-7)
+  Buchung und Wechsel gleichzeitig     Zeilensperre ordnet sie; einer der
+                                       beiden obigen Faelle
+  Zwei Wechsel gleichzeitig            der zweite endet in Schritt 2 oder am
+                                       UNIQUE-Schluessel
+  Wechsel waehrend Datenbankstoerung   wird nachgeholt; Rohzaehler laufen
+                                       weiter; alles seit der letzten
+                                       Buchung zaehlt zur neuen Periode
+                                       (Messgrenze, dokumentiert)
+  WG-Snapshot wird nach dem Wechsel    wie "Wechsel vor Buchung"
+  nachgebucht
+  Verspaetete L2TP-Meldung nach dem    wie "Wechsel vor Buchung"
+  Wechsel
+  Buchungslauf wird doppelt            zweiter Lauf: Delta 0 bzw. Vergleich
+  ausgefuehrt                          scheitert
+  Absturz zwischen Protokoll und       Transaktion: beides oder nichts
+  Nullstellen
+
+  In keinem Fall geht eine Buchung verloren oder zaehlt doppelt; unscharf
+  ist allein die Zuordnung von Verkehr im Grenzbereich.
+
+================================================================================
+10) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  - Verbrauch der laufenden Periode mit Periodengrenzen und Alter der
+    letzten Zaehlerpruefung (last_counter_seen_at).
+  - Verbrauch vergangener Perioden aus log_quota_period.
+  - Betrieb: letzter Periodenwechsel, faellige Wechsel, Fuellstand des
+    L2TP-Puffers, Anomaliezaehler (Statusdatei, BASE-070_070).
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
