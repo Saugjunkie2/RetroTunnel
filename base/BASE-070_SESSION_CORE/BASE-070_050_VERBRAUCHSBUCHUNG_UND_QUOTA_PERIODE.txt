@@ -8,8 +8,8 @@ ZWECK:
   Schreibvertrag der Gruppe D auf vpn_connections; Buchung des Verbrauchs
   fuer WireGuard (Verweis) und L2TP (Buchungsstand je Abrechnungssitzung);
   Verhalten bei Datenbankstoerung; Quota-Periode und ihr Wechsel;
-  Abgrenzung zur Bewertung. Setzt D004-E03 b bis d, E04 bis E06, E08 und
-  P-01, P-02 um.
+  Verbrauchsverlauf als Tagesreihe; Abgrenzung zur Bewertung. Setzt
+  D004-E03 b bis d, E04 bis E06, E08 und P-01, P-02 um.
 
 ================================================================================
 1) GRUPPE D: SPALTEN UND SCHREIBER
@@ -53,6 +53,8 @@ ZWECK:
     (L2TP-Abgleich)               last_counter_seen_at, last_runtime_seen_at
     SV-6 Periodenwechsel          quota_used := 0, Periode
     (vpn-quota-period)
+  SV-4 und SV-5 schreiben in derselben Transaktion zusaetzlich die
+  Tagesreihe log_usage_daily fort (Abschnitt 10).
   Kein anderer Vorgang und kein anderer DB-User schreibt diese Spalten;
   insbesondere schreiben weder das Panel noch der AAA-Dienst. Eine
   Verwaltungskorrektur des Verbrauchs ist nicht Teil dieses Vertrags
@@ -80,12 +82,16 @@ ZWECK:
        gebucht wird, zaehlt zur neuen Periode (Messgrenze, Abschnitt 5).
   B-8  Der Periodenwechsel beruehrt weder Cursor noch counter_epoch noch
        Buchungsstaende: Der Rohzaehler laeuft ueber die Grenze weiter.
+  B-9  Jede Buchung schreibt in derselben Transaktion die Tagesreihe fort
+       (Abschnitt 10), getrennt nach Richtung. Scheitert die Buchung,
+       bleibt auch die Tagesreihe unveraendert.
 
 ================================================================================
 3) L2TP: BUCHUNG AUS radacct (SV-5)
 ================================================================================
 
-  QUELLE: radacct.acctinputoctets + radacct.acctoutputoctets der
+  QUELLE: radacct.acctinputoctets (vom Client empfangen) und
+  radacct.acctoutputoctets (an den Client gesendet) der
   Abrechnungssitzung. Die Werte sind kumulativ seit Sitzungsbeginn und
   werden mit jeder Interim- und der Stop-Meldung ueberschrieben.
 
@@ -100,9 +106,10 @@ ZWECK:
                                                        namen bestimmt und
                                                        danach massgeblich
   started_at          TIMESTAMP         NOT NULL       acctstarttime
-  booked_octets       BIGINT UNSIGNED   NOT NULL       bereits gebuchte
-                                        DEFAULT 0      Summe beider
-                                                       Richtungen
+  booked_in_octets    BIGINT UNSIGNED   NOT NULL       bereits gebucht:
+                                        DEFAULT 0      vom Client empfangen
+  booked_out_octets   BIGINT UNSIGNED   NOT NULL       bereits gebucht: an
+                                        DEFAULT 0      den Client gesendet
   start_signalled     TINYINT(1)        NOT NULL       SV-1 erfolgt
                                         DEFAULT 0
   end_signalled       TINYINT(1)        NOT NULL       SV-2 erfolgt
@@ -129,24 +136,33 @@ ZWECK:
          bleiben Schlussbuchung und Ende zuordenbar.
 
   SV-5  BUCHUNG(r, s)      r = radacct-Zeile, s = ihr Buchungsstand
-      gesamt = r.acctinputoctets + r.acctoutputoctets
-      delta  = gesamt - s.booked_octets
-      delta < 0:  nichts schreiben; Anomalie L2TP_ACCT_COUNTER_REGRESSION
+      d_in   = r.acctinputoctets  - s.booked_in_octets
+      d_out  = r.acctoutputoctets - s.booked_out_octets
+      d_in < 0 oder d_out < 0:
+                  nichts schreiben; Anomalie L2TP_ACCT_COUNTER_REGRESSION
                   (verspaetet eingespielte aeltere Meldung); abwarten
-      delta = 0:  nichts schreiben
-      delta > 0:  EINE Transaktion
+      d_in = 0 und d_out = 0:
+                  nichts schreiben
+      sonst:      EINE Transaktion
         1  UPDATE vpn_l2tp_acct_state
-              SET booked_octets = :gesamt, last_booked_at = NOW()
-            WHERE acctuniqueid = :u AND booked_octets = :bisher
+              SET booked_in_octets  = :in_neu,
+                  booked_out_octets = :out_neu,
+                  last_booked_at = NOW()
+            WHERE acctuniqueid = :u
+              AND booked_in_octets = :in_bisher
+              AND booked_out_octets = :out_bisher
            Trifft das keine Zeile, hat ein anderer Lauf gebucht:
            Transaktion verwerfen.
         2  falls s.vpn_connection_id gesetzt:
            UPDATE vpn_connections
-              SET quota_used = quota_used + :delta,
+              SET quota_used = quota_used + :d_in + :d_out,
                   last_counter_seen_at = NOW()
             WHERE id = :c
-    Eine Wiederholung ergibt delta = 0. Zwei gleichzeitige Laeufe (Takt und
-    Hook-Anstoss) koennen nicht doppelt buchen (Vergleich in Schritt 1).
+        3  falls s.vpn_connection_id gesetzt: Tagesreihe um d_in (rx) und
+           d_out (tx) fortschreiben (Abschnitt 10)
+    Eine Wiederholung ergibt keine Differenz. Zwei gleichzeitige Laeufe
+    (Takt und Hook-Anstoss) koennen nicht doppelt buchen (Vergleich in
+    Schritt 1).
 
   ABSCHLUSS: Ist r geschlossen, gebucht und das Ende gemeldet, wird
   finalized_at gesetzt.
@@ -197,6 +213,10 @@ ZWECK:
       Buchungslauf aus (Stichtagsbuchung, Abschnitt 5; ANF-SC-09).
     - Der Periodenwechsel aendert weder Cursor noch Epoche (B-8); der
       Controller muss von ihm nichts wissen.
+    - Der Buchungslauf schreibt je Connection mit Delta > 0 in derselben
+      Transaktion die Tagesreihe fort (Abschnitt 10): rx = Zuwachs des
+      Empfangszaehlers, tx = Zuwachs des Sendezaehlers; im Reset-Zweig
+      die aktuellen Zaehlerstaende.
   Messgrenzen WireGuard: BASE-040_050 Abschnitt 5 und D004 R1.
 
 ================================================================================
@@ -376,12 +396,75 @@ ZWECK:
   ist allein die Zuordnung von Verkehr im Grenzbereich.
 
 ================================================================================
-10) PANEL-CONSUMABILITY (R-17)
+10) VERBRAUCHSVERLAUF: TAGESREIHE log_usage_daily
+================================================================================
+
+  ZWECK: Verbrauch je Connection, Kalendertag und Richtung. Grundlage fuer
+  Verlauf, Zeitraumvergleiche, Summen je Customer und die Erkennung
+  auffaellig hoher Nutzung im Panel (Anforderungen des Betreibers im
+  Entwurf ENTWURF_ADMIN_DASHBOARD Abschnitte 3 und 4). Diese Daten koennen
+  nur beim Buchen entstehen; nachtraeglich sind sie aus quota_used nicht
+  ableitbar.
+
+  Feld                Typ               Constraint     Beschreibung
+  ------------------- ----------------- -------------- ----------------------
+  connection_ref      VARCHAR(20)       PK (1)         Snapshot
+  usage_date          DATE              PK (2)         Kalendertag in
+                                                       vpn_quota_timezone
+  vpn_connection_id   BIGINT UNSIGNED   NULL, FK       ON DELETE SET NULL
+  customer_id         BIGINT UNSIGNED   NULL           Snapshot beim ersten
+                                                       Eintrag des Tages
+  rx_bytes            BIGINT UNSIGNED   NOT NULL       vom Client empfangen
+                                        DEFAULT 0      (Upload des Kunden)
+  tx_bytes            BIGINT UNSIGNED   NOT NULL       an den Client
+                                        DEFAULT 0      gesendet (Download
+                                                       des Kunden)
+
+  Indices: PRIMARY(connection_ref, usage_date), INDEX(usage_date),
+           INDEX(vpn_connection_id, usage_date),
+           INDEX(customer_id, usage_date)
+
+  REGELN:
+    T-1  Fortschreibung nur innerhalb einer Buchung (SV-4, SV-5), in
+         derselben Transaktion: Einfuegen des Tageseintrags oder Erhoehen
+         von rx_bytes und tx_bytes um die Deltas der Buchung.
+    T-2  Der Tag ist der Kalendertag der Buchung in vpn_quota_timezone
+         (Zuordnung nach Buchungszeitpunkt wie B-7). Verkehr kurz vor
+         Mitternacht kann dem Folgetag zugerechnet werden; Schranke ist
+         die Messlatenz des Tunnels.
+    T-3  Die Richtung ist die Sicht des Servers und stimmt mit den Cursorn
+         (last_known_rx_bytes, last_known_tx_bytes) und mit radacct
+         (acctinputoctets = rx, acctoutputoctets = tx) ueberein.
+    T-4  Die Tagesreihe ist STATISTIK. Fuer das Budget gilt allein
+         quota_used (D004: einziges Aggregat). Keine Bewertung, keine
+         Einschraenkung und keine Abrechnung liest die Tagesreihe.
+    T-5  Die Summe der Tagesreihe ueber die Tage einer Quota-Periode
+         entspricht dem in dieser Periode gebuchten Verbrauch bis auf den
+         Grenzbereich um Tages- und Periodenwechsel.
+    T-6  Es schreibt nur der DB-User system. Kunden lesen nur eigene
+         Connections; Ranglisten und Summen ueber fremde Connections nur
+         ADMIN (BASE-110).
+    T-7  Die Tabelle enthaelt keine Adressen und keine Ziele des
+         Verkehrs, nur Mengen.
+
+  AUFBEWAHRUNG (Vorschlag; Festlegung MOD-007):
+    vpn_usage_daily_retention_days   400   (Vergleich zum Vorjahresmonat
+                                           moeglich)
+
+  LAST: je aktiver Connection und Buchungslauf eine zusaetzliche
+  Schreiboperation in derselben Transaktion; bei WireGuard gebuendelt je
+  Lauf. Die Laufzeit des Buchungslaufs einschliesslich Tagesreihe ist zu
+  messen (BASE-040 T-WT-41, BASE-070_095).
+
+================================================================================
+11) PANEL-CONSUMABILITY (R-17)
 ================================================================================
 
   - Verbrauch der laufenden Periode mit Periodengrenzen und Alter der
     letzten Zaehlerpruefung (last_counter_seen_at).
   - Verbrauch vergangener Perioden aus log_quota_period.
+  - Verlauf je Tag und Richtung, Summen je Zeitraum und je Customer,
+    Rangliste nach Verbrauch (ADMIN) aus log_usage_daily.
   - Betrieb: letzter Periodenwechsel, faellige Wechsel, Fuellstand des
     L2TP-Puffers, Anomaliezaehler (Statusdatei, BASE-070_070).
 

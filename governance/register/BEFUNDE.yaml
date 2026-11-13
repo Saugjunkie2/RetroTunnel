@@ -34,7 +34,16 @@ befunde:
 - id: BF-0003
   klasse: SCHWERWIEGEND
   status: OFFEN
-  stand: "2026-11-13: Der Betreiber liefert nichts nach (BM-0003: lokale Dateien nicht verfügbar). Die Quellen gelten endgültig als NICHT GELESEN. Auflösung nur noch über AP-Q03: je fehlender Quelle Belegbares aus vorhandenen Fundstellen sammeln, Übriges als gekennzeichnete Neuentscheidung entwickeln."
+  stand: >-
+    2026-11-13: Der Betreiber liefert nichts nach (BM-0003: lokale Dateien nicht verfügbar). Die Quellen gelten
+    endgültig als NICHT GELESEN. Auflösung nur noch über AP-Q03: je fehlender Quelle Belegbares aus vorhandenen
+    Fundstellen sammeln, Übriges als gekennzeichnete Neuentscheidung entwickeln.
+    Nachtrag 2026-11-13 (BM-0007): Die Vermutung des Betreibers, die Dateien seien in die Entwurfsordner der Module
+    verlagert worden, wurde geprüft. Die Entwurfsordner enthalten 11 Dateien; keine der hier genannten Quellen ist
+    darunter, und keine kommt in der Historie eines der beiden Repositories vor. Ausnahme in der Sache:
+    ENTWURF_IPV6_VISUELLE_KODIERUNG_v2 ist über drei vorhandene Folgeentwürfe (BASE-040, BASE-050, BASE-070) und
+    MANIFEST 4.3 inhaltlich abgedeckt. Zusätzlich fehlt der laut entwuerfe/README.txt (Zeile 19) nach
+    BASE-010_IDENTITY_CORE/entwuerfe/ verschobene Ordner identity_schema/.
   titel: Im Konzept referenzierte Quellen sind in keinem der beiden Repositories vorhanden
   beschreibung: >-
     Ein maschineller Abgleich aller in RetroTunnel genannten *.txt-Dateinamen gegen beide Checkouts ergibt nicht
@@ -43,7 +52,7 @@ befunde:
     entwuerfe/ENTWURF_IPV6_VISUELLE_KODIERUNG_v2.txt, proofs/base/PHASE_AB_VOLLSCAN_2026-05-28.txt,
     2026-05-25_SESSION_QUOTA_PLAN_ARCHITEKTUR.txt, INSTRUKTION_WEBPANEL_EXTRAKTION.txt, diverse Drittreview-Dateien
     (temp_drittreviews/), implementation/PHASE_PLAN.txt sowie die geplanten MOD-006-Dateien.
-  fundstellen: ["RT:PRIORITAETENLISTE.txt:104", "RT:PRIORITAETENLISTE.txt:238", "RT:PRIORITAETENLISTE.txt:502", "RT:PRIORITAETENLISTE.txt:506", "RT:model/TRUTH_MODEL.txt:61", "RT:00_MANIFEST.txt:218", "RT:03_CHANGELOG.txt:517", "RT:03_CHANGELOG.txt:754"]
+  fundstellen: ["RT:PRIORITAETENLISTE.txt:104", "RT:PRIORITAETENLISTE.txt:238", "RT:PRIORITAETENLISTE.txt:502", "RT:PRIORITAETENLISTE.txt:506", "RT:model/TRUTH_MODEL.txt:61", "RT:00_MANIFEST.txt:218", "RT:03_CHANGELOG.txt:517", "RT:03_CHANGELOG.txt:754", "RT:entwuerfe/README.txt:19"]
   beleg: Skriptabgleich in AP-S01 (grep aller *.txt-Verweise, find über beide Checkouts, XPN-Historie über git log --all --name-only).
   auswirkung: >-
     Für MOD-009 (Peak) und MOD-010 (Plans) sowie Teile von BASE-090 (Settings) fehlen die historischen Entwurfsquellen;
@@ -197,3 +206,27 @@ befunde:
   behoben_in: ["base/BASE-050_FIREWALL_CORE/BASE-050_040_WAN_EXPOSITION_UND_NOTZUGANG.txt#6) NOTZUGANG rtmgmt0", "base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-16"]
   arbeitspaket: AP-K050
   entdeckt_in: AP-K050
+- id: BF-0012
+  klasse: SCHWERWIEGEND
+  status: IN_ARBEIT
+  stand: "2026-11-13: In BASE-070 entschieden (DEC-SC-06: Schlussriegel single-session=deny). Offen: Nachzug in BASE-030 (Konfigurationsvertrag, LT-35, T-LT-34) in AP-Q04; praktische Bestätigung des Daemon-Verhaltens (E-SC-01)."
+  titel: accel-ppp-Vorgabe single-session=replace widerspricht "keine Übernahme" (AAA-04) im Ausnahmefall
+  beschreibung: >-
+    BASE-030 verlangt für accel-ppp single-session=replace als "letzten Rettungsmechanismus gegen SimUse-Races"
+    (LT-35) und räumt ein, dass ein Inhaber gültiger Zugangsdaten damit eine bestehende Sitzung verdrängen könnte.
+    AAA-04 und der Vorgänger (D012) verlangen dagegen: maximal eine Sitzung, kein Takeover. Der Widerspruch wird
+    genau dann wirksam, wenn die vorgelagerte RADIUS-Prüfung die bestehende Sitzung nicht sieht. Das ist kein
+    exotischer Wettlauf: Bestehende Sitzungen überleben Abrechnungsstörungen (LT-39, acct-timeout=0); fehlt deshalb
+    die radacct-Zeile einer lebenden Sitzung, lässt die Prüfung eine zweite Anmeldung zu, und "replace" beendet die
+    bestehende Sitzung zugunsten der neuen.
+  fundstellen: ["RT:base/BASE-030_TUNNEL_L2TP_IPSEC/BASE-030_010_ACCEL_PPP_ARCHITEKTUR.txt:67", "RT:base/BASE-030_TUNNEL_L2TP_IPSEC/BASE-030_090_INVARIANTEN.txt:188", "RT:base/BASE-020_AAA_CORE/BASE-020_090_INVARIANTEN.txt:18"]
+  beleg: Wortlaute gelesen (BASE-030_010 Zeilen 67–76, LT-35, LT-39, AAA-04); Fallanalyse in BASE-070_030 Abschnitt 7 (Fälle E und F).
+  auswirkung: >-
+    Im Ausnahmefall ist eine Übernahme durch einen zweiten Anmelder möglich (Verdrängen des rechtmäßigen Nutzers,
+    Sitzungs-Pingpong bei geteilten Zugangsdaten); das Verhalten im Ausnahmefall weicht vom Regelpfad ab.
+  massnahme: >-
+    Schlussriegel im Daemon auf "deny" (zweite Sitzung wird abgewiesen, bestehende bleibt): BASE-070 DEC-SC-06.
+    Zusätzlich fragt der Anmeldepfad die Laufzeit selbst (Sonde), sodass eine lebende Sitzung ohne radacct-Zeile
+    bereits mit Ablehnungsgrund erkannt wird. Nachzug von BASE-030_010, LT-35 und T-LT-34 in AP-Q04 (ANF-SC-03).
+  arbeitspaket: AP-Q04
+  entdeckt_in: AP-K070
