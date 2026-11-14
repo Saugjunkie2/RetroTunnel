@@ -31,7 +31,7 @@ import yaml
 REG = "governance/register/QUELLENINVENTAR.yaml"
 KATEGORIEN = {
     "RT_KANON_ROOT", "RT_KANON_BASE", "RT_KANON_MODEL", "RT_KANON_DECISION", "RT_KANON_MODUL",
-    "RT_REGISTER", "RT_CHRONIK", "RT_HIST_ARBEITSANWEISUNG", "RT_REFERENZ", "RT_ENTWURF",
+    "RT_REGISTER", "RT_CHRONIK", "RT_STEUERUNG", "RT_REFERENZ", "RT_ENTWURF",
     "RT_IMPLEMENTATION_ARTEFAKT", "RT_PROOF", "RT_SONSTIGES",
     "XPN_KANON_ROOT", "XPN_KANON_BLOCK", "XPN_KANON_DECISION", "XPN_KANON_DOC",
     "XPN_ARBEITSANWEISUNG_ODER_ENTWURF", "XPN_VORLAGE", "XPN_SCHNAPPSCHUSS", "XPN_SONSTIGES",
@@ -124,7 +124,9 @@ def default_kategorie(quelle, path):
         if p.startswith("implementation/"):
             return "RT_IMPLEMENTATION_ARTEFAKT"
         if path in ("CLAUDE_BRIEFING.txt", "MARCOS_ARBEITSWEISE.txt", "REVIEW_STANDARD.txt"):
-            return "RT_HIST_ARBEITSANWEISUNG"
+            # Steuerungsdokumente des Betreibers (Einstieg, Arbeitsweise, Pruefstandard). Ihre Autoritaet
+            # gegenueber dem Betreiberauftrag regeln die Betreiberregeln (E1) und 00_MANIFEST KR-07.
+            return "RT_STEUERUNG"
         if path in ("PRIORITAETENLISTE.txt", "REVIEW_TRACKER.txt"):
             return "RT_REGISTER"
         if path == "03_CHANGELOG.txt":
