@@ -118,6 +118,6 @@ N-4 Plans: serverweites Monatsvolumen 40 TB, danach Drosselung auf 100 Mbit/s ->
 N-5 BASE-050_070 unseal: Uebergabe des gehaltenen Locks (ANF-PA-08) nachziehen.
 
 ## Stand der Abarbeitung
-[ ] Schritt 1 Berichte/QA/Register
-[ ] _020  [ ] _030  [ ] _040  [ ] _050  [ ] _060  [ ] _070  [ ] _080  [ ] _090  [ ] _095  [ ] INDEX  [ ] _010
+[x] Schritt 1 Berichte/QA/Register (BF-0013..BF-0041)
+[x] _020  [x] _030  [x] _040  [ ] _050  [ ] _060  [ ] _070  [ ] _080  [ ] _090  [ ] _095  [ ] INDEX  [ ] _010
 [ ] BASE-040_030/_050/_060/_090/_095  [ ] D004 P-01  [ ] Trace/NEU_BEGRUENDET  [ ] Changelog  [ ] Verifikationslauf

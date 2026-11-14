@@ -83,6 +83,10 @@ ZWECK:
           pool_cidr_v6 ist 64.
     PC-4  tail_reserve_slots < Zahl der nutzbaren Slots;
           critical_free_slots <= warn_free_slots.
+    PC-5  v6_visual liegt zwischen 1 und 9999 (hoechstens vier Ziffern:
+          Die Zahl steht als Ziffernfolge in einem Block der Adresse).
+    PC-6  pool_base_v4 ist die Netzadresse zu pool_cidr_v4 (alle Bits
+          hinter der Praefixlaenge sind null).
   Ist eine Regel verletzt, wird nicht vergeben (und kein Regelwerk
   gerendert): Fehlerzustand POOL_CONFIG_INVALID.
 
@@ -147,17 +151,30 @@ ZWECK:
 ================================================================================
 
   Eine Routine in genau einer Implementierung. Sie laeuft INNERHALB der
-  Transaktion ihres Aufrufers (Provisionierung, Rollenwechsel) als DB-User
-  system.
+  Transaktion ihres Aufrufers (Provisionierung, Rollenwechsel,
+  Adress-Reparatur) als DB-User system.
 
   EINGABE: access_role, Liste der zu versorgenden Connections (mit
   v6_addr_policy), Reservefreigabe (ja/nein).
 
+  VORAUSSETZUNG AN DEN AUFRUFER (Lesestand):
+    V-1  Die Transaktion liest festgeschrieben: Jede Anweisung sieht, was
+         bis zu ihrem Beginn bestaetigt wurde (BASE-070_070 Abschnitt 2,
+         U-7). Ein beim Transaktionsbeginn eingefrorener Lesestand ist
+         unzulaessig - der Allokator saehe Vergaben nicht, die waehrend
+         des Wartens auf die Pool-Sperre bestaetigt wurden.
+    V-2  Die Pool-Sperre (AL1) ist die ERSTE Anweisung der Transaktion,
+         vor jeder anderen Lesung. Braucht der Vorgang mehrere Pools
+         (Rollenwechsel: Quell- UND Zielpool), sperrt er alle zu Beginn
+         in der festen Reihenfolge ADMIN, MODERATOR, VIP, USER.
+
   ABLAUF:
     AL1  POOL SPERREN: SELECT ... FROM vpn_pool_config
-         WHERE access_role = :rolle FOR UPDATE. Vergaben je Pool laufen
-         damit nacheinander. Gueltigkeit pruefen (PC-1..PC-4).
-    AL2  BELEGUNG LESEN:
+         WHERE access_role = :rolle FOR UPDATE. Vergaben, Rollenwechsel
+         und Rueckgaben eines Pools laufen damit nacheinander.
+         Gueltigkeit pruefen (PC-1..PC-6).
+    AL2  BELEGUNG LESEN - nach der Sperre, als aktuelle Lesung, beide
+         Mengen in EINER Anweisung:
            belegt   = alle ip_slot der Rolle in vpn_connections (jede
                       Zeile zaehlt, gleich in welchem Zustand)
            gesperrt = alle ip_slot der Rolle in vpn_ip_quarantine mit
@@ -172,21 +189,27 @@ ZWECK:
          Zufallsgenerator des Betriebssystems.
     AL6  SCHREIBEN: ip_slot, fixed_ip, fixed_ipv6 in die Connection-Zeile
          (bei Anlage als Teil des INSERT).
-    AL7  Verletzt das Schreiben dennoch eine UNIQUE-Bedingung, scheitert
-         die Transaktion des Aufrufers als Ganzes. Der Aufrufer darf den
+    AL7  WIEDERHOLBARE FEHLER: Verletzt das Schreiben dennoch eine
+         UNIQUE-Bedingung, oder bricht die Datenbank die Transaktion
+         wegen einer Verklemmung, einer Wartezeit auf eine Sperre oder
+         einer zwischenzeitlich geaenderten Zeile ab, scheitert die
+         Transaktion des Aufrufers als Ganzes. Der Aufrufer darf den
          gesamten Vorgang hoechstens vpn_pool_alloc_max_attempts
-         (Vorschlag 3) mal wiederholen; Ereignis POOL_ALLOC_COLLISION.
+         (Vorschlag 3) mal wiederholen; Ereignis POOL_ALLOC_COLLISION
+         bzw. POOL_ALLOC_RETRY. Jeder andere Fehler ist endgueltig.
 
   EIGENSCHAFTEN:
     - BESCHRAENKT: eine Lesung, eine Ziehung; keine Suche mit offenem Ende.
-    - EXAKT: "kein Slot frei" ist ein Befund ueber die ganze Freimenge.
+    - EXAKT: "kein Slot frei" ist ein Befund ueber die ganze Freimenge -
+      unter den Voraussetzungen V-1 und V-2.
     - ATOMAR mit dem Vorgang des Aufrufers: Scheitert dieser, ist kein
       Slot verbraucht.
     - IDEMPOTENT: Eine Connection mit gesetztem ip_slot erhaelt keinen
-      neuen (ausser im Rollenwechsel).
-    - SPERR-REIHENFOLGE: erst Pool-Zeile, dann Connection-Zeilen. Braucht
-      ein Vorgang zwei Pools, werden sie in der festen Reihenfolge ADMIN,
-      MODERATOR, VIP, USER gesperrt.
+      neuen (ausser im Rollenwechsel und in der Adress-Reparatur).
+    - SPERR-REIHENFOLGE: erst alle Pool-Zeilen (V-2), dann
+      Connection-Zeilen in aufsteigender id. Jede Transaktion, die
+      mehrere Connection-Zeilen aendert (Kaskade, Buchungslauf), haelt
+      diese Reihenfolge ein.
     - Ohne Datenbank gibt es keine Vergabe.
 
   RESERVE: Der Reservebereich wird nur mit ausdruecklicher Freigabe einer
@@ -200,27 +223,52 @@ ZWECK:
     und fixed_ipv6 genau der Ableitung aus access_role, ip_slot und
     v6_addr_policy entsprechen und ob der Slot im nutzbaren Bereich seines
     Pools liegt.
-    Abweichung: Ereignis ADDR_DRIFT. Reparatur: Die Adressen werden aus dem
-    Slot neu materialisiert (der Slot ist die Quelle; es wird KEIN neuer
-    Slot verbraucht), sofern die Zieladressen frei sind; danach Hard-Cut
-    der Connection und Policy-Herstellung, damit Laufzeit und Datenbank
-    wieder uebereinstimmen. Ist eine Zieladresse belegt oder der Slot
-    ungueltig, wird nichts geaendert: Ereignis ADDR_DRIFT_UNRESOLVED,
-    Klaerung durch den Betreiber. Der Waechter aendert nie ip_slot.
+    DER WAECHTER MELDET - ER AENDERT NICHTS. Abweichung: Ereignis
+    ADDR_DRIFT (CRITICAL) je Connection, hoechstens einmal je Lauf und
+    Connection; die Statusdatei fuehrt die Zahl. Weder ip_slot noch die
+    Adressen werden geschrieben, keine Nutzung wird beendet. Welche Seite
+    falsch ist - Slot, Pool-Zeile oder Adresse -, entscheidet ein Mensch.
+
+  ADRESS-REPARATUR (Verwaltungshandlung, je Connection):
+    Ausgefuehrt ueber den privilegierten Auftragsweg (ADMIN, erneute
+    Anmeldung, protokolliert mit Akteur). Sie ist eine NEUVERGABE ueber
+    den Allokator - der Allokator bleibt die einzige Schreibstelle:
+      AR1  Sperre nach BASE-070_030 Abschnitt 6 (Zweck ROLE_CHANGE: Der
+           Vorgang ist ein Adresswechsel).
+      AR2  Eine Transaktion: Pool sperren (AL1); den bisherigen Slot UND -
+           falls die bisher materialisierte Adresse zu einem anderen
+           Slot eines Pools gehoert - auch diesen in vpn_ip_quarantine
+           eintragen (Ursache DRIFT_REPAIR); neuen Slot nach AL2 bis AL6;
+           Lifecycle-Ereignis SLOT_CHANGE.
+      AR3  Nach dem Commit: Hard-Cut und Policy-Herstellung (BASE-080);
+           fuer WireGuard ein neues Profil (BASE-040); Sperre freigeben.
+    Die bisher genutzte Adresse kehrt so erst nach der Quarantaene in den
+    Pool zurueck. Scheitert die Reparatur (kein Slot frei, Sperre nicht
+    erhalten), bleibt alles unveraendert: Ereignis ADDR_DRIFT_UNRESOLVED.
+    Eine Reparatur fuer viele Connections zugleich gibt es nicht.
 
 ================================================================================
 5) ROLLENWECHSEL (T-09, D002)
 ================================================================================
 
-  Je betroffener Connection, alles in der EINEN Transaktion der Kaskade
-  (D002 Abschnitt 7.4):
-    RW1  Vorpruefung: Die Freimenge des Zielpools reicht fuer ALLE
-         Connections des Customers, die einen Slot tragen (D002 7.5).
-         Sonst Abbruch ohne Aenderung.
-    RW2  Alte Adresse in vpn_ip_quarantine eintragen (Ursache ROLE_CHANGE).
+  Alles in der EINEN Transaktion der Kaskade (D002 Abschnitt 7.4):
+    RW0  POOLS SPERREN - erste Anweisung der Transaktion: Quellpool UND
+         Zielpool, in der festen Reihenfolge (Abschnitt 4, V-2). Der
+         Quellpool wird gesperrt, weil RW2 dessen Quarantaene schreibt
+         und eine gleichzeitige Vergabe aus ihm sonst einen Slot ziehen
+         koennte, der im selben Augenblick frei UND gesperrt wird.
+    RW1  Vorpruefung - nach RW0, als aktuelle Lesung: Die Freimenge des
+         Zielpools reicht fuer ALLE Connections des Customers, die einen
+         Slot tragen (D002 7.5). Sonst Abbruch ohne Aenderung.
+    RW2  Je Connection (aufsteigende id): alte Adresse in
+         vpn_ip_quarantine eintragen (Ursache ROLE_CHANGE).
     RW3  Neue Slots ueber den Allokator aus dem Zielpool; access_role,
-         ip_slot, fixed_ip, fixed_ipv6 der Zeile aendern.
+         ip_slot, fixed_ip, fixed_ipv6 der Zeilen aendern.
     RW4  Lifecycle-Ereignisse ROLE_CHANGE und SLOT_CHANGE (BASE-010).
+  Bricht die Datenbank die Transaktion mit einem wiederholbaren Fehler ab
+  (AL7) - etwa weil ein Buchungslauf zur selben Zeit eine der Zeilen
+  fortschreibt -, wird die Kaskade als Ganzes wiederholt, hoechstens
+  vpn_pool_alloc_max_attempts mal.
   Nach dem Commit: Hard-Cut und Policy-Herstellung (BASE-080), fuer
   WireGuard neues Profil (BASE-040). Die Sperren nach BASE-070_030
   Abschnitt 6 werden VOR der Transaktion erworben und nach dem Hard-Cut
@@ -236,8 +284,9 @@ ZWECK:
         eingeschraenkt, gesperrt, widerrufen oder Tombstone -, ODER
     (b) vpn_ip_quarantine (r, s) mit quarantine_until > NOW() fuehrt.
 
-  FRIST: vpn_quarantine_days (belegt: 365; reduzierbar auf 180 oder 90).
-  Sie gilt fuer alle Wege gleich.
+  FRIST: vpn_quarantine_days (belegt: 365; zulaessig 30 bis 3650 - eine
+  Verkuerzung, etwa auf 180 oder 90 Tage, ist eine Entscheidung des
+  Betreibers). Sie gilt fuer alle Wege gleich.
 
   TABELLE vpn_ip_quarantine:
 
@@ -249,7 +298,8 @@ ZWECK:
   fixed_ip              VARCHAR(15)      NOT NULL     zur Lesbarkeit
   fixed_ipv6            VARCHAR(45)      NULL
   cause                 ENUM             NOT NULL     ROLE_CHANGE|
-                                                      EARLY_DELETE
+                                                      EARLY_DELETE|
+                                                      DRIFT_REPAIR
   origin_connection_ref VARCHAR(20)      NULL         Herkunft; NULL bei
                                                       EARLY_DELETE
   released_at           TIMESTAMP        NOT NULL
@@ -269,13 +319,21 @@ ZWECK:
         BASE-010_070 "DSGVO-Sonderpfad"): Fuer die Restfrist wird ein
         Eintrag OHNE Herkunftsangabe angelegt. Die Adresse bleibt
         gesperrt, ohne dass ein Personenbezug zurueckbleibt. Der bisher
-        hingenommene Verlust des Schutzes entfaellt.
+        hingenommene Verlust des Schutzes entfaellt. Eintrag und Loeschen
+        der Connection-Zeile sind EINE Transaktion (Pool gesperrt, AL1):
+        Es gibt keinen Augenblick, in dem der Slot weder belegt noch
+        gesperrt ist.
+    W4  ADRESS-REPARATUR (Abschnitt 4): der bisherige Slot und die bisher
+        materialisierte Adresse.
 
   RUECKGABE (die einzigen beiden Wege):
     R1  ABLAUF EINES QUARANTAENE-EINTRAGS: Der Bereinigungslauf (J4)
-        loescht Eintraege mit quarantine_until <= NOW(). Traegt der
-        Eintrag eine Herkunft, wird zuvor das Lifecycle-Ereignis
-        POOL_RETURN geschrieben.
+        gibt Eintraege mit quarantine_until <= NOW() zurueck. Je Eintrag
+        EINE Transaktion: Pool sperren (AL1); DELETE mit der Bedingung
+        quarantine_until <= NOW() auf genau diese Zeile (ein inzwischen
+        ersetzter, frischer Eintrag desselben Slots bleibt); nur wenn
+        das DELETE eine Zeile traf und der Eintrag eine Herkunft trug:
+        Lifecycle-Ereignis POOL_RETURN.
     R2  PHYSISCHE LOESCHUNG EINER WIDERRUFENEN CONNECTION nach Ablauf
         ihrer Quarantaene. Je Zeile EINE Transaktion:
           1  Zeile sperren und Bedingung erneut pruefen:
@@ -293,6 +351,21 @@ ZWECK:
         Damit ist der in OPEN-010-01 d offen gelassene Owner bestimmt:
         Der Lauf gehoert zu vpn-session-janitor (BASE-070).
 
+  SCHUTZ DER RUECKGABE (R1 und R2 sind unumkehrbar und haengen allein an
+  der Zeit):
+    RS-1  Rueckgaben finden nur bei bestaetigtem Zeitabgleich statt
+          (BASE-070_070 Abschnitt 2, U-5). Sonst ruht der Schritt J4 und
+          meldet es.
+    RS-2  Uebersteigt die Zahl der in einem Lauf faelligen Rueckgaben
+          vpn_pool_return_hold_threshold (Vorschlag 200), gibt der Lauf
+          NICHTS zurueck und meldet POOL_RETURN_HELD: Eine solche Menge
+          deutet auf eine falsche Uhr oder einen Datenfehler. Die
+          Freigabe ist eine Betreiberhandlung ueber den privilegierten
+          Auftragsweg.
+    RS-3  Eine Frist, die vor ihrem eigenen Beginn endet oder weiter als
+          vpn_quarantine_days nach ihm, ist unplausibel: Der Eintrag wird
+          nicht zurueckgegeben; Ereignis POOL_QUARANTINE_IMPLAUSIBLE.
+
   WAS NICHT ZURUECKKEHRT: Eine Connection, die DISABLED ist, aber NICHT
   widerrufen (Restore-Fenster offen oder Widerruf nur von Hand, LR-03),
   haelt ihre Adresse unbegrenzt. Die Statistik weist diese Slots
@@ -303,7 +376,8 @@ ZWECK:
 ================================================================================
 
   KENNZAHLEN JE POOL (berechnet vom Bereinigungslauf J6 und auf Abruf):
-    nutzbar        Zahl der Slots 2..MAX
+    nutzbar        Zahl der Slots 2..MAX; bei skip_edge_octets = 1
+                   ohne die Randadressen
     reserve        tail_reserve_slots
     belegt         Slots mit Connection-Zeile, davon:
                    in Nutzung (ACTIVE, RESTRICTED), gesperrt ohne Widerruf,
@@ -318,7 +392,9 @@ ZWECK:
           ROT    frei < critical_free_slots
   EREIGNISSE bei Wechsel der Stufe (je Wechsel einmal): POOL_WARN,
   POOL_CRITICAL, POOL_EXHAUSTED (frei = 0), POOL_RECOVERED. Meldeweg:
-  MOD-007.
+  MOD-007. Die zuletzt gemeldete Stufe je Rolle steht in der Marke
+  pool_level_<rolle> (Schreiber: Bereinigungslauf, Schritt J6). Nur der
+  Lauf vergleicht und meldet; eine Berechnung auf Abruf meldet nichts.
 
   BEI ERSCHOEPFUNG: Anlage und Rollenwechsel scheitern mit
   POOL_EXHAUSTED_OR_QUARANTINED und einer eindeutigen Meldung im Panel
@@ -337,7 +413,22 @@ ZWECK:
 
   Fall                                 Verhalten
   ------------------------------------ --------------------------------------
-  Zwei Anlagen gleichzeitig, ein Pool  nacheinander (AL1); verschiedene Slots
+  Zwei Anlagen gleichzeitig, ein Pool  nacheinander (AL1); die zweite liest
+                                       die Belegung NACH der ersten (V-1,
+                                       AL2): verschiedene Slots
+  Anlage und Rollenwechsel aus         der Rollenwechsel haelt auch den
+  demselben Pool gleichzeitig          Quellpool (RW0): Die Anlage sieht den
+                                       frei werdenden Slot bereits als
+                                       gesperrt
+  Buchung schreibt eine Zeile fort,    wiederholbarer Fehler; die Kaskade
+  waehrend die Kaskade laeuft          wird als Ganzes wiederholt (AL7)
+  Adresse passt nicht zur Ableitung    Waechter meldet (CRITICAL), aendert
+  aus Rolle und Slot                   nichts; Reparatur ist eine
+                                       Verwaltungshandlung je Connection
+  Uhr geht vor                         keine Rueckgabe ohne bestaetigten
+                                       Zeitabgleich; ungewoehnlich viele
+                                       faellige Rueckgaben werden
+                                       zurueckgestellt (RS-1, RS-2)
   Anlage scheitert nach der Ziehung    Rollback; Slot bleibt frei
   Rollenwechsel, Zielpool zu klein     Abbruch in RW1; nichts geaendert
   Rollenwechsel hin und zurueck        alte Adresse ist in Quarantaene; die
