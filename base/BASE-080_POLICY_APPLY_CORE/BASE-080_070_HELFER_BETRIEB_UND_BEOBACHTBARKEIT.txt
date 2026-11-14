@@ -111,6 +111,15 @@ ZWECK:
           Kernel-Schnittstellen (DEC-PA-01).
     UP-5  Jeder Lauf hat ein Zeitlimit ; die Dienstverwaltung beendet
           ihn danach. Der Kernel-Lock endet mit dem Prozess.
+    UP-6  DIE LOCK-DATEIEN WERDEN BEIM SYSTEMSTART ANGELEGT (BASE-005) und
+          im Betrieb nie geloescht oder ersetzt. Die Werkzeuge oeffnen
+          sie, ohne sie anzulegen, und pruefen Eigentuemer (root) und
+          Art (regulaere Datei). Fehlt eine Lock-Datei, endet das
+          Werkzeug mit Code 7 ohne Wirkung: Zwei Prozesse duerfen nie
+          verschiedene Dateien fuer denselben Lock halten.
+    UP-7  WELTZEIT: Alle Datenbankverbindungen dieses Moduls laufen mit
+          Weltzeit als Sitzungszeitzone ; Zeitpunkte werden als Weltzeit
+          uebergeben und verglichen (wie BASE-070_070 Regel U-6).
 
   WERKZEUGE (/usr/local/bin):
     vpn-policy-apply      Herstellung, Auftragslauf, Abgleich, Hooks,
@@ -124,8 +133,9 @@ ZWECK:
       status-pending.json                 0644, je Lauf atomar ersetzt
       status-reconcile.json               0644
       status-eval.json                    0644 (Schreiber: Bewerter)
-      reconcile.request                   Anforderung des Abgleichs
-                                          (nur root schreibbar)
+      reconcile.request.d/                Anforderungen des Abgleichs
+                                          (root 0700 ; BASE-080_040
+                                          Abschnitt 2)
       pending.lock, reconcile.lock,       Einzel-Locks der Laeufe
       eval.lock
       l2tp-seen/                          erste Sichtung nicht
@@ -204,6 +214,8 @@ ZWECK:
 
   FREMDE KEYS, AUF DIE DIESES MODUL BEZUG NIMMT:
     vpn_fw_seal_alert_seconds                Owner BASE-050
+    vpn_l2tp_kill_hold_threshold             Owner BASE-070 (Mengenbremse,
+                                             BASE-080_040 Regel M-2 b)
     vpn_session_lock_operation_ttl_seconds   Owner BASE-070 (Regel KP-e)
     vpn_hardcut_kill_timeout_seconds         Owner BASE-070
     vpn_quarantine_days                      Owner BASE-070 (Widerruf)
@@ -265,7 +277,7 @@ ZWECK:
   seine Handlungen laufen ueber den privilegierten Auftragsweg (BASE-110).
 
 ================================================================================
-5) STATUSDATEIEN
+5) STATUSDATEIEN UND MARKEN
 ================================================================================
 
   /run/retrotunnel/policy/status-<lauf>.json (0644, atomar ersetzt).
@@ -282,6 +294,37 @@ ZWECK:
 
   Eine Statusdatei, die aelter ist als das Dreifache des Takts ihres
   Laufs, gilt im Panel als "Lauf antwortet nicht".
+
+  MARKEN DIESES MODULS (Tabelle vpn_runtime_marks und ihre Regeln M-1 bis
+  M-7: BASE-070_070 Abschnitt 1 ; dort werden sie verzeichnet,
+  ANF-PA-14):
+    Marke                          Schreiber         Wert
+    ------------------------------ ----------------- -----------------------
+    policy_eval_last_run_at        vpn-policy-eval   Beginn des letzten
+                                   (nur --all)       Laufs
+    policy_eval_last_ok_at         vpn-policy-eval   Beginn des letzten
+                                                     Laufs ohne
+                                                     gescheiterten
+                                                     Kandidaten
+    policy_eval_time_anomaly_at    vpn-policy-eval   Zeitpunkt der letzten
+                                                     Zeitanomalie ; die
+                                                     Ruhezeit laeuft ab
+                                                     hier (BASE-080_020
+                                                     Abschnitt 7, U-2 b)
+    policy_reconcile_last_run_at   vpn-policy-apply  Beginn des letzten
+                                                     Abgleichs, der V1
+                                                     erreicht hat
+    policy_reconcile_last_ok_at    vpn-policy-apply  Beginn des letzten
+                                                     Abgleichs mit
+                                                     Ergebnis 0
+    policy_mass_hold_since         vpn-policy-apply  Beginn einer
+                                                     zurueckgestellten
+                                                     Massenkorrektur ;
+                                                     fehlt, wenn keine
+                                                     besteht
+  Keine Marke liegt planmaessig in der Zukunft (BASE-070_070 Regel M-7):
+  Die Ruhezeit ist deshalb als ihr Beginn gespeichert, nicht als ihr
+  Ende.
 
 ================================================================================
 6) EREIGNISSE
@@ -352,6 +395,11 @@ ZWECK:
 
   Jedes Ereignis der Stufe CRITICAL benennt, was jetzt geschlossen
   bleibt, und was der Betreiber tun kann.
+
+  WIEDERHOLUNG: Dasselbe Ereignis fuer dasselbe Ziel wird beim ersten
+  Auftreten gemeldet und danach hoechstens einmal je
+  vpn_policy_outbox_alert_seconds ; die Statusdateien fuehren den Zaehler.
+  Ein dauerhaft scheiternder Auftrag fuellt den Meldeweg nicht.
 
 ================================================================================
 7) VERHALTEN BEI STOERUNGEN (UEBERBLICK)

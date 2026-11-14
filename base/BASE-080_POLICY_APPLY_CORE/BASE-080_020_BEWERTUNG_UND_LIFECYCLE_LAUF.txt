@@ -62,7 +62,7 @@ ZWECK:
   RESTRICT_CUSTOMER_PAUSED      customer_paused_at             Tatsache auf
                                 IS NOT NULL                    vpn_connections
 
-  "jetzt" ist die Datenbankzeit.
+  "jetzt" ist die Datenbankzeit (Weltzeit ; BASE-080_070 Regel UP-7).
 
   AUSKUENFTE DER BERECHNETEN BEDINGUNGEN (Vertrag an die Owner):
     A-1  PLAN-LIMIT: je Connection ja/nein. Welche Connections eines
@@ -224,7 +224,7 @@ ZWECK:
     vpn-policy-eval --explain <id>             nur lesend: alle aktiven
                                                Gruende, Fristen, Ziel
     vpn-policy-eval --release-held --max <n>   Freigabe zurueckgestellter
-        --actor <Kennung>                      Uebergaenge (Abschnitt 7)
+        --actor <Kennung> [--confirm-time]     Uebergaenge (Abschnitt 7)
   Eingaben werden streng geprueft (nur Ziffern bzw. feste Schalter).
 
   LAUF --all (Takt vpn_policy_eval_interval_seconds, Vorschlag 60):
@@ -246,7 +246,9 @@ ZWECK:
          Fehler bei einer Connection beendet den Lauf nicht; er wird
          gezaehlt und die Connection im naechsten Lauf erneut bearbeitet.
     BL7  Marken und Statusdatei: policy_eval_last_run_at immer;
-         policy_eval_last_ok_at nur, wenn kein Kandidat fehlschlug.
+         policy_eval_last_ok_at nur, wenn kein Kandidat fehlschlug;
+         policy_eval_time_anomaly_at nach Abschnitt 7 (U-2 b). Wert der
+         beiden ersten ist der BEGINN des Laufs.
 
   EIGENSCHAFTEN: idempotent (ein zweiter Lauf ohne geaenderte Eingaben
   schreibt nichts); jede Connection fuer sich atomar; Abbruch an
@@ -272,16 +274,39 @@ ZWECK:
 
   Ein Lauf fuehrt unumkehrbare Uebergaenge nur aus, wenn ALLE Bedingungen
   gelten:
-    U-1  ZEIT SYNCHRONISIERT: Die Zeitbasis meldet die Systemzeit als
-         synchronisiert (Signal von BASE-060, ANF-PA-06). Nicht
-         feststellbar gilt als nicht synchronisiert.
-    U-2  KEINE ZEITLUECKE: Der Abstand zwischen jetzt und
-         policy_eval_last_run_at ist nicht negativ und nicht groesser als
-         vpn_policy_eval_gap_hold_seconds (Vorschlag 3600). Fehlt die
-         Marke (erster Lauf), gilt die Bedingung als nicht erfuellt.
+    U-1  ZEIT BESTAETIGT: Die Zeitbasis meldet die Systemzeit als
+         synchronisiert (Signal von BASE-060, ANF-PA-06) UND
+         Datenbankzeit und Systemzeit des Bewerters weichen um hoechstens
+         5 s voneinander ab (fester Wert: Die Fristen werden gegen die
+         Datenbankzeit gerechnet, das Signal gilt der Systemzeit). Nicht
+         feststellbar gilt als nicht bestaetigt.
+    U-2  KEINE ZEITANOMALIE, KEINE RUHEZEIT:
+         a) Der Abstand zwischen jetzt und policy_eval_last_run_at ist
+            nicht negativ und nicht groesser als
+            vpn_policy_eval_gap_hold_seconds (Vorschlag 3600). Fehlt die
+            Marke (erster Lauf), gilt das als Anomalie.
+         b) Jede Anomalie beginnt eine RUHEZEIT derselben Laenge: Die
+            Marke policy_eval_time_anomaly_at wird auf jetzt gesetzt.
+            Solange seit dieser Marke weniger als
+            vpn_policy_eval_gap_hold_seconds vergangen sind, ist U-2 nicht
+            erfuellt. Liegt die Marke in der Zukunft, ist das selbst eine
+            Anomalie. Jede weitere Anomalie beginnt die Ruhezeit neu.
+         WARUM DIE RUHEZEIT: Ohne sie haette sich eine Zeitluecke schon
+         mit dem naechsten Lauf erledigt - nach einem Uhrensprung blieben
+         dem Betreiber und der Zeitsynchronisation nur Sekunden. So
+         vergeht mindestens die Ruhezeit mit regelmaessigen Laeufen, bevor
+         wieder Unumkehrbares geschieht ; wird die Uhr in dieser Zeit
+         berichtigt, sind die Fristen nicht mehr faellig.
     U-3  MENGE: Die Zahl der in diesem Lauf faelligen unumkehrbaren
          Uebergaenge ist nicht groesser als
          vpn_policy_eval_max_irreversible_per_run (Vorschlag 25).
+
+  GELTUNG FUER JEDEN AUFRUF: Die Bedingungen gelten fuer jeden Aufruf, der
+  einen unumkehrbaren Uebergang ausfuehren koennte - auch fuer
+  --connection-id und --customer-id. Diese pruefen U-1 und U-2 gegen die
+  Marken, OHNE sie zu schreiben (die Marken schreibt allein der Lauf
+  --all ; ein Einzelaufruf darf eine Luecke nicht verdecken). U-3 gilt
+  je Aufruf fuer die Summe seiner unumkehrbaren Uebergaenge.
 
   IST EINE BEDINGUNG NICHT ERFUELLT:
     - KEINER der unumkehrbaren Uebergaenge dieses Laufs wird ausgefuehrt
@@ -292,18 +317,31 @@ ZWECK:
     - Ereignis POLICY_EVAL_HELD (ALERT) mit Zahl und verletzter
       Bedingung; die Statusdatei fuehrt die zurueckgestellten
       Connections nach Art.
-    - Eine reine Zeitluecke (U-2) loest sich mit dem naechsten
-      regulaeren Lauf von selbst.
+    - Die Ruhezeit (U-2 b) endet von selbst, wenn bis dahin regelmaessig
+      gelaufen wurde. U-1 und U-3 enden nur mit ihrer Ursache oder mit
+      der Freigabe durch den Betreiber.
 
   FREIGABE DURCH DEN BETREIBER: vpn-policy-eval --release-held ueber den
   privilegierten Auftragsweg (Klasse C, erneute Anmeldung). Sie gilt fuer
-  EINEN Lauf, traegt eine Obergrenze und den Akteur, setzt U-3 aus -
-  nicht aber U-1 und U-2 - und wird im Lifecycle-Log der betroffenen
-  Connections ueber actor_detail kenntlich.
+  EINEN Lauf, traegt eine Obergrenze und den Akteur, setzt U-3 aus und
+  wird im Lifecycle-Log der betroffenen Connections ueber actor_detail
+  kenntlich.
+  Mit dem Zusatz --confirm-time bestaetigt der Betreiber ausserdem die
+  Systemzeit (wie BASE-070_070 Regel U-5). Dann gelten fuer diesen Lauf
+  auch als erfuellt: das fehlende Signal der Zeitbasis (U-1), ein zu
+  grosser Abstand zur Marke (U-2 a) und die Ruhezeit (U-2 b).
+  NICHT bestaetigbar sind eine Abweichung zwischen Datenbankzeit und
+  Systemzeit (U-1) und ein NEGATIVER Abstand zur Marke (U-2 a): Beides
+  zeigt einen Fehler, den eine Bestaetigung nicht behebt. Der negative
+  Abstand erledigt sich mit dem naechsten regulaeren Lauf (er schreibt
+  die Marke neu) ; danach laeuft die Ruhezeit.
 
   WAS DER SCHUTZ NICHT LEISTET (offen ausgewiesen): Eine falsche, aber als
   synchronisiert gemeldete Uhr, die nur wenige Connections betrifft,
-  wird nicht erkannt. Einschraenkungen (umkehrbar) werden nicht gebremst;
+  wird nach Ablauf der Ruhezeit nicht mehr aufgehalten. Ein Sprung
+  unterhalb der Schwelle wird nicht erkannt ; er verfrueht Fristen um
+  hoechstens die Schwelle. Einschraenkungen (umkehrbar) werden nicht
+  gebremst;
   uebersteigt ihre Zahl in einem Lauf vpn_policy_eval_restrict_alert_per_
   run (Vorschlag 100), wird POLICY_EVAL_MASS_RESTRICT gemeldet.
 
@@ -339,12 +377,18 @@ ZWECK:
                                   naechster Lauf wiederholt
   Lauf bricht ab                  bereits abgeschlossene Connections sind
                                   gueltig; Rest im naechsten Lauf
-  Uhr springt vor                 unumkehrbare Uebergaenge zurueckgestellt
-                                  (U-1 bis U-3); Einschraenkungen sind
+  Uhr springt vor                 Anomalie (U-2 a) ; unumkehrbare
+                                  Uebergaenge ruhen mindestens fuer die
+                                  Ruhezeit (U-2 b), danach begrenzt U-3
+                                  die Menge ; Einschraenkungen sind
                                   umkehrbar und werden nach Korrektur der
                                   Uhr im naechsten Lauf aufgehoben
-  Uhr springt zurueck             U-2 verletzt; wie oben; bereits
-                                  ausgefuehrte Uebergaenge bleiben
+  Uhr springt zurueck             Anomalie (negativer Abstand) ; wie
+                                  oben ; bereits ausgefuehrte Uebergaenge
+                                  bleiben
+  Datenbankzeit und Systemzeit    U-1 nicht erfuellt ; unumkehrbare
+  weichen voneinander ab          Uebergaenge ruhen, bis die Ursache
+                                  behoben ist
   Registry unvollstaendig         Uebergangsroutine lehnt ab (BASE-010,
   (Grund ohne Zeile)              INV-08/09); Meldung; keine Aenderung
   Bewerter laeuft nicht           Marke altert; POLICY_EVAL_OVERDUE;

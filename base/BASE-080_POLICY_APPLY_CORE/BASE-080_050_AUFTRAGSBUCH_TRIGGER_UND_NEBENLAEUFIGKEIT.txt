@@ -58,6 +58,10 @@ ZWECK:
                                                        Abschnitt 6)
   prev_ipv4           VARCHAR(15)       NULL           Tunneladresse VOR
   prev_ipv6           VARCHAR(45)       NULL           einem Adresswechsel
+  origin              ENUM              NOT NULL       CHANGE (Schreibweg
+                                                       aus Abschnitt 3) |
+                                                       RETRY (vom Werkzeug
+                                                       selbst eingetragen)
   attempts            INT UNSIGNED      NOT NULL       gescheiterte
                                         DEFAULT 0      Versuche
   last_result         TINYINT UNSIGNED  NULL           letzter Ergebniscode
@@ -89,6 +93,9 @@ ZWECK:
            prev_ipv4, _ipv6   := alt, falls gesetzt, sonst neu (der
                                  AELTESTE Stand bleibt: Er beschreibt, was
                                  im Kernel noch stehen kann)
+           origin             := CHANGE, sobald ein Schreibweg aus
+                                 Abschnitt 3 eintraegt ; RETRY aendert ein
+                                 bestehendes CHANGE nicht
            attempts := 0 ; next_try_at := jetzt
     Q-4  ERLEDIGEN darf nur vpn-policy-apply, und nur nach der
          Schlusspruefung am Kernel (BASE-080_030 Schritt H8):
@@ -98,6 +105,10 @@ ZWECK:
          trifft das DELETE nicht ; er bleibt und wird erneut bearbeitet.
          Verglichen wird der Zaehler, nicht die Zeit: Zwei
          Fortschreibungen koennen denselben Zeitstempel tragen.
+         Auftraege je Connection werden UNTER DEM KERNEL-LOCK gelesen und
+         erledigt: Zwischen Lesen und Erledigen kann kein anderer Lauf
+         denselben Auftrag erledigen (und ein neuer mit gleichem Zaehler
+         entstehen).
     Q-5  Der Auftrag traegt KEINEN Zielzustand. Die Herstellung liest SQL
          immer frisch (DEC-PA-02) ; ein alter Auftrag kann nie einen
          ueberholten Zustand herstellen.
@@ -175,10 +186,14 @@ ZWECK:
   ein Modul ihn definiert), Wiederherstellung einer Datensicherung
   (MOD-008).
 
-  vpn-policy-apply SELBST traegt einen Auftrag ein, wenn ein Aufruf ohne
-  Auftrag scheitert und die Datenbank erreichbar ist (zum Beispiel
-  --l2tp-up mit Ergebnis 4, 5 oder 8): So geht auch dieser Versuch in die
-  Wiederholung.
+  vpn-policy-apply SELBST traegt einen Auftrag ein (origin RETRY), wenn
+  ein Aufruf ohne Auftrag mit Ergebnis 4, 5 oder 8 scheitert und die
+  Datenbank erreichbar ist (zum Beispiel --l2tp-up): So geht auch dieser
+  Versuch in die Wiederholung. Bei Ergebnis 6 traegt es KEINEN Auftrag
+  ein. Ein Auftrag der Herkunft RETRY gilt in der Mengenbremse des
+  Abgleichs nicht als Auftrag (BASE-080_040 Regeln M-1, M-7): Eine
+  zurueckgestellte Massenkorrektur darf nicht ueber selbst erzeugte
+  Auftraege zur Handlung werden.
 
 ================================================================================
 4) DER AUFTRAGSLAUF (vpn-policy-apply --pending)
@@ -194,32 +209,49 @@ ZWECK:
          Herstellung (Code 8) ; weiter mit AL6.
     AL2  DATENBANK pruefen (Verbindung, eine Lesung). Nicht erreichbar:
          weiter mit AL6 ; der Zustand "Datenbank gestoert seit" wird in der
-         Statusdatei gefuehrt. War sie beim vorigen Durchgang gestoert und
-         ist jetzt erreichbar: Anforderungsdatei des Abgleichs schreiben
-         (BASE-080_040 Abschnitt 2).
-    AL3  FAELLIGE AUFTRAEGE lesen: next_try_at <= jetzt, begrenzte Zahl je
-         Durchgang. REIHENFOLGE - ERST SCHLIESSEN:
-           1. Auftraege, deren Connection laut derselben Lesung nicht
-              zugelassen ist oder deren Zeile fehlt
-           2. Auftraege mit runtime_cut_before oder flow_cut_pending
-           3. alle uebrigen
-         innerhalb jeder Gruppe der aelteste zuerst (first_queued_at).
+         Statusdatei gefuehrt. RUECKKEHR (beim vorigen Durchgang
+         gestoert, jetzt erreichbar): die Unit des Bewerters starten, ohne
+         zu warten ; den Abgleich anfordern (BASE-080_040 Abschnitt 2),
+         sobald policy_eval_last_run_at juenger ist als die festgestellte
+         Rueckkehr - spaetestens nach vpn_policy_eval_interval_seconds.
+    AL3  FAELLIGE AUFTRAEGE lesen (next_try_at <= jetzt) und in dieser
+         REIHENFOLGE bearbeiten, bis das Zeitbudget des Durchgangs (ein
+         Raster) verbraucht ist:
+           1. SCHLIESSENDE Auftraege, die noch nie versucht wurden
+           2. uebrige Auftraege, die noch nie versucht wurden
+           3. schliessende Auftraege mit gescheiterten Versuchen
+           4. uebrige Auftraege mit gescheiterten Versuchen
+         innerhalb jeder Gruppe der am laengsten nicht versuchte zuerst
+         (last_try_at, sonst first_queued_at).
+         SCHLIESSEND ist ein Auftrag, dessen Connection laut derselben
+         Lesung nicht zugelassen ist oder deren Zeile fehlt, oder der ein
+         Merkmal traegt (alte Adressen, runtime_cut_before,
+         flow_cut_pending).
+         WARUM NEUE VOR GESCHEITERTEN: Ein gescheiterter schliessender
+         Auftrag hinterlaesst einen Zustand, der hoechstens strenger ist
+         als sein Ziel (BASE-080_030 Abschnitt 10) ; er darf neue
+         Auftraege nicht verdraengen.
     AL4  JE AUFTRAG: Herstellung fuer das Einzelziel (BASE-080_030,
          Schritte H2 bis H8) mit den Merkmalen des Auftrags (Abschnitt 5).
            Ergebnis 0        -> erledigen (Q-4)
            sonst             -> attempts + 1, last_result, last_try_at ;
                                 next_try_at nach Abschnitt 7
-    AL5  AUFTRAG DER ART GESAMT: Anforderungsdatei des Abgleichs schreiben
-         und den Abgleich starten, falls keiner laeuft. Erledigt wird der
-         Auftrag, sobald policy_reconcile_last_ok_at juenger ist als sein
-         queued_at.
+    AL5  AUFTRAG DER ART GESAMT: den Abgleich anfordern und starten, falls
+         keiner laeuft. Erledigt wird der Auftrag (mit seinem Zaehler,
+         wie Q-4), sobald ein Abgleich mit Ergebnis 0 vorliegt, der NACH
+         queued_at BEGONNEN hat (Wert der Marke
+         policy_reconcile_last_ok_at). Bis dahin gilt die Wiederholung
+         nach Abschnitt 7 mit dem Ergebnis des Abgleichs: Ein dauerhaft
+         nicht fehlerfreier Abgleich laeuft nicht in jedem Durchgang.
     AL6  AUFSICHT OHNE DATENBANK (BASE-080_030 Abschnitt 6.5): nicht
          freigegebene L2TP-Sitzungen pruefen, Reste beendeter Sitzungen
          raeumen. Dieser Schritt braucht kein SQL und laeuft immer, sofern
          der Zustand der Firewall das Schreiben erlaubt.
-    AL7  ANFORDERUNGSDATEI DES ABGLEICHS pruefen und den Abgleich starten,
-         falls angefordert und keiner laeuft ; ebenso bei jedem Durchgang,
-         solange der Zustand der Firewall VERSIEGELT ist.
+    AL7  ANFORDERUNGEN DES ABGLEICHS pruefen und den Abgleich starten,
+         falls angefordert und keiner laeuft ; ebenso, solange der Zustand
+         der Firewall VERSIEGELT ist - nach einem gescheiterten Versuch
+         mit wachsendem Abstand (Raster mal 2 hoch Zahl der gescheiterten
+         Versuche in Folge, hoechstens 60 s ; fester Wert).
     AL8  STATUSDATEI schreiben ; Alarme nach Abschnitt 9.
 
   EIGENSCHAFTEN:
@@ -369,10 +401,13 @@ ZWECK:
   REGELN:
     W-1  Ein Auftrag wird NIE aufgegeben oder geloescht, weil er zu oft
          gescheitert ist. Er bleibt, wird gemeldet und weiter versucht.
-    W-2  SCHLIESSENDE AUFTRAEGE WARTEN NICHT: Ist die Connection des
-         Auftrags nicht zugelassen, gilt die wachsende Verzoegerung
-         nicht ; der Versuch folgt in jedem Durchgang. Eine Sperrung darf
-         nicht an einer Wartezeit haengen.
+    W-2  SCHLIESSENDE AUFTRAEGE WARTEN NICHT: Fuer einen schliessenden
+         Auftrag (Schritt AL3) gilt nach den Ergebnissen 4, 5 und 8 keine
+         wachsende Verzoegerung ; er ist im naechsten Durchgang wieder
+         faellig. Eine Sperrung, eine Einschraenkung und ein
+         Laufzeit-Schnitt duerfen nicht an einer Wartezeit haengen. Nach
+         den Ergebnissen 6 und 7 bleibt die Verzoegerung (BASE-080_030
+         Regel EC-2: melden, nicht blind wiederholen).
     W-3  Jede Fortschreibung des Auftrags (Q-3) setzt attempts auf 0.
 
 ================================================================================
@@ -404,8 +439,9 @@ ZWECK:
   Regelwerk neu geladen           Anforderung des Abgleichs     Pflicht
   (vpn-fw-load recover)
   Systemstart                     Unit des Startabgleichs       Pflicht
-  Datenbank wieder erreichbar     Auftragslauf AL2: Anforderung  Pflicht
-                                  des Abgleichs
+  Datenbank wieder erreichbar     Auftragslauf AL2: Bewerter,    Pflicht
+                                  dann Anforderung des
+                                  Abgleichs
   Takt                            Zeitgeber: Auftragslauf,      Pflicht
                                   Abgleich, Bewerter
   Periodenwechsel der Quota       vpn-quota-period ruft den     Pflicht

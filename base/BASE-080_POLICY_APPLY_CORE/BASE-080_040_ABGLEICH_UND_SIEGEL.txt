@@ -42,8 +42,8 @@ ZWECK:
   Systemstart                    Unit des Startabgleichs (Phase 5 der
                                  Startfolge, BASE-050_070 Abschnitt 8)
   Regelwerk neu geladen          vpn-fw-load recover stoesst an
-  (recover)                      (Anforderungsdatei und Start der Unit, ohne
-                                 zu warten)
+  (recover)                      (Anforderung und Start der Unit, ohne zu
+                                 warten)
   Firewall VERSIEGELT            solange der Zustand VERSIEGELT ist, gilt der
                                  Abgleich bei JEDEM Durchgang des
                                  Auftragslaufs als faellig
@@ -56,11 +56,16 @@ ZWECK:
                                  Einstellungen mit Wirkung auf alle
   Betreiber                      Aufruf von Hand (root)
 
-  ANFORDERUNGSDATEI: /run/retrotunnel/policy/reconcile.request (nur root
-  schreibbar). Sie macht den Anstoss unabhaengig von der Datenbank und
-  von der Dienstverwaltung: Der Auftragslauf prueft sie bei jedem
-  Durchgang und startet den Abgleich, falls keiner laeuft. Sie wird erst
-  nach einem Abgleich ohne Fehler entfernt.
+  ANFORDERUNG: Verzeichnis /run/retrotunnel/policy/reconcile.request.d/
+  (nur root schreibbar). Wer den Abgleich anfordert, legt darin eine
+  leere Datei mit eindeutigem Namen an. Das macht den Anstoss unabhaengig
+  von der Datenbank und von der Dienstverwaltung: Der Auftragslauf prueft
+  das Verzeichnis bei jedem Durchgang und startet den Abgleich, falls
+  keiner laeuft.
+  Der Abgleich merkt sich bei seinem BEGINN die vorhandenen Anforderungen
+  und entfernt nach einem Lauf OHNE Fehler genau diese. Eine Anforderung,
+  die waehrend eines Laufs eintrifft, bleibt und fuehrt zu einem weiteren
+  Lauf: Ihr Anlass kann nach den Lesungen des laufenden Abgleichs liegen.
 
 ================================================================================
 3) ABLAUF (verbindlich)
@@ -85,7 +90,8 @@ ZWECK:
   V1  ABSCHNITT "SCHLIESSEN"
       a) SQL mengenweise lesen (kein Zugriff je Zeile): fuer alle
          Connections die Felder der Soll-Funktion und der Zuordnung
-         (BASE-080_030 Abschnitt 4), noch ohne Schluesselmaterial.
+         (BASE-080_030 Abschnitt 4), noch ohne Schluesselmaterial ; dazu
+         Ziel und Herkunft aller offenen Auftraege (fuer Abschnitt 7).
       b) Kernel lesen: WireGuard-Peers mit AllowedIPs ; ppp-
          Schnittstellen mit Index und Gegenstellen-Adresse ; Elemente von
          restricted_*, allowed_l2tp_v4, connect_pending_*.
@@ -265,13 +271,28 @@ ZWECK:
   von B052: INVARIANT_BROKEN).
 
   REGEL:
-    M-1  Gezaehlt werden in V1 die Connections, fuer die ein Peer
-         entfernt oder eine Sitzung beendet werden muesste und fuer die
-         KEIN offener Auftrag besteht.
-    M-2  Uebersteigt die Zahl vpn_reconcile_mass_close_limit (Vorschlag:
-         20) UND zugleich vpn_reconcile_mass_close_percent (Vorschlag: 10)
-         Prozent der bestehenden Laufzeit-Repraesentationen, fuehrt der
-         Lauf KEINE dieser Handlungen aus.
+    M-1  Gezaehlt werden in V1 die Ziele, fuer die OHNE offenen Auftrag
+         ein Peer entfernt, eine Freigabe entzogen oder eine Sitzung
+         beendet werden muesste (Peers "zu entfernen" ; L2TP: Faelle L-C,
+         L-D, L-E und "Adresse unbekannt"). Das Ersetzen eines Peers
+         zaehlt nicht: Es schliesst nichts. Als Auftrag zaehlt hier nur
+         einer der Herkunft CHANGE (BASE-080_050 Abschnitt 3) - nicht
+         einer, den das Werkzeug zur Wiederholung selbst eingetragen hat.
+    M-2  DIE BREMSE HAELT, wenn
+           a) die Zahl groesser ist als vpn_reconcile_mass_close_limit
+              (Vorschlag 20) UND zugleich groesser als
+              vpn_reconcile_mass_close_percent (Vorschlag 10) Prozent der
+              bestehenden Laufzeit-Repraesentationen, ODER
+           b) allein die Zahl der betroffenen L2TP-Sitzungen groesser ist
+              als vpn_l2tp_kill_hold_threshold (Key von BASE-070): Der
+              Abgleich beendet ohne Auftrag nie mehr Sitzungen, als der
+              Zulassungswaechter von BASE-070 es duerfte (BASE-070_020
+              Schritt L7).
+         Dann fuehrt der Lauf fuer KEINES der gezaehlten Ziele eine
+         schliessende Handlung an bestehender Laufzeit aus: kein
+         Entfernen eines Peers, kein Entzug einer Freigabe, kein Beenden
+         einer Sitzung. Er setzt die Marke policy_mass_hold_since, falls
+         sie noch nicht steht.
     M-3  Alles andere laeuft: Handlungen mit Auftrag, Einfuegen in
          restricted_*, Gate, Hygiene, Oeffnen.
     M-4  Ereignis POLICY_RECONCILE_MASS_HOLD (CRITICAL) mit Zahl und
@@ -281,10 +302,27 @@ ZWECK:
          --confirm-mass-close <Zahl> ueber den privilegierten Auftragsweg
          (Klasse C). Die Zahl muss der gemeldeten entsprechen ; die
          Freigabe gilt fuer einen Lauf.
-    M-6  IM ZUSTAND VERSIEGELT gilt die Bremse nicht fuer das Gate:
-         Peers, deren Entfernen zurueckgestellt ist, erhalten vor dem
-         Loesen des Siegels ein Gate-Element. Sie bleiben damit so
-         geschlossen, wie sie es unter dem Siegel schon sind.
+    M-6  DIE BREMSE OEFFNET NICHTS. Im Zustand VERSIEGELT erhalten Peers,
+         deren Entfernen zurueckgestellt ist, vor dem Loesen des Siegels
+         ein Gate-Element: Sie bleiben so geschlossen, wie sie es unter
+         dem Siegel schon sind. Entsprechend L2TP: Nach einem Neuladen
+         des Regelwerks sind alle Freigaben fort ; eine Sitzung, deren
+         Connection nicht zugelassen ist, erhaelt keine neue und wird von
+         der Aufsicht nach Fristablauf beendet (BASE-080_030 Abschnitt
+         6.5). Die Bremse bewahrt nur Bestehendes.
+    M-7  DIE BREMSE GILT AUCH FUER EINZELZIELE OHNE AUFTRAG. Solange die
+         Marke policy_mass_hold_since steht, fuehrt eine Herstellung fuer
+         ein Einzelziel, fuer das kein Auftrag der Herkunft CHANGE
+         besteht, keine schliessende Handlung an bestehender Laufzeit aus
+         (BASE-080_030 Abschnitt 8).
+         Sonst wuerden die Zulassungswaechter (BASE-040_050 Schritt B2)
+         dieselben Peers einzeln entfernen, die der Abgleich
+         zurueckgestellt hat. Der Sitzungsbeginn (--l2tp-up) ist nicht
+         erfasst: Er verweigert nur eine neue Zulassung.
+    M-8  DIE BREMSE ENDET, sobald ein Lauf die Bedingung M-2 nicht mehr
+         vorfindet (die Ursache ist behoben) oder der Betreiber nach M-5
+         freigegeben und der Lauf die Handlungen ausgefuehrt hat. Dann
+         wird die Marke entfernt.
 
   ABWAEGUNG (offen ausgewiesen): Solange die Bremse haelt, bleiben
   moeglicherweise nicht mehr berechtigte Peers oder Sitzungen bestehen.
@@ -317,7 +355,11 @@ ZWECK:
 
   DATENBANK WAR NICHT ERREICHBAR
     Nach der Rueckkehr: erst Bewerter (--all), dann Auftragslauf, dann
-    Abgleich. Fuer WireGuard gelten waehrend der Stoerung die Regeln von
+    Abgleich. Der Auftragslauf stoesst den Bewerter an und fordert den
+    Abgleich erst an, wenn dieser gelaufen ist - spaetestens nach einem
+    Bewertungstakt (BASE-080_050 Schritt AL2). So oeffnet der Abgleich
+    nicht, was die Bewertung gleich wieder einschraenken wuerde.
+    Fuer WireGuard gelten waehrend der Stoerung die Regeln von
     BASE-040_060 (Schonfrist, danach geschlossen) ; der Abgleich oeffnet
     wieder, was SQL deckt.
 
@@ -341,9 +383,17 @@ ZWECK:
   zurueckgestellt wurde ; 1 (PARTIAL_OK), wenn einzelne Ziele gescheitert
   oder zurueckgestellt sind ; 2 bzw. 8 bei V0.
 
-  Marken (vpn_runtime_marks, BASE-070_070):
-    policy_reconcile_last_run_at   bei jedem Lauf, der V1 erreicht hat
-    policy_reconcile_last_ok_at    nur bei Ergebniscode 0
+  Marken (vpn_runtime_marks, BASE-070_070 ; Verzeichnis dieses Moduls:
+  BASE-080_070 Abschnitt 5):
+    policy_reconcile_last_run_at   bei jedem Lauf, der V1 erreicht hat ;
+                                   Wert = BEGINN des Laufs
+    policy_reconcile_last_ok_at    nur bei Ergebniscode 0 ; Wert = BEGINN
+                                   dieses Laufs (Datenbankzeit unmittelbar
+                                   VOR der Lesung V1 a)
+    policy_mass_hold_since         Abschnitt 7 (M-2, M-8)
+  Der BEGINN und nicht das Ende ist massgeblich, weil nur ein Lauf, der
+  NACH einer Aenderung begonnen hat, sie sicher gelesen hat (Auftrag der
+  Art GESAMT, BASE-080_050 Schritt AL5).
   Ohne Datenbank werden keine Marken geschrieben ; die Statusdatei
   /run/retrotunnel/policy/status-reconcile.json wird immer geschrieben.
 
