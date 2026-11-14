@@ -58,12 +58,16 @@ ZWECK:
          dient keiner Anzeige ("online").
     K-2  Jede Sperre laeuft ab. Es gibt keine Sperre ohne expires_at und
          keinen Ablauf jenseits der Obergrenze des jeweiligen Zwecks.
+         Eine Sperre, deren Ablauf weiter in der Zukunft liegt als die
+         groesste Obergrenze aller Zwecke, kann nicht gueltig entstanden
+         sein (die Uhr wurde verstellt). Sie gilt als abgelaufen und
+         wird beim Erwerb und vom Bereinigungslauf entfernt.
     K-3  Eine abgelaufene Sperre ist wirkungslos; sie darf von jedem
          Erwerber entfernt werden.
     K-4  Verglichen wird ausschliesslich mit der Datenbankzeit (NOW()).
          Kein Aufrufer rechnet Fristen mit seiner eigenen Uhr.
-    K-5  Freigeben darf nur der Halter (Vergleich auf purpose und holder).
-         Ausnahme: der Zweck L2TP_ADMISSION, Abschnitt 4.
+    K-5  Freigeben darf nur der Halter (Vergleich auf purpose und holder)
+         - ohne Ausnahme, auch beim Zweck L2TP_ADMISSION (Abschnitt 4).
     K-6  Es gibt keine Verwaltungshandlung "Sperre loeschen". Wer eine
          Nutzung beenden will, benutzt den Hard-Cut (_040).
 
@@ -73,18 +77,24 @@ ZWECK:
 
   ERWERB (zwei Anweisungen, in dieser Reihenfolge):
     E1  DELETE FROM vpn_session_locks
-         WHERE vpn_connection_id = :id AND expires_at <= NOW()
+         WHERE vpn_connection_id = :id
+           AND (expires_at <= NOW()
+                OR expires_at > NOW() + INTERVAL :obergrenze SECOND)
+        (:obergrenze ist die groesste zulaessige TTL aller Zwecke; der
+        zweite Teil setzt K-2 durch.)
     E2  INSERT INTO vpn_session_locks
                (vpn_connection_id, purpose, holder, acquired_at, expires_at)
         VALUES (:id, :purpose, :holder, NOW(),
                 NOW() + INTERVAL :ttl SECOND)
     ERWORBEN genau dann, wenn E2 eine Zeile einfuegt. Jeder andere Ausgang
-    (Schluesselkonflikt, sonstiger Fehler, Zeitlimit) heisst NICHT
-    ERWORBEN.
+    heisst NICHT ERWORBEN - der Aufrufer unterscheidet dabei:
+      BELEGT    Schluesselkonflikt in E2 (eine gueltige Sperre besteht)
+      STOERUNG  jeder andere Fehler, auch Zeitlimit und abgebrochene
+                Transaktion
 
     Der Primaerschluessel stellt sicher, dass von gleichzeitigen Erwerbern
     genau einer gewinnt. E1 kann keine gueltige Sperre entfernen, weil es
-    nur Abgelaufenes loescht.
+    nur Abgelaufenes und Unmoegliches loescht.
 
     NICHT ZULAESSIG ist der Erwerb als eine Anweisung "Einfuegen, bei
     Konflikt aktualisieren". Deren Rueckmeldung (Zahl betroffener Zeilen)
@@ -122,44 +132,69 @@ ZWECK:
   Anfragen mit gueltigem Kennwort. Er ersetzt die Schritte 2.5 bis 2.7 in
   ihrer bisherigen, auf vpn_sessions bezogenen Fassung.
 
+  VORAUSSETZUNG AN DIE SCHRITTE DAVOR (ANF-SC-16): Zugelassen wird nur ein
+  Anmeldename, der dem gespeicherten Zeichen fuer Zeichen gleicht. Die
+  Schritte 2.2 bis 2.4 halten fest, mit welchem Stand sie geprueft haben:
+  op_status, revoked_at, fixed_ip und den Credential-Stand
+  (credential_version der Auth-Zeile). P5 vergleicht dagegen.
+
   P1  ON-DEMAND-PRUEFUNG
       Aufruf vpn-session-check fuer die vpn_connection_id (_040 Abschnitt
-      3). Ergebnis LIVE, NOT_LIVE oder UNKNOWN. Zeitlimit
+      3). Ergebnis LIVE, NOT_LIVE, TRANSITION oder UNKNOWN. Zeitlimit
       vpn_cleanup_timeout_seconds; jedes Scheitern des Aufrufs gilt als
       UNKNOWN. Bei NOT_LIVE hat der Dienst belegte Geister bereits
       geschlossen.
   P2  LIVE                          -> REJECT R_SIMUSE_ACTIVE
+      TRANSITION (es sind nur       -> REJECT R_SIMUSE_GUARD_BUSY
+      Sitzungen der Connection im      (voruebergehend: Der Daemon wiese
+      Auf- oder Abbau gelistet)        eine neue Sitzung jetzt ab)
   P3  WAHRHEIT LAUT PROTOKOLL
-      Existiert in radacct eine Zeile mit diesem Anmeldenamen, diesem NAS
-      und acctstoptime IS NULL?     -> REJECT R_SIMUSE_ACTIVE
+      Existiert in radacct fuer diesen NAS eine Zeile mit acctstoptime IS
+      NULL, deren Anmeldename dem der Connection gleicht ODER deren
+      framedipaddress ihrer fixed_ip?
+                                    -> REJECT R_SIMUSE_ACTIVE
       (Gilt bei NOT_LIVE und bei UNKNOWN gleichermassen: streng.)
   P4  SPERRE ERWERBEN
-      Zweck L2TP_ADMISSION, TTL vpn_active_session_lock_ttl_seconds.
-      NICHT ERWORBEN                -> REJECT R_SIMUSE_GUARD_BUSY
+      Zweck L2TP_ADMISSION, TTL vpn_active_session_lock_ttl_seconds,
+      Halter = frischer Zufallswert DIESES Versuchs.
+      BELEGT                        -> REJECT R_SIMUSE_GUARD_BUSY
+      STOERUNG                      -> REJECT mit dem Backend-Grund
   P5  NACHPRUEFUNG UNTER DER SPERRE
-      Die Abfrage aus P3 wird wiederholt; gelesen wird der aktuell
-      festgeschriebene Stand. Offene Zeile vorhanden: eigene Sperre
-      freigeben (Abschnitt 3)       -> REJECT R_SIMUSE_ACTIVE
-  P6  ACCEPT
+      Gelesen wird der aktuell festgeschriebene Stand.
+      a) Die Abfrage aus P3 wird wiederholt. Offene Zeile vorhanden:
+         eigene Sperre freigeben    -> REJECT R_SIMUSE_ACTIVE
+      b) ZULASSUNGSSTAND: op_status, revoked_at, fixed_ip und
+         credential_version werden erneut gelesen. Weicht einer vom Stand
+         der Schritte 2.2 bis 2.4 ab (inzwischen gesperrt, Rolle oder
+         Kennwort gewechselt):
+         eigene Sperre freigeben    -> REJECT R_SIMUSE_GUARD_BUSY
+  P6  ACCEPT - die Antwort traegt die Halterkennung im Attribut Class.
 
   NACH DER ZUSAGE:
-    - Der Daemon baut die Sitzung auf und meldet Accounting-Start. Der
+    - Der Daemon baut die Sitzung auf und meldet Accounting-Start; er
+      sendet dabei das Attribut Class unveraendert zurueck. Der
       AAA-Dienst schreibt die radacct-Zeile und gibt DANACH, im selben
       Verarbeitungsschritt, die Sperre frei:
           DELETE FROM vpn_session_locks
            WHERE vpn_connection_id = :id AND purpose = 'L2TP_ADMISSION'
-      (ohne Haltervergleich: Die Meldung kann nur von der zugelassenen
-      Sitzung stammen, Abschnitt 7 Fall F.) Erst die geschriebene
-      radacct-Zeile macht die Nutzung fuer P3 sichtbar; vorher wird nicht
-      freigegeben.
+             AND holder = :class
+      Der Haltervergleich stellt sicher, dass nur die Meldung der
+      zugelassenen Sitzung ihre Sperre freigibt - nicht eine verspaetete
+      oder nachgespielte Start-Meldung einer frueheren Sitzung. Erst die
+      geschriebene radacct-Zeile macht die Nutzung fuer P3 sichtbar;
+      vorher wird nicht freigegeben.
+    - Traegt eine Start-Meldung kein Class oder ein fremdes, wird NICHT
+      freigegeben; die Sperre laeuft nach ihrer TTL ab.
     - Bleibt Accounting-Start aus (Abbruch des Aufbaus, Ablehnung durch
       den Schlussriegel, verlorene Meldung), laeuft die Sperre nach ihrer
       TTL ab. Es entsteht kein dauerhaftes Aussperren.
 
   FEHLER: Jeder Datenbankfehler in P3, P4 oder P5 fuehrt zur Ablehnung mit
   dem Backend-Grund (R_AUTH_BACKEND_SQL_DOWN / _FAIL), nie zur Zusage
-  (AAA-03). Scheitert nach erworbener Sperre die Nachpruefung oder die
-  Freigabe, laeuft die Sperre nach ihrer TTL ab.
+  (AAA-03). Das gilt auch fuer die STOERUNG beim Erwerb; nur der
+  Schluesselkonflikt (BELEGT) ergibt R_SIMUSE_GUARD_BUSY. Scheitert nach
+  erworbener Sperre die Nachpruefung oder die Freigabe, laeuft die Sperre
+  nach ihrer TTL ab.
 
   WARUM DIESE REIHENFOLGE:
     P1 vor P3: Ohne vorherige Geisterpruefung wuerde eine verwaiste Zeile
@@ -183,16 +218,22 @@ ZWECK:
        Lesestand saehe die Nachpruefung die inzwischen geschriebene Zeile
        nicht. Zulaessig sind einzeln festgeschriebene Anweisungen oder
        ein sperrendes Lesen.
+    P5 b: Die Pruefung von Status und Kennwort liegt VOR der Sperre. Ein
+       Umbau (Kennwortwechsel, Rollenwechsel, Sperrung) kann vollstaendig
+       ablaufen, waehrend ein Versuch in P1 steht. Unter der Sperre
+       sieht jeder Versuch entweder den neuen Stand - und wird abgelehnt
+       - oder er haelt die Sperre, auf die der Umbau wartet.
 
-  DB-RECHTE: Der DB-User radius besitzt auf vpn_session_locks SELECT,
-  INSERT, DELETE (BASE-000_010). Vertraglich benutzt er ausschliesslich
-  den Zweck L2TP_ADMISSION; andere Zwecke fasst er nicht an.
-
-  KAPSELUNG: Die Schritte P3 bis P5 duerfen als EINE gespeicherte Routine
-  ausgefuehrt werden (ein Aufruf, ein eindeutiger Rueckgabewert). Das haelt
-  die Entscheidungslogik aus der Ablaufsprache des AAA-Dienstes heraus
-  (AAA-27); Reihenfolge und Bedeutung der Schritte bleiben unveraendert,
-  ebenso die Leseeigenschaft der Nachpruefung.
+  DB-RECHTE UND KAPSELUNG (verbindlich): Die Schritte P3 bis P5 und die
+  Freigabe bei Accounting-Start sind je EINE gespeicherte Routine (ein
+  Aufruf, ein eindeutiger Rueckgabewert). Der DB-User radius erhaelt
+  das Ausfuehrungsrecht an diesen Routinen und KEIN eigenes Recht an
+  der Tabelle vpn_session_locks; die Routinen kennen nur den Zweck
+  L2TP_ADMISSION. So kann der AAA-Dienst keine fremde Sperre anfassen,
+  und die Entscheidungslogik bleibt aus der Ablaufsprache des
+  AAA-Dienstes heraus (AAA-27). Reihenfolge und Bedeutung der Schritte
+  und die Leseeigenschaft der Nachpruefung sind Teil des Vertrags der
+  Routine (Nachzug der Rechte: ANF-SC-02).
 
   KEINE SPERRLISTEN-WIRKUNG: Die Ablehnungen R_SIMUSE_ACTIVE und
   R_SIMUSE_GUARD_BUSY setzen gueltige Zugangsdaten voraus. Sie sind keine
@@ -221,12 +262,12 @@ ZWECK:
                       L2TP (BASE-010)
   ROLE_CHANGE         Rollenwechsel-       wie oben, verlaengerbar Vorgang
                       Kaskade (D002)
-  HARDCUT             vpn-session-kill     wie oben                Werkzeug
+  HARDCUT             vpn-session-kill     wie oben, verlaengerbar Werkzeug
 
   Die Halterkennung ist je Vorgang ein frischer Zufallswert (mindestens
-  96 Bit); beim Zweck L2TP_ADMISSION die Kennung des Anmeldeversuchs,
-  sofern der Daemon sie in der Anfrage mitsendet, sonst der feste Wert
-  "aaa".
+  96 Bit) - auch beim Zweck L2TP_ADMISSION, wo sie der AAA-Dienst je
+  Anmeldeversuch erzeugt und im Attribut Class der Zusage mitgibt.
+  Einen festen Halterwert gibt es nicht.
 
 ================================================================================
 6) SPERREN FUER UMBAUTEN
@@ -240,8 +281,12 @@ ZWECK:
   KENNWORTWECHSEL L2TP ALS UMBAU: Ohne Sperre koennte eine Anmeldung, die
   kurz vor dem Wechsel mit dem alten Kennwort zugelassen wurde, ihre
   Sitzung erst nach dem Hard-Cut aufbauen und unter dem abgeloesten
-  Kennwort weiterlaufen. Unter der Sperre wartet der Wechsel, bis diese
-  Anmeldung sichtbar ist, und beendet sie dann mit.
+  Kennwort weiterlaufen. Zwei Mittel schliessen das zusammen aus:
+  Haelt die Anmeldung ihre Sperre bereits, wartet der Wechsel, bis die
+  Sitzung sichtbar ist, und beendet sie dann mit. Hat die Anmeldung ihre
+  Sperre noch nicht, sieht sie in P5 b den neuen Credential-Stand und
+  wird abgelehnt. Der Wechsel erhoeht dazu credential_version in
+  derselben Transaktion, in der er das Kennwort schreibt.
 
   ABLAUF:
     U1  Sperre erwerben (Zweck, frische Halterkennung). Ist sie belegt:
@@ -293,34 +338,68 @@ ZWECK:
   F  Sperre von Versuch 1 laeuft ab, Versuch 2 erhaelt Zusage; der eine
      waehrend dessen Aufbau noch     Daemon laesst nur die erste   Sitzung
      laeuft; Versuch 2 kommt         Sitzung zu; deren Acct-Start
-                                     gibt die (zweite) Sperre
-                                     frei - folgenlos, weil die
-                                     Nutzung nun in radacct steht
+                                     traegt den Halter von
+                                     Versuch 1 und gibt die Sperre
+                                     von Versuch 2 NICHT frei -
+                                     sie laeuft ab
   G  Sonde antwortet nicht, Geist    P3 findet die offene Zeile    Ablehnung,
      vorhanden                                                     bis Sonde
                                                                    oder
                                                                    Abgleich
                                                                    wieder
                                                                    arbeiten
-  H  Umbau laeuft                    P4 nicht erworben             Ablehnung
+  H  Umbau laeuft                    P4 BELEGT                     Ablehnung
                                                                    (vorueber-
                                                                    gehend)
   I  Datenbank nicht erreichbar      P3/P4 schlagen fehl           Ablehnung
-  J  Sitzung eines anderen Versuchs  P4 erworben; P5 findet die    Ablehnung,
+                                                                   (Backend)
+  J  Sitzung eines anderen Versuchs  P4 erworben; P5 a findet die  Ablehnung,
      wird zwischen P3 und P4         offene Zeile; eigene Sperre   keine
      sichtbar, dessen Sperre ist     wird freigegeben              zweite
      schon freigegeben                                             Zusage
+  K  Kennwortwechsel laeuft          P4 erworben; P5 b sieht den   Ablehnung;
+     vollstaendig ab, waehrend der   neuen Credential-Stand        keine
+     Versuch in P1 steht                                           Sitzung
+                                                                   unter altem
+                                                                   Kennwort
+  L  Nachgespielte Start-Meldung     Freigabe vergleicht den       Sperre des
+     einer frueheren Sitzung trifft  Halter: kein Treffer          neuen
+     waehrend eines neuen Versuchs                                 Versuchs
+     ein                                                           bleibt
+  M  Anmeldung in abweichender       Schritt 2.1 lehnt ab          keine
+     Schreibweise des Namens         (ANF-SC-16). Faende sie       zweite
+                                     dennoch statt: Sonde und P3   Sitzung
+                                     sehen die Sitzung ueber die
+                                     Adresse; der Daemon weist
+                                     die doppelte Adresse ab
+  N  Sitzung der Connection ist im   P1 TRANSITION                 Ablehnung
+     Abbau, Client waehlt sofort neu                               (vorueber-
+                                                                   gehend),
+                                                                   kein
+                                                                   Sperr-Rest
 
   ZUSAGEN ZUM AUSSPERREN (SZ-3):
-    Sperr-Leiche                  hoechstens die TTL des Zwecks
+    Sperr-Leiche                  hoechstens die TTL des Zwecks - auch nach
+                                  einer verstellten Uhr (K-2, E1)
     Geist, Sonde arbeitet         keine Wartezeit (On-Demand), sofern die
                                   Zeile aelter ist als
                                   vpn_ghost_min_age_seconds; sonst dieses
                                   Mindestalter zuzueglich hoechstens eines
                                   Begrenzungsfensters der Sonde
                                   (vpn_cleanup_ratelimit_window_seconds)
+    Sitzung hat soeben regulaer   hoechstens die Karenz
+    geendet, Stop-Meldung fehlt   vpn_ghost_stop_grace_seconds; danach wie
+    noch                          "Geist"
+    Abrechnungspuffer nicht leer  bis der Puffer nachgespielt ist (so
+    (nach einer Datenbank-        lange wird kein Geist geschlossen);
+    stoerung)                     Alarm, wenn das laenger dauert als
+                                  vpn_l2tp_buffer_drain_alert_seconds
     Geist, vpn-sessiond steht     hoechstens Takt des L2TP-Abgleichs plus
                                   Mindestalter
+    Sitzung haengt im Auf- oder   hoechstens
+    Abbau                         vpn_l2tp_transition_max_seconds plus
+                                  Takt des Abgleichs; dann wird sie
+                                  beendet
     Verwaltungsschnittstelle des  unbegrenzt, solange die Stoerung anhaelt
     Daemons gestoert (Fall G)     (Fail-Closed); Alarm
                                   SESSION_PROBE_UNAVAILABLE

@@ -18,54 +18,77 @@ ZWECK:
 ================================================================================
 
   Tunnelneutrale Schnittstelle; je Tunnel ein Adapter des jeweiligen
-  Runners.
+  Runners. Gefragt wird nach einer CONNECTION, nicht nach einer
+  Zeichenkette: Der Adapter erhaelt die Merkmale, an denen eine
+  Laufzeitsitzung der Connection zu erkennen ist (L2TP: Anmeldename UND
+  Tunneladresse; WireGuard: PublicKey).
 
-    list()             Alle lebenden Laufzeitsitzungen mit Kennung
+    list()             Alle Laufzeitsitzungen - auch im Auf- und Abbau -
+                       je mit Sitzungskennung des Daemons, Kennung
                        (Anmeldename bzw. PublicKey), Laufzeit-Referenz,
-                       Tunneladresse, Zustand, Beginn; dazu die Startzeit
-                       des Daemons bzw. die Interface-Generation.
-                       Oder: FEHLER.
-    probe(kennung)     LIVE (mit Laufzeit-Referenz) | NOT_LIVE | UNKNOWN
-    kill(kennung)      KILLED | NOT_FOUND | FAILED
+                       Tunneladresse, Zustand und Beginn; dazu die
+                       Instanzkennung des Daemons bzw. die
+                       Interface-Generation. Oder: FEHLER.
+    probe(c)           LIVE | NOT_LIVE | TRANSITION | UNKNOWN fuer die
+                       Connection c, dazu die zu c gehoerigen gelisteten
+                       Sitzungen (Sitzungskennung, Zustand, Referenz)
+    kill(c [, sid])    KILLED | NOT_FOUND | FAILED. Beendet ALLE zu c
+                       gehoerigen Sitzungen bzw. genau die Sitzung sid.
 
   ANFORDERUNGEN AN JEDEN ADAPTER:
     AD-1  UNKNOWN bzw. FEHLER bei jedem Zweifel: Zeitlimit, nicht
           auswertbare Antwort, Verwaltungsschnittstelle nicht erreichbar.
     AD-2  NOT_LIVE nur bei positiver Kenntnis: Die Laufzeit wurde gelesen
-          und zeigt fuer die Kennung keine Nutzung (L2TP: in keinem Zustand
-          gelistet; WireGuard: Peer fehlt oder Handshake aelter als die
-          Schwelle) - ODER der Daemon laeuft gesichert nicht (Dienstzustand
-          "inaktiv" und kein Prozess), dann kann keine Sitzung leben.
-          Kennungen werden als vollstaendige Zeichenkette exakt verglichen;
-          eine Ausgabe, die Namen kuerzt oder umformt, ergibt UNKNOWN.
+          und zeigt KEINE zu c gehoerige Sitzung, gleich in welchem
+          Zustand (L2TP: weder unter dem Anmeldenamen noch unter der
+          Tunneladresse; WireGuard: Peer fehlt oder Handshake aelter als
+          die Schwelle) - ODER der Daemon laeuft gesichert nicht
+          (Dienstzustand "inaktiv" und kein Prozess), dann kann keine
+          Sitzung leben. Namen werden byteweise als vollstaendige
+          Zeichenkette verglichen; eine Ausgabe, die Namen kuerzt,
+          umformt oder nicht eindeutig zerlegbar ist, ergibt UNKNOWN.
     AD-3  Jede Operation hat ein Zeitlimit und keine Nebenwirkung ausser
           der benannten.
-    AD-4  kill() beendet sofort und prueft, dass die Kennung danach nicht
-          mehr gelistet ist (Wartezeit hoechstens
-          vpn_hardcut_kill_timeout_seconds). Ohne diese Bestaetigung:
-          FAILED.
+    AD-4  kill() beendet sofort und prueft, dass danach keine zu c
+          gehoerige Sitzung (bzw. die Sitzung sid) mehr gelistet ist
+          (Wartezeit hoechstens vpn_hardcut_kill_timeout_seconds). Ohne
+          diese Bestaetigung: FAILED. NOT_FOUND heisst: Eine Lesung
+          zeigte von vornherein keine solche Sitzung - nie "es war kein
+          Name bekannt".
     AD-5  Kennungen und Antworten erscheinen nicht in Prozesslisten oder
           Protokollen mit Geheimnissen; die Verwaltungsschnittstelle des
           Daemons ist nur lokal erreichbar und so geschuetzt, dass
           unprivilegierte Dienste (insbesondere der AAA-Dienst) sie nicht
           bedienen koennen.
+    AD-6  SITZUNGSKENNUNG: Der L2TP-Adapter nennt je Sitzung die
+          Sitzungskennung des Daemons (Gegenstueck zu
+          radacct.acctsessionid). Kann er das nicht, sagt er es in jeder
+          Antwort ausdruecklich; die Regeln fallen dann auf die Zuordnung
+          ueber die Connection zurueck (BASE-070_020 Schritt L4), und das
+          Ereignis L2TP_ADAPTER_NO_SESSION_ID wird gemeldet.
+    AD-7  INSTANZKENNUNG: eine Kennung, die sich bei jedem Start des
+          Daemons aendert und NICHT aus einer Uhrzeit abgeleitet ist
+          (zum Beispiel die Aufrufkennung der Unit). An ihr erkennt der
+          Abgleich einen Neustart (Schritt L3).
 
   L2TP (Runner BASE-030): Quelle ist die Sitzungstabelle von accel-ppp ueber
-    dessen lokale Verwaltungsschnittstelle. Kennung ist der Anmeldename;
-    Laufzeit-Referenz der Interface-Name. Drei Faelle:
-      LIVE      eine Sitzung des Anmeldenamens ist im Zustand "aktiv"
-                gelistet
-      NOT_LIVE  KEINE Sitzung des Anmeldenamens ist gelistet, gleich in
-                welchem Zustand
-      UNKNOWN   es sind nur Sitzungen im Auf- oder Abbau gelistet (AD-1)
-    list() fuehrt auch Sitzungen im Auf- und Abbau, nennt je Sitzung den
-    Zustand und, soweit der Daemon sie ausgibt, seine Sitzungskennung
-    (Gegenstueck zu radacct.acctsessionid). kill() beendet die Sitzung
-    hart; der Daemon meldet danach Accounting-Stop.
+    dessen lokale Verwaltungsschnittstelle. Zugehoerigkeit zur Connection
+    nach BASE-070_020 Abschnitt 1 (Anmeldename ODER Tunneladresse).
+    Laufzeit-Referenz ist der Interface-Name. Vier Faelle:
+      LIVE        eine zugehoerige Sitzung ist im Zustand "aktiv" gelistet
+      NOT_LIVE    KEINE zugehoerige Sitzung ist gelistet, gleich in
+                  welchem Zustand
+      TRANSITION  es sind nur zugehoerige Sitzungen im Auf- oder Abbau
+                  gelistet
+      UNKNOWN     die Laufzeit ist nicht sicher lesbar (AD-1)
+    kill() beendet hart ueber die Sitzungskennung, sonst ueber die
+    Tunneladresse - nie allein ueber den Namen: Ein Beenden ueber den
+    Namen traefe nur eine Sitzung und keine abweichende Schreibweise.
+    Der Daemon meldet danach Accounting-Stop.
   WIREGUARD (Runner BASE-040): Quelle ist der Kernel (awg show). LIVE nach
-    BASE-070_020 Abschnitt 1. kill() ist Entfernen und - bei unveraendertem
-    SOLL - Wiedereintragen des Peers ueber den WG-Treiber von
-    vpn-policy-apply (BASE-040_030 Abschnitt 5).
+    BASE-070_020 Abschnitt 1; TRANSITION kommt nicht vor. kill() ist
+    Entfernen und - bei unveraendertem SOLL - Wiedereintragen des Peers
+    ueber den WG-Treiber von vpn-policy-apply (BASE-040_030 Abschnitt 5).
 
 ================================================================================
 2) GEISTER SCHLIESSEN (G-REGELN)
@@ -76,19 +99,29 @@ ZWECK:
   eine Nutzung behauptet; verwaiste Hinweise behandelt der Controller,
   BASE-040_050 Fall B.)
 
-    G-1  Voraussetzung ist eine Laufzeitlesung mit Ergebnis NOT_LIVE fuer
-         den Anmeldenamen bzw. ein list() ohne ihn (in keinem Zustand).
-         Nennt der Adapter Sitzungskennungen des Daemons, darf zusaetzlich
-         keine gelistete Sitzung die Kennung der Zeile tragen
-         (radacct.acctsessionid). Bei UNKNOWN wird nicht geschlossen.
+    G-1  EINE SCHLIESSBEDINGUNG, AN DIE SITZUNG GEBUNDEN: Voraussetzung
+         ist eine Laufzeitlesung, in der KEINE gelistete Sitzung - gleich
+         in welchem Zustand - die Sitzungskennung der Zeile traegt
+         (radacct.acctsessionid). Nennt der Adapter keine
+         Sitzungskennungen (AD-6), gilt stattdessen: Keine zur Connection
+         der Zeile gehoerige Sitzung ist gelistet. Bei UNKNOWN bzw.
+         FEHLER wird nicht geschlossen. Die Bedingung gilt fuer JEDEN
+         Weg, auf dem eine Zeile geschlossen wird: Abgleich,
+         On-Demand-Pruefung, nach einem Neustart.
     G-2  Mindestalter: Der Beginn der Zeile (acctstarttime) liegt mehr als
          vpn_ghost_min_age_seconds (Vorschlag 15) VOR der Laufzeitlesung,
          auf die sich die Feststellung stuetzt (Lesezeit des Abgleichs
          bzw. Zeitpunkt des Sondenlaufs) - nicht vor der Uhrzeit der
          Auswertung. Eine Zeile, deren Sitzung erst nach der Lesung
          entstand, kann so nie geschlossen werden; der Abstand deckt
-         ungenaue Zeitstempel. Ausnahme: Zeilen von vor dem letzten
-         Daemon-Start (BASE-070_020 Schritt L3).
+         ungenaue Zeitstempel. Es gibt KEINE Ausnahme vom Mindestalter,
+         auch nicht nach einem Neustart des Daemons.
+         Liegt acctstarttime NACH der Lesezeit (die Uhr wurde
+         zurueckgestellt), ist das Alter nicht bestimmbar: Dann ersetzt
+         die Beobachtung "nicht gelistet" in zwei aufeinanderfolgenden
+         Laeufen des Abgleichs das Mindestalter (Ereignis
+         RT_CLOCK_ANOMALY); die On-Demand-Pruefung schliesst solche
+         Zeilen nicht.
     G-3  Nur Zeilen des eigenen NAS.
     G-4  Geschlossen wird mit dem letzten belegten Lebenszeichen, nicht mit
          der Feststellungszeit:
@@ -102,13 +135,32 @@ ZWECK:
          (Neustart). Der eigene Wert macht in radacct selbst sichtbar,
          dass nicht der Daemon, sondern die Bereinigung geschlossen hat.
     G-5  Vor dem Schliessen wird im Buchungsstand der Grund-Hinweis
-         JANITOR_GHOST bzw. SYSTEM_RESTART hinterlegt (_050 Abschnitt 3).
-         Ereignis und Schlussbuchung erzeugt der L2TP-Abgleich (Schritt
-         L5), nicht der Schliessende.
+         JANITOR_GHOST hinterlegt - NUR wenn dort noch keiner steht. Ein
+         Hinweis aus einem Hard-Cut oder aus Schritt L3 (SYSTEM_RESTART)
+         bleibt (BASE-070_020 Abschnitt 6, H-c). Ereignis und
+         Schlussbuchung erzeugt der L2TP-Abgleich (Schritt L5), nicht der
+         Schliessende.
     G-6  Trifft spaeter doch eine echte Stop-Meldung ein, ueberschreibt sie
          die Zeile (sie ist genauer). Die Buchung folgt den Zaehlern
-         (_050); das bereits gemeldete Ende bleibt bestehen.
+         (_050). Ist das Ende dann noch nicht gemeldet, gelten Grund und
+         Zeit der Stop-Meldung (H-b). Ist es bereits gemeldet, bleibt das
+         gemeldete Ende bestehen; der Fall wird als
+         SESSION_GHOST_LATE_STOP gezaehlt.
     G-7  Schliessen ist idempotent (Bedingung acctstoptime IS NULL).
+    G-8  KARENZ: Nicht geschlossen wird,
+           a) solange der Abrechnungspuffer des AAA-Dienstes nicht leer
+              ist - eine Stop-Meldung kann darin liegen -, und
+           b) solange fuer die Connection ein ENDE-VERMERK vorliegt, der
+              juenger ist als vpn_ghost_stop_grace_seconds (Vorschlag
+              10): Die Sitzung hat soeben regulaer geendet, ihre
+              Stop-Meldung ist unterwegs.
+         Der Ende-Vermerk ist eine Datei unter
+         /run/retrotunnel/session/ended/ (nur root schreibbar), die der
+         ip-down-Pfad anlegt (ANF-SC-03) und der Bereinigungslauf nach
+         Ablauf entfernt. Ohne Vermerk (Absturz des Daemons, kein Hook)
+         gibt es keine Karenz - dann kommt auch keine Stop-Meldung.
+         Der Zustand des Puffers ist ohne Datenbank lesbar
+         (BASE-070_050 Abschnitt 8).
 
   SCHREIBRECHT: Geister schliesst der DB-User system. radacct bleibt Tabelle
   des AAA-Kerns (BASE-020); das Schliessen ist die einzige Aenderung, die
@@ -129,7 +181,7 @@ ZWECK:
     Anfrage  eine Zeile:  CHECK <vpn_connection_id>
              (nur Ziffern, hoechstens 20 Zeichen; alles andere wird ohne
              Auswertung mit UNKNOWN beantwortet)
-    Antwort  eine Zeile:  LIVE | NOT_LIVE | UNKNOWN
+    Antwort  eine Zeile:  LIVE | NOT_LIVE | TRANSITION | UNKNOWN
 
     ABLAUF JE ANFRAGE:
       O1  Begrenzung: Je Connection hoechstens ein Sondenlauf je
@@ -143,13 +195,18 @@ ZWECK:
           oder vom Abgleich geschlossen.
           Gleichzeitig bearbeitete Anfragen sind begrenzt; darueber:
           UNKNOWN. Je Anfrage gibt es hoechstens einen Sondenlauf.
-      O2  Connection lesen: tunnel_type und Anmeldename. Nicht lesbar,
-          nicht vorhanden oder nicht L2TP_IPSEC: UNKNOWN.
-      O3  probe(Anmeldename).
-            LIVE     -> Antwort LIVE
-            UNKNOWN  -> Antwort UNKNOWN, nichts schliessen
-            NOT_LIVE -> offene radacct-Zeilen des Anmeldenamens nach den
-                        G-Regeln schliessen; Antwort NOT_LIVE
+      O2  Connection lesen: tunnel_type, Anmeldename und fixed_ip. Nicht
+          lesbar, nicht vorhanden oder nicht L2TP_IPSEC: UNKNOWN.
+      O3  probe(c).
+            LIVE        -> Antwort LIVE
+            TRANSITION  -> Antwort TRANSITION, nichts schliessen
+            UNKNOWN     -> Antwort UNKNOWN, nichts schliessen
+            NOT_LIVE    -> offene radacct-Zeilen der Connection (Name
+                           oder Adresse, BASE-070_020 Abschnitt 1) nach
+                           den G-Regeln schliessen; Antwort NOT_LIVE.
+                           Was die Regeln noch nicht zu schliessen
+                           erlauben (Mindestalter, Karenz, Puffer),
+                           bleibt offen und fuehrt in P3 zur Ablehnung.
       O4  Gesamtes Zeitlimit vpn_cleanup_timeout_seconds (Vorschlag 2,
           Grenzen 1..5). Bei Ueberschreitung: UNKNOWN.
     Der Dienst kennt keinen anderen Befehl, nimmt keine Anfragen aus dem
@@ -182,17 +239,23 @@ ZWECK:
   endet der Lauf ohne Wirkung. Jeder Schritt ist fuer sich idempotent; das
   Scheitern eines Schritts verhindert die uebrigen nicht.
 
-    J1  SPERR-LEICHEN: DELETE FROM vpn_session_locks WHERE expires_at <=
-        NOW(). (Reine Hygiene; der Erwerb entfernt Abgelaufenes selbst.)
+    J1  SPERR-LEICHEN: Sperren mit expires_at <= NOW() loeschen, ebenso
+        Sperren, deren Ablauf weiter als die groesste Obergrenze in der
+        Zukunft liegt (BASE-070_030 K-2; Ereignis RT_CLOCK_ANOMALY).
+        Reine Hygiene; der Erwerb entfernt beides selbst.
     J2  VERWAISTE HINWEISE (L2TP): Connection mit runtime_active_since
         NOT NULL, ohne offene radacct-Zeile ihres Anmeldenamens und ohne
         nicht abgeschlossenen Buchungsstand: Episode nach SV-2 beenden
         (Grund OTHER, t_end = last_runtime_seen_at). Fuer WireGuard ist das
         Aufgabe des Controllers (Fall B); der Lauf fasst WG-Hinweise nicht
         an.
-    J3  LAUFZEIT-SPIEGEL: Dateien unter /run/vpn-sessions/ ohne lebende
-        Sitzung laut list() und aelter als das Mindestalter entfernen. Bei
-        FEHLER des Adapters: nichts entfernen.
+    J3  LAUFZEIT-SPIEGEL: Dateien unter /run/vpn-sessions/ entfernen,
+        deren Sitzung in einer Lesung list() mit Lesezeit t_s nicht
+        gelistet ist UND die mehr als das Mindestalter VOR t_s zuletzt
+        geschrieben wurden - nie eine Datei, die nach t_s geschrieben
+        wurde (sie gehoert einer neuen Sitzung). Bei FEHLER des Adapters:
+        nichts entfernen. Abgelaufene Ende-Vermerke und liegengebliebene
+        Merker fuer den Abgleich entfernen.
     J4  ADRESSEN: abgelaufene Quarantaene-Eintraege loeschen; widerrufene
         Connections nach Ablauf ihrer Quarantaene physisch loeschen
         (BASE-070_060 Abschnitt 6).
@@ -205,8 +268,13 @@ ZWECK:
         Adressen aus Rolle und Slot pruefen (BASE-070_060 Abschnitt 4).
     J7  QUOTA-PERIODE NACHHOLEN: faellige Periodenwechsel ausfuehren, falls
         der eigene Lauf sie versaeumt hat (BASE-070_050 Abschnitt 5).
-    J8  Marke session_janitor_last_ok_at setzen (nur wenn alle Schritte
-        fehlerfrei waren); Statusdatei fortschreiben.
+    J8  HARD-CUT-PROTOKOLL NACHTRAGEN: Eintraege, die ein Hard-Cut ohne
+        Datenbank im Spool hinterlegt hat (Abschnitt 6, K7), in
+        log_connection_lifecycle schreiben und danach aus dem Spool
+        entfernen.
+    J9  Marken setzen: session_janitor_last_run_at immer (sie steuert
+        die Faelligkeit), session_janitor_last_ok_at nur, wenn alle
+        Schritte fehlerfrei waren; Statusdatei fortschreiben.
 
   Geister schliesst im Regelbetrieb der L2TP-Abgleich in seinem deutlich
   kuerzeren Takt; der Bereinigungslauf ist dafuer nicht zustaendig.
@@ -217,9 +285,11 @@ ZWECK:
 
   SYSTEMSTART:
     - /run ist leer: kein Laufzeit-Spiegel, kein Zwischenspeicher.
-    - Offene radacct-Zeilen aus der Zeit vor dem Start schliesst der erste
-      L2TP-Abgleich ueber die Neustart-Regel (Schritt L3), sobald Daemon
-      und Datenbank verfuegbar sind - ohne feste Wartezeit.
+    - Offene radacct-Zeilen aus der Zeit vor dem Start schliesst der
+      L2TP-Abgleich nach den Geister-Regeln, sobald Daemon und Datenbank
+      verfuegbar sind. Ueber die Instanzkennung erhalten sie den Grund
+      SYSTEM_RESTART (Schritt L3). Das Mindestalter gilt auch hier; eine
+      feste Wartezeit gibt es nicht.
     - WireGuard: Der Controller erkennt die neue Interface-Generation,
       bucht den Snapshot nach und beendet verwaiste Episoden
       (BASE-040_060 Abschnitt 5, BASE-040_050 Fall B).
@@ -227,7 +297,9 @@ ZWECK:
       binnen ihrer TTL ab.
     - Der erste vollstaendige Bereinigungslauf startet
       vpn_boot_janitor_delay_seconds (Vorschlag 90) nach dem Systemstart.
-  DAEMON-NEUSTART OHNE SYSTEMSTART (accel-ppp): wie oben ueber Schritt L3.
+  DAEMON-NEUSTART OHNE SYSTEMSTART (accel-ppp): wie oben. Sitzungen, die
+    der neue Prozess bereits fuehrt, sind in der Lesung gelistet und
+    bleiben unberuehrt (G-1).
   NEUSTART VON vpn-sessiond: Zwischenspeicher leer; sonst ohne Wirkung.
 
   KEINE STARTABHAENGIGKEIT: Kein Tunnel-Dienst wartet auf einen Lauf dieses
@@ -246,30 +318,43 @@ ZWECK:
 
   ABLAUF (Reihenfolge ist normativ: Laufzeit zuerst, dann Abgleich):
     K1  Eingabe pruefen (nur Ziffern; Grund aus der Liste).
-    K2  Connection lesen: tunnel_type, Kennung fuer den Adapter.
+    K2  Connection lesen: tunnel_type und die Merkmale fuer den Adapter
+        (Anmeldename und fixed_ip bzw. PublicKey).
         Datenbank nicht erreichbar:
-          L2TP       Kennung aus dem Laufzeit-Spiegel (/run/vpn-sessions/,
-                     Eintrag VPN_CONNECTION_ID); K3, K4, K7 entfallen.
-                     Der Spiegel ist deshalb nur fuer root schreibbar;
-                     kein Web- oder Kundendienst darf ihn veraendern.
+          L2TP       Merkmale aus dem Laufzeit-Spiegel (/run/vpn-sessions/,
+                     Eintrag mit dieser VPN_CONNECTION_ID); K3 und K4
+                     entfallen. FEHLT der Eintrag, endet das Werkzeug mit
+                     TEMPFAIL_DB - ohne positive Zuordnung gibt es kein
+                     "nicht aktiv". Der Spiegel ist nur fuer root
+                     schreibbar; kein Web- oder Kundendienst darf ihn
+                     veraendern.
           WIREGUARD  Abbruch TEMPFAIL_DB (ohne Datenbank ist der Peer nicht
                      sicher zuordenbar; Notfallweg ist der Stop des
                      Interfaces, BASE-040_060 Abschnitt 4)
     K3  Sperre erwerben (Zweck HARDCUT). Belegt: begrenzt wiederholen,
         sonst TEMPFAIL_LOCKED.
-    K4  Grund-Hinweis hinterlegen (L2TP: im Buchungsstand der offenen
-        Abrechnungssitzung).
-    K5  LAUFZEIT BEENDEN: kill() des Adapters; Ergebnis
+    K4  Grund-Hinweis mit Zeitpunkt hinterlegen (L2TP: im Buchungsstand
+        der offenen Abrechnungssitzung). Ein vorhandener Hinweis eines
+        anderen Hard-Cuts bleibt.
+    K5  LAUFZEIT BEENDEN: kill(c) des Adapters - alle zu c gehoerigen
+        Sitzungen; Ergebnis
           KILLED     weiter
-          NOT_FOUND  nichts zu beenden; weiter (Ergebnis OK_NOT_ACTIVE)
-          FAILED     Ergebnis FAIL_KILL, Alarm CRITICAL; K6 laeuft trotzdem
+          NOT_FOUND  nichts zu beenden; den in K4 gesetzten Hinweis
+                     zuruecknehmen; weiter (Ergebnis OK_NOT_ACTIVE)
+          FAILED     den in K4 gesetzten Hinweis zuruecknehmen; Ergebnis
+                     FAIL_KILL, Alarm CRITICAL; K6 laeuft trotzdem
     K6  ABGLEICH ANSTOSSEN: vpn-policy-apply fuer die Connection (Sets,
-        conntrack; BASE-080); L2TP-Abgleich fuer den Anmeldenamen (meldet
-        das Ende, bucht den Rest).
+        conntrack; BASE-080); L2TP-Abgleich fuer die Connection (meldet
+        das Ende, bucht den Rest). Der angestossene Abgleich schliesst
+        die Zeile nicht als Geist, solange die Karenz laeuft (G-8): Die
+        Stop-Meldung des Daemons traegt Endzeit und Zaehler.
     K7  Nur bei ADMIN_HARDCUT: Eintrag SESSION_HARDCUT in
-        log_connection_lifecycle (actor, actor_detail). Bei den uebrigen
-        Gruenden dokumentiert das ausloesende Lifecycle-Ereignis den
-        Vorgang.
+        log_connection_lifecycle (actor, actor_detail, Ergebnis). Ist die
+        Datenbank nicht erreichbar, wird der Eintrag mit Zeit, Akteur und
+        Ergebnis im Spool /var/lib/vpn-accounting/hardcut-audit/
+        hinterlegt und vom Bereinigungslauf nachgetragen (J8). Bei den
+        uebrigen Gruenden dokumentiert das ausloesende Lifecycle-Ereignis
+        den Vorgang.
     K8  Sperre freigeben.
 
   ERGEBNISSE: OK_KILLED | OK_NOT_ACTIVE | TEMPFAIL_LOCKED | TEMPFAIL_DB |
@@ -291,6 +376,13 @@ ZWECK:
     HC-5  Bei FAIL_KILL bleibt der Zustand ehrlich: Es wird nichts als
           beendet protokolliert. Die naechste Stufe ist der Stop des
           betroffenen Tunnel-Dienstes durch den Betreiber.
+    HC-6  Ein Hard-Cut trifft JEDE Sitzung der Connection - erkannt am
+          Anmeldenamen oder an der Tunneladresse -, auch eine unter
+          abweichender Schreibweise des Namens. OK_NOT_ACTIVE setzt eine
+          Lesung voraus, die keine solche Sitzung zeigt.
+    HC-7  Jeder Verwaltungs-Hard-Cut wird protokolliert - sofort oder,
+          bei gestoerter Datenbank, nachgetragen (K7). Ein Hard-Cut ohne
+          Protokoll gilt als Fehler des Werkzeugs.
 
   AUFRUFER: das Panel (ADMIN_HARDCUT); vpn-policy-apply bei Wechsel nach
   DISABLED, Rollenwechsel und fehlgeschlagener Policy-Herstellung
@@ -313,9 +405,11 @@ ZWECK:
                                    Abgleich
   Datenbank nicht erreichbar       Laeufe ohne Wirkung; Anmeldung abgelehnt
                                    (AAA-03); Hard-Cut L2TP weiter moeglich
-  Geist wird faelschlich vermutet  durch G-1, G-2 und Schritt-Reihenfolge
-  (Sitzung eben beendet)           L1 vor L2 ausgeschlossen bzw. folgenlos
-                                   (G-6)
+  Geist wird faelschlich vermutet  verhindert durch G-1 (Sitzung nicht
+  (Sitzung eben beendet, Stop      gelistet), G-2 (Mindestalter gegen die
+  unterwegs oder im Puffer)        Lesezeit) und G-8 (Karenz, Puffer).
+                                   Trifft die Stop-Meldung dennoch erst
+                                   nach dem Schliessen ein: G-6
   Lebende Sitzung geschlossen      darf nicht vorkommen (G-1). Sicherungen,
                                    falls doch: Die Sonde meldet die Sitzung
                                    weiter als LIVE (SimUse haelt), Schritt
@@ -323,8 +417,26 @@ ZWECK:
                                    die Buchung folgt weiter den gemeldeten
                                    Zaehlern (_050 Abschnitt 3)
   Hard-Cut scheitert               FAIL_KILL, Alarm; kein Schein-Erfolg
-  Uhr springt                      Fristen haengen an der Datenbankzeit;
-                                   Ereigniszeiten werden begrenzt (W-5)
+  Uhr wird verstellt               Datenbankzeit = Systemzeit, sie springt
+                                   mit. Sperren mit unmoeglichem Ablauf
+                                   werden entfernt (K-2); Zeilen mit
+                                   Beginn in der Zukunft schliesst nur
+                                   der Abgleich nach zwei Beobachtungen
+                                   (G-2); Marken in der Zukunft gelten
+                                   als faellig (U-1); der Neustart des
+                                   Daemons haengt nicht an der Uhr (L3);
+                                   Ereigniszeiten werden begrenzt (W-5).
+                                   Alarm RT_CLOCK_ANOMALY. Unumkehrbare
+                                   zeitgesteuerte Vorgaenge ruhen ohne
+                                   bestaetigten Zeitabgleich
+                                   (BASE-070_070 Abschnitt 2, U-5)
+  Sitzung haengt im Auf- oder      nach vpn_l2tp_transition_max_seconds
+  Abbau                            Ereignis L2TP_SESSION_STUCK und Beenden
+                                   dieser Sitzung (Schritt L4 b)
+  Sitzung unter abweichender       RT_IDENTITY_MISMATCH; die Sitzung wird
+  Schreibweise oder mit fremder    beendet (S-5, L7); sie zaehlt fuer
+  Adresse                          SimUse trotzdem (Zuordnung ueber Name
+                                   ODER Adresse)
 
 ================================================================================
 8) PANEL-CONSUMABILITY (R-17)

@@ -15,12 +15,29 @@ ZWECK:
 ================================================================================
 
   L2TP_IPSEC
-    LIVE(c)      :=  Der Laufzeit-Adapter L2TP meldet eine Sitzung im Zustand
-                     "aktiv" (PPP aufgebaut, Adresse zugewiesen), deren
-                     Anmeldename gleich dem subaccount_login von c ist.
-    GEMELDET(c)  :=  radacct enthaelt fuer diesen Anmeldenamen und diesen NAS
-                     eine Zeile mit acctstoptime IS NULL.
+    ZUGEHOERIG(s, c) :=  Die Laufzeitsitzung s gehoert zur Connection c,
+                     wenn ihr Anmeldename dem subaccount_login von c
+                     gleicht ODER ihre Tunneladresse c.fixed_ip. Im
+                     ungestoerten Betrieb trifft beides zu; trifft nur
+                     eines zu, ist das ein Fehlerzustand (Abschnitt 3,
+                     S-5).
+    LIVE(c)      :=  Der Laufzeit-Adapter L2TP meldet eine zu c gehoerige
+                     Sitzung im Zustand "aktiv" (PPP aufgebaut, Adresse
+                     zugewiesen).
+    GEMELDET(c)  :=  radacct enthaelt fuer diesen NAS eine Zeile mit
+                     acctstoptime IS NULL, deren Anmeldename dem
+                     subaccount_login von c gleicht ODER deren
+                     framedipaddress c.fixed_ip.
     AKTIV(c)     :=  LIVE(c).
+
+    EINE SCHREIBWEISE: Anmeldenamen werden ueberall byteweise verglichen -
+    in der Anmeldepruefung, in radacct, im Adapter und im Daemon. Der
+    Anmeldedienst laesst nur zu, wenn der gesendete Name dem gespeicherten
+    Zeichen fuer Zeichen gleicht; er kuerzt und wandelt nichts
+    (ANF-SC-16). Die Tunneladresse ist das zweite, davon unabhaengige
+    Merkmal: Sie stammt allein aus fixed_ip und ist je Connection
+    eindeutig. "Eine Nutzung je Connection" haengt damit nicht an der
+    Schreibweise einer Zeichenkette.
 
     Kombination              Bedeutung             Behandlung
     ------------------------ --------------------- --------------------------
@@ -114,10 +131,21 @@ ZWECK:
          uebereinstimmen (client_ipv4 = fixed_ip; client_ipv6 = fixed_ipv6
          bzw. NULL bei v6_addr_policy = NONE). Eine Abweichung ist ein
          Fehlerzustand: kein Beginn, Ereignis RT_ADDRESS_MISMATCH,
-         Hard-Cut ueber den Adapter (die Policy-Zustaende der Firewall
+         Hard-Cut der Sitzung nach S-6 (die Policy-Zustaende der Firewall
          haengen an der Adresse).
     S-4  runtime_ref dient nur Diagnose und Hard-Cut; es ist kein
          Schluessel fuer Entscheidungen.
+    S-5  Anmeldename und Tunneladresse einer L2TP-Laufzeitsitzung muessen
+         zur SELBEN Connection fuehren. Fuehrt der Name zu keiner oder zu
+         einer anderen Connection als die Adresse, ist das der
+         Fehlerzustand RT_IDENTITY_MISMATCH: kein Beginn; die Sitzung
+         wird nach S-6 beendet.
+    S-6  Ein Hard-Cut aus S-3, S-5 oder einer Vorbedingung von SV-1
+         richtet sich an die EINE betroffene Laufzeitsitzung
+         (Sitzungskennung des Daemons, sonst Tunneladresse) - nie an
+         "alle Sitzungen des Namens". Er wird nur fuer eine Sitzung
+         ausgeloest, die laut der zugrunde liegenden Laufzeitlesung noch
+         besteht.
 
   Die bisherige Formulierung "nach ACCEPT folgt ein INSERT in vpn_sessions"
   (AAA-06) ist damit ersetzt durch: Nach Zulassung folgt die Meldung des
@@ -142,21 +170,31 @@ ZWECK:
          gezaehlt (Zeitbasis: BASE-060).
 
   SV-1  BEGINN(c, Kennung, t_begin, Signalfelder, Gegenstelle)
-    Vorbedingungen (im selben Lesezugriff geprueft):
-      a) Connection-Zeile existiert, tunnel_type stimmt, Adressen stimmen
-         (S-3).
+    Vorbedingungen (im selben Lesezugriff geprueft) - fuer eine Sitzung,
+    die laut Laufzeitlesung noch besteht:
+      a) Connection-Zeile existiert, tunnel_type stimmt, Adressen und
+         Zuordnung stimmen (S-3, S-5).
       b) op_status IN (ACTIVE, RESTRICTED) UND revoked_at IS NULL.
          Sonst: kein Beginn; Ereignis RT_ACTIVITY_NOT_ALLOWED; Hard-Cut
-         ueber den Adapter bzw. vpn-policy-apply (Fail-Closed). Eine
+         der Sitzung (S-6) bzw. vpn-policy-apply (Fail-Closed). Eine
          gesperrte Connection kann keine Episode haben.
+    NACHTRAEGLICHER BEGINN (Abgleich Schritt L5; die Abrechnungssitzung
+    ist bereits beendet): Die Vorbedingungen werden NICHT geprueft, und
+    es gibt keinen Hard-Cut. Der Beginn wird als Tatsache der
+    Vergangenheit mit den Daten der Zeile vermerkt; Schritt 3 entfaellt
+    (es gibt keine laufende Episode, auf die ein Hinweis zeigen duerfte).
+    t_begin wird VOR dem Schreiben nach W-5 begrenzt; Ereignis und Hinweis
+    tragen denselben, begrenzten Wert.
     Transaktion:
       1  INSERT log_runtime_activity (ACTIVITY_START, Kennung, ...).
          Existiert der Eintrag bereits, endet SV-1 erfolgreich OHNE
          weitere Wirkung (Idempotenz).
       2  Ist eine ANDERE Episode als offen vermerkt
          (runtime_active_since NOT NULL und ungleich t_begin), wird sie
-         zuvor nach SV-2 beendet (Grund aus dem Kontext des Runners, sonst
-         SUPERSEDED).
+         zuvor nach SV-2 beendet. Die andere Episode ist die, deren
+         Beginn-Eintrag als source_event_at den Wert von
+         runtime_active_since traegt; ihr t_end ist last_runtime_seen_at;
+         der Grund kommt aus dem Kontext des Runners, sonst SUPERSEDED.
       3  UPDATE vpn_connections
             SET runtime_active_since = :t_begin,
                 last_runtime_seen_at = GREATEST(
@@ -164,10 +202,17 @@ ZWECK:
           WHERE id = :c
 
   SV-2  ENDE(c, Kennung, t_begin, t_end, Grund)
+    t_begin ist der Wert aus dem Beginn-Eintrag DERSELBEN Episode
+    (source_event_at des ACTIVITY_START mit dieser Kennung); nur wenn es
+    keinen gibt, der Wert des Aufrufers. Er wird nie neu aus radacct
+    abgeleitet: Eine wiederholte Start-Meldung kann acctstarttime
+    aendern.
     Transaktion:
       1  INSERT log_runtime_activity (ACTIVITY_END, Kennung, Grund,
-         source_event_at = t_end). Existiert der Eintrag bereits: Ende ohne
-         weitere Wirkung.
+         source_event_at = t_end). Existiert der Eintrag bereits, wird
+         KEIN zweiter geschrieben; Schritt 2 laeuft trotzdem (ein beim
+         ersten Mal stehengebliebener Hinweis wird so nachtraeglich
+         geloescht).
       2  UPDATE vpn_connections
             SET runtime_active_since = NULL,
                 last_runtime_seen_at = GREATEST(
@@ -281,61 +326,104 @@ ZWECK:
     SESSION_TIMEOUT; NAS-Reboot, NAS-Error, Admin-Reboot -> SYSTEM_RESTART;
     Admin-Reset -> ADMIN_HARDCUT; Janitor-Ghost -> JANITOR_GHOST; alles
     andere -> OTHER.
-  Ein vor dem Beenden hinterlegter Grund-Hinweis (Hard-Cut-Ausloeser) hat
-  Vorrang vor der Zuordnung.
+  GRUND-HINWEIS (im Buchungsstand, _050 Abschnitt 3; mit Zeitpunkt):
+    H-a  Ein Hinweis eines Hard-Cut-Ausloesers (ADMIN_HARDCUT,
+         CONNECTION_DISABLED, CONNECTION_ROLE_CHANGE, AUTH_KEY_ROTATED,
+         POLICY_FAIL_CLOSED) hat Vorrang vor der Zuordnung, wenn das Ende
+         hoechstens vpn_hardcut_hint_valid_seconds nach seinem Setzen
+         liegt. Ein aelterer Hinweis ist verfallen und wird nicht
+         angewandt.
+    H-b  Ein Hinweis der Bereinigung (JANITOR_GHOST, SYSTEM_RESTART) gilt
+         nur, wenn auch die Bereinigung die Zeile geschlossen hat
+         (acctterminatecause traegt ihren Wert). Hat inzwischen eine
+         echte Stop-Meldung die Zeile ueberschrieben, gelten deren Grund
+         und Zeit.
+    H-c  Ein vorhandener Hinweis wird nie von der Bereinigung
+         ueberschrieben. Wer einen Hinweis setzt und die Laufzeit dann
+         NICHT beendet (FAILED, NOT_FOUND), nimmt ihn zurueck.
 
 ================================================================================
 7) L2TP-ABGLEICH (Vertrag fuer den Runner BASE-030)
 ================================================================================
 
   Werkzeug vpn-l2tp-sync. Takt runtime_activity_check_interval_seconds
-  (Vorschlag 30 s); zusaetzlich Anstoss fuer EINEN Anmeldenamen durch die
+  (Vorschlag 30 s); zusaetzlich Anstoss fuer EINE Connection durch die
   Hooks ip-up und ip-down. Einzel-Lock; begrenzte Laufzeit; DB-User system.
   Ist die Datenbank nicht erreichbar, endet der Lauf ohne Wirkung.
 
+  ANSTOSS BEI BELEGTEM EINZEL-LOCK: Ein Anstoss wartet nicht und geht
+  nicht verloren. Er hinterlegt einen Merker fuer die Connection unter
+  /run/retrotunnel/session/sync-request/ und endet. Jeder Lauf
+  bearbeitet zum Schluss die inzwischen hinterlegten Merker in einer
+  Nachrunde mit NEUER Laufzeitlesung und entfernt sie. Laeufe fuer eine
+  einzelne Connection schreiben keine Marke dieses Abschnitts.
+
   REIHENFOLGE (normativ):
     L1  LAUFZEIT LESEN: S := list() des Adapters mit Lesezeit t_s, dazu die
-        Startzeit d_start des Daemons. Bei Fehler oder Zeitlimit:
-        S := UNBEKANNT.
+        Instanzkennung des Daemons (BASE-070_040 Abschnitt 1) und der
+        Zustand des Abrechnungspuffers des AAA-Dienstes (leer oder nicht
+        leer). Bei Fehler oder Zeitlimit: S := UNBEKANNT.
     L2  DANACH DATENBANK LESEN (nur indexgestuetzte Zugriffe, kein
         Durchsuchen der ganzen Tabelle): offene radacct-Zeilen dieses NAS;
         neue Zeilen (Kennung groesser als die Marke
         l2tp_sync_last_radacctid); Zeilen mit nicht abgeschlossenem
-        Buchungsstand; dazu Buchungsstaende, Zuordnung Anmeldename ->
-        Connection und die Marke l2tp_daemon_started_at. Den Vergleich
-        bereits abgeschlossener Zeilen (Nachzuegler) fuehrt der
+        Buchungsstand; dazu Buchungsstaende, die Zuordnung von
+        Anmeldename und Adresse zur Connection und die Marke
+        l2tp_daemon_instance.
+        FUER JEDE NEUE ZEILE wird sofort ein Buchungsstand angelegt - auch
+        wenn sie bereits geschlossen ist oder ihre Sitzung nicht als
+        lebend gilt - und die Marke l2tp_sync_last_radacctid in DERSELBEN
+        Transaktion fortgeschrieben, nie ueber die hoechste Kennung mit
+        Buchungsstand hinaus (_050 Abschnitt 3, Regel A-4).
+        Den Vergleich bereits abgeschlossener Zeilen (Nachzuegler) und
+        die Suche nach geschlossenen Zeilen ohne Buchungsstand fuehrt der
         Bereinigungslauf aus (_050 Abschnitt 3).
-    L3  DAEMON-NEUSTART: Ist d_start juenger als die Marke, sind alle
-        offenen Zeilen mit acctstarttime < d_start Geister (der neue
-        Prozess kann sie nicht fuehren). Sie werden ohne Mindestalter
-        geschlossen (Grund SYSTEM_RESTART); die Marke wird in derselben
-        Transaktion fortgeschrieben.
-    L4  JE OFFENE ZEILE r (aelteste zuerst), Connection c. "r in S"
-        heisst: Eine Sitzung des Anmeldenamens von r ist gelistet. Nennt
-        der Adapter die Sitzungskennung des Daemons, muss sie zusaetzlich
-        gleich radacct.acctsessionid sein (exakte Zuordnung).
+    L3  DAEMON-NEUSTART: Weicht die Instanzkennung von der Marke ab, hat
+        der Daemon neu gestartet. Dann erhalten alle offenen Zeilen dieses
+        NAS, deren Sitzung in S nicht gelistet ist, den Grund-Hinweis
+        SYSTEM_RESTART (nur wo noch kein Hinweis steht); die Marke wird in
+        derselben Transaktion fortgeschrieben. GESCHLOSSEN wird hier
+        nichts: Das geschieht in L4 c nach denselben Regeln wie fuer
+        jeden Geist. Erkannt wird der Neustart an der Instanz, nicht an
+        einem Vergleich von Uhrzeiten.
+    L4  JE OFFENE ZEILE r (aelteste zuerst), Connection c. Fehlt ihr
+        Buchungsstand, wird er angelegt (er haelt c fest). "r in S"
+        heisst: Eine in S gelistete Sitzung traegt die Sitzungskennung
+        von r (radacct.acctsessionid). Nennt der Adapter ausnahmsweise
+        keine Sitzungskennungen (AD-6), heisst es: Eine zu c gehoerige
+        Sitzung ist gelistet; fuehrt radacct dann mehrere offene Zeilen
+        fuer c, gilt die juengste als die der gelisteten Sitzung, und die
+        aelteren RUHEN (kein Beginn, kein Schliessen), bis keine Sitzung
+        von c mehr gelistet ist.
         a) S bekannt, r in S im Zustand "aktiv"      -> LEBEND
-             Buchungsstand anlegen, falls er fehlt (haelt c fest)
              SV-1, falls der Beginn noch nicht gemeldet ist
              Buchung (_050)
              last_runtime_seen_at fortschreiben (Abschnitt 2)
-           Fuehrt radacct mehrere offene Zeilen desselben Anmeldenamens
-           und nennt der Adapter keine Sitzungskennung,
-           gilt nur die juengste als die lebende; aeltere sind Geister.
         b) S bekannt, r in S in anderem Zustand      -> abwarten
-           (Auf- oder Abbau)
-        c) S bekannt, r nicht in S, Beginn von r
-           mehr als vpn_ghost_min_age_seconds vor
-           der Lesezeit t_s                          -> GEIST
-             Zeile schliessen (_040 Abschnitt 2), weiter mit L5
-        d) S bekannt, r nicht in S, r juenger        -> abwarten
+           (Auf- oder Abbau). Haelt der Zustand laenger an als
+           vpn_l2tp_transition_max_seconds: Ereignis L2TP_SESSION_STUCK
+           und kill() DIESER Sitzung; danach gilt c bzw. d.
+        c) S bekannt, r nicht in S, und die Regeln
+           G-1 bis G-3 und G-8 erlauben es (_040
+           Abschnitt 2: Mindestalter gegen t_s,
+           keine Karenz, Puffer leer)                -> GEIST
+             Zeile schliessen, weiter mit L5
+        d) S bekannt, r nicht in S, Regeln (noch)
+           nicht erfuellt                            -> abwarten
         e) S UNBEKANNT                               -> nichts schliessen;
              Buchung trotzdem (die gemeldeten Zaehler gelten unabhaengig
              von der Sonde)
     L5  JE GESCHLOSSENE, NICHT ABGESCHLOSSENE ZEILE: Schlussbuchung;
-        SV-1, falls der Beginn nie gemeldet wurde (sehr kurze Sitzung);
-        SV-2 mit Grund (Abschnitt 6); Buchungsstand abschliessen.
-    L6  LAUFZEITSITZUNG OHNE OFFENE ZEILE, aelter als das Mindestalter:
+        nachtraeglicher Beginn nach SV-1, falls er nie gemeldet wurde
+        (sehr kurze Sitzung); SV-2 mit Grund (Abschnitt 6); Buchungsstand
+        abschliessen.
+        REIHENFOLGE JE CONNECTION: Zuerst werden die bereits geschlossenen
+        Zeilen einer Connection nach L5 abgeschlossen, dann ihre offenen
+        Zeilen nach L4 bearbeitet, zuletzt die dabei geschlossenen wieder
+        nach L5. So endet eine fruehere Episode mit ihrem eigenen Grund,
+        bevor der Beginn der naechsten gemeldet wird.
+    L6  LAUFZEITSITZUNG OHNE OFFENE ZEILE, im Zustand "aktiv" und aelter
+        als das Mindestalter:
         Drift L2TP_UNACCOUNTED (Zaehler; ein Ereignis je Sitzung). Haelt
         der Zustand laenger als l2tp_radacct_stale_threshold_seconds an:
         Alarm. Im Regelfall wird die Sitzung NICHT beendet (LT-39); sobald
@@ -345,22 +433,30 @@ ZWECK:
         Sitzung, die nach Ablauf der Schwelle weiter ohne Protokollzeile
         ist, beendet wird (Ende-Grund POLICY_FAIL_CLOSED) - fuer den Fall,
         dass unabgerechneter Verkehr schwerer wiegt als ein Abbruch.
-    L7  LAUFZEITSITZUNG OHNE BERECHTIGUNG: Gehoert der Anmeldename zu
-        keiner Connection oder ist die Connection DISABLED bzw.
-        widerrufen: kill() ueber den Adapter, Ereignis
-        L2TP_ORPHAN_SESSION (Zulassungswaechter, Gegenstueck zu
-        BASE-040_050 Abschnitt 3 Schritt B2).
+        Beendet wird dabei nie mehr als
+        vpn_l2tp_unaccounted_kill_max_per_run Sitzungen je Lauf; darueber
+        bleibt es beim Alarm (eine Stoerung der Abrechnung darf nicht
+        alle Sitzungen kosten).
+    L7  LAUFZEITSITZUNG OHNE BERECHTIGUNG: Gehoert eine gelistete Sitzung
+        zu keiner Connection, fuehren ihr Name und ihre Adresse zu
+        verschiedenen Connections (S-5) oder ist ihre Connection DISABLED
+        bzw. widerrufen: kill() dieser Sitzung, Ereignis
+        L2TP_ORPHAN_SESSION bzw. RT_IDENTITY_MISMATCH (Zulassungswaechter,
+        Gegenstueck zu BASE-040_050 Abschnitt 3 Schritt B2).
     L8  MELDEVERZUG: Lebende Sitzung, deren radacct-Zeile seit mehr als
         l2tp_radacct_stale_threshold_seconds nicht fortgeschrieben wurde:
         Drift L2TP_ACCT_STALLED (Alarm). Keine Beendigung.
-    L9  Marke l2tp_sync_last_ok_at setzen; Statusdatei fortschreiben.
+    L9  Marken setzen: l2tp_sync_last_run_at immer, l2tp_sync_last_ok_at
+        nur nach einem Lauf ohne Fehler; Statusdatei fortschreiben.
 
   WARUM L1 VOR L2: Schritt c misst gegen die Lesezeit t_s, nicht gegen die
   Uhrzeit der Auswertung. Eine Zeile, deren Sitzung erst nach t_s
   entstand, kann deshalb nie als Geist gelten - gleich, wie lange der
-  Lauf dauert. Eine Sitzung, die nach t_s endete, erscheint in L2 bereits
-  geschlossen oder im naechsten Lauf. Die umgekehrte Reihenfolge wuerde
-  eine soeben beendete Sitzung als Geist behandeln (falscher Ende-Grund).
+  Lauf dauert. Eine Sitzung, die kurz VOR t_s endete und deren
+  Stop-Meldung noch unterwegs ist oder im Puffer liegt, schuetzen die
+  Karenz nach beobachtetem Ende und die Puffer-Regel (G-8): Ihre Zeile
+  schliesst nicht die Bereinigung, sondern ihre eigene Stop-Meldung -
+  mit dem echten Grund und der echten Endzeit.
 
   EIGENSCHAFTEN: idempotent; jeder Schritt je Zeile atomar; ein Abbruch an
   beliebiger Stelle wird vom naechsten Lauf fortgesetzt; kein Schritt
