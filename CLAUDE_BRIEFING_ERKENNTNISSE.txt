@@ -1,0 +1,293 @@
+================================================================================
+RETROTUNNEL — CLAUDE BRIEFING, ZWEITER TEIL: SESSION-ERKENNTNISSE
+================================================================================
+VERSION: v1.0
+DATUM: 2026-11-14
+ZWECK: Zweiter Teil von CLAUDE_BRIEFING.txt. Das Briefing stand am
+       2026-11-14 kurz vor der Grenze von 1500 Zeilen und wurde nach
+       KR-03 geteilt (03_CHANGELOG v2.7.0, Abschnitt E). Hierher
+       verschoben, im Wortlaut unverändert: TEIL 5b mit den
+       Erkenntnissen 1 bis 15.
+       PFLICHTLEKTÜRE: Wer das Briefing liest (Teil 5, Schritt 1), liest
+       auch diese Datei vollständig. Neue Erkenntnisse werden hier
+       angefügt. Im Betreiberauftrag seit 2026-11-11 gelten die
+       Erkenntnisse in der Form von CLAUDE_BRIEFING TEIL 0.2.
+
+================================================================================
+TEIL 5b — SESSION-ERKENNTNISSE (Handoff an zukünftige Claude-Instanzen)
+================================================================================
+
+Dieser Abschnitt enthält Erkenntnisse aus der Arbeit am Projekt, die nicht
+in einzelnen Dateien stehen, aber für die Arbeitsqualität entscheidend sind.
+
+ERKENNTNIS 1: CHATGPT-AUDITS RICHTIG EINORDNEN
+  ChatGPTs Full-Spectrum-Audits sind methodisch stark (8 Prüfebenen,
+  PH1-PH10), aber ihr Ergebnis hängt stark vom Review-Rahmen ab. Frühere
+  RetroTunnel-Full-Audits liefen teilweise noch gegen Altkanon-/PH3-Annahmen
+  und kannten die RetroTunnel-M2-Scope-Grenze nicht — dadurch wirkten manche
+  BLOCKER- und PH-Reife-Bewertungen zu streng (und wurden später als
+  Misreadings oder M2-Scope eingeordnet). Das ist ein
+  Scope-/Referenzrahmen-Artefakt, KEIN Beleg, dass ChatGPT-Blocker generell
+  schwach sind: in passendem Rahmen fand ChatGPT sehr wohl echte Blocker,
+  die Claude übersehen hatte (siehe MARCOS_ARBEITSWEISE / MUSTER 8).
+  Konsequenz: Jeden ChatGPT-Befund einzeln gegen Zielkanon, Scope, Prämisse,
+  Provenienz und Primärdateien prüfen, nicht pauschal abwerten. Belegte
+  Stärke: Propagationsdrift-Erkennung und Terminologie-Konsistenz.
+
+ERKENNTNIS 2: D002-PROPAGATION WAR DER TEUERSTE FEHLER
+  Die Architekturentscheidung D002 (Rollenwechsel in-place) hat 3 Review-
+  Runden gebraucht bis alle Dateien konsistent waren. SM_SESSION wurde
+  vergessen. LESSONS LEARNED: Bei jeder Architekturentscheidung SOFORT
+  einen globalen Suchlauf auf alle betroffenen Begriffe machen. Nicht
+  nur die offensichtlichen Dateien fixen, sondern Cross-File-Tabellen,
+  Tests und offene Entscheidungen in ALLEN State Machines prüfen.
+
+ERKENNTNIS 3: GOVERNANCE-DATEIEN DRIFTEN AM SCHNELLSTEN
+  REVIEW_TRACKER, PRIORITAETENLISTE, BRIEFING und CHANGELOG driften bei
+  JEDER materiellen Änderung. Das Hauptproblem — Fremd-Versionierung
+  (Version/Datum einer Datei in anderen Dateien führen) — wurde durch
+  R-14 (KEINE FREMD-VERSIONIERUNG) gelöst. Version und Datum leben
+  jetzt AUSSCHLIESSLICH im eigenen Datei-Header. Der REVIEW_TRACKER
+  führt nur noch Status + Content-Notiz, keine Fremd-Versionen.
+  Verbleibender Drift-Risiko: Regelanzahl, Content-Beschreibungen,
+  Dateilisten und OPEN/CLOSED-Markierungen müssen weiterhin
+  manuell synchronisiert werden — aber deutlich seltener als Versionen.
+
+ERKENNTNIS 4: SM_SESSION IST DER BLINDE FLECK
+  SM_SESSION ist die Datei die bei Cross-File-Updates am häufigsten
+  vergessen wird. Sie hat eine Cross-File-Tabelle (§10.1) die ALLE
+  SM_CONNECTION-Transitionen spiegelt. Bei jeder Änderung an T-01..T-09
+  muss §10.1 mitgeprüft werden.
+
+ERKENNTNIS 5: MARCOS ARBEITSWEISE
+  Marco stellt die richtigen Grundsatzfragen. Wenn Claude und ChatGPT
+  sich in technischer Komplexität verfangen (Record-Historisierung,
+  Immutability-Regeln, Multi-Pfad-Modelle), fragt Marco nach dem
+  eigentlichen Bedarf: "Brauche ich das wirklich?" / "Reicht nicht
+  einfach X?". Das sind keine Vereinfachungen — das sind die fachlich
+  richtigen Fragen die Architekturknoten auflösen (Beispiel: D002
+  entstand aus Marcos Frage "Warum muss die Connection disabled werden,
+  wenn sich nur die Rolle ändert?"). Marco denkt vom Kundenerlebnis
+  her, besonders für XP-User: Wenn ein Kunde etwas manuell tun muss
+  was automatisierbar ist, ist das ein Designfehler.
+
+ERKENNTNIS 6: AKTUELLE ENTSCHEIDUNGEN (nicht vergessen)
+  - ADMIN ist NIE restricted — auch nicht manuell. DISABLE ist der
+    Not-Aus für kompromittierte Admins. (Marco-Entscheidung 2026-04-13)
+  - KR-03 Dateigröße: 1500 Zeilen Obergrenze (nicht 500).
+  - vpn_connection = dauerhafte Geräte-Identität (D002).
+  - Rollenwechsel = in-place Mutation, kein DISABLE+INSERT.
+  - L2TP_IPSEC Rollenwechsel: Login + Passwort bleiben, IP automatisch.
+  - WIREGUARD Rollenwechsel:  Key bleibt, neue Config per E-Mail.
+  - 3-stellige Nummerierung: BASE-000..BASE-110, MOD-001..MOD-010,
+    Dateinummern 000..095 (Marco-Entscheidung 2026-04-16, "roter Faden").
+  - tunnel_type ENUM: L2TP_IPSEC|WIREGUARD (nicht mehr LEGACY|MODERN).
+    ChatGPT-Drittreview-validiert (2026-04-16).
+  - Auth-Tabelle: vpn_connection_l2tp_ipsec_auth (vorher _legacy_auth).
+  - Tunnel-Ordner: BASE-030 = TUNNEL_L2TP_IPSEC (älter, niedrigere Nr),
+                   BASE-040 = TUNNEL_WIREGUARD (neuer, höhere Nr).
+  - R-16 (2026-04-16): Invarianten und Tests immer zuletzt im Ordner.
+    Kleine Base: 050/060. Mittlere Base: 090/095.
+
+ERKENNTNIS 7: IDEEN ERST DISKUTIEREN, DANN DOKUMENTIEREN
+  Claude hat in Session 7 (2026-04-15) Marcos Ideen zu Portfreigaben
+  und Panel-Hierarchie sofort als offene Entscheidungen ins BRIEFING
+  geschrieben — bevor sie überhaupt durchdiskutiert waren. Zweimal
+  korrigiert, zweimal reverted. Marco: "Ich sage dir eine Idee und
+  anstatt dass du mit mir redest, schreibst du schon."
+  LESSONS LEARNED: Wenn Marco eine Idee ausspricht, ist das der
+  Anfang eines Gesprächs, nicht ein Arbeitsauftrag. Claudes Job ist
+  dann: Rückfragen stellen, Randfälle durchspielen, Marcos Erfahrung
+  abfragen, Gegenargumente bringen. NICHT: planen, strukturieren,
+  in Dateien festhalten. Erst wenn Marco die Diskussion für reif
+  erklärt, wird geschrieben — und dann in entwuerfe/, nicht im Kanon.
+  Diese Diskussionsphase hat bei Portfreigaben zu einer halben
+  Modul-Spezifikation geführt die rein aus Rückfragen entstanden ist.
+  Das ist der Wert: Marcos Wissen + Claudes Rückfragen = bessere
+  Architektur als beides allein.
+
+ERKENNTNIS 8: GROSSE REORGANISATIONEN BRAUCHEN DISZIPLIN
+  Am 2026-04-16 wurde eine grosse Reorganisation durchgefuehrt:
+  3-stellige Nummerierung (BASE-000..BASE-110, MOD-001..MOD-010),
+  tunnel_type ENUM-Werte umbenannt (LEGACY/MODERN -> L2TP_IPSEC/
+  WIREGUARD), Auth-Tabelle umbenannt, BASE-005_PLATFORM_CORE neu
+  erstellt, Tunnel-Ordner getauscht (L2TP_IPSEC=030, WIREGUARD=040),
+  R-16 Konvention eingefuehrt.
+  LESSONS LEARNED:
+  - Marco hat mehrfach Inkonsistenzen erkannt die Claude uebersehen
+    hatte (z.B. "BASE-000_91_..." statt "BASE-000_091_..." —
+    Claude hat 2-stellige Datei-Nummern in einem 3-stelligen
+    Ordner-Kontext als Drift uebersehen).
+  - Bei grossen Renumbering-Ops ist Systematik entscheidend: zuerst
+    Ordnerstruktur (Phase B), dann Dateien-Umbenennen (Phase C/D),
+    dann Inhalte (Phase E/F/G), am Ende Verifikation (Phase H, grep
+    nach alten Patterns).
+  - Claude hatte in Session 1 versucht "pragmatisch" 100+ Tool-Calls
+    in eine Session zu quetschen. Marco bestand auf Option 2
+    (Datei fuer Datei mit Review). Das war die richtige Entscheidung:
+    Marco sieht jede Änderung und kann driftende Entscheidungen
+    sofort korrigieren (z.B. Tunnel-Reihenfolge).
+  - Pro Datei: read_text_file -> write_file (oder edit_block bei
+    wenigen Änderungen) -> naechste Datei. Bei grossen Dateien
+    mit vielen Änderungen ist write_file mit komplettem Rewrite
+    effizienter als 10+ edit_blocks.
+  - Historische Changelog-Eintraege bleiben unveraendert — sie
+    sind Zeitdokumente und sollen nicht rueckwirkend umgeschrieben
+    werden.
+
+ERKENNTNIS 9: DRITTREVIEW-DATEIEN MUESSEN CHATGPT ATMEN LASSEN
+  Vergleich der 3 bisherigen Drittreviews (Panel-Zentrale, BASE-010,
+  BASE-020) zeigt ein klares Muster (Marco-Beobachtung 2026-04-18):
+  - Panel-Zentrale (breite Fragen, viel Freiraum): 964 Zeilen Output,
+    7 eigenstaendige Blindspot-Entdeckungen (Degraded-Mode, Projection,
+    Origin-Trennung, Re-Auth-Klassen, TLS-Modell etc.)
+  - BASE-010 (6 spezifische Fragen mit INV-Nummern): 617 Zeilen,
+    weniger eigenstaendige Exploration
+  - BASE-020 (7 spezifische Fragen mit §-Referenzen): 876 Zeilen,
+    Antworten auf Fragen gut, aber wenig eigene Entdeckungen
+  LESSONS LEARNED: Zu spezifische Fragen (INV-Nummern, §-Referenzen,
+  Feld-genaue Pruefauftraege) draengen ChatGPT in einen Checklisten-
+  Modus. Die wertvollsten Review-Ergebnisse kommen wenn ChatGPT
+  Raum hat, sich "seinen eigenen Kopf zu machen".
+  KONSEQUENZ (verankert in Regel 10 Schritt 4): Jede Drittreview-
+  Datei MUSS einen expliziten FREIRAUM-BLOCK enthalten der ChatGPT
+  auffordert, ueber die gestellten Fragen hinaus eigenstaendig zu
+  analysieren. Balance: gezielte Fragen (3-5) PLUS offener Raum.
+
+ERKENNTNIS 10: "SCHON GELESEN" IST KEIN ARGUMENT
+  (Marco-Erkenntnis 2026-04-19)
+  Claudes Kontextfenster verliert bei langen Sessions aeltere Inhalte.
+  Dateien die am Chat-Anfang gelesen wurden sind bei der konkreten
+  Arbeit Stunden spaeter moeglicherweise NICHT mehr im Kontext.
+  Bei BASE-030 hat das zu konkreten Fehlern gefuehrt:
+  - $SID als ip-up Env-Var angenommen (falsch fuer stock accel-ppp)
+  - ip-up als "synchron, blockierend" beschrieben (falsch, ist geforkt)
+  - source_event_at = NOW() geschrieben (widerspricht BASE-020 Vertrag)
+  Alle drei Fehler wurden von ChatGPT und Gemini gefunden, nicht
+  von Claude — weil Claude die relevanten Quellen nicht mehr frisch
+  im Kontext hatte.
+  MARCO-ANALYSE: ChatGPT findet diese Fehler NICHT weil es ein
+  besseres Modell ist, sondern weil es eine bessere Methodik hat:
+  Es liest bei JEDEM Review ALLE betroffenen Dateien aktiv neu ein.
+  Es greift auf sein Gedaechtnis zurueck fuer Kontext, aber es
+  verifiziert IMMER durch Neu-Lesen. Es sagt nie "das kenne ich
+  schon". Dieses Muster muss Claude uebernehmen.
+  KONSEQUENZ (verankert als KONTEXTFENSTER-REGEL im Briefing):
+  Wenn eine Regel sagt LIES, dann LIES — keine Abkuerzungen.
+  "Ich habe das verinnerlicht" ist keine akzeptable Alternative.
+
+ERKENNTNIS 11: PRINZIPIEN HABEN EINEN GELTUNGSBEREICH (SCOPE-OVERREACH)
+  (Session 2026-05-31, F-008-REV)
+  Wiederkehrende Fehlerform: ein an sich richtiges Prinzip ueber seinen
+  Geltungsbereich hinaus anwenden. Zwei Faelle aus dieser Session:
+  - SQL-FIRST-SCOPE: Claude wollte WG-Client-Config/Keys in die DB druecken.
+    Falsch. R-03 ist Wahrheit fuer Zustand/Policy/Identitaet und den
+    GESPEICHERTEN Verbrauch (Traffic). Ziel bleibt: so viel wie SINNVOLL
+    ueber die DB. Test pro Artefakt: kann die DB dafuer sinnvoll die Wahrheit
+    sein? Die BESCHAFFUNG darf systemspezifisch sein (WireGuard abfragen vs.
+    accel-ppp/RADIUS-Accounting), muss aber ins GLEICHE Schema konvergieren.
+    Was nicht sinnvoll in die DB passt (WG-Config/Keys, IPsec-PSK), ist
+    datei-basiert. "Nicht in der DB" ist NICHT "nicht gespeichert".
+    (Gleiche Form wie F-002 Option C: am Ziel uniform, im Mechanismus
+    systemspezifisch.)
+  - DRITTREVIEW-PRAEMISSE: ChatGPTs WG-"One-Time"-Kanon war IN SICH logisch
+    sauber, stand aber auf einer falschen Praemisse (Server persistiere die
+    Config nicht). Ein lokal kohaerenter Review auf falscher Grundannahme
+    infiziert alle darauf aufbauenden Folgesaetze: lokal gueltig, global
+    falsch. Praemisse/Rahmen gegen Marcos Modell pruefen, nicht nur
+    Einzelpunkte (operative Heimat: DRITTPRÜFUNG / REVIEW-MODUS O4).
+
+ERKENNTNIS 12: QUELLEN-GEWICHTUNG / PROVENIENZ
+  (Marco-Befund 2026-05-31)
+  Fehler: Claude nahm den Testserver .184 als Wahrheit, obwohl Marco
+  ausdrücklich "nur Test, nur PH1" sagte. Provenienz-Hinweise ("nur Test",
+  "nur Entwurf", "nur PHx", "Altkanon", "Baustelle", "deprecated") SENKEN
+  die Autorität einer Quelle — nicht einebnen. Eine Quelle ist nicht
+  automatisch wahr, nur weil sie real existiert; entscheidend ist ihr
+  Kanon-Status. Test-/Live-Zustände sind Evidenz für das, was dort
+  passiert, aber nicht automatisch normative Architektur für RetroTunnel.
+  Auslöser: Beim Übernehmen eines Fakts aus einer konkreten Quelle (Datei,
+  Server-Output, Altmodul) benennt Claude zuerst kurz ihren Status (ACTIVE,
+  Entwurf, Altkanon, Teststand, deprecated), bevor er ihn als gesichert
+  behandelt. Das Innehalten beim Übernehmen fehlte beim .184-Fehler, nicht
+  das Wissen um die Rangordnung.
+  (Die Websuche-/Primärquellen-Lehre, frueher Teil von E12, lebt jetzt
+  in Regel 9.)
+
+ERKENNTNIS 13: TOOLS-BUG (edit_block/write_file verschwinden) + EDIT-DISZIPLIN
+  (Session 2026-05-31)
+  BEKANNTER BUG: ab gewisser Chat-Laenge/Groesse fallen edit_block,
+  write_file und read_file aus dem Tool-Set heraus, mitten in der Session
+  (hier passiert). Das ist ein Bug, KEINE Konfiguration -- und kein Grund,
+  weniger sorgfaeltig zu arbeiten.
+  FALLBACK (bewaehrt diese Session): transaktionales Python ueber die
+  Prozess-Tools (start_process / interact / read_process_output).
+  - PowerShell Single-Quote Here-String @'...'@ -> [IO.File]::WriteAllText
+    mit UTF-8-ohne-BOM.
+  - py_compile als Syntax-Gate VOR Ausfuehrung.
+  - Engine: load() erkennt BOM+EOL; ALLE Anker mit count==1 validieren; bei
+    jedem Mismatch ABORT ohne Schreiben (kein Teil-Schreiben).
+  - Nur bei Vollerfolg schreiben; vorher .bak in %TEMP%.
+  - Verifikation: EXIT 0 + WROTE + DONE; EOL/BOM-Check; editierte Regionen
+    re-read; ZWEISEITIGER Drift-Grep (alte Phrasen 0, neue >0); Zeilenzahl-
+    Delta == eingefuegte Zeilen.
+  - Anker + neuer Text pur ASCII halten, Nicht-ASCII als \uXXXX.
+  ZUSATZ-DISZIPLIN: Inhalt und Changelog/Recording in GETRENNTEN
+  transaktionalen Schritten -- schuetzt davor, ein noch instabiles Modell
+  schon ins Gedaechtnis (Changelog) zu brennen. Hat diese Session genau das
+  verhindert, als das WG-Modell kippte.
+
+ERKENNTNIS 14: TEMP-HYGIENE (%TEMP% IST ARBEITSFLAECHE, KEIN LAGER)
+  (Marco-Regel 2026-05-31)
+  Von Claude erzeugte Temp-Dateien werden nicht liegengelassen -- sonst
+  endet %TEMP% als Muelleimer, und niemand kann mehr unterscheiden, welche
+  Reste noch gebraucht werden.
+  STRUKTUR: pro Session EIN Unterordner, z.B.
+  %TEMP%\rt_session_<YYYYMMDD_HHMM>\ -- alle Skripte, Logs und Backups der
+  Session liegen dort. Eindeutig als Artefakte DIESER Session erkennbar,
+  Cleanup = ein Schritt (Ordner weg). Kein Vermischen mit Altlasten, kein
+  Timestamp-Raetselraten.
+  TYP-TRENNUNG (wichtig -- NICHT pauschal "sofort alles weg"):
+  - SCRATCH (Transaktions-.py, stdout/stderr/compile-.txt): SOFORT loeschen,
+    sobald der Schritt erfolgreich VERIFIZIERT ist. Reiner Wegwerf.
+  - BACKUPS (.bak): sind das ROLLBACK-NETZ. NICHT sofort loeschen -- sie
+    bleiben, bis die Änderung BESTAETIGT/akzeptiert ist (Arbeitspaket fertig
+    bzw. Marco-Sign-off), dann loeschen. Begruendung: genau dieses Netz hat
+    diese Session die WG-Korrektur ermoeglicht, nachdem der Fehler erst
+    NACHTRAEGLICH auffiel. Sofortloeschung haette es zerstoert.
+  SPAETESTENS am Sessionende: Scratch weg, Backups nach Bestaetigung weg --
+  der Session-Ordner ist leer bzw. entfernt.
+  VERIFIKATIONS-PFLICHT (Bedingung fuer Backup-Loeschung):
+  - Edits sind rein ADDITIV, wo moeglich -- bestehender Text bleibt
+    Byte-fuer-Byte, kann also gar nicht beschaedigt werden.
+  - Nach JEDEM Schreiben ein Selbstcheck der Datei (unabhaengig vom Backup):
+    (a) Zeilen-Delta == eingefuegte/geaenderte Zeilen (nichts verrutscht),
+    (b) editierte Region re-read, (c) Strukturmarker-Zaehlung (alle
+    erwarteten Abschnitte/IDs je 1x), (d) EOL/BOM-Check (LF, kein BOM),
+    (e) letzte Zeile intakt.
+  - Das .bak wird ERST geloescht, wenn dieser Selbstcheck VOLLSTAENDIG OK
+    ist. Schlaegt er fehl -> sofort aus .bak restaurieren, NICHT loeschen.
+  - Grund: Marco prueft die Datei nicht jedes Mal gegen; der Status
+    korrekt-bearbeitet muss eine VERIFIZIERTE Tatsache sein, kein
+    Versprechen. Der Selbstcheck ersetzt Marcos Kontrolle, statt sie
+    vorauszusetzen.
+
+ERKENNTNIS 15: KEIN ZWEITES STEUERUNGSSYSTEM NEBEN DEM BESTEHENDEN
+  Vom 2026-11-11 bis 2026-11-14 entstand unter governance/ und qa/ eine
+  eigene Projektorganisation (Arbeitspakete, Befunde, Status,
+  Fortsetzungseinstieg), waehrend dieses Briefing, MARCOS_ARBEITSWEISE
+  und der REVIEW_STANDARD ungelesen und REVIEW_TRACKER, PRIORITAETENLISTE
+  und PHASE_PLAN ungepflegt blieben. Vier Module wurden so ohne
+  Fundament-Lektuere (Stufe 1), ohne Pattern-Check und ohne
+  Qualitaets-Gate geschrieben. Der Betreiber hat das am 2026-11-14
+  gestoppt. REGEL (MANIFEST KR-07): Zuerst pruefen, welche vorhandene
+  Datei zustaendig ist. Diese weiterentwickeln. Neues nur mit
+  nachgewiesenem eigenem Zweck - und dann so, dass eine maschinelle
+  Pruefung den Gleichstand mit der massgeblichen Datei erzwingt.
+  "Zusaetzliche Dateimengen sind kein Qualitaetsmerkmal."
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

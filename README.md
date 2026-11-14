@@ -98,6 +98,7 @@ RetroTunnel/
 │
 │   # Governance / Steuerung (Claude AI Co-Architect)
 ├── CLAUDE_BRIEFING.txt             Einstieg und Arbeitsregeln für Claude
+├── CLAUDE_BRIEFING_ERKENNTNISSE.txt  Zweiter Teil: Erkenntnisse 1–15
 ├── MARCOS_ARBEITSWEISE.txt         Arbeitsweise des Betreibers
 ├── REVIEW_STANDARD.txt             Review-Methodik, 8 Prüfebenen
 ├── REVIEW_TRACKER.txt              Datei-Inventar, Review-Status
@@ -182,6 +183,7 @@ Governance-Dateien für die Zusammenarbeit mit Claude (AI Co-Architect):
 | Datei | Inhalt |
 |---|---|
 | `CLAUDE_BRIEFING.txt` | Einstieg, Arbeitsregeln und Projektstand in Kurzform für jede neue Claude-Ausführung |
+| `CLAUDE_BRIEFING_ERKENNTNISSE.txt` | Zweiter Teil des Briefings: Erkenntnisse aus der bisherigen Arbeit |
 | `MARCOS_ARBEITSWEISE.txt` | Arbeitsweise des Betreibers (projektübergreifend) |
 | `REVIEW_STANDARD.txt` | Review-Methodik, 8 Prüfebenen, Autonomie-Grenze |
 | `REVIEW_TRACKER.txt` | Datei-Inventar, Review-Status, offene Befunde im Überblick, Sweep-Plan, Exit-Kriterien |
