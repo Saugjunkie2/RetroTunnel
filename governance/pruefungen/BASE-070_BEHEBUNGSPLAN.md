@@ -164,4 +164,79 @@ festgeschriebenen Anweisungen, Rueckverfolgung der bisher nicht erfassten Vorgae
 [x] Schritt 1 Berichte/QA/Register (BF-0013..BF-0041)
 [x] _020  [x] _030  [x] _040  [x] _050  [x] _060  [x] _070  [x] _080  [x] _090  [x] _095  [x] INDEX  [x] _010
 [x] BASE-040_030/_050/_060/_070/_090/_095  [x] D004 P-01  [x] Trace/NEU_BEGRUENDET  [ ] Changelog
-[ ] Unabhaengige Nachpruefung der Behebung (danach erst Status BEHOBEN im Befundregister)
+[x] Unabhaengige Nachpruefung der Behebung (2026-11-14; Ergebnis siehe naechster Abschnitt)
+
+## Nachpruefung der Behebung (2026-11-14) und Fassung v1.2
+
+Zwei unabhaengige Pruefer haben die Fassung v1.1 (Stand `0364b46`) in getrennten Kontexten gegen alle 30 Befunde
+gehalten. Massgeblich war allein der Modultext; dieser Plan wurde ausdruecklich nur als Behauptung gelesen.
+Berichte (unveraendert uebernommen):
+
+- `BASE-070_NACHPRUEFUNG_TEIL_A_2026-11-14.md` - BF-0013 bis BF-0025 und BF-0042
+- `BASE-070_NACHPRUEFUNG_TEIL_B_2026-11-14.md` - BF-0026 bis BF-0041
+
+### Ergebnis
+
+| | behoben | teilweise behoben | nicht behoben | neue Fehler |
+|---|---|---|---|---|
+| Teil A (14 Befunde) | 10 | 4 | 0 | 18 (3 mittel, 15 niedrig) |
+| Teil B (16 Befunde) | 12 | 4 | 0 | 12 (5 mittel, 7 niedrig) |
+| zusammen (30) | 22 | 8 | 0 | 30 (8 mittel, 22 niedrig; kein kritischer, kein hoher) |
+
+Hinweis zur Zaehlung: Die Zusammenfassung des Berichts Teil B nennt "11 behoben, 5 teilweise". Die Urteile je
+Befund in demselben Bericht ergeben 12 und 4 (BF-0041 traegt das Urteil BEHOBEN). Der Bericht ist nicht
+veraendert worden; im Register stehen die Urteile je Befund.
+
+Alle drei kritischen Befunde der Gegenpruefung (BF-0013, BF-0026, BF-0027) und alle drei hohen (BF-0014,
+BF-0015, BF-0028) sind unabhaengig als behoben bestaetigt. Eine Verletzung von "eine Nutzung je Connection"
+oder "keine Uebernahme" fand keiner der Pruefer.
+
+### Teilweise behobene Befunde und ihr Rest
+
+| Befund | Rest laut Nachpruefung | Eingearbeitet in v1.2 |
+|---|---|---|
+| BF-0018 | nachtraeglicher Beginn beendete die Episode einer lebenden, neueren Sitzung | `_020` SV-1; SC-07, SC-08; T-SC-97 |
+| BF-0020 | Sperr-Leiche nach verstellter Uhr bis 300 s statt TTL des Zwecks; vier Zeitvergleiche offen | `_030` K-2, E1; `_040` J1, G-8 b, O1; `_020` L0, H-a; SC-16, SC-27, SC-66; T-SC-96, T-SC-99, T-SC-102 |
+| BF-0021 | Frist fuer haengende Sitzungen nur bei offener Protokollzeile | `_020` L6a; `_040` probe; SC-65; T-SC-103 |
+| BF-0042 | Bremse deckte L4 b nicht, zaehlte getrennt und nur je Lauf | `_020` L6 bis L7a; DEC-SC-23; SC-30, SC-70; T-SC-104 |
+| BF-0030 | Frist wurde auch bei unbestaetigter, nachgehender Uhr geschrieben | `_060` OFFENE FRIST, R0; `_070` U-5; SC-73; T-SC-108 |
+| BF-0031 | Sperre auf der Tagesreihe stoppte Buchung und zaehlte fuer den Grace-Automaten | `_050` B-9; BASE-040_050 F4, F6; SC-35, WT-55; T-SC-106, T-WT-60 |
+| BF-0038 | Messgrenze 1 unveraendert (dieser Plan nannte den Block faelschlich als geaendert) | `_050` MESSLATENZ; SC-40; T-SC-106 |
+| BF-0040 | A1 und WT-15 im WireGuard-Treiber weiter zweiwertig | BASE-040_030 A1, Matrix, kill; WT-15, WT-53; T-WT-15, T-WT-62; BASE-070 SV-1 b |
+
+### Neue Fehler (alle eingearbeitet)
+
+| Register | Bericht | Kurzfassung | Wo behoben |
+|---|---|---|---|
+| BF-0043 | A N-05 | Puffer-Regel sperrte alle Connections ohne benannte Frist | `_040` G-8 a je Sitzung mit Wartegrenze |
+| BF-0044 | A N-08 | nachtraeglicher Beginn beendete Episode einer lebenden Sitzung | `_020` SV-1 |
+| BF-0045 | A N-17 | Mengenbremse deckte nicht alle Beendigungen | `_020` L7a: eine Bremse je Lauf, Stundenfenster |
+| BF-0046 | B N-01 | Einzel-Snapshot doppelt bzw. ueber den Reset-Zweig nachgebucht | BASE-040_060 ES-1 bis ES-5; WT-57 |
+| BF-0047 | B N-02 | Sicherheitsnetz ohne Mengenbremse und Markenbindung | `_050` N-a bis N-c, verlorene Staende |
+| BF-0048 | B N-05 | RS-3 gegen den heutigen Wert der Quarantaenefrist | `_060` RS-3 gegen die Obergrenze |
+| BF-0049 | B N-09 | Reste des zweiwertigen Verhaltens in BASE-040 | BASE-040_030 A1; WT-15 |
+| BF-0050 | B N-11 | FAIL_CLOSED liess den Widerruf scheitern | `_060` offene Frist; SC-73 |
+| BF-0051 | A, 15 niedrige | Sammelbefund (N-01 bis N-04, N-06, N-07, N-09 bis N-16, N-18) | je Fehler im Register genannt |
+| BF-0052 | B, 7 niedrige und kleine Punkte | Sammelbefund (N-03, N-04, N-06 bis N-08, N-10, N-12) | je Fehler im Register genannt |
+
+### Abweichungen von den Vorschlaegen der Pruefer (mit Grund)
+
+- A N-10: Verglichen wird mit der festen OBERGRENZE der TTL des Zwecks, nicht - wie als "besser" vorgeschlagen -
+  mit der aktuell eingestellten TTL. Ein gesenktes Setting wuerde sonst eine rechtmaessig gehaltene Sperre
+  entfernen (zwei Halter).
+- B N-09: "Zugelassener Status ohne Auth-Row" ist UNBESTIMMT (nicht ABSENT). Grund: B052 (nicht eindeutig
+  ableitbarer Zustand wie Datenbankausfall); ein Verlust der Auth-Tabelle wuerde sonst alle Peers entfernen.
+  Einzelfaelle bleiben mit ALERT sichtbar; Massenfaelle haelt die Mengenbremse von BASE-080.
+- B N-11 und B-05 (b): statt "W1 bis W4 scheitern bei unbestaetigter Zeit" gilt die OFFENE FRIST - kein Entzug
+  scheitert, keine Frist entsteht aus einer unbestaetigten Uhr.
+- B N-04 Nr. 3 (D002 7.2/7.4): als Anforderung an den Nachzug vermerkt (ANF-SC-01 b), nicht in D002 selbst
+  geaendert; der Nachzug der Bestandsmodule ist AP-Q04.
+
+### Belegstand dieser Einarbeitung (v1.2)
+
+Maschinell geprueft ist die formale Konsistenz (Register, Modulpruefung, Rueckverfolgung, 55 Selbsttests der
+Pruefwerkzeuge). Inhaltlich ist v1.2 durch Selbstpruefung des Autors geprueft - NICHT erneut unabhaengig. Deshalb
+stehen die acht teilweise behobenen Befunde und die zehn neuen Befunde im Register auf IN_ARBEIT; auf BEHOBEN
+gesetzt wurden allein die 21 Befunde, die der unabhaengige Pruefer als behoben beurteilt hat (BF-0041 bleibt
+wegen seines zweiten Teils - BASE-040_020 und BASE-050 - in Arbeit). Kein Test wurde ausgefuehrt; es gibt
+keine Implementierung.

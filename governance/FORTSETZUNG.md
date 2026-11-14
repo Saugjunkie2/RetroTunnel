@@ -26,16 +26,28 @@ zwei getrennten Vollaudits und Fail-Closed-Freigabe über die Gates G1–G4.
    setzen → Konzeptdateien schreiben → Rückverfolgung (`register/trace/`) → Register/Status aktualisieren →
    **committen und pushen**. Kleine, abgeschlossene Einheiten; keine breite Parallelität (Nutzungslimit).
 
-## Stand der Module (Checkpoint 6, 2026-11-14)
-Geschrieben und unter maschineller Modulprüfung: BASE-040 (v1.1), BASE-050, BASE-070 (v1.1) – alle noch
-`IN_ARBEIT`: es fehlen die Antworten der Nachbarmodule. Die Gegenprüfung von BASE-070 (27 Befunde) ist eingearbeitet;
-der Nachweis je Befund steht in `governance/pruefungen/BASE-070_BEHEBUNGSPLAN.md`. **Die Behebung ist noch nicht
-unabhängig nachgeprüft** – erst danach dürfen BF-0013…BF-0042 auf `BEHOBEN` gesetzt werden.
-BASE-080 ist begonnen: `_010` bis `_040` liegen als Entwurf vor (Kopfzeile „IN ARBEIT"); es fehlen `_050` bis `_095`,
-Index, Rückverfolgung und Modulprüfung. Reihenfolge: (1) Nachprüfung der Behebung BASE-070, (2) BASE-080
-fertigstellen (dabei DEC-PA-10 an `_040` angleichen, VB-0024 „Mengenbremse des Abgleichs" eintragen, Verweise auf
-BASE-070 prüfen: Hard-Cut-Kern, Zuordnung über Name ODER Adresse, vier Antworten der Sonde), (3) Abgleich der
-Nachlieferung mit BASE-040/050 (Fehlerverhalten der Settings: `LKG` in BASE-040_020 gegen TRUTH_MODEL, BF-0041).
+## Stand der Module (Checkpoint 7, 2026-11-14)
+Geschrieben und unter maschineller Modulprüfung: BASE-040 (v1.2), BASE-050, BASE-070 (v1.2) – alle noch
+`IN_ARBEIT`: es fehlen die Antworten der Nachbarmodule.
+
+**BASE-070 / BASE-040:** Die Gegenprüfung (27 Befunde + 3 eigene) ist eingearbeitet (v1.1) und wurde am 2026-11-14
+von zwei unabhängigen Prüfern nachgeprüft: 22 von 30 behoben, 8 teilweise, 0 unbehoben, dazu 30 neue Fehler (8 mittel,
+22 niedrig). Reste und neue Fehler sind eingearbeitet (v1.2). Auswertung je Befund:
+`governance/pruefungen/BASE-070_BEHEBUNGSPLAN.md`, Abschnitt „Nachprüfung der Behebung". Im Register stehen die 21 vom
+Prüfer bestätigten Befunde auf `BEHOBEN`; die acht Reste und BF-0043…BF-0052 auf `IN_ARBEIT`, weil v1.2 **nicht erneut
+unabhängig geprüft** ist. Nächster Schritt dazu: eine gezielte dritte Prüfrunde nur für BF-0043…BF-0050 und die acht
+Reste (ein Prüfer je Teil genügt; Ergebnisse laufend in Dateien).
+
+**BASE-080 (Policy-Kern) ist im Entwurf:** `_010` bis `_090` liegen vor (Kopfzeile „IN ARBEIT"; 67 Invarianten
+PA-01…PA-67). Es fehlen: `_095` Tests (jeder Fall T-POL des Vorgängers muss gedeckt sein), `BASE-080_INDEX.txt`, die
+Verbleib-Tabelle in `_080` Abschnitt 8 (sie nennt noch vorläufige PA-/T-PA-Kennungen und muss an `_090`/`_095`
+angeglichen werden), VB-0024 „Mengenbremse des Abgleichs" in `VERBESSERUNGEN.yaml`, der Eintrag in
+`MODULPRUEFUNG.yaml`, die Rückverfolgung (SM_POLICY_RESTRICT vollständig, dazu XPN B166/D009/D011, NL B052/B345,
+SM_CONNECTION-Teile zum Evaluator, BASE-010_050/_070/_080, BASE-030_040, BASE-005 PF-18) samt Lesestatus, zuletzt die
+Kopfzeilen auf `ACTIVE` und eine unabhängige Gegenprüfung.
+
+Reihenfolge: (1) BASE-080 fertigstellen, (2) dritte Prüfrunde BASE-070/040, (3) BF-0041 zweiter Teil
+(Fehlerverhalten der Settings: `LKG` in BASE-040_020 und BASE-050 gegen TRUTH_MODEL) und Abgleich der Nachlieferung.
 
 **Nachlieferung durch den Betreiber (BM-0010, BM-0012, BM-0014):** Seit 2026-11-13 liegen unter `nachlieferung/`
 95 wiedergefundene Dateien (Liefer-Commits `413ba25`, `df55ea2`). Sie sind **unveränderliche Lesequelle** (Quelle
@@ -59,9 +71,9 @@ Abbruch am Nutzungslimit nichts kostet. Was Agenten gelesen oder geprüft haben,
 unter einer Stunde und halten dann auch die eigene Arbeit an. Deshalb: Lesen und Schreiben selbst; Agenten nur für
 klar umrissene Prüfaufgaben, einzeln oder zu zweit, mit laufend abgelegten Ergebnissen.
 
-**Gegenprüfung BASE-070 (2026-11-13) und Behebung (2026-11-14):** Berichte, Behebungsplan und Nachweis in
-`governance/pruefungen/`; 27 Befunde (3 kritisch, 3 hoch), dazu BF-0040…BF-0042 aus eigenem Abgleich. Eingearbeitet
-in BASE-070, BASE-040 und D004 (P-01 berichtigt). Offen ist die unabhängige Nachprüfung der Behebung.
+**Gegenprüfung, Behebung, Nachprüfung (2026-11-13/14):** Alle Berichte, der Behebungsplan und die Auswertung liegen in
+`governance/pruefungen/`. Lehre aus zwei Runden: Jede Behebung hat neue, kleinere Fehler erzeugt - ein Befund gilt erst
+als `BEHOBEN`, wenn ein unabhängiger Prüfer es am Modultext bestätigt hat.
 
 ## Feste Grenzen
 - Kein `FREIGEGEBEN` und kein `ABGESCHLOSSEN_UND_UEBERNOMMEN`, solange G4 nicht nachweislich erfüllt ist
