@@ -1,8 +1,8 @@
 ================================================================================
 RetroTunnel — 04_PHASE_PLAN
 ================================================================================
-VERSION: v1.1
-DATUM: 2026-05-26
+VERSION: v1.2
+DATUM: 2026-11-14
 STATUS: ACTIVE
 SOURCE-OF-TRUTH FUER: PH-Reifegrad, PH-Acceptance, Rollout-Sequenz
 
@@ -39,6 +39,11 @@ ROLLEN-DEFINITION — IST vs SOLL
                                                            mit aktuellem Status
                                                            (DONE/IN-PROGRESS/
                                                            WAITING).
+                                                           Dort als Tags:
+                                                           IN-PROGRESS =
+                                                           [ACTIVE], WAITING
+                                                           = [WAITING] oder
+                                                           [DEFERRED].
   04_PHASE_PLAN.txt           SOLL-Liste / Anforderungs-   Was alles vorhanden
                               Katalog                      sein muss damit das
                                                            System fertig ist —
@@ -272,14 +277,16 @@ RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
                                  Connection-Lifecycle (v2.0)            [DONE]
   BASE-020_AAA_CORE            — FreeRADIUS-Integration, WG-Vertrag     [DONE]
   BASE-030_TUNNEL_L2TP_IPSEC   — accel-ppp + strongSwan                 [DONE]
-  BASE-040_TUNNEL_WIREGUARD    — AmneziaWireGuard                       [WAITING]
-                                 (Entwurf vorhanden:
-                                  entwuerfe/ENTWURF_IPV6_DUALSTACK_CONFIG.txt)
-  BASE-050_FIREWALL_CORE       — nftables Baseline                      [WAITING]
+  BASE-040_TUNNEL_WIREGUARD    — AmneziaWireGuard                   [IN-PROGRESS]
+                                 (geschrieben 2026-11-12, Abschluss offen)
+  BASE-050_FIREWALL_CORE       — nftables Baseline                 [IN-PROGRESS]
+                                 (geschrieben 2026-11-13, Abschluss offen)
   BASE-070_SESSION_CORE        — Runtime Activity Detection +
                                  Accounting Correlation + Collector
                                  Idempotency + DB-Down-Buffer (D004-E03);
-                                 vpn_session_locks-Janitor (anteilig)  [WAITING]
+                                 vpn_session_locks-Janitor (anteilig)
+                                 (geschrieben 2026-11-13,
+                                 Abschluss offen)                  [IN-PROGRESS]
 
 ACHSE 1 — KONZEPT-REIFE-KRITERIEN:
   K-PH1-01  L2TP/IPsec-Flow vollstaendig kodiert (BASE-030, alle Sektionen
@@ -293,7 +300,9 @@ ACHSE 1 — KONZEPT-REIFE-KRITERIEN:
             WG-Vertrag WG-01..WG-05)
   K-PH1-05  Firewall-Baseline kodiert (BASE-050)
             inkl. WAN-Port-Exposure, Peer-Isolation, NAT/Masquerade,
-            Single-Source-of-Truth awg0.conf vs persistent rules
+            Single-Source-of-Truth (EINE gerenderte nftables-Tabelle,
+            BASE-050 DEC-FW-01; die fruehere Fassung "awg0.conf vs
+            persistent rules" ist mit Befund BF-0006 ueberholt)
   K-PH1-06  Session-Stabilitaet definiert (DPD/LCP fuer LEGACY,
             PersistentKeepalive fuer MODERN, Reconnect ohne Ghost Sessions)
   K-PH1-07  fixed_ip + fixed_ipv6 deterministisch (BASE-010_020 §1 Schema,
@@ -306,42 +315,53 @@ ACHSE 2 — IMPLEMENTATION-ACCEPTANCE (initial grob, Detail in M3/M4):
                    BASE-020_095 (RADIUS-Auth-Flow)]
   I-PH1-02  Modern-Client kann via AWG verbinden, bekommt Tunnel-IP +
             fixed_ipv6
-            Proof: RT-PH1-PROOF-02 [BASE-040_095 T-WG-XX zu schreiben]
+            Proof: RT-PH1-PROOF-02 [BASE-040_095 T-WT-12, T-WT-16,
+                   T-WT-33]
   I-PH1-03  Full-Tunnel funktioniert (Default-Route ueber VPN), kein
             Split-Tunnel-Leck
-            Proof: RT-PH1-PROOF-03 [BASE-030_095 T-LT-XX + BASE-040_095
-                   T-WG-XX + BASE-050_095 T-FW-XX, alle zu schreiben]
+            Proof: RT-PH1-PROOF-03 [BASE-030_095 T-LT-XX (zu mappen) +
+                   BASE-040_095 T-WT-33 + BASE-050_095 T-FW-51, T-FW-57]
   I-PH1-04  Peer-Isolation: User koennen sich untereinander nicht erreichen
             (LEGACY ppp-Isolation + MODERN AllowedIPs-Beschraenkung +
             nftables-Enforcement)
-            Proof: RT-PH1-PROOF-04 [BASE-050_095 T-FW-XX zu schreiben]
+            Proof: RT-PH1-PROOF-04 [BASE-050_095 T-FW-50]
   I-PH1-05  Reconnect stabil (DPD/LCP/PersistentKeepalive) ohne Ghost
             Sessions in vpn_session_locks
-            Proof: RT-PH1-PROOF-05 [BASE-030_095 T-LT-XX + BASE-040_095
-                   T-WG-XX + BASE-070_095 T-SE-XX, alle zu schreiben]
+            Proof: RT-PH1-PROOF-05 [BASE-030_095 T-LT-XX (zu mappen) +
+                   BASE-040_095 T-WT-38, T-WT-46 + BASE-070_095 T-SC-22,
+                   T-SC-30, T-SC-33]
   I-PH1-06  fixed_ipv6 pro Verbindung deterministisch (kein Wechsel beim
             Reconnect)
             Proof: RT-PH1-PROOF-06 [BASE-010_095 T-IS-01..04 (CSPRNG-
-                   Allokator), bereits geschrieben]
+                   Allokator), bereits geschrieben + BASE-070_095 T-SC-61,
+                   T-SC-63 (Allokator)]
   I-PH1-07  IPv6 Egress funktioniert (MODERN: interne ULA fd77:0:0:<rolle>::/64,
             NAT66/MASQUERADE am WAN, Source = Server-WAN-GUA; LEGACY ist IPv4-only)
-            Proof: RT-PH1-PROOF-07 [BASE-050_095 T-FW-XX (NAT66-Egress MODERN) +
-                   BASE-040_095 T-WG-XX (ULA-Zuweisung MODERN), beide zu schreiben]
+            Proof: RT-PH1-PROOF-07 [BASE-050_095 T-FW-39, T-FW-57 (NAT66-
+                   Egress MODERN) + BASE-040_095 T-WT-16, T-WT-31 (ULA-
+                   Zuweisung MODERN)]
 
-KONZEPT-REIFE-STATUS (Stand 2026-05-24):
-  Geschaetzt: ~60%
+KONZEPT-REIFE-STATUS (Fakten Stand 2026-11-14):
+  Geschaetzt: ~60% - Schaetzung vom 2026-05-24. NICHT fortgeschrieben:
+    Nach Regel K5 aendert sie sich erst, wenn ein Modul auf DONE
+    wechselt; bis dahin zaehlen die Fakten unten.
   Fakten:
     - BASE-000, BASE-005, BASE-010 (v2.0), BASE-020, BASE-030 — DONE/CLEAN
+      (im Repository liegen diese Dateien hinter dem Changelog-Stand;
+      Befund BF-0010, Nachzug PRIORITAETENLISTE QS-11)
     - BASE-010 hat aktuellen CSPRNG-Invariante (INV-83) + Tombstone-
       Edge-Cases (INV-84)
     - F-004 (dns2-Port-Fehler) und WG-DNS-Vertrag (WG-01..05) sauber
       eingebaut
+    - BASE-040, BASE-050 und BASE-070 sind GESCHRIEBEN (je 11 Dateien,
+      Invarianten und Tests, Herkunft jeder Invariante belegt). BASE-070
+      wurde zweimal unabhaengig geprueft, BASE-050 noch gar nicht.
   Offen:
-    - BASE-040 (AmneziaWireGuard): nur Entwurf in entwuerfe/, kein Modul
-    - BASE-050 (Firewall Core): Ordner leer, kein Modul
-    - BASE-070 (Session Core): Ordner leer, Session-Stabilitaets-Anteil
-      fuer PH1 fehlt
-  Blocker: BASE-040, BASE-050, BASE-070 muessen geschrieben werden
+    - Abschluss der drei Module: was fehlt, steht in PRIORITAETENLISTE
+      M2-040, M2-050, M2-070; offene Befunde in REVIEW_TRACKER 1d.
+    - K-PH1-06 und K-PH1-07 sind in BASE-070 kodiert, aber erst mit
+      dessen Abschluss erfuellt.
+  Blocker: Abschluss (Pruefung) von BASE-040, BASE-050, BASE-070
   DoD-Quelle: BASE-XXX_090_INVARIANTEN.txt + BASE-XXX_095_TESTS.txt pro Modul
 
 IMPLEMENTATION-REIFE-STATUS (Stand 2026-05-24):
@@ -422,7 +442,7 @@ RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
   BASE-005_PLATFORM_CORE       — Service-IP / SERVICE_DNS               [DONE]
   BASE-030_TUNNEL_L2TP_IPSEC   — LT-41 DNS-Vertrag                      [DONE]
   BASE-020_AAA_CORE            — WG-01..05 WG-DNS-Vertrag               [DONE]
-  BASE-050_FIREWALL_CORE       — DNAT-Regeln fuer DNS-Zwang             [WAITING]
+  BASE-050_FIREWALL_CORE       — DNAT-Regeln fuer DNS-Zwang         [IN-PROGRESS]
 
 ACHSE 1 — KONZEPT-REIFE-KRITERIEN:
   K-PH3-01  Unbound + AdGuardHome Konfiguration kodiert (BASE-060)
@@ -437,11 +457,11 @@ ACHSE 1 — KONZEPT-REIFE-KRITERIEN:
 ACHSE 2 — IMPLEMENTATION-ACCEPTANCE:
   I-PH3-01  DNS-Bypass-Versuch (8.8.8.8:53) landet trotzdem intern auf
             SERVICE_DNS (UDP + TCP)
-            Proof: RT-PH3-PROOF-01 [BASE-060_095 T-DN-XX +
-                   BASE-050_095 T-FW-XX (DNAT-Regel), beide zu schreiben]
+            Proof: RT-PH3-PROOF-01 [BASE-060_095 T-DN-XX (zu schreiben) +
+                   BASE-050_095 T-FW-45, T-FW-46 (DNAT-Regel)]
   I-PH3-02  DNS-Bypass via IPv6-DNS landet ebenfalls intern (MODERN-Stack)
-            Proof: RT-PH3-PROOF-02 [BASE-060_095 T-DN-XX (v6) +
-                   BASE-050_095 T-FW-XX (DNAT v6), beide zu schreiben]
+            Proof: RT-PH3-PROOF-02 [BASE-060_095 T-DN-XX (v6, zu
+                   schreiben) + BASE-050_095 T-FW-45, T-FW-46 (DNAT v6)]
   I-PH3-03  XP-Client erreicht plausible Zeit nach Connect (keine
             Zert-/TLS-Deadlocks durch falsche Uhr)
             Proof: RT-PH3-PROOF-03 [BASE-060_095 T-NTP-XX zu schreiben]
@@ -459,8 +479,10 @@ KONZEPT-REIFE-STATUS (Stand 2026-05-24):
   Offen:
     - BASE-060_DNS_CORE Ordner ist leer, kein Vollmodul
     - NTP-Strategie nicht ausgearbeitet
-    - BASE-050_FIREWALL_CORE Ordner leer (DNAT-Regeln fehlen)
-  Blocker: BASE-060 und BASE-050 muessen geschrieben werden
+    - STAND 2026-11-14: BASE-050 ist geschrieben (DNS-Zwang per DNAT
+      fuer IPv4 und IPv6 enthalten), aber nicht abgeschlossen und noch
+      nicht unabhaengig geprueft.
+  Blocker: BASE-060 muss geschrieben, BASE-050 abgeschlossen werden
 
 IMPLEMENTATION-REIFE-STATUS:
   Geschaetzt: ~15%
@@ -625,7 +647,8 @@ RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
   BASE-090_SETTINGS_CORE       — Retention-Settings, Limits             [WAITING]
   BASE-080_POLICY_APPLY_CORE   — Admin-Override / Not-Aus-Pfade
                                  (Hauptphase PH8, hier als Nebenphase
-                                 fuer Operability-Override-Mechanik)    [WAITING]
+                                 fuer Operability-Override-Mechanik;
+                                 Entwurf 2026-11-14)               [IN-PROGRESS]
 
 ACHSE 1 — KONZEPT-REIFE-KRITERIEN:
   K-PH6-01  Fail2ban-Jail-Definitionen kodiert (MOD-005: SSH, Panel-Login,
@@ -649,9 +672,9 @@ ACHSE 2 — IMPLEMENTATION-ACCEPTANCE:
   I-PH6-04  Health-Check zeigt Service-Status korrekt
             Proof: RT-PH6-PROOF-04 [MOD-007_095 T-HC-XX zu schreiben]
   I-PH6-05  Admin kann jeden Automatismus per Override anhalten
-            Proof: RT-PH6-PROOF-05 [BASE-080_095 T-PA-XX (PolicyApply-
-                   Override) + MOD-006_095 T-PA-XX (Admin-Action),
-                   beide zu schreiben]
+            Proof: RT-PH6-PROOF-05 [BASE-080_095 T-PA-13, T-PA-53,
+                   T-PA-80, T-PA-81 (Eingriffspfade, Entwurf) + MOD-006_095
+                   T-PA-XX (Admin-Action, zu schreiben)]
 
 KONZEPT-REIFE-STATUS (Stand 2026-05-24):
   Geschaetzt: ~5%
@@ -694,7 +717,9 @@ RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
                                  Correlation + Collector Idempotency +
                                  DB-Down-Buffer (D004-E03). Heimat der
                                  frueheren SM_SESSION-Inhalte, angepasst
-                                 an Runtime-Truth-Trennung (D004).      [WAITING]
+                                 an Runtime-Truth-Trennung (D004).
+                                 (geschrieben 2026-11-13,
+                                 Abschluss offen)                  [IN-PROGRESS]
   BASE-020_AAA_CORE            — RADIUS-Accounting                      [DONE]
   MOD-007_LOGGING_MONITORING   — Reporting-Schicht (geteilt mit PH6/9)  [WAITING]
 
@@ -724,15 +749,15 @@ ACHSE 2 — IMPLEMENTATION-ACCEPTANCE:
                    Accounting-Flow) zu schreiben/erweitern]
   I-PH7-02  Ghost-Session wird innerhalb definierter Zeit erkannt und
             geraeumt
-            Proof: RT-PH7-PROOF-02 [BASE-070_095 T-SE-XX (Reconcile-
-                   Mechanik) + BASE-020_095 T-AC-XX (Accounting),
-                   beide zu schreiben]
+            Proof: RT-PH7-PROOF-02 [BASE-070_095 T-SC-30, T-SC-33,
+                   T-SC-35 (Reconcile-Mechanik) + BASE-020_095 T-AC-XX
+                   (Accounting, zu schreiben)]
   I-PH7-03  Online-Sicht im Panel zeigt korrekte Live-Connections
             (operational_session aus vpn_connections-Aggregat
             abgeleitet, D004-E07)
-            Proof: RT-PH7-PROOF-03 [MOD-006_095 T-PA-XX (Stats-Sicht)
-                   + BASE-070_095 T-SE-XX (Runtime-Truth-Pipeline),
-                   beide zu schreiben]
+            Proof: RT-PH7-PROOF-03 [MOD-006_095 T-PA-XX (Stats-Sicht,
+                   zu schreiben) + BASE-070_095 T-SC-05, T-SC-08, T-SC-11
+                   (Runtime-Truth-Pipeline)]
 
 KONZEPT-REIFE-STATUS (Stand 2026-05-24):
   Geschaetzt: ~20%
@@ -743,14 +768,17 @@ KONZEPT-REIFE-STATUS (Stand 2026-05-24):
       Collector Idempotency + DB-Down-Buffer; D004-E03). Die
       vpn_sessions-DB-Tabelle ist deprecated und entfaellt
       aus dem aktiven Modell.
-    - Aufloesung in BASE-070_SESSION_CORE noch nicht erfolgt (Ordner leer)
+    - STAND 2026-11-14: Die Aufloesung in BASE-070_SESSION_CORE ist
+      ERFOLGT (Vollmodul nach D004-E03; jede Aussage von SM_SESSION
+      eingeordnet, Verbleib der Invarianten in BASE-070_080). D004 selbst
+      liegt nur als Rekonstruktion vor (Befund BF-0001).
     - RADIUS-Schema in BASE-020 vorhanden
   Offen:
-    - BASE-070 muss als Vollmodul geschrieben werden (D004-E03 als
-      inhaltliche Vorgabe; SM_SESSION-Inhalt nur soweit konsistent
-      mit D004 uebernehmen, an aktuellen Kanon anpassen)
+    - Abschluss von BASE-070 (dritte Pruefrunde; PRIORITAETENLISTE
+      M2-070, REVIEW_TRACKER 1d)
     - MOD-007 leer
-  Blocker: BASE-070 zentral
+  Blocker: Abschluss von BASE-070; MOD-007
+  Die Schaetzung oben stammt vom 2026-05-24 (Regel K5).
 
 IMPLEMENTATION-REIFE-STATUS:
   Geschaetzt: ~15%
@@ -771,12 +799,13 @@ STACK-BEZUG:
   Firewall:       eigene RESTRICTED-Chain fuer Walled-Garden-Routing
 
 RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
-  BASE-080_POLICY_APPLY_CORE   — PolicyApply-Daemon                     [WAITING]
+  BASE-080_POLICY_APPLY_CORE   — PolicyApply-Daemon
+                                 (Entwurf 2026-11-14, ungeprueft)  [IN-PROGRESS]
   BASE-100_POLICY_CORE         — Policy-Definitionen / Walled-Garden-
                                  Regeln (Detail-Abgrenzung zu BASE-080
                                  zu pruefen)                            [WAITING]
   BASE-060_DNS_CORE            — Sinkhole-Mode                          [WAITING]
-  BASE-050_FIREWALL_CORE       — RESTRICTED-Chain                       [WAITING]
+  BASE-050_FIREWALL_CORE       — RESTRICTED-Chain                   [IN-PROGRESS]
   BASE-010_IDENTITY_CORE       — op_status=RESTRICTED, Reason-Codes
                                  (INV-12, INV-23, INV-56)               [DONE]
   MOD-002_RESTRICTED_MODE      — Customer-/Admin-Aktionen im Restricted-
@@ -822,21 +851,23 @@ ACHSE 1 — KONZEPT-REIFE-KRITERIEN:
 ACHSE 2 — IMPLEMENTATION-ACCEPTANCE:
   I-PH8-01  RESTRICTED Connection hat DNS nur fuer Service-Hostnames
             (rest -> Sinkhole)
-            Proof: RT-PH8-PROOF-01 [BASE-060_095 T-DN-XX (Sinkhole) +
-                   BASE-080_095 T-PA-XX (PolicyApply), beide zu schreiben]
+            Proof: RT-PH8-PROOF-01 [BASE-060_095 T-DN-XX (Sinkhole, zu
+                   schreiben) + BASE-080_095 T-PA-31, T-PA-38, T-PA-48
+                   (PolicyApply, Entwurf)]
   I-PH8-02  RESTRICTED Connection erreicht Panel via Service-IP, aber
             nichts anderes
-            Proof: RT-PH8-PROOF-02 [BASE-050_095 T-FW-XX (RESTRICTED-
-                   Chain) + BASE-080_095 T-PA-XX, beide zu schreiben]
+            Proof: RT-PH8-PROOF-02 [BASE-050_095 T-FW-37, T-FW-44
+                   (RESTRICTED-Chain) + BASE-080_095 T-PA-31, T-PA-38,
+                   T-PA-48 (Entwurf)]
   I-PH8-03  PolicyApply reagiert auf op_status-Wechsel innerhalb
             definierter Zeit
-            Proof: RT-PH8-PROOF-03 [BASE-080_095 T-PA-XX (Latenz-Test)
-                   zu schreiben]
+            Proof: RT-PH8-PROOF-03 [BASE-080_095 T-PA-60 (Latenz-Test,
+                   Entwurf)]
   I-PH8-04  Quota-Trigger funktioniert: USER/MODERN/LEGACY mit
             Quota erschoepft -> automatic RESTRICTED via PolicyApply
             Proof: RT-PH8-PROOF-04 [MOD-010_095 T-PL-XX (Plan-Engine
                    Quota) + BASE-010_095 T-TR-XX (T-02 Trigger) +
-                   BASE-080_095 T-PA-XX, MOD-010/BASE-080 zu schreiben,
+                   BASE-080_095 T-PA-16 (Entwurf), MOD-010 zu schreiben,
                    BASE-010 bereits da]
   I-PH8-05  Admin-Restore fuehrt zur Wiederherstellung von ACTIVE
             Proof: RT-PH8-PROOF-05 [BASE-010_095 T-TR-XX (T-05/T-08
@@ -859,14 +890,14 @@ ACHSE 2 — IMPLEMENTATION-ACCEPTANCE:
             No-op/Reject (kein RESTRICTED). Restrict-Exemption gilt auch
             bei manueller Aktion (R-08: auch nicht manuell).
             Proof: RT-PH8-PROOF-07 [BASE-010_095 T-AS-XX (Admin-State-
-                   Change) + BASE-080_095 T-PA-XX (PolicyApply auf
-                   ADMIN), BASE-010 bereits da, BASE-080 zu schreiben]
+                   Change) + BASE-080_095 T-PA-05 (PolicyApply auf
+                   ADMIN, Entwurf), BASE-010 bereits da]
   I-PH8-08  Baseline-Security bleibt im RESTRICTED Mode aktiv:
             - DNS-Zwang funktioniert (8.8.8.8:53 -> intern auf SERVICE_DNS)
             - Peer-Isolation wirkt (User->User blockiert)
-            Proof: RT-PH8-PROOF-08 [BASE-050_095 T-FW-XX (Baseline-Chain
-                   bleibt aktiv auch im RESTRICTED Mode) +
-                   BASE-060_095 T-DN-XX, beide zu schreiben]
+            Proof: RT-PH8-PROOF-08 [BASE-050_095 T-FW-45, T-FW-50
+                   (Baseline-Chain bleibt aktiv auch im RESTRICTED Mode) +
+                   BASE-060_095 T-DN-XX (zu schreiben)]
 
 KONZEPT-REIFE-STATUS (Stand 2026-05-24):
   Geschaetzt: ~15%
@@ -874,11 +905,16 @@ KONZEPT-REIFE-STATUS (Stand 2026-05-24):
     - Identity-Lifecycle RESTRICTED-Pfad in BASE-010 sauber kodiert
       (T-02, T-05, T-06, T-07, INV-12, INV-22, INV-23, INV-56)
     - SM_POLICY_RESTRICT (deprecated in model/) existierte
+    - STAND 2026-11-14: BASE-050 geschrieben (RESTRICTED-Regeln
+      enthalten), BASE-080 als ENTWURF vorhanden (SM_POLICY_RESTRICT
+      vollstaendig zurueckverfolgt); beide nicht abgeschlossen.
   Offen:
-    - BASE-080, BASE-100, BASE-060, BASE-050 alle leer
+    - BASE-100, BASE-060 leer; BASE-080 ungeprueft
     - MOD-002, MOD-010 alle leer
-    - Abgrenzung BASE-080 vs BASE-100 nicht klar (OPEN-PHP-08 unten)
-  Blocker: BASE-080 zentral, BASE-100 zentral
+    - Abgrenzung BASE-080 vs BASE-100: Seite BASE-080 im Entwurf
+      festgelegt, Bestaetigung durch BASE-100 offen (OPEN-PHP-08 unten)
+  Blocker: Abschluss BASE-080, BASE-100 zentral
+  Die Schaetzung oben stammt vom 2026-05-24 (Regel K5).
 
 IMPLEMENTATION-REIFE-STATUS:
   Geschaetzt: ~5%
@@ -975,15 +1011,15 @@ MAPPING-MATRIX (Modul <-> Phase)
   BASE-020_AAA_CORE                DONE         PH1         PH3 (WG-DNS),
                                                             PH7 (Accounting)
   BASE-030_TUNNEL_L2TP_IPSEC       DONE         PH1         PH3 (LT-41)
-  BASE-040_TUNNEL_WIREGUARD        WAITING      PH1         PH3 (WG-DNS)
-                                   (Entwurf)
-  BASE-050_FIREWALL_CORE           WAITING      PH1         PH3 (DNAT),
+  BASE-040_TUNNEL_WIREGUARD        IN-PROGRESS  PH1         PH3 (WG-DNS)
+  BASE-050_FIREWALL_CORE           IN-PROGRESS  PH1         PH3 (DNAT),
                                                             PH8 (RESTRICTED)
   BASE-060_DNS_CORE                WAITING      PH3         PH4 (Rewrite),
                                                             PH8 (Sinkhole)
-  BASE-070_SESSION_CORE            WAITING      PH7         PH1 (Session-
+  BASE-070_SESSION_CORE            IN-PROGRESS  PH7         PH1 (Session-
                                                             Stabilitaet)
-  BASE-080_POLICY_APPLY_CORE       WAITING      PH8         PH6 (Override)
+  BASE-080_POLICY_APPLY_CORE       IN-PROGRESS  PH8         PH6 (Override)
+                                   (Entwurf)
   BASE-090_SETTINGS_CORE           WAITING      PH6         alle (Settings
                                                             sind cross-cutting)
   BASE-100_POLICY_CORE             WAITING      PH8         — (PH1-Bezug
@@ -1002,12 +1038,15 @@ MAPPING-MATRIX (Modul <-> Phase)
   MOD-010_PLANS                    WAITING      PH10        PH8 (Quota-Plans),
                                                             PH2 (Plan-Limits)
 
-KONSOLIDIERTE STATUS-AUFSTELLUNG:
+KONSOLIDIERTE STATUS-AUFSTELLUNG (Stand 2026-11-14; der Status folgt
+der PRIORITAETENLISTE und wird maschinell gegen sie geprueft):
   DONE                    : 5 Module (BASE-000, BASE-005, BASE-010,
                             BASE-020, BASE-030)
-  WAITING (mit Entwurf)   : 1 Modul  (BASE-040)
-  WAITING (Ordner leer)   : 17 Module (BASE-050..110 ohne BASE-040,
-                            MOD-001..010)
+  IN-PROGRESS             : 4 Module (BASE-040, BASE-050, BASE-070
+                            geschrieben, Abschluss offen; BASE-080
+                            Entwurf)
+  WAITING (Ordner leer)   : 14 Module (BASE-060, BASE-090, BASE-100,
+                            BASE-110, MOD-001..010)
   TOTAL                   : 23 Module
 
 ================================================================================
@@ -1056,26 +1095,38 @@ NAMENSRAUM:
                          (RT-PH1-PROOF-01 bis RT-PH1-PROOF-07,
                           RT-PH2-PROOF-01 bis RT-PH2-PROOF-03, etc.)
 
-UEBERSICHT (Stand 2026-05-24):
+STAND 2026-11-14: Fuer BASE-040, BASE-050, BASE-070 und den Entwurf
+BASE-080 sind die Platzhalter in den Phasen oben durch die Kennungen
+ersetzt, die die Testdateien in ihrem Kopf den Proof-Ankern zuordnen
+(T-WT statt T-WG, T-SC statt T-SE). Alle diese Tests haben den
+Belegstand "geplant" (keiner ist ausgefuehrt), und die Module sind
+IN-PROGRESS: Die Zuordnung wird beim Wechsel auf DONE bestaetigt
+(OPEN-PHP-03). Der Rueck-Verweis im einzelnen Test-Eintrag fehlt noch
+(Befund BF-0056). ACHTUNG Namensraum: T-PA ist jetzt der Test-Praefix
+von BASE-080; der Platzhalter "MOD-006_095 T-PA-XX" braucht beim
+Schreiben von MOD-006 einen anderen Praefix.
+
+UEBERSICHT (Stand 2026-11-14):
 
   Phase  Anzahl  Vorhandene Tests (bereits geschrieben)
   ------ ------- ----------------------------------------
-  PH1     7      RT-PH1-PROOF-06 (BASE-010 T-IS-01..04)
-                 Andere: verweisen auf BASE-040/050/070_095 (zu schreiben)
-                 sowie BASE-030_095 (vorhanden, Test-IDs T-LT-XX
-                 detailliert zu mappen)
+  PH1     7      Alle 7 Anker haben Tests in BASE-010, BASE-040,
+                 BASE-050, BASE-070 (Belegstand "geplant"). Offen:
+                 Test-IDs T-LT-XX aus BASE-030_095 detailliert mappen
+                 (Anker 03 und 05).
   PH2     3      0 vorhanden — alle in MOD-003 + MOD-009 zu schreiben
-  PH3     4      0 vorhanden — alle in BASE-060 + BASE-050 zu schreiben
+  PH3     4      Anteil BASE-050 vorhanden (Anker 01, 02); BASE-060 zu
+                 schreiben
   PH4     4      0 vorhanden — alle in BASE-110 + MOD-004 zu schreiben
   PH5     5      Teilweise (BASE-010 T-OW-XX, T-TR-XX vorhanden) —
                  MOD-001 + MOD-006 + BASE-110 zu schreiben
-  PH6     5      0 vorhanden — alle in MOD-005/007/008 + BASE-080/090
-                 zu schreiben
-  PH7     3      Teilweise (BASE-020 Accounting-Schema vorhanden) —
-                 BASE-070 + MOD-007 zu schreiben
-  PH8     8      Teilweise (BASE-010 T-AR-XX, T-AS-XX, T-TR-XX
-                 vorhanden) — BASE-080 + BASE-050 + BASE-060 + MOD-010 +
+  PH6     5      Anteil BASE-080 an Anker 05 vorhanden (Entwurf) —
+                 MOD-005/007/008 + BASE-090 zu schreiben
+  PH7     3      Anteil BASE-070 an Anker 02 und 03 vorhanden;
+                 BASE-020 Accounting-Schema vorhanden — MOD-007 +
                  MOD-006 zu schreiben
+  PH8     8      Anteile BASE-010, BASE-050 und BASE-080 (Entwurf)
+                 vorhanden — BASE-060 + MOD-010 + MOD-006 zu schreiben
   PH9     3      0 vorhanden — alle in MOD-007 + MOD-006 zu schreiben
   PH10    N      pro Extra einzeln festzulegen
 
@@ -1128,6 +1179,10 @@ OPEN-PHP-04: Hardcut-Pfade pro Phase explizit benennen
   Fuer jede Phase fehlt aktuell der Hardcut-Pfad (was passiert wenn
   Phase live ist und Notfall-Abschaltung noetig wird). Soll in M3
   ergaenzt werden.
+  STAND 2026-11-14: Die Hard-Cut-MECHANIK je Tunnel ist in BASE-070_040
+  und BASE-040_030 spezifiziert, die Eingriffspfade des Betreibers im
+  Entwurf BASE-080_070 Abschnitt 9. Der Hardcut-Pfad JE PHASE bleibt
+  offen.
 
 OPEN-PHP-05: Externer Monitoring-Probe-Plan
   PH9 erwaehnt Monitoring-Probe als optional. Architektur-Entscheidung
@@ -1141,6 +1196,11 @@ OPEN-PHP-07: MOD-009 PEAK_MODE inhaltliche Klaerung
   Modul-Ordner existiert leer. Marcos Intention ist (vermutlich)
   Bandbreite-Peak-Behandlung im Rahmen QoS — Klaerung erforderlich
   vor Modul-Schreiben. Vorlaeufig MAPPING-MATRIX bei PH2 (QoS).
+  STAND 2026-11-14: Die Quelle peak_mode_v2 (17 Dateien) liegt seit
+  der Nachlieferung vom 2026-11-13 unter nachlieferung/entwuerfe/ vor
+  und ist noch nicht vollstaendig gelesen (PRIORITAETENLISTE QS-10).
+  Die Klaerung erfolgt aus der Quelle, nicht als Frage an den Betreiber
+  (Befund BF-0058).
 
 OPEN-PHP-08: BASE-080 POLICY_APPLY_CORE vs BASE-100 POLICY_CORE Abgrenzung
   Beide Module sind WAITING, ihre fachliche Aufteilung ist noch nicht
@@ -1148,6 +1208,12 @@ OPEN-PHP-08: BASE-080 POLICY_APPLY_CORE vs BASE-100 POLICY_CORE Abgrenzung
   erlaubt/verboten pro Status), BASE-080 ist DAEMON der die Regeln
   in der Realzeit auf Firewall/DNS anwendet. Pflicht-Klaerung vor
   Modul-Schreiben.
+  STAND 2026-11-14: Die Seite BASE-080 ist im Entwurf festgelegt
+  (BASE-080_080: was das Modul ownt und nicht ownt; Anforderungen an
+  BASE-100 als ANF-PA). Die Annahme oben ist dabei bestaetigt:
+  BASE-080 bewertet und stellt her, die REGELN und Kundenrechte liegen
+  bei BASE-100. Geschlossen wird der Punkt, wenn BASE-100 geschrieben
+  ist und die Anforderungen beantwortet.
 
 OPEN-PHP-09: BASE-110 WEBSTACK_CORE vs MOD-004 BLOCKPAGE_CA Abgrenzung
   BASE-110 ist Foundation-Schicht (OpenResty/PHP/CA-Mechanik). MOD-004
