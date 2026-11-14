@@ -21,8 +21,13 @@ AUSF = ["aktiv", "pausiert", "extern blockiert", "wiederaufnehmbar"]
 GATE = ["OFFEN", "ERFUELLT", "NICHT_ERFUELLT", "NICHT_ERFUELLBAR_OHNE_BETREIBERAKTION"]
 AP_STATUS = ["OFFEN", "IN_ARBEIT", "ERLEDIGT", "BLOCKIERT"]
 BF_KLASSE = ["KRITISCH", "SCHWERWIEGEND", "GERINGFUEGIG", "VERBESSERUNG"]
-BF_STATUS = ["OFFEN", "IN_ARBEIT", "BEHOBEN", "AUFGELOEST_DURCH_AUFTRAGSHIERARCHIE"]
-BF_ERLEDIGT = {"BEHOBEN", "AUFGELOEST_DURCH_AUFTRAGSHIERARCHIE"}
+BF_STATUS = ["OFFEN", "IN_ARBEIT", "BEHOBEN", "AUFGELOEST_DURCH_AUFTRAGSHIERARCHIE", "ZURUECKGEWIESEN"]
+BF_ERLEDIGT = {"BEHOBEN", "AUFGELOEST_DURCH_AUFTRAGSHIERARCHIE", "ZURUECKGEWIESEN"}
+BF_RANG = {"KRITISCH": 0, "SCHWERWIEGEND": 1, "GERINGFUEGIG": 2, "VERBESSERUNG": 3}
+# Einstufung im Pruefbericht -> Rang der Mindestklasse im Register (REVIEW_STANDARD 10.2)
+EINSTUFUNG_RANG = {"KRITISCH": 0, "BLOCKER": 0, "HOCH": 1, "MITTEL": 1, "MAJOR": 1, "NIEDRIG": 2, "MINOR": 2,
+                   "HINWEIS": 3, "NICE": 3}
+PRUEFBERICHT = r"governance/pruefungen/[\w./-]+\.md"
 UP_STATUS = ["NACHGEWIESEN", "NICHT_VERFUEGBAR", "NICHT_GEPRUEFT"]
 VB_EINSTUFUNG = ["ZWINGEND_NOTWENDIG", "BETRIEBLICH_NOTWENDIG", "WESENTLICH_VORTEILHAFT", "OPTIONAL", "NICHT_SINNVOLL"]
 VB_ENTSCHEIDUNG = ["INTEGRIEREN", "ROADMAP", "VERWORFEN", "OFFEN"]
@@ -67,6 +72,7 @@ class Pruefung:
         self._cache = {}
         self.trace_ziele = set()
         self.entwuerfe = set()
+        self._liste = None
 
     def err(self, m):
         self.fehler.append(m)
@@ -261,8 +267,11 @@ class Pruefung:
     def lies_prioritaetenliste(self):
         """Eintraege der PRIORITAETENLISTE.txt: Kennung -> {tag, index, text}. Ein Eintrag beginnt mit
         'M2-040 [ACTIVE] ...' am Zeilenanfang und endet am naechsten Eintrag oder an einer Trennlinie."""
+        if self._liste is not None:
+            return self._liste
         pl = os.path.join(self.root, "PRIORITAETENLISTE.txt")
         eintraege, akt = {}, None
+        self._liste = eintraege
         if not os.path.exists(pl):
             self.err("PRIORITAETENLISTE.txt fehlt")
             return eintraege
@@ -314,13 +323,51 @@ class Pruefung:
         elif zeile and not (1 <= int(zeile) <= len(z)):
             self.err(f"{wer}: Zeile ausserhalb der Datei (1..{len(z)}): {fs}")
 
+    def berichte(self, text):
+        """Im Text genannte Pruefberichte unter governance/pruefungen/, die es gibt."""
+        return [p for p in re.findall(PRUEFBERICHT, str(text or "")) if os.path.exists(os.path.join(self.root, p))]
+
+    def nachweis_aufloesbar(self, wert):
+        """behoben_in muss eine vorhandene Datei (vor einem #Anker) oder einen vorhandenen Commit nennen."""
+        for t in (wert if isinstance(wert, list) else [wert]):
+            t = str(t or "")
+            pfad = t.split("#")[0].strip()
+            if pfad and os.path.exists(os.path.join(self.root, pfad)):
+                return True
+            for c in re.findall(r"\b[0-9a-f]{7,40}\b", t):
+                if subprocess.run(["git", "-C", self.git, "cat-file", "-e", c + "^{commit}"],
+                                  capture_output=True).returncode == 0:
+                    return True
+        return False
+
+    def befunde_vorher(self):
+        """Befunde des letzten gesicherten Stands (HEAD und dessen Vorgaenger): id -> strengste dort gefuehrte
+        Klasse. Grundlage fuer 'Befunde werden nie geloescht' und 'Klasse nur mit herabstufung senken'."""
+        alt = {}
+        for rev in ("HEAD~1", "HEAD"):
+            out = subprocess.run(["git", "-C", self.git, "show", f"{rev}:governance/register/BEFUNDE.yaml"],
+                                 capture_output=True)
+            if out.returncode != 0:
+                continue
+            try:
+                daten = yaml.safe_load(out.stdout.decode("utf-8", errors="replace")) or {}
+            except yaml.YAMLError:
+                continue
+            for b in daten.get("befunde") or []:
+                rang = BF_RANG.get(b.get("klasse"), 9)
+                alt[b.get("id")] = min(alt.get(b.get("id"), 9), rang)
+        return alt
+
     def pruefe_befunde(self, bf, pakete, commits):
         ids = set()
+        vorher = self.befunde_vorher()
         for b in (bf or {}).get("befunde") or []:
             i = b.get("id")
             if i in ids:
                 self.err(f"BEFUNDE: doppelte id {i}")
             ids.add(i)
+            if not re.fullmatch(r"BF-\d{4}", str(i)):
+                self.err(f"BEFUNDE: id nicht im Format BF-nnnn: {i}")
             if b.get("klasse") not in BF_KLASSE:
                 self.err(f"BEFUNDE {i}: unbekannte klasse {b.get('klasse')}")
             if b.get("status") not in BF_STATUS:
@@ -335,10 +382,50 @@ class Pruefung:
             if b.get("arbeitspaket") and b["arbeitspaket"] not in pakete:
                 self.err(f"BEFUNDE {i}: unbekanntes arbeitspaket {b['arbeitspaket']}")
             h = b.get("herabstufung")
+            rang = BF_RANG.get(b.get("klasse"))
             if h and not (h.get("von") in BF_KLASSE and h.get("begruendung") and h.get("bestaetigt_durch")):
                 self.err(f"BEFUNDE {i}: herabstufung ohne von/begruendung/bestaetigt_durch (gesonderte Pruefung)")
-            if b.get("status") == "BEHOBEN" and not b.get("behoben_in"):
-                self.err(f"BEFUNDE {i}: BEHOBEN ohne behoben_in (Datei/Commit der Korrektur)")
+            elif h:
+                if rang is not None and BF_RANG[h["von"]] >= rang:
+                    self.err(f"BEFUNDE {i}: herabstufung.von ({h['von']}) ist nicht strenger als die klasse")
+                if not self.berichte(h.get("bestaetigt_durch")):
+                    self.err(f"BEFUNDE {i}: herabstufung.bestaetigt_durch nennt keinen vorhandenen Bericht unter "
+                             f"governance/pruefungen/ (gesonderte Pruefung)")
+            # Die Klasse darf nicht unter der Einstufung des Pruefers und nicht unter dem letzten gesicherten Stand
+            # liegen, es sei denn, eine Herabstufung ist begruendet und gesondert bestaetigt (Betreiberregeln 5).
+            pe = b.get("pruefer_einstufung")
+            if pe is not None and pe not in EINSTUFUNG_RANG:
+                self.err(f"BEFUNDE {i}: unbekannte pruefer_einstufung {pe}")
+            elif pe is not None and rang is not None and rang > EINSTUFUNG_RANG[pe] and not h:
+                self.err(f"BEFUNDE {i}: klasse {b.get('klasse')} liegt unter der Einstufung des Pruefers ({pe}), "
+                         f"ohne Feld herabstufung")
+            if rang is not None and rang > vorher.get(i, 9) and not h:
+                self.err(f"BEFUNDE {i}: klasse gegenueber dem letzten gesicherten Stand gesenkt, ohne Feld herabstufung")
+            st = b.get("status")
+            if st == "BEHOBEN":
+                if not b.get("behoben_in"):
+                    self.err(f"BEFUNDE {i}: BEHOBEN ohne behoben_in (Datei/Commit der Korrektur)")
+                elif not self.nachweis_aufloesbar(b.get("behoben_in")):
+                    self.err(f"BEFUNDE {i}: behoben_in nennt weder eine vorhandene Datei noch einen vorhandenen Commit")
+                if not self.berichte(b.get("nachpruefung")):
+                    self.err(f"BEFUNDE {i}: BEHOBEN ohne nachpruefung mit einem Bericht unter governance/pruefungen/ "
+                             f"(REVIEW_STANDARD 10.3: eingearbeitet ist nicht behoben)")
+                if re.search(r"noch\s+NICHT\s+unabhaengig\s+nachgeprueft", str(b.get("stand") or "")):
+                    self.err(f"BEFUNDE {i}: BEHOBEN, aber das Feld stand nennt die Behebung noch als nicht nachgeprueft")
+            elif st == "ZURUECKGEWIESEN":
+                z = b.get("zurueckweisung") or {}
+                if not (z.get("begruendung") and self.berichte(z.get("bestaetigt_durch"))):
+                    self.err(f"BEFUNDE {i}: ZURUECKGEWIESEN ohne zurueckweisung.begruendung und .bestaetigt_durch "
+                             f"(Bericht einer gesonderten Pruefung unter governance/pruefungen/)")
+            elif st == "AUFGELOEST_DURCH_AUFTRAGSHIERARCHIE":
+                if not re.search(r"\b(OP-[A-Z]\d+|BM-\d{4})\b", str(b.get("aufgeloest_durch") or "")):
+                    self.err(f"BEFUNDE {i}: AUFGELOEST_DURCH_AUFTRAGSHIERARCHIE ohne aufgeloest_durch "
+                             f"(Betreiberregel OP-... oder Betreibermitteilung BM-nnnn)")
+        nummern = sorted(int(str(i)[3:]) for i in ids if re.fullmatch(r"BF-\d{4}", str(i)))
+        if nummern != list(range(1, len(nummern) + 1)):
+            self.err("BEFUNDE: Kennungen nicht lueckenlos ab BF-0001 (Befunde werden nie geloescht oder umnummeriert)")
+        for i in sorted(set(vorher) - ids, key=str):
+            self.err(f"BEFUNDE: {i} stand im letzten gesicherten Stand und fehlt jetzt (Befunde werden nie geloescht)")
 
     def pruefe_tracker_befunde(self, bf, pakete):
         """REVIEW_TRACKER.txt ist massgeblich fuer den UEBERBLICK ueber offene Befunde (00_MANIFEST 6a). Abschnitt 1d
@@ -362,9 +449,9 @@ class Pruefung:
                 akt = mo.group(1)
                 if akt in ist:
                     self.err(f"REVIEW_TRACKER 1d: Paket {akt} mehrfach aufgefuehrt")
-                ist[akt] = set(mo.group(2).split())
-            elif akt and re.fullmatch(r"\s+(BF-\d{4}\*?\s*)+", line):
-                ist[akt] |= set(line.split())
+                ist[akt] = set(re.findall(r"BF-\d{4}\*?", mo.group(2)))
+            elif akt and re.match(r"^\s+BF-\d{4}", line):
+                ist[akt] |= set(re.findall(r"BF-\d{4}\*?", line))
             else:
                 akt = None
         soll, gesamt, offen = {}, 0, 0
@@ -380,6 +467,10 @@ class Pruefung:
                 continue
             stern = "*" if b.get("klasse") in ("KRITISCH", "SCHWERWIEGEND") else ""
             soll.setdefault(bezug, set()).add(f"{b.get('id')}{stern}")
+            # Kein [DONE] eines Pakets, solange ein Befund dieses Pakets offen ist - auch kein kleiner
+            # (CLAUDE_BRIEFING, BEFUND-REGEL; REVIEW_STANDARD 10.2).
+            if (self.lies_prioritaetenliste().get(bezug) or {}).get("tag") == "DONE":
+                self.err(f"PRIORITAETENLISTE {bezug} ist [DONE], aber Befund {b.get('id')} dieses Pakets ist offen")
         for k in sorted(set(soll) | set(ist)):
             fehlt, zuviel = soll.get(k, set()) - ist.get(k, set()), ist.get(k, set()) - soll.get(k, set())
             if fehlt:
@@ -387,7 +478,7 @@ class Pruefung:
             if zuviel:
                 self.err(f"REVIEW_TRACKER 1d: bei {k} stehen Befunde, die im Register nicht (so) offen sind: "
                          f"{' '.join(sorted(zuviel))}")
-        mz = re.search(r"Zusammen (\d+) offene von (\d+) Befunden; (\d+) sind\s+geschlossen", abschnitt)
+        mz = re.search(r"Zusammen\s+(\d+)\s+offene\s+von\s+(\d+)\s+Befunden;\s+(\d+)\s+sind\s+geschlossen", abschnitt)
         if not mz or [int(x) for x in mz.groups()] != [offen, gesamt, gesamt - offen]:
             self.err(f"REVIEW_TRACKER 1d: Gesamtzahlen stimmen nicht mit dem Register ueberein "
                      f"(Register: {offen} offen von {gesamt}, {gesamt - offen} geschlossen)")

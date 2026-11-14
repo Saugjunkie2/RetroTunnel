@@ -125,25 +125,31 @@ class StatusUndGates(Basis):
             st["gates"][g] = {"zustand": "ERFUELLT", "nachweis": "x"}
         self.schreibe(STATUS, st)
         bf = self.lade(BEFUNDE)
-        bf["befunde"].append({"id": "BF-TEST", "klasse": "SCHWERWIEGEND", "status": "OFFEN", "titel": "t",
+        neu = f"BF-{len(bf['befunde']) + 1:04d}"
+        bf["befunde"].append({"id": neu, "klasse": "SCHWERWIEGEND", "status": "OFFEN", "titel": "t",
                               "beschreibung": "b", "beleg": "b", "massnahme": "m",
                               "fundstellen": ["RT:README.md:1"]})
         self.schreibe(BEFUNDE, bf)
-        self.erwarte_fehler("trotz offenem SCHWERWIEGEND-Befund BF-TEST")
+        self.erwarte_fehler(f"trotz offenem SCHWERWIEGEND-Befund {neu}")
+
+
+BERICHT = "governance/pruefungen/BASE-070_NACHPRUEFUNG_TEIL_A_2026-11-14.md"
 
 
 class Befunde(Basis):
     def neu(self, **felder):
-        b = {"id": "BF-TEST", "klasse": "GERINGFUEGIG", "status": "OFFEN", "titel": "t", "beschreibung": "b",
+        """Haengt einen Befund mit der naechsten freien Kennung an; self.bid nennt sie."""
+        bf = self.lade(BEFUNDE)
+        self.bid = f"BF-{len(bf['befunde']) + 1:04d}"
+        b = {"id": self.bid, "klasse": "GERINGFUEGIG", "status": "OFFEN", "titel": "t", "beschreibung": "b",
              "beleg": "b", "massnahme": "m", "fundstellen": ["RT:README.md:1"]}
         b.update(felder)
-        bf = self.lade(BEFUNDE)
         bf["befunde"].append({k: v for k, v in b.items() if v is not None})
         self.schreibe(BEFUNDE, bf)
 
     def test_fehlender_beleg(self):
         self.neu(beleg=None)
-        self.erwarte_fehler("BEFUNDE BF-TEST: Feld beleg fehlt")
+        self.erwarte_fehler(f"BEFUNDE {self.bid}: Feld beleg fehlt")
 
     def test_fundstelle_ausserhalb_der_datei(self):
         self.neu(fundstellen=["RT:README.md:999999"])
@@ -172,7 +178,8 @@ class Befunde(Basis):
 
     def test_fundstelle_im_arbeitsstand_wird_aufgeloest(self):
         kopf = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-        self.neu(status="BEHOBEN", behoben_in="README.md", fundstellen=[f"ZIEL:README.md:1@{kopf}"])
+        self.neu(status="BEHOBEN", behoben_in="README.md", nachpruefung=f"bestaetigt ({BERICHT})",
+                 fundstellen=[f"ZIEL:README.md:1@{kopf}"])
         self.tracker_zaehler(geschlossen=1)
         rc, out = self.lauf()
         self.assertEqual(rc, 0, out)
@@ -182,11 +189,11 @@ class Befunde(Basis):
     def test_offener_befund_fehlt_im_tracker(self):
         self.neu(arbeitspaket="AP-K060")
         self.tracker_zaehler(offen=1)
-        self.erwarte_fehler("bei M2-060 fehlen offene Befunde des Registers: BF-TEST")
+        self.erwarte_fehler(f"bei M2-060 fehlen offene Befunde des Registers: {self.bid}")
 
     def test_offener_befund_ohne_paket(self):
         self.neu()
-        self.erwarte_fehler("BF-TEST: offen, aber ohne Arbeitspaket mit Bezug")
+        self.erwarte_fehler(f"{self.bid}: offen, aber ohne Arbeitspaket mit Bezug")
 
     def test_befund_nur_im_register_geschlossen(self):
         bf = self.lade(BEFUNDE)
@@ -228,6 +235,89 @@ class Befunde(Basis):
     def test_behoben_ohne_korrekturnachweis(self):
         self.neu(status="BEHOBEN")
         self.erwarte_fehler("BEHOBEN ohne behoben_in")
+
+    # --- Schliessen, Herabstufen, Loeschen (REVIEW_STANDARD 10.2 und 10.3; Betreiberregeln Abschnitt 5) ----
+
+    def test_behoben_ohne_unabhaengige_bestaetigung(self):
+        self.neu(status="BEHOBEN", behoben_in="README.md")
+        self.tracker_zaehler(geschlossen=1)
+        self.erwarte_fehler(f"{self.bid}: BEHOBEN ohne nachpruefung mit einem Bericht")
+
+    def test_behoben_mit_erfundenem_bericht(self):
+        self.neu(status="BEHOBEN", behoben_in="README.md",
+                 nachpruefung="bestaetigt (governance/pruefungen/GIBT_ES_NICHT.md)")
+        self.tracker_zaehler(geschlossen=1)
+        self.erwarte_fehler(f"{self.bid}: BEHOBEN ohne nachpruefung mit einem Bericht")
+
+    def test_behoben_mit_unaufloesbarem_korrekturnachweis(self):
+        self.neu(status="BEHOBEN", behoben_in="x", nachpruefung=f"bestaetigt ({BERICHT})")
+        self.tracker_zaehler(geschlossen=1)
+        self.erwarte_fehler("behoben_in nennt weder eine vorhandene Datei noch einen vorhandenen Commit")
+
+    def test_behoben_obwohl_stand_das_gegenteil_sagt(self):
+        self.neu(status="BEHOBEN", behoben_in="README.md", nachpruefung=f"bestaetigt ({BERICHT})",
+                 stand="Eingearbeitet. Die Behebung ist noch NICHT unabhaengig nachgeprueft.")
+        self.tracker_zaehler(geschlossen=1)
+        self.erwarte_fehler("das Feld stand nennt die Behebung noch als nicht nachgeprueft")
+
+    def test_zurueckweisung_ohne_gesonderte_bestaetigung(self):
+        self.neu(status="ZURUECKGEWIESEN", zurueckweisung={"begruendung": "Befund trifft nicht zu"})
+        self.tracker_zaehler(geschlossen=1)
+        self.erwarte_fehler(f"{self.bid}: ZURUECKGEWIESEN ohne zurueckweisung.begruendung und .bestaetigt_durch")
+
+    def test_aufloesung_durch_auftragsebene_ohne_regelbezug(self):
+        self.neu(status="AUFGELOEST_DURCH_AUFTRAGSHIERARCHIE", klasse="SCHWERWIEGEND")
+        self.tracker_zaehler(geschlossen=1)
+        self.erwarte_fehler(f"{self.bid}: AUFGELOEST_DURCH_AUFTRAGSHIERARCHIE ohne aufgeloest_durch")
+
+    def test_klasse_unter_der_einstufung_des_pruefers(self):
+        self.neu(klasse="GERINGFUEGIG", pruefer_einstufung="HOCH", arbeitspaket="AP-K060")
+        self.erwarte_fehler(f"{self.bid}: klasse GERINGFUEGIG liegt unter der Einstufung des Pruefers (HOCH)")
+
+    def test_klasse_nachtraeglich_gesenkt(self):
+        bf = self.lade(BEFUNDE)
+        ziel = next(b for b in bf["befunde"] if b.get("klasse") == "SCHWERWIEGEND" and not b.get("pruefer_einstufung"))
+        ziel["klasse"] = "GERINGFUEGIG"
+        self.schreibe(BEFUNDE, bf)
+        self.erwarte_fehler(f"{ziel['id']}: klasse gegenueber dem letzten gesicherten Stand gesenkt")
+
+    def test_herabstufung_mit_erfundener_bestaetigung(self):
+        self.neu(herabstufung={"von": "SCHWERWIEGEND", "begruendung": "weil", "bestaetigt_durch": "x"},
+                 arbeitspaket="AP-K060")
+        self.erwarte_fehler("herabstufung.bestaetigt_durch nennt keinen vorhandenen Bericht")
+
+    def test_befund_in_register_und_tracker_geloescht(self):
+        # Geloescht wird der juengste Befund, den der letzte gesicherte Stand (HEAD) kennt.
+        alt = yaml.safe_load(subprocess.run(["git", "-C", ROOT, "show", f"HEAD:{BEFUNDE}"],
+                                            capture_output=True, text=True).stdout)
+        weg = alt["befunde"][-1]["id"]
+        bf = self.lade(BEFUNDE)
+        bf["befunde"] = [b for b in bf["befunde"] if b["id"] != weg]
+        self.schreibe(BEFUNDE, bf)
+        self.erwarte_fehler(f"{weg} stand im letzten gesicherten Stand und fehlt jetzt")
+
+    def test_befund_aus_der_mitte_entfernt(self):
+        bf = self.lade(BEFUNDE)
+        del bf["befunde"][3]
+        self.schreibe(BEFUNDE, bf)
+        self.erwarte_fehler("Kennungen nicht lueckenlos ab BF-0001")
+
+    def test_paket_abgeschlossen_trotz_offenem_befund(self):
+        ap = self.lade(PAKETE)
+        fertig = next(p for p in ap["pakete"] if p.get("status") == "ERLEDIGT" and p.get("bezug"))
+        self.neu(arbeitspaket=fertig["id"])
+        self.erwarte_fehler(f"PRIORITAETENLISTE {fertig['bezug']} ist [DONE], aber Befund {self.bid}")
+
+    def test_tracker_mit_zusatztext_und_umbruch_besteht(self):
+        """Zusatztext hinter den Kennungen und ein Umbruch im Summensatz sind zulaessig (kein Fehlalarm)."""
+        def f(t):
+            kopf, _, rest = t.partition("OFFENE EINZELBEFUNDE JE PAKET")
+            rest = re.sub(r"(?m)^(  OFFEN QS-12:\s+BF-\d{4}\*?)$", r"\1 (Hinweis im Klartext)", rest, count=1)
+            rest = re.sub(r"Zusammen (\d+) offene von", r"Zusammen \1 offene\n  von", rest, count=1)
+            return kopf + "OFFENE EINZELBEFUNDE JE PAKET" + rest
+        self.tracker(f)
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
 
 
 class Arbeitspakete(Basis):
