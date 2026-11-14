@@ -219,10 +219,23 @@ class Pruefung:
         return by
 
     def pruefe_fundstelle(self, wer, fs, commits):
+        # ZIEL:<pfad>[:<zeile>]@<commit> = Datei des Arbeitsstands (Zielrepository) an einem genannten Commit.
+        # Fuer Befunde an Dateien, die es am Baseline-Commit noch nicht gab (z. B. aus einer Gegenpruefung).
+        mz = re.fullmatch(r"ZIEL:(.+?)(?::(\d+))?@([0-9a-f]{7,40})", fs)
+        if mz:
+            pfad, zeile, commit = mz.group(1), mz.group(2), mz.group(3)
+            out = subprocess.run(["git", "-C", self.git, "show", f"{commit}:{pfad}"], capture_output=True)
+            if out.returncode != 0:
+                self.err(f"{wer}: Fundstelle nicht aufloesbar (Datei fehlt am genannten Commit): {fs}")
+            else:
+                n = len(out.stdout.decode("utf-8", errors="replace").splitlines())
+                if zeile and not (1 <= int(zeile) <= n):
+                    self.err(f"{wer}: Zeile ausserhalb der Datei (1..{n}): {fs}")
+            return
         m = re.fullmatch(r"(RT|XPN|NL):(.+?)(?::(\d+))?", fs)
         if not m:
             self.err(f"{wer}: Fundstelle nicht im Format RT:<pfad>[:<zeile>] / XPN:<pfad>[:<zeile>] / "
-                     f"NL:<pfad>[:<zeile>]: {fs}")
+                     f"NL:<pfad>[:<zeile>] / ZIEL:<pfad>[:<zeile>]@<commit>: {fs}")
             return
         quelle, pfad, zeile = m.group(1), m.group(2), m.group(3)
         if quelle == "XPN" and not self.xpn:

@@ -153,6 +153,21 @@ class Befunde(Basis):
         self.neu(fundstellen=["RT:gibt/es/nicht.txt:1"])
         self.erwarte_fehler("Fundstelle nicht aufloesbar")
 
+    def test_fundstelle_im_arbeitsstand_wird_aufgeloest(self):
+        kopf = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        self.neu(fundstellen=[f"ZIEL:README.md:1@{kopf}"])
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_fundstelle_im_arbeitsstand_ohne_datei(self):
+        kopf = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        self.neu(fundstellen=[f"ZIEL:gibt/es/nicht.txt:1@{kopf}"])
+        self.erwarte_fehler("Datei fehlt am genannten Commit")
+
+    def test_fundstelle_im_arbeitsstand_ohne_commit(self):
+        self.neu(fundstellen=["ZIEL:README.md:1"])
+        self.erwarte_fehler("Fundstelle nicht im Format")
+
     def test_herabstufung_ohne_gesonderte_bestaetigung(self):
         self.neu(herabstufung={"von": "SCHWERWIEGEND", "begruendung": "weil"})
         self.erwarte_fehler("herabstufung ohne von/begruendung/bestaetigt_durch")

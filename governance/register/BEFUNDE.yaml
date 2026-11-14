@@ -2,6 +2,8 @@
 # status: OFFEN | IN_ARBEIT | BEHOBEN | AUFGELOEST_DURCH_AUFTRAGSHIERARCHIE
 # Herabstufungen nur mit Begründung im Feld "herabstufung" und Bestätigung durch gesonderte Prüfung.
 # fundstellen: "RT:<pfad>:<zeile>" bezieht sich auf den RetroTunnel-Baseline-Commit, "XPN:<pfad>[:<zeile>]" auf den XPN-Baseline-Commit.
+#              "NL:<pfad>[:<zeile>]" auf die Nachlieferung am Liefer-Commit, "ZIEL:<pfad>[:<zeile>]@<commit>" auf eine Datei des
+#              Arbeitsstands am genannten Commit (für Befunde an Dateien, die es am Baseline-Commit noch nicht gab).
 schema: befunde/1
 befunde:
 - id: BF-0001
@@ -249,3 +251,595 @@ befunde:
     bereits mit Ablehnungsgrund erkannt wird. Nachzug von BASE-030_010, LT-35 und T-LT-34 in AP-Q04 (ANF-SC-03).
   arbeitspaket: AP-Q04
   entdeckt_in: AP-K070
+- id: BF-0013
+  klasse: KRITISCH
+  status: OFFEN
+  pruefer_einstufung: KRITISCH
+  titel: 'Anmeldename ist nicht eindeutig: abweichende Schreibweisen umgehen Sonde, Geister-Regel, Schlussriegel und Hard-Cut'
+  beschreibung: Sonde, Geister-Regel G-1, Schlussriegel und kill() vergleichen den Anmeldenamen als exakte Zeichenkette.
+    Die Anmeldeprüfung findet dieselbe Connection aber unter mehreren Schreibweisen (Kürzen von Leerraum in BASE-020_030
+    2.1, Kollation utf8mb4_unicode_ci in BASE-000_010, kein Formatfilter). Meldet sich ein Gerät mit abweichender Groß-/Kleinschreibung
+    an, sieht die Sonde bei einer zweiten Anmeldung keine Sitzung, die On-Demand-Prüfung schließt die Protokollzeile der
+    lebenden Sitzung als Geist, und der Daemon weist die zweite Sitzung nicht ab.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt:18@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt:39@e05ae8e
+  - ZIEL:base/BASE-020_AAA_CORE/BASE-020_030_L2TP_IPSEC_RADIUS.txt:57@e05ae8e
+  - ZIEL:base/BASE-000_SQL_FIRST/BASE-000_010_DATENBANK_UND_SICHERHEITSZONEN.txt:13@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil A, Befund B-01 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_A_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Zwei Tunnel derselben Connection (SZ-1, SC-12 verletzt), faktische Übernahme der Adresse, Protokollzeile einer
+    lebenden Sitzung geschlossen (SC-23); ein Hard-Cut meldet Erfolg, obwohl die Sitzung unter der anderen Schreibweise
+    lebt.
+  massnahme: Zuordnung einer Laufzeitsitzung zur Connection über Anmeldename UND Tunneladresse (fixed_ip); Abweichung beider
+    ist Fehlerzustand mit Beenden der Sitzung. Byteweiser Vergleich überall; neue Anforderung an BASE-020/BASE-010/BASE-000
+    (Formatprüfung vor der Suche, kein Kürzen, binäre Kollation). Zweiter Schlussriegel im Daemon über die Adresse (Anforderung
+    an BASE-030). Hard-Cut je Sitzung über Sitzungskennung. Tests mit abweichender Schreibweise.
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil A (2026-11-13)
+- id: BF-0014
+  klasse: SCHWERWIEGEND
+  status: OFFEN
+  pruefer_einstufung: HOCH
+  titel: Neustart-Regel L3 schließt ohne Laufzeitabgleich und stützt sich auf einen Uhrzeitvergleich
+  beschreibung: L3 schließt nach einem erkannten Daemon-Neustart alle offenen Zeilen mit Beginn vor der Startzeit des Daemons
+    - ohne Mindestalter und ohne Blick auf die gelesene Sitzungsliste. Die Startzeit ist nur aus Systemzeit minus Laufzeit
+    ableitbar; stellt die Zeitsynchronisation die Uhr nach dem Start vor, rückt die abgeleitete Startzeit vor.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt:308@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt:147@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil A, Befund B-02 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_A_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Die Protokollzeilen aller lebenden Sitzungen einer Einwahlwelle werden mit SYSTEM_RESTART geschlossen (Widerspruch
+    zu SC-23); Folge sind falsche Enden, eine Flut L2TP_UNACCOUNTED und - mit vpn_l2tp_unaccounted_action = KILL - das Beenden
+    gesunder Sitzungen.
+  massnahme: Neustart an einer Instanzkennung des Daemons erkennen statt an Uhrzeiten. L3 schließt nichts mehr, sondern
+    hinterlegt nur den Grund SYSTEM_RESTART für offene Zeilen ohne gelistete Sitzung; geschlossen wird ausschließlich nach
+    den allgemeinen Geister-Regeln (mit Mindestalter). SC-25 neu fassen.
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil A (2026-11-13)
+- id: BF-0015
+  klasse: SCHWERWIEGEND
+  status: OFFEN
+  pruefer_einstufung: HOCH
+  titel: 'Kennwortwechsel: Credential-Prüfung liegt außerhalb der Sperre'
+  beschreibung: Der SimUse-Baustein läuft nach der Kennwortprüfung. Ein Versuch, der mit dem alten Kennwort geprüft ist
+    und in der On-Demand-Prüfung steht, erwirbt die Sperre erst, nachdem der Kennwortwechsel (Commit, Hard-Cut, Freigabe)
+    abgeschlossen ist, und wird zugelassen.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt:120@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt:240@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt:393@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil A, Befund B-03 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_A_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Eine Sitzung entsteht unter dem abgelösten Kennwort und sperrt über SimUse den rechtmäßigen Nutzer aus; kein
+    Auffangnetz (die Wächter prüfen nur den Status). Fenster schmal, wächst mit Last.
+  massnahme: 'Nachprüfung unter der Sperre (P5) um den Zulassungsstand erweitern: Status, Widerruf, Adresse und ein Zähler
+    des Credential-Stands werden unter der Sperre erneut gelesen; bei Abweichung Sperre freigeben und ablehnen. Anforderung
+    an BASE-010 (Zähler in der Auth-Tabelle). Test mit angehaltenem Versuch.'
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil A (2026-11-13)
+- id: BF-0016
+  klasse: SCHWERWIEGEND
+  status: OFFEN
+  pruefer_einstufung: MITTEL
+  titel: Admission-Sperre wird bei Accounting-Start ohne Haltervergleich freigegeben
+  beschreibung: Die Freigabe löscht die Sperre des Zwecks L2TP_ADMISSION ohne Vergleich des Halters. Eine nach einer Datenbankstörung
+    nachgespielte Start-Meldung einer früheren Sitzung löscht so die Sperre eines neuen Versuchs.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt:149@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt:111@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil A, Befund B-04 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_A_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Zweite Zusage für dieselbe Connection binnen einer Sekunde möglich (SC-19 verletzt); aufgefangen nur durch
+    den Schlussriegel des Daemons.
+  massnahme: Halterkennung je Versuch als Zufallswert, im Access-Accept als Class mitgegeben und bei Accounting-Start verglichen;
+    ohne Class keine Freigabe (Ablauf über die TTL). Die Ausnahme in K-5 entfällt.
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil A (2026-11-13)
+- id: BF-0017
+  klasse: SCHWERWIEGEND
+  status: OFFEN
+  pruefer_einstufung: MITTEL
+  titel: 'Geist-Urteil ohne Karenz: Stop-Meldung unterwegs oder im Puffer ergibt JANITOR_GHOST'
+  beschreibung: Die Geister-Regeln messen nur das Alter des Beginns. Der Zustand des Abrechnungspuffers wird nicht berücksichtigt,
+    und der vom ip-down-Hook bzw. vom Hard-Cut angestoßene Abgleich läuft, während die Stop-Meldung noch nicht festgeschrieben
+    ist. Der Grund-Hinweis ist ein einziges Feld; der Vorrang zwischen Bereinigung und Hard-Cut ist nicht geregelt.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt:84@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt:327@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt:316@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil A, Befund B-05 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_A_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Falscher Ende-Grund und zu frühe Endzeit im unveränderlichen Ereignisprotokoll - nach jeder Datenbankstörung
+    für jede in der Störung beendete Sitzung; die Aussage 'ausgeschlossen bzw. folgenlos' trifft nicht zu. SimUse ist nicht
+    berührt.
+  massnahme: Kein Geist-Urteil, solange der Abrechnungspuffer nicht leer ist; Karenz nach beobachtetem Sitzungsende (Ende-Vermerk
+    des ip-down-Hooks); ein vorhandener Hinweis wird nicht überschrieben; trifft eine echte Stop-Meldung vor der Meldung
+    des Endes ein, gelten deren Grund und Zeit. Zusagen zum Aussperren anpassen.
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil A (2026-11-13)
+- id: BF-0018
+  klasse: SCHWERWIEGEND
+  status: OFFEN
+  pruefer_einstufung: MITTEL
+  titel: Widerspruch zwischen L3/L4 (schließen bei gelistetem Namen) und G-1/SC-23 (verbieten es)
+  beschreibung: L4 erklärt bei mehreren offenen Zeilen eines Anmeldenamens ältere zu Geistern, G-1 und SC-23 verlangen,
+    dass der Name in keinem Zustand gelistet ist. Beide Lesarten sind aus dem Text ableitbar; die Zusatzbedingung über die
+    Sitzungskennung ist mit dem dreiwertigen Ergebnis der Sonde nicht auswertbar.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt:79@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt:313@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt:135@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil A, Befund B-06 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_A_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: 'Verhalten bei zwei offenen Zeilen unbestimmt: entweder bleibt eine verwaiste Zeile über Tage offen, oder
+    die Episode der lebenden Sitzung wird als beendet protokolliert.'
+  massnahme: 'Eine einzige Schließbedingung, gebunden an die Sitzung: Keine gelistete Sitzung trägt die Sitzungskennung
+    der Zeile. Sitzungskennungen im Adapter verpflichtend; die Sonde liefert sie mit. Ohne Kennungen ruhen ältere offene
+    Zeilen, solange eine Sitzung der Connection gelistet ist.'
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil A (2026-11-13)
+- id: BF-0019
+  klasse: SCHWERWIEGEND
+  status: OFFEN
+  pruefer_einstufung: MITTEL
+  titel: 'Hard-Cut ohne Datenbank: kein Audit-Eintrag, unbestimmtes Ergebnis ohne Spiegel, liegenbleibender Grund-Hinweis'
+  beschreibung: Ist die Datenbank nicht erreichbar, entfallen K3, K4 und K7 ersatzlos; der Eintrag SESSION_HARDCUT mit Akteur
+    wird nie nachgeholt. Fehlt zusätzlich die Spiegeldatei, ist das Ergebnis nicht festgelegt. Nach FAIL_KILL bleibt der
+    Hinweis ADMIN_HARDCUT im Buchungsstand.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt:250@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt:187@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil A, Befund B-07 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_A_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Verwaltungshandlung ohne Protokoll (SC-32 verletzt); möglicher Schein-Erfolg OK_NOT_ACTIVE bei lebender Sitzung;
+    ein späteres normales Ende wird als Betreiberhandlung protokolliert.
+  massnahme: Audit-Eintrag bei Datenbankstörung in einen Spool schreiben und nachtragen; ohne positive Zuordnung nie OK_NOT_ACTIVE,
+    sondern TEMPFAIL_DB; Hinweis mit Zeitpunkt führen und bei FAILED bzw. NOT_FOUND zurücknehmen.
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil A (2026-11-13)
+- id: BF-0020
+  klasse: SCHWERWIEGEND
+  status: OFFEN
+  pruefer_einstufung: MITTEL
+  titel: 'Stufung der Systemzeit ist nicht abgedeckt: Sperren, Geister, Fälligkeit der Läufe'
+  beschreibung: Datenbankzeit ist Systemzeit und springt mit. Nach einer Rückstellung gilt eine Sperre um die Sprungweite
+    länger (keine Obergrenzenprüfung, keine Verwaltungshandlung), Zeilen mit Beginn in der Zukunft sind nicht schließbar,
+    und Läufe gelten als nicht fällig, solange ihre Marke in der Zukunft liegt.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt:326@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt:75@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt:95@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil A, Befund B-08 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_A_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Aussperren begrenzt durch die Sprungweite statt durch die zugesagten Fristen (SC-16, SC-27 nicht eingehalten);
+    kein Abgleich, keine Buchung, keine Bereinigung für die Dauer des Sprungs.
+  massnahme: 'Erwerb und Bereinigung löschen Sperren, deren Ablauf weiter als die Obergrenze in der Zukunft liegt; Marken
+    in der Zukunft gelten als fällig und werden gemeldet; für Zeilen mit Beginn nach der Lesezeit ersetzt die Beobachtung
+    in zwei Läufen das Mindestalter; Anforderung: Tunnel- und Anmeldedienste starten erst nach gestellter Uhr.'
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil A (2026-11-13)
+- id: BF-0021
+  klasse: GERINGFUEGIG
+  status: OFFEN
+  pruefer_einstufung: NIEDRIG
+  titel: Übergangszustände (Auf-/Abbau) ohne Frist und ohne Alarm
+  beschreibung: Für Sitzungen, die nur im Auf- oder Abbau gelistet sind, heißt es 'abwarten' ohne Frist. Während des Abbaus
+    sagt der Anmeldedienst zu, der Daemon weist ab, und die Sperre bleibt eine TTL lang.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt:325@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt:314@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil A, Befund B-09 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_A_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Wiederholte Ablehnungen ohne Eintrag im Anmeldeprotokoll; bei hängendem Abbau unbegrenzt und ohne Alarm.
+  massnahme: Frist für Übergangszustände mit Ereignis und Beenden der Sitzung; solange nur Sitzungen im Abbau gelistet sind,
+    lehnt der Baustein mit vorübergehendem Grund ab statt zuzusagen; Fall in die Zusagen aufnehmen.
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil A (2026-11-13)
+- id: BF-0022
+  klasse: GERINGFUEGIG
+  status: OFFEN
+  pruefer_einstufung: NIEDRIG
+  titel: Nachträglicher Beginn in L5 löst Vorbedingungs-Hard-Cut aus
+  beschreibung: SV-1 für eine bereits geschlossene Zeile wendet die Vorbedingungen samt Hard-Cut über den Anmeldenamen an.
+    Nach einem Rollenwechsel trifft das die neue, rechtmäßige Sitzung.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt:335@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt:145@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil A, Befund B-10 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_A_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: 'Selten, dann aber wiederholt: Beenden einer gesunden Sitzung in jedem Lauf oder ein Ende ohne Beginn.'
+  massnahme: Für geschlossene Zeilen wird der Beginn ohne Vorbedingungen und ohne Hard-Cut als Tatsache vermerkt; ein Hard-Cut
+    aus SV-1 richtet sich an die einzelne Sitzung.
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil A (2026-11-13)
+- id: BF-0023
+  klasse: GERINGFUEGIG
+  status: OFFEN
+  pruefer_einstufung: NIEDRIG
+  titel: 'SV-Details: SUPERSEDED statt echtem Grund; Hinweis bleibt nach Idempotenzabbruch hängen'
+  beschreibung: Weil L4 vor L5 läuft, endet die frühere Episode eines schnellen Wiederverbinders mit SUPERSEDED. SV-2 vergleicht
+    auf einen Beginn, der nach Begrenzung oder überschriebener Startzeit nicht mehr passt, und bricht bei vorhandenem Ereignis
+    ab, bevor der Hinweis gelöscht ist.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt:156@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt:168@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil A, Befund B-11 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_A_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Verlorener Ende-Grund; ein Hinweis 'verbunden seit' bleibt stehen, bis der nächste Beginn ihn überschreibt.
+  massnahme: Je Connection erst geschlossene, dann offene Zeilen bearbeiten; SV-2 nimmt den Beginn aus dem Beginn-Eintrag
+    derselben Episode und löscht den Hinweis auch dann, wenn das Ereignis schon existiert.
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil A (2026-11-13)
+- id: BF-0024
+  klasse: GERINGFUEGIG
+  status: OFFEN
+  pruefer_einstufung: NIEDRIG
+  titel: Sammelbefund Sperr-, Settings- und Laufvertrag
+  beschreibung: Fehlende Konsistenzregeln (Ergebnis-Gültigkeit und Begrenzungsfenster gegen Sperr-TTL; Kill-Zeitlimit gegen
+    Operations-TTL); HARDCUT zugleich 'nicht verlängerbar' und Umbau; Ablehnungsgrund bei Datenbankfehler in P4 zweideutig;
+    DB-User radius darf jede Sperre löschen; Hook-Anstoß bei belegtem Einzel-Lock ungeregelt; Fälligkeit aus der Marke 'zuletzt
+    fehlerfrei'; J3 ohne Bindung an die Lesezeit.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt:188@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt:224@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt:159@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt:248@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil A, Befund B-12 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_A_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Einzeln geringe Folgen; zusammen Unschärfen, die bei der Umsetzung zu abweichendem Verhalten führen können.
+  massnahme: Regeln ergänzen; HARDCUT als verlängerbar führen; Schlüsselkonflikt und Datenbankfehler in P4 trennen; Kapselung
+    als gespeicherte Routine verpflichtend und Tabellenrechte entziehen; Merker und Nachrunde für Hook-Anstöße; getrennte
+    Marken für letzten Versuch und letzten fehlerfreien Lauf; J3 an die Lesezeit binden.
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil A (2026-11-13)
+- id: BF-0025
+  klasse: GERINGFUEGIG
+  status: OFFEN
+  pruefer_einstufung: NIEDRIG
+  titel: Nicht benannte Annahmen über accel-ppp, FreeRADIUS und MariaDB
+  beschreibung: Mehrere Annahmen, auf denen Regeln beruhen, stehen nicht in der Liste E-SC (eindeutige Schreibweise des
+    Namens, Reihenfolge von Stop-Meldung und Verschwinden, abfragbare Startzeit, Bedeutung von acctstarttime, zerlegbare
+    Sitzungsliste, Verhalten von kill über den Namen).
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_080_OWNER_GRENZEN.txt:288@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil A, Befund B-13 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_A_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Annahmen bleiben ungeprüft; zwei davon halten laut Quelltext-Lesen des Prüfers nicht.
+  massnahme: Als E-SC-10 ff. mit Ausweichweg aufnehmen und je einen Test der Art [E] ergänzen.
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil A (2026-11-13)
+- id: BF-0026
+  klasse: KRITISCH
+  status: OFFEN
+  pruefer_einstufung: KRITISCH
+  titel: 'WireGuard: Vergleich nur auf counter_epoch schützt nicht gegen zwei gleichzeitige Bucher'
+  beschreibung: Der Buchungslauf des Controllers und die Schlussbuchung des Treibers (R1) laufen planmäßig nebeneinander.
+    Der Vergleich beim Schreiben prüft nur counter_epoch; die ändert sich bei normaler Buchung nicht. Liest der Controller
+    Cursor und Zähler, bucht R1 dazwischen und entfernt den Peer, trifft das UPDATE des Controllers trotzdem.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt:75@e05ae8e
+  - ZIEL:decisions/D004_RUNTIME_TRUTH_VS_SQL_PERSISTENZ.txt:178@e05ae8e
+  - ZIEL:base/BASE-040_TUNNEL_WIREGUARD/BASE-040_030_PEER_LIFECYCLE.txt:145@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil B, Befund B-01 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_B_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Doppelbuchung bis zum Verkehr eines Buchungsintervalls je Ereignis, ohne Anomalie (SZ-5, SC-35 verletzt);
+    beim Wechsel nach DISABLED ohne schließenden Wiedereintrag.
+  massnahme: Vergleich zusätzlich auf die gelesenen Cursorwerte - in D004 P-01, BASE-040_050 F4, BASE-040_030 R1 und beim
+    Snapshot-Nachbuchen; der Verlierer verwirft und rechnet neu. Test ohne Toleranz.
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil B (2026-11-13)
+- id: BF-0027
+  klasse: KRITISCH
+  status: OFFEN
+  pruefer_einstufung: KRITISCH
+  titel: 'L2TP: Marke l2tp_sync_last_radacctid ist nicht an den Buchungsstand gebunden'
+  beschreibung: Eine geschlossene radacct-Zeile unter der Marke und ohne Buchungsstand liest kein Lauf mehr. Das tritt ein
+    bei Abbruch nach dem Fortschreiben der Marke, bei kurzen Sitzungen mit erster Sichtung im Auf-/Abbau und bei abweichender
+    Kennungs- und Commit-Reihenfolge. Fehlt die Marke, werden Zeilen mit bereits gelöschtem Buchungsstand ein zweites Mal
+    gebucht.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt:300@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt:61@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt:181@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil B, Befund B-02 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_B_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Stiller Verlust von Verbrauch und Episoden einzelner Sitzungen bzw. Doppelbuchung in die laufende Periode
+    (SZ-5, SC-39 verletzt), ohne Anomalie.
+  massnahme: Buchungsstand für jede neu gesichtete Zeile in derselben Transaktion wie das Vorrücken der Marke; Sicherheitsnetz
+    im Bereinigungslauf für geschlossene Zeilen ohne Stand; der Stand lebt so lange wie seine radacct-Zeile; fehlende Marke
+    ist ein Alarm.
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil B (2026-11-13)
+- id: BF-0028
+  klasse: SCHWERWIEGEND
+  status: OFFEN
+  pruefer_einstufung: HOCH
+  titel: Drift-Wächter repariert automatisch - gegen eigene Invarianten, ohne Quarantäne, ohne Mengengrenze
+  beschreibung: Der Wächter materialisiert bei einer Abweichung die Adressen aus dem Slot neu und trennt hart. Das widerspricht
+    AV-1, AV-3 und SC-46 (nur der Allokator schreibt), gibt die bisher genutzte Adresse ohne Quarantäne frei, prüft die
+    Zieladresse nicht gegen die Quarantäne und kennt keine Mengengrenze.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt:198@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt:187@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil B, Befund B-03 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_B_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Vorzeitige Wiedervergabe einer eben genutzten Adresse (SZ-7); bei flächiger Abweichung hartes Trennen aller
+    Connections durch einen Wächter (SZ-9); WireGuard-Kunden bleiben ohne Meldung offline.
+  massnahme: Der Wächter erkennt und meldet nur. Die Reparatur ist eine protokollierte ADMIN-Handlung über die Allokator-Routine,
+    mit Quarantäne der alten Adresse, Sperre und neuem Profil bei WireGuard.
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil B (2026-11-13)
+- id: BF-0029
+  klasse: SCHWERWIEGEND
+  status: OFFEN
+  pruefer_einstufung: MITTEL
+  titel: 'Allokator und Rollenwechsel: Annahmen über die Transaktionsisolation sind nicht benannt'
+  beschreibung: Der Allokator liest 'belegt' und 'gesperrt' ohne Sperre in der Transaktion des Aufrufers; der Rollenwechsel
+    liest vor dem Erwerb der Pool-Sperre und sperrt den Quellpool nicht. Unter der Vorgabe der Zielplattform (wiederholbarer
+    Lesestand) sieht der Allokator Vergaben nicht, die während des Wartens festgeschrieben wurden; ein zwischenzeitlicher
+    Buchungsvorgang lässt die Kaskade mit einem Fehler scheitern, den die Wiederholungsregel nicht kennt.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt:149@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt:215@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_080_OWNER_GRENZEN.txt:288@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil B, Befund B-04 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_B_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Die zugesagten Eigenschaften (nacheinander, verschiedene Slots, exakt) gelten nicht sicher; die Eindeutigkeit
+    der Adresse hält weiter über den UNIQUE-Schlüssel, der Quarantäneschutz nicht.
+  massnahme: 'Festgeschriebenes Lesen für alle Transaktionen des Moduls; Pool-Zeilen als erste Anweisung sperren (Rollenwechsel:
+    Quell- und Zielpool in fester Reihenfolge), gelesen wird danach; wiederholbare Fehlerklassen benennen; mehrzeilige Transaktionen
+    sperren aufsteigend.'
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil B (2026-11-13)
+- id: BF-0030
+  klasse: SCHWERWIEGEND
+  status: OFFEN
+  pruefer_einstufung: MITTEL
+  titel: 'Uhrfehler: Periodenwechsel und Adressrückgabe wirken unumkehrbar und rein zeitgesteuert'
+  beschreibung: SV-6 (Periodenwechsel) und die Rückgabe von Adressen hängen allein an der Datenbankzeit. Bei vorgehender
+    Uhr werden alle Zähler mitten im Monat genullt und Quarantänen endgültig beendet; es gibt weder Vorbedingung noch Wächter.
+    Zusätzlich fehlt die Bedingung, dass die neue Periode nicht vor dem Ende der alten beginnt.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt:252@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt:274@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil B, Befund B-05 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_B_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Verlust der Quota-Zählung für alle, Perioden in der Zukunft ohne Alarm, vorzeitige Wiedervergabe von Adressen
+    (SZ-7).
+  massnahme: Diese Vorgänge nur bei bestätigtem Zeitabgleich, sonst ohne Wirkung und mit Alarm; Bedingung an den Beginn
+    der neuen Periode; Wächter für Perioden in der Zukunft; Mengengrenze für Rückgaben.
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil B (2026-11-13)
+- id: BF-0031
+  klasse: SCHWERWIEGEND
+  status: OFFEN
+  pruefer_einstufung: MITTEL
+  titel: 'Tagesreihe in der Buchungstransaktion: ein Statistikfehler stoppt die Buchung'
+  beschreibung: Der WireGuard-Buchungslauf ist eine Transaktion für alle Connections einschließlich der Tagesreihe; ein
+    gescheiterter Lauf zählt als Datenbankfehler. Ein dauerhafter Fehler allein in der Statistiktabelle verhindert damit
+    jede Buchung und führt über den Grace-Automaten zum Stopp der Schnittstelle.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt:89@e05ae8e
+  - ZIEL:base/BASE-040_TUNNEL_WIREGUARD/BASE-040_050_SESSION_CONTROLLER_UND_ACCOUNTING.txt:172@e05ae8e
+  - ZIEL:base/BASE-040_TUNNEL_WIREGUARD/BASE-040_060_DB_DOWN_GRACE_UND_FAIL_CLOSED.txt:41@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil B, Befund B-06 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_B_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Ausfall von WireGuard für alle Kunden durch eine Tabelle, die keine Entscheidung trägt.
+  massnahme: 'Die Buchung hat Vorrang: Scheitert allein die Tagesreihe, wird ohne sie gebucht und der Ausfall gemeldet;
+    er zählt nicht als Datenbankstörung. Sicherungspunkt je Connection; die Anwendung bildet das Datum der Tagesreihe.'
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil B (2026-11-13)
+- id: BF-0032
+  klasse: SCHWERWIEGEND
+  status: OFFEN
+  pruefer_einstufung: MITTEL
+  titel: 'Umsortierte Meldungen: Stop vor älterem Interim'
+  beschreibung: Die Standardabfrage des Anmeldedienstes für Zwischenmeldungen überschreibt laut Prüfer auch geschlossene
+    Zeilen und auch rückwärts. Werden Stop und eine ältere Zwischenmeldung vertauscht geschrieben, bucht der Abgleich nur
+    bis zum älteren Stand.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt:147@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_080_OWNER_GRENZEN.txt:288@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil B, Befund B-07 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_B_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Der Schlussverbrauch fehlt ohne Anomalie; oder der Bereinigungslauf meldet die Regression über Wochen in jedem
+    Lauf.
+  massnahme: 'Anforderung an BASE-020: Eine Zwischenmeldung senkt Zähler nie und ändert eine geschlossene Zeile nur nach
+    oben; Reihenfolge je Sitzung über Puffer und Direktweg. Regression an abgeschlossener Zeile einmal zählen.'
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil B (2026-11-13)
+- id: BF-0033
+  klasse: SCHWERWIEGEND
+  status: OFFEN
+  pruefer_einstufung: MITTEL
+  titel: Schreiberliste 'abschließend' ist unvollständig
+  beschreibung: Die Schlussbuchung des WG-Treibers und das Snapshot-Nachbuchen schreiben Gruppe D, stehen aber nicht in
+    der abschließenden Liste; für beide ist die Tagesreihe nirgends vorgeschrieben. Die Zeile zu SV-5 nennt ein Feld, das
+    die Schrittfolge nicht schreibt.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt:45@e05ae8e
+  - ZIEL:base/BASE-040_TUNNEL_WIREGUARD/BASE-040_030_PEER_LIFECYCLE.txt:145@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil B, Befund B-08 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_B_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Vorgeschriebene Vorgänge gelten nach SC-34 als Verstoß oder werden weggelassen; die Tagesreihe weicht um alle
+    Schlussbuchungen ab.
+  massnahme: Beide Vorgänge als Ausprägungen von SV-4 führen (eine Implementierung, mit Tagesreihe und Vergleich); Liste,
+    SC-34 und Tests angleichen; Zeile SV-5 berichtigen.
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil B (2026-11-13)
+- id: BF-0034
+  klasse: GERINGFUEGIG
+  status: OFFEN
+  pruefer_einstufung: NIEDRIG
+  titel: Zeitzone der Datenbanksitzung und Übergabe von Zeitpunkten nicht festgelegt
+  beschreibung: Es gibt keine Festlegung der Sitzungszeitzone. Läuft die Sitzung in Ortszeit, sind Vergleiche in der Rückstellstunde
+    mehrdeutig; die Übergabe der Periodengrenzen zwischen Anwendung und Datenbank ist nicht bestimmt; zwei Stellen berechnen
+    die Periode.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt:243@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_080_OWNER_GRENZEN.txt:238@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil B, Befund B-09 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_B_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Verschobene Periodengrenze um ein bis zwei Stunden möglich; eine Stunde im Jahr mehrdeutige Fristen.
+  massnahme: UTC als Sitzungszeitzone für alle Verbindungen des Moduls und des Anmeldedienstes; Zeitpunkte als UTC; eine
+    gemeinsame Routine für die Periodenrechnung.
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil B (2026-11-13)
+- id: BF-0035
+  klasse: GERINGFUEGIG
+  status: OFFEN
+  pruefer_einstufung: NIEDRIG
+  titel: Quarantäne-Randfälle und Lücken in den Gültigkeitsregeln der Pools
+  beschreibung: Die Rückgabe R1 prüft ihre Bedingung vor dem Löschen nicht erneut; W3 nennt keine Atomarität; die Pool-Regeln
+    prüfen weder die Stellenzahl der IPv6-Kennziffer noch die Ausrichtung der Basisadresse.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt:275@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt:268@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil B, Befund B-10 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_B_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Ein frischer Quarantäne-Eintrag kann gelöscht werden; ungültige Pool-Zeilen sind möglich.
+  massnahme: Löschen und Rückgabe-Ereignis in einer Transaktion mit Bedingung; W3 atomar; Regeln ergänzen.
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil B (2026-11-13)
+- id: BF-0036
+  klasse: GERINGFUEGIG
+  status: OFFEN
+  pruefer_einstufung: NIEDRIG
+  titel: 'Ampel, Statusdateien, Ereignisse: Stufe ohne Speicherort, Pufferfüllstand fehlt'
+  beschreibung: Die Meldung 'je Wechsel einmal' setzt die zuletzt gemeldete Stufe voraus; dafür gibt es keine Marke. Der
+    Füllstand des L2TP-Puffers fehlt in den Statusdateien, auf die verwiesen wird.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt:319@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt:484@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil B, Befund B-11 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_B_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Doppelte oder ausbleibende Meldungen; fehlende Betriebsauskunft.
+  massnahme: Marke je Rolle mit dem Bereinigungslauf als Schreiber; Abruf meldet nicht; Füllstand und Ereignis für Verwürfe
+    ergänzen.
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil B (2026-11-13)
+- id: BF-0037
+  klasse: GERINGFUEGIG
+  status: OFFEN
+  pruefer_einstufung: NIEDRIG
+  titel: 'Settings: widersprüchliche Grenzen, Rückfallregel heilt Regeln mit fremden Keys nicht'
+  beschreibung: Text und Grenzen von vpn_quarantine_days passen nicht zusammen; der Rückfall auf Vorschlagswerte stellt
+    eine Konsistenzregel nicht her, wenn ein fremder Wert die Ursache ist; der 'zuletzt gültige Wert' hat für Einmal-Läufe
+    keinen Speicherort.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt:201@e05ae8e
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt:239@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil B, Befund B-12 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_B_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Unklare Wirkung bei Fehlkonfiguration.
+  massnahme: Texte angleichen; Konflikt mit fremdem Key bleibt als eigener Zustand gemeldet; fremde Keys aufführen; Rückfall
+    in den Begriffen von TRUTH_MODEL fassen (siehe BF-0041).
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil B (2026-11-13)
+- id: BF-0038
+  klasse: GERINGFUEGIG
+  status: OFFEN
+  pruefer_einstufung: NIEDRIG
+  titel: Nicht benannte Annahmen zu FreeRADIUS und accel-ppp (Buchung)
+  beschreibung: Eindeutigkeit der Abrechnungskennung über Neustarts, Erhalt der Ereigniszeit beim Nachspielen und das Überschreiben
+    geschlossener Zeilen durch Zwischenmeldungen stehen nicht in E-SC.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_080_OWNER_GRENZEN.txt:288@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil B, Befund B-13 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_B_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Annahmen bleiben ungeprüft.
+  massnahme: In E-SC aufnehmen, mit Ausweichweg und Test.
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil B (2026-11-13)
+- id: BF-0039
+  klasse: GERINGFUEGIG
+  status: OFFEN
+  pruefer_einstufung: NIEDRIG
+  titel: 'SV-6 und B-2: Nebenwirkungen und ungenaue Formulierungen'
+  beschreibung: Der Periodenwechsel bearbeitet auch widerrufene Connections; der Bereinigungslauf kann ohne Stichtagsbuchung
+    wechseln; B-2 trifft für den Reset-Zweig von WireGuard nicht zu; die Begründung der Wiederholbarkeit nennt einen Schlüssel,
+    der unter der Zeilensperre nie greift.
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt:286@e05ae8e
+  beleg: Unabhängige Gegenprüfung BASE-070 Teil B, Befund B-14 (governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_B_2026-11-13.md);
+    vom Hauptarchitekten am Text nachvollzogen. Aussagen über das Verhalten fremder Software stammen aus dem Quelltext-Lesen
+    des Prüfers und sind nicht am Zielsystem bestätigt.
+  auswirkung: Unnötige Protokollzeilen; ungenaue Aussagen.
+  massnahme: SV-6 nur für nicht widerrufene Connections; Fälle ausweisen; Formulierungen berichtigen.
+  arbeitspaket: AP-K070
+  entdeckt_in: Gegenprüfung BASE-070 Teil B (2026-11-13)
+- id: BF-0040
+  klasse: SCHWERWIEGEND
+  status: IN_ARBEIT
+  titel: 'Regel für nicht eindeutig ableitbaren Zustand (B052: DB_UNKNOWN) fehlt im Bestand; BASE-040 entfernt statt einzufrieren'
+  beschreibung: 'B052 verlangt für einen Zustand, der trotz erreichbarer Datenbank nicht eindeutig ableitbar ist (Wert außerhalb
+    des Vorrats, logisch unmöglicher Zustand, fehlendes Pflicht-Setting), dasselbe Verhalten wie beim Datenbankausfall:
+    neue Zulassung verweigern, Bestehendes nicht umschalten. TRUTH_MODEL 2.3 und 4.2 haben davon nur die Wirkung auf einzelne
+    Settings übernommen. Die Soll-Funktion des WG-Treibers (BASE-040_030 Abschnitt 1) ordnet jede nicht erfüllte Bedingung
+    als ABSENT ein und entfernt den Peer.'
+  fundstellen:
+  - NL:nachlieferung/B052_DB_OUTAGE_CONTRACT.txt:27
+  - NL:nachlieferung/B052_DB_OUTAGE_CONTRACT.txt:68
+  - RT:model/TRUTH_MODEL.txt:159
+  - ZIEL:base/BASE-040_TUNNEL_WIREGUARD/BASE-040_030_PEER_LIFECYCLE.txt:19@e05ae8e
+  beleg: B052 vollständig gelesen (2026-11-13); TRUTH_MODEL Abschnitte 2.3, 4.2, 4.3 und BASE-040_030 Abschnitt 1 am Text
+    verglichen.
+  auswirkung: Ein Datenfehler in einer Zeile oder ein Versionsunterschied zwischen Schema und Werkzeug führt bei WireGuard
+    zum Entfernen von Peers statt zum Stehenlassen; für L2TP war das Verhalten nicht festgelegt.
+  massnahme: 'BASE-080 DEC-PA-22 und BASE-080_030 Abschnitt 9 (geschrieben): nichts öffnen, nichts umschalten, melden -
+    je Connection. In BASE-040_030 eine dritte Einordnung ''nicht auswertbar'' ergänzen (Peer bleibt unverändert, kein Eintrag),
+    Invariante und Test nachziehen.'
+  arbeitspaket: AP-K080
+  entdeckt_in: AP-Q03 (Abgleich der Nachlieferung)
+- id: BF-0041
+  klasse: SCHWERWIEGEND
+  status: OFFEN
+  titel: Settings-Rückfall in BASE-070 als lokale Regel statt nach der Fehlerklasse des Katalogs
+  beschreibung: 'BASE-070_070 Abschnitt 3 legt fest: bei fehlendem oder ungültigem Key gilt der zuletzt gültig gelesene
+    Wert, sonst der Vorschlagswert als ''eingebauter Rückfallwert''. TRUTH_MODEL SF-02 verbietet lokale Rückfälle außer
+    dem im Katalog geführten Notwert; Abschnitt 4.3 regelt das Verhalten je Key über die Fehlerklasse (FAIL_CLOSED oder
+    FAIL_SAFE_HARDCAP mit failsafe_value). B345 G3 und die SQL-first-Entwürfe (Entscheidungsmatrix, DEC-SQLF-010 dort noch
+    offen) behandeln dieselbe Frage.'
+  fundstellen:
+  - ZIEL:base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt:133@e05ae8e
+  - RT:model/TRUTH_MODEL.txt:176
+  - RT:model/TRUTH_MODEL.txt:229
+  - NL:nachlieferung/B345_WRITE_PATH_MATRIX_CONTRACT.txt:47
+  - NL:nachlieferung/entwuerfe/sql-first/SQL-FIRST v1 — DECISION MATRIX.txt:61
+  beleg: TRUTH_MODEL Abschnitte 3 und 4, B345 und die Entscheidungsmatrix der SQL-first-Entwürfe gelesen; Text von BASE-070_070
+    Abschnitt 3 und SC-59 verglichen.
+  auswirkung: Zwei Rückfallwege im Konzept (Katalog und Modul); der 'zuletzt gültige Wert' ist im Kanon nicht vorgesehen.
+    Praktische Folgen gering, weil alle betroffenen Keys Betriebsparameter sind und keine Zulassung an ihnen hängt.
+  massnahme: 'BASE-070_070 Abschnitt 3 und SC-59 auf die Begriffe von TRUTH_MODEL umstellen: Auflösung über den Settings-Kern,
+    je Key Fehlerklasse FAIL_SAFE_HARDCAP mit dem Vorschlagswert als Notwert im Katalog (Antrag an BASE-090); kein eigener
+    Rückfallweg. Gleiches in BASE-040 und BASE-050 prüfen.'
+  arbeitspaket: AP-K070
+  entdeckt_in: AP-Q03 (Abgleich der Nachlieferung)
