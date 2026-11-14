@@ -26,6 +26,14 @@ zwei getrennten Vollaudits und Fail-Closed-Freigabe über die Gates G1–G4.
    setzen → Konzeptdateien schreiben → Rückverfolgung (`register/trace/`) → Register/Status aktualisieren →
    **committen und pushen**. Kleine, abgeschlossene Einheiten; keine breite Parallelität (Nutzungslimit).
 
+## VORRANG seit 2026-11-14: Konsolidierung der Projektsteuerung (AP-S06, BM-0015)
+Der Betreiber hat am 2026-11-14 verbindlich angewiesen, die Projektsteuerung zu konsolidieren, **bevor** weitere Module
+ausgearbeitet werden (Wortlaut: `register/BETREIBERMITTEILUNGEN.yaml`, BM-0015 - vor jeder Arbeit vollständig lesen).
+Kern: Die Root-Dokumente des Betreibers sind die Steuerung des Projekts; `governance/`, `qa/` und der CI-Workflow dienen
+ihr und dürfen keine zweite Projektorganisation bilden. Reihenfolge: A Bestandsaufnahme, B vollständiges eigenes Lesen der
+Root-Dokumente, C Zuordnung der Zuständigkeiten, D Umsetzung, E Qualitätskontrolle und Bericht mit Commit-IDs.
+Die Modularbeit (AP-K080, Stand unten) ruht bis zum Abschluss von AP-S06.
+
 ## Stand der Module (Checkpoint 7, 2026-11-14)
 Geschrieben und unter maschineller Modulprüfung: BASE-040 (v1.2), BASE-050, BASE-070 (v1.2) – alle noch
 `IN_ARBEIT`: es fehlen die Antworten der Nachbarmodule.
