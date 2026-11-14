@@ -324,6 +324,12 @@ class Befunde(Basis):
         self.neu(arbeitspaket="AP-K060", sperrt_auch=[fertig["id"]])
         self.erwarte_fehler(f"PRIORITAETENLISTE {fertig['bezug']} ist [DONE], aber Befund {self.bid} sperrt dieses Paket")
 
+    def test_sperrvermerk_im_tracker_fehlt(self):
+        self.neu(arbeitspaket="AP-K060", sperrt_auch=["AP-K090"])
+        self.tracker(lambda t: t.replace("  OFFEN M2-080:", f"  OFFEN M2-060: {self.bid}\n  OFFEN M2-080:", 1))
+        self.tracker_zaehler(offen=1)
+        self.erwarte_fehler("Vermerk SPERRT AUCH nennt")
+
     def test_tracker_mit_zusatztext_und_umbruch_besteht(self):
         """Zusatztext hinter den Kennungen und ein Umbruch im Summensatz sind zulaessig (kein Fehlalarm)."""
         def f(t):
@@ -452,6 +458,10 @@ class Steuerung(Basis):
     def test_phasenplan_widerspricht_der_liste(self):
         self.datei("04_PHASE_PLAN.txt", lambda t: re.sub(r"(?m)^(  BASE-060_DNS_CORE\s+)WAITING( )", r"\1DONE   \2", t))
         self.erwarte_fehler("BASE-060 steht als DONE, die PRIORITAETENLISTE fuehrt M2-060 als [WAITING]")
+
+    def test_phasenplan_summe_weicht_von_der_liste_ab(self):
+        self.datei("04_PHASE_PLAN.txt", lambda t: re.sub(r"(?m)^(  DONE\s+: )\d+( Module)", r"\g<1>9\2", t))
+        self.erwarte_fehler("STATUS-AUFSTELLUNG nennt DONE = 9")
 
     def test_zaehlbereich_in_der_liste_veraltet(self):
         def f(t):

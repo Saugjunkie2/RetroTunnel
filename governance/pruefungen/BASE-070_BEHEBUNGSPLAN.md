@@ -106,7 +106,10 @@ B-B13 NIEDRIG Annahmen -> E-SC.
 B-B14 NIEDRIG SV-6 nur fuer nicht widerrufene Connections; J7 ohne Stichtagsbuchung ausweisen; B-2-Wortlaut WG;
    "Wiederholung wirkungslos" berichtigen.
 
-## Zusaetzliche eigene Befunde aus der Nachlieferung (noch zu registrieren)
+## Zusaetzliche eigene Befunde aus der Nachlieferung
+Stand 2026-11-14: alle fuenf Punkte sind registriert - N-1 = BF-0040, N-2 = BF-0041, N-3 = Rueckverfolgungs-Record
+TR-NPLANS-01 (kein Widerspruch: R-08 ersetzt die manuelle Restriction fuer ADMIN durch DISABLE), N-4 = VB-0026,
+N-5 = ANF-PA-08 im Entwurf BASE-080. Der Text darunter ist der Wortlaut vom 2026-11-13.
 N-1 B052 DB_UNKNOWN (nicht auswertbare Lage) fehlt im Bestand; BASE-040_030 soll(c) behandelt Werte ausserhalb des
     Vorrats als ABSENT (entfernen) - B052 verlangt Einfrieren. -> BASE-080 DEC-PA-22 (geschrieben); BASE-040_030 Klasse
     UNBESTIMMT (ANF-PA-07) nachziehen.
@@ -163,7 +166,7 @@ festgeschriebenen Anweisungen, Rueckverfolgung der bisher nicht erfassten Vorgae
 ## Stand der Abarbeitung
 [x] Schritt 1 Berichte/QA/Register (BF-0013..BF-0041)
 [x] _020  [x] _030  [x] _040  [x] _050  [x] _060  [x] _070  [x] _080  [x] _090  [x] _095  [x] INDEX  [x] _010
-[x] BASE-040_030/_050/_060/_070/_090/_095  [x] D004 P-01  [x] Trace/NEU_BEGRUENDET  [ ] Changelog
+[x] BASE-040_030/_050/_060/_070/_090/_095  [x] D004 P-01  [x] Trace/NEU_BEGRUENDET  [x] Changelog (v2.5.0 und v2.6.0)
 [x] Unabhaengige Nachpruefung der Behebung (2026-11-14; Ergebnis siehe naechster Abschnitt)
 
 ## Nachpruefung der Behebung (2026-11-14) und Fassung v1.2

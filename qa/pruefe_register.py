@@ -501,6 +501,14 @@ class Pruefung:
             if zuviel:
                 self.err(f"REVIEW_TRACKER 1d: bei {k} stehen Befunde, die im Register nicht (so) offen sind: "
                          f"{' '.join(sorted(zuviel))}")
+        # Der Vermerk "SPERRT AUCH" nennt genau die offenen Befunde mit dem Feld sperrt_auch.
+        ms = re.search(r"SPERRT AUCH:(.*?)(?:\n\s*\n|\Z)", abschnitt, re.S)
+        genannt = set(re.findall(r"BF-\d{4}", ms.group(1))) if ms else set()
+        gefuehrt = {b.get("id") for b in (bf or {}).get("befunde") or []
+                    if b.get("sperrt_auch") and b.get("status") not in BF_ERLEDIGT}
+        if genannt != gefuehrt:
+            self.err(f"REVIEW_TRACKER 1d: Vermerk SPERRT AUCH nennt {sorted(genannt) or 'nichts'}, das Register fuehrt "
+                     f"sperrt_auch bei {sorted(gefuehrt) or 'keinem offenen Befund'}")
         mz = re.search(r"Zusammen\s+(\d+)\s+offene\s+von\s+(\d+)\s+Befunden;\s+(\d+)\s+sind\s+geschlossen", abschnitt)
         if not mz or [int(x) for x in mz.groups()] != [offen, gesamt, gesamt - offen]:
             self.err(f"REVIEW_TRACKER 1d: Gesamtzahlen stimmen nicht mit dem Register ueberein "
@@ -766,6 +774,21 @@ class Pruefung:
                 elif modul_tag[modul][1] not in PLAN_ZU_LISTE[status]:
                     self.err(f"04_PHASE_PLAN:{n}: {modul} steht als {status}, die PRIORITAETENLISTE fuehrt "
                              f"{modul_tag[modul][0]} als [{modul_tag[modul][1]}]")
+            # Summen der Status-Aufstellung muessen zur PRIORITAETENLISTE passen
+            ma = re.search(r"^KONSOLIDIERTE STATUS-AUFSTELLUNG.*?(?=^={10,})", "\n".join(zeilen), re.M | re.S)
+            if not ma:
+                self.err("04_PHASE_PLAN: KONSOLIDIERTE STATUS-AUFSTELLUNG fehlt")
+            else:
+                ist = {k: int(v) for k, v in re.findall(r"^\s+(DONE|IN-PROGRESS|WAITING|TOTAL)\b[^:\n]*:\s*(\d+)\s+Module",
+                                                        ma.group(0), re.M)}
+                soll = {"DONE": 0, "IN-PROGRESS": 0, "WAITING": 0}
+                for _kennung, tag in modul_tag.values():
+                    soll["DONE" if tag == "DONE" else ("IN-PROGRESS" if tag == "ACTIVE" else "WAITING")] += 1
+                soll["TOTAL"] = sum(soll.values())
+                for k in ("DONE", "IN-PROGRESS", "WAITING", "TOTAL"):
+                    if ist.get(k) != soll[k]:
+                        self.err(f"04_PHASE_PLAN: STATUS-AUFSTELLUNG nennt {k} = {ist.get(k)}, nach der "
+                                 f"PRIORITAETENLISTE sind es {soll[k]}")
         # (b) Entwuerfe sind nie DONE
         for modul in sorted(self.entwuerfe):
             if modul_tag.get(modul, ("", ""))[1] == "DONE":

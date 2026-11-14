@@ -66,7 +66,7 @@ Werteblatt. Das ist die bisher fehlende Quelle für MOD-009.
   und Preis unterscheiden – nie über DNS-Zwang, Filter, Missbrauchssperren, Peer-Isolation oder andere
   Sicherheitsfunktionen.
 - Rahmendaten des Servers: 1 Gbit/s, 40 TB je Monat, danach Drosselung auf 100 Mbit/s **für alle** – daraus folgt
-  ein Vorschlag (Überwachung des Gesamtvolumens), der in die Verbesserungsanalyse geht.
+  ein Vorschlag (Überwachung des Gesamtvolumens), der in die Verbesserungsanalyse geht (registriert als VB-0026).
 - Sieben offene Fragen (Plan am Kunden oder an der Connection, Quota je Kunde oder je Verbindung, Laufzeitmodell,
   Planwechsel …). Einige hat RetroTunnel später in D004 entschieden; die übrigen sind in MOD-010 zu klären.
 - Eine **konkrete Plan-Matrix** (Namen, Limits, Preise) enthalten die Unterlagen nicht; sie gilt dort als verloren.
@@ -91,13 +91,11 @@ Funktionskatalog, KI-Einbindung. Die fünf Dateien `KONSOLIDIERT_01…05` sind d
   (Plugins per ZIP-Upload, KI-Konto mit Schreibrechten, Export-Schnittstellen).
 
 ## Weiterhin nicht vorhanden
-- Original von **D004** (Runtime-Truth gegen SQL-Persistenz) – es bleibt bei der gekennzeichneten Rekonstruktion.
-- `2026-05-25_SESSION_QUOTA_PLAN_ARCHITEKTUR.txt`, `ENTWURF_IPV6_VISUELLE_KODIERUNG_v2.txt`, Ordner
-  `identity_schema/`, `proofs/base/PHASE_AB_VOLLSCAN_2026-05-28.txt`, `implementation/PHASE_PLAN.txt`, die
-  Drittreview-Dateien.
-- Die konkrete Plan-Matrix (siehe oben).
+Die maßgebliche Liste führt seit 2026-11-14 allein das Befundregister: `governance/register/BEFUNDE.yaml`, BF-0003
+(Feld `weiter_fehlend`); das Original von D004 ist BF-0001. Hier steht sie nicht mehr, damit nicht vier Listen
+auseinanderlaufen (Kontrolle der Konsolidierung, F-AST-017).
 
-## Wie es weitergeht
+## Wie es weitergeht (Plan vom 2026-11-14; maßgeblich für Stand und nächste Schritte: PRIORITAETENLISTE QS-10)
 1. Befunde aus dem Abgleich (B052, Settings-Rückfall) werden registriert und in den Modulen behoben.
 2. Jede Gruppe wird vollständig gelesen und rückverfolgt, wenn ihr Modul geschrieben wird (BASE-090: SQL-first;
    MOD-009: Peak Mode; MOD-010: Plans; BASE-110/MOD-006: Webpanel). Bis dahin steht im Quelleninventar ehrlich

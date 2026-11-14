@@ -1,7 +1,7 @@
 ================================================================================
 RetroTunnel — 04_PHASE_PLAN
 ================================================================================
-VERSION: v1.2
+VERSION: v1.3
 DATUM: 2026-11-14
 STATUS: ACTIVE
 SOURCE-OF-TRUTH FUER: PH-Reifegrad, PH-Acceptance, Rollout-Sequenz
@@ -143,7 +143,8 @@ LEGACY-STACK (Windows XP / Vista — primaerer Differenzierungs-Treiber):
 MODERN-STACK (moderne Clients — Anti-DPI-Kontext):
   - AmneziaWireGuard (Fork von WireGuard mit Anti-DPI-Headern)
   - Dual-Stack (IPv4 + IPv6 nativ)
-  - Externer Port: OPEN-NET-01 (AWG-WAN-Port wird in BASE-040 festgelegt)
+  - Externer Port: 49392/UDP als Setting wg_listen_port (BASE-040
+    DEC-WT-02, 2026-11-12; vorher offen als OPEN-NET-01)
   - PersistentKeepalive fuer Session-Stabilitaet
 
 AAA-LAYER (stack-uebergreifend):
@@ -276,7 +277,7 @@ STACK-BEZUG:
   AAA:     FreeRADIUS + MariaDB
   Firewall: nftables Default-Deny + Peer-Isolation
 
-RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
+RELEVANTE MODULE (Inventur 2026-05-24; Status-Tags Stand 2026-11-14):
   BASE-000_SQL_FIRST           — SQL-First-Doktrin, Schema-Fundament    [DONE]
   BASE-005_PLATFORM_CORE       — Service-Endpoints, Settings            [DONE]
   BASE-010_IDENTITY_CORE       — web_customers, vpn_connections,
@@ -297,11 +298,14 @@ RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
 ACHSE 1 — KONZEPT-REIFE-KRITERIEN:
   K-PH1-01  L2TP/IPsec-Flow vollstaendig kodiert (BASE-030, alle Sektionen
             §1-§9, Invarianten LT-01..LT-41, Tests T-LT-01..T-LT-46)
+            [beschriebener Stand; im Repository LT-01..LT-40 und
+            T-LT-01..T-LT-45, Befund BF-0010]
   K-PH1-02  AmneziaWireGuard-Flow vollstaendig kodiert (BASE-040)
             inkl. Anti-DPI-Header-Konfiguration und Key-Lifecycle
   K-PH1-03  Identity-Lifecycle vollstaendig (BASE-010_010 web_customers,
             BASE-010_020 vpn_connections, BASE-010_070 Connection-Lifecycle,
             BASE-010_090 INV-01..INV-84)
+            [beschriebener Stand; im Repository INV-01..INV-82, BF-0010]
   K-PH1-04  AAA-Flow vollstaendig (BASE-020, FreeRADIUS-Hook-Chain,
             WG-Vertrag WG-01..WG-05)
   K-PH1-05  Firewall-Baseline kodiert (BASE-050)
@@ -313,6 +317,7 @@ ACHSE 1 — KONZEPT-REIFE-KRITERIEN:
             PersistentKeepalive fuer MODERN, Reconnect ohne Ghost Sessions)
   K-PH1-07  fixed_ip + fixed_ipv6 deterministisch (BASE-010_020 §1 Schema,
             INV-30 immutable, INV-83 CSPRNG-Wahl)
+            [INV-83 liegt im Repository nicht vor, BF-0010]
 
 ACHSE 2 — IMPLEMENTATION-ACCEPTANCE (initial grob, Detail in M3/M4):
   I-PH1-01  XP/Vista-Client kann via L2TP/IPsec verbinden, bekommt
@@ -341,6 +346,8 @@ ACHSE 2 — IMPLEMENTATION-ACCEPTANCE (initial grob, Detail in M3/M4):
             Proof: RT-PH1-PROOF-06 [BASE-010_095 T-IS-01..04 (CSPRNG-
                    Allokator), bereits geschrieben + BASE-070_095 T-SC-61,
                    T-SC-63 (Allokator)]
+                   [T-IS nennt nur der Changelog; in BASE-010_095 gibt es
+                   die Gruppe im Repository nicht, BF-0010]
   I-PH1-07  IPv6 Egress funktioniert (MODERN: interne ULA fd77:0:0:<rolle>::/64,
             NAT66/MASQUERADE am WAN, Source = Server-WAN-GUA; LEGACY ist IPv4-only)
             Proof: RT-PH1-PROOF-07 [BASE-050_095 T-FW-39, T-FW-57 (NAT66-
@@ -356,7 +363,9 @@ KONZEPT-REIFE-STATUS (Fakten Stand 2026-11-14):
       (im Repository liegen diese Dateien hinter dem Changelog-Stand;
       Befund BF-0010, Nachzug PRIORITAETENLISTE QS-11)
     - BASE-010 hat aktuellen CSPRNG-Invariante (INV-83) + Tombstone-
-      Edge-Cases (INV-84)
+      Edge-Cases (INV-84) - LAUT CHANGELOG; im Repository endet
+      BASE-010_090 bei INV-82, der Dateikopf nennt v1.0 statt "v2.0"
+      (BF-0010)
     - F-004 (dns2-Port-Fehler) und WG-DNS-Vertrag (WG-01..05) sauber
       eingebaut
     - BASE-040, BASE-050 und BASE-070 sind GESCHRIEBEN (je 11 Dateien,
@@ -391,7 +400,7 @@ STACK-BEZUG:
   LEGACY:  tc pro pppX via ip-up Hook
   MODERN:  tc auf awg0 mit Per-Peer-Klassifizierung (wenn noetig)
 
-RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
+RELEVANTE MODULE (Inventur 2026-05-24; Status-Tags Stand 2026-11-14):
   MOD-003_QOS                  — tc-Konfiguration, Limit-Klassen        [WAITING]
   MOD-009_PEAK_MODE            — Peak-Behandlung (Detail zu pruefen,
                                  Modul-Inhalt aktuell unbekannt)        [WAITING]
@@ -443,7 +452,7 @@ STACK-BEZUG:
   Zwang:   DNAT UDP+TCP 53 -> SERVICE_DNS (nftables)
   Zeit:    NTP-Strategie (XP-kompatibel, falsche-Uhr-Schutz)
 
-RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
+RELEVANTE MODULE (Inventur 2026-05-24; Status-Tags Stand 2026-11-14):
   BASE-060_DNS_CORE            — Unbound + AdGuardHome + DNS-Zwang      [WAITING]
   BASE-005_PLATFORM_CORE       — Service-IP / SERVICE_DNS               [DONE]
   BASE-030_TUNNEL_L2TP_IPSEC   — LT-41 DNS-Vertrag                      [DONE]
@@ -508,7 +517,7 @@ STACK-BEZUG:
   CA:       Interne CA fuer Service-Zertifikate
   DNS:      Rewrite vpn.status -> Service-IP
 
-RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
+RELEVANTE MODULE (Inventur 2026-05-24; Status-Tags Stand 2026-11-14):
   BASE-110_WEBSTACK_CORE       — OpenResty/PHP-FPM/Service-Routing      [WAITING]
   BASE-060_DNS_CORE            — DNS-Rewrite                            [WAITING]
   MOD-004_BLOCKPAGE_CA         — Blockpage + interne CA                 [WAITING]
@@ -570,7 +579,7 @@ STACK-BEZUG:
   DB:       MariaDB (web_customers, vpn_connections, log_*)
   Auth:     Panel-Login (Customer-Credentials oder Admin-Credentials)
 
-RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
+RELEVANTE MODULE (Inventur 2026-05-24; Status-Tags Stand 2026-11-14):
   MOD-001_ONBOARDING           — Register, Verify-Wall, Email,
                                  Claim-Flow                             [WAITING]
   MOD-006_PANEL_FEATURES       — Customer-Panel + Admin-Panel-Aktionen  [WAITING]
@@ -579,6 +588,9 @@ RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
                                  (Quelle fuer Panel-Datenfluss)         [DONE]
 
   VORARBEITEN (nicht im Modul):
+  [STAND 2026-11-14: Die Sammelstelle liegt seit der Nachlieferung vom
+  2026-11-13 unter nachlieferung/webpanel sammelstelle/ (30 Dateien;
+  Lesestand: QUELLENINVENTAR, PRIORITAETENLISTE QS-10).]
   webpanel sammelstelle/       — Extraktion aus altem Konzept laeuft
                                  (Phase 1, INSTRUKTION_WEBPANEL_EXTRAKTION.txt)
                                  Quelle fuer spaetere Adaptation in MOD-001 +
@@ -645,7 +657,7 @@ STACK-BEZUG:
   Backup:    MariaDB-Dumps + Konfig-Snapshots
   Diag:      Status-Endpoints, Health-Checks
 
-RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
+RELEVANTE MODULE (Inventur 2026-05-24; Status-Tags Stand 2026-11-14):
   MOD-005_FAIL2BAN             — Fail2ban-Jails (SSH, Panel, AAA)       [WAITING]
   MOD-007_LOGGING_MONITORING   — Logs + Diag + Health-Checks            [WAITING]
                                  (auch Quelle fuer PH9)
@@ -718,7 +730,7 @@ STACK-BEZUG:
   SimUse-Mutex:    vpn_session_locks (tunnelneutral, BASE-070-owned)
   Reconcile:       Drift-Erkennung zwischen Daemon und Aggregat
 
-RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
+RELEVANTE MODULE (Inventur 2026-05-24; Status-Tags Stand 2026-11-14):
   BASE-070_SESSION_CORE        — Runtime Activity Detection + Accounting
                                  Correlation + Collector Idempotency +
                                  DB-Down-Buffer (D004-E03). Heimat der
@@ -804,7 +816,7 @@ STACK-BEZUG:
   DNS:            Sinkhole-Antwort fuer RESTRICTED Connections
   Firewall:       eigene RESTRICTED-Chain fuer Walled-Garden-Routing
 
-RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
+RELEVANTE MODULE (Inventur 2026-05-24; Status-Tags Stand 2026-11-14):
   BASE-080_POLICY_APPLY_CORE   — PolicyApply-Daemon
                                  (Entwurf 2026-11-14, ungeprueft)  [IN-PROGRESS]
   BASE-100_POLICY_CORE         — Policy-Definitionen / Walled-Garden-
@@ -938,7 +950,7 @@ STACK-BEZUG:
   Export:            CSV/JSON-Export aus Panel
   Monitoring:        externe Probe (optional, M3+)
 
-RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
+RELEVANTE MODULE (Inventur 2026-05-24; Status-Tags Stand 2026-11-14):
   MOD-007_LOGGING_MONITORING   — Reporting-Schicht (geteilt mit PH6/PH7) [WAITING]
   MOD-006_PANEL_FEATURES       — Stats-Sicht im Admin-Panel (Teilbereich) [WAITING]
 
@@ -982,7 +994,7 @@ ZIEL:
 STACK-BEZUG:
   Variabel je Extra
 
-RELEVANTE MODULE (Stand 2026-05-24 nach Inventur):
+RELEVANTE MODULE (Inventur 2026-05-24; Status-Tags Stand 2026-11-14):
   MOD-010_PLANS                — Plan-Differenzierung (nicht-sicherheits-
                                  relevant)                              [WAITING]
   Externe Retrowork-Seite      — Landing, Bestellprozess, News [ausserhalb
@@ -1045,14 +1057,16 @@ MAPPING-MATRIX (Modul <-> Phase)
                                                             PH2 (Plan-Limits)
 
 KONSOLIDIERTE STATUS-AUFSTELLUNG (Stand 2026-11-14; der Status folgt
-der PRIORITAETENLISTE und wird maschinell gegen sie geprueft):
+der PRIORITAETENLISTE; Modulzeilen und diese Summen werden maschinell
+gegen sie geprueft):
   DONE                    : 5 Module (BASE-000, BASE-005, BASE-010,
                             BASE-020, BASE-030)
   IN-PROGRESS             : 4 Module (BASE-040, BASE-050, BASE-070
                             geschrieben, Abschluss offen; BASE-080
                             Entwurf)
-  WAITING (Ordner leer)   : 14 Module (BASE-060, BASE-090, BASE-100,
-                            BASE-110, MOD-001..010)
+  WAITING                 : 14 Module (BASE-060, BASE-090, BASE-100,
+                            BASE-110, MOD-001..010) - ohne
+                            Moduldateien; BASE-110 hat vier Entwuerfe
   TOTAL                   : 23 Module
 
 ================================================================================
@@ -1111,20 +1125,29 @@ IN-PROGRESS: Die Zuordnung wird beim Wechsel auf DONE bestaetigt
 (Befund BF-0056). ACHTUNG Namensraum: T-PA ist jetzt der Test-Praefix
 von BASE-080; der Platzhalter "MOD-006_095 T-PA-XX" braucht beim
 Schreiben von MOD-006 einen anderen Praefix.
+ACHTUNG Platzhalter in BASE-010: T-TR-XX und T-AR-XX bezeichnen KEINE
+vorhandenen Testgruppen (BASE-010_095 fuehrt die Uebergaenge unter T-LC;
+eine Gruppe fuer die Admin-Ausnahme ist zu bestimmen). "BASE-010
+bereits da" gilt fuer das Modul, nicht fuer diese Kennungen. T-IS
+(CSPRNG-Allokator) nennt nur der Changelog (BF-0010). Zuordnung mit
+OPEN-PHP-03.
 
 UEBERSICHT (Stand 2026-11-14):
 
   Phase  Anzahl  Vorhandene Tests (bereits geschrieben)
   ------ ------- ----------------------------------------
-  PH1     7      Alle 7 Anker haben Tests in BASE-010, BASE-040,
-                 BASE-050, BASE-070 (Belegstand "geplant"). Offen:
-                 Test-IDs T-LT-XX aus BASE-030_095 detailliert mappen
-                 (Anker 03 und 05).
+  PH1     7      Alle 7 Anker nennen Tests (Belegstand "geplant"):
+                 Anker 01 in BASE-030 und BASE-020, die uebrigen in
+                 BASE-040, BASE-050 und BASE-070; Anker 06 nennt
+                 zusaetzlich T-IS (im Repository nicht vorhanden).
+                 Offen: Test-IDs T-LT-XX aus BASE-030_095 detailliert
+                 mappen (Anker 03 und 05).
   PH2     3      0 vorhanden — alle in MOD-003 + MOD-009 zu schreiben
   PH3     4      Anteil BASE-050 vorhanden (Anker 01, 02); BASE-060 zu
                  schreiben
   PH4     4      0 vorhanden — alle in BASE-110 + MOD-004 zu schreiben
-  PH5     5      Teilweise (BASE-010 T-OW-XX, T-TR-XX vorhanden) —
+  PH5     5      Teilweise (BASE-010 T-OW vorhanden; T-TR-XX ist ein
+                 Platzhalter, siehe ACHTUNG oben) —
                  MOD-001 + MOD-006 + BASE-110 zu schreiben
   PH6     5      Anteil BASE-080 an Anker 05 vorhanden (Entwurf) —
                  MOD-005/007/008 + BASE-090 zu schreiben
@@ -1136,12 +1159,16 @@ UEBERSICHT (Stand 2026-11-14):
   PH9     3      0 vorhanden — alle in MOD-007 + MOD-006 zu schreiben
   PH10    N      pro Extra einzeln festzulegen
 
-  TOTAL: 43 Proof-Anker (PH1-PH9) + N (PH10)
+  TOTAL: 42 Proof-Anker (PH1-PH9) + N (PH10)
+  [am 2026-11-14 berichtigt; vorher stand hier 43, die Tabelle ergibt 42]
 
 KONKRETHEITS-GRAD:
   Jeder Proof-Anker verweist auf:
     - vorhandene Tests in DONE-Modulen mit konkreten Test-Namespaces
       (T-LT, T-WG, T-IS, T-OW, T-AR, T-AS, T-TR, etc.)
+      [STAND 2026-11-14: Vorhanden sind T-LT, T-OW, T-AS, T-LC u. a.;
+      T-WG heisst T-WT (BASE-040, IN-PROGRESS), T-IS, T-TR und T-AR
+      gibt es im Repository nicht - siehe ACHTUNG oben.]
     - zu-schreibende Tests in WAITING-Modulen mit Platzhalter T-XX-XX
       und Hinweis "zu schreiben"
 
