@@ -1,0 +1,482 @@
+================================================================================
+BASE-080 — INVARIANTEN (Policy-Apply-Kern)
+================================================================================
+DATEI: BASE-080_090_INVARIANTEN.txt
+STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
+
+Harter Vertrag. Jede Verletzung ist ein Fehler. Kennungen PA-01..PA-67.
+Regelkennungen in Klammern verweisen auf die Detaildateien dieses Moduls
+(DEC-PA-, SZ- in _010; A-, Z-, E, BL, U- in _020; H, EC-, S-, L-, SB, SE,
+F, N- in _030; V, P-, G, M- in _040; Q-, AL, MK, NB-, W- in _050; UB, RC,
+KA, WH, SR, KW, AD in _060; HF-, UP-, KP- in _070; GP- in _080).
+Herkunft je Invariante: Rueckverfolgungs-Records unter
+governance/register/trace/ (Feld erfuellt_in) bzw. NEU_BEGRUENDET.yaml.
+
+================================================================================
+BEWERTUNG
+================================================================================
+
+  PA-01  vpn-policy-eval arbeitet allein auf der Datenbank, ohne
+         root-Rechte und ohne Zugriff auf Kernel-Schnittstellen; es
+         beruehrt weder Sets noch Peers noch Sitzungen. vpn-policy-apply
+         aendert weder op_status noch Grund noch ein anderes fachliches
+         Feld einer Connection (DEC-PA-01, UP-4).
+
+  PA-02  Kein Programm dieses Moduls schreibt op_status, op_reason_code
+         oder ein Fristfeld selbst. Jeder Uebergang laeuft ueber die
+         Uebergangsroutine von BASE-010: Felder, Zeitstempel,
+         Lifecycle-Ereignis und Auftrag in EINER Transaktion (GP-2).
+
+  PA-03  Die Bedingungsquellen sind abschliessend: Verwaltungs-
+         Einschraenkung, Frist ohne Claim, Plan-Limit, Laufzeit, Quota,
+         Pause. Ein Grund ohne Quelle wird nie gesetzt. BASE-080 kennt
+         keine Limits, Plaene und Preise; es vergleicht, was die
+         Auskuenfte der Owner liefern (DEC-PA-12, GP-3).
+
+  PA-04  Der Zielzustand ist deterministisch: ohne aktiven Grund ACTIVE
+         mit Grund NULL, sonst RESTRICTED mit dem aktiven Grund des
+         niedrigsten precedence_rank. Er haengt allein von den gelesenen
+         Daten ab - nicht von der Reihenfolge der Bearbeitung und nicht
+         vom Ausloeser (Z-3).
+
+  PA-05  Eine ADMIN-Connection wird nie eingeschraenkt: Die Bewertung
+         ergibt fuer sie nie RESTRICTED, die Herstellung traegt ihre
+         Adressen nie in restricted_* ein, und ein Rollenwechsel nach
+         ADMIN hebt eine bestehende Einschraenkung in derselben
+         Transaktion auf. Vorgefundene Einschraenkungs-Tatsachen und der
+         Status RESTRICTED an einer ADMIN-Connection werden gemeldet
+         (Z-2, S-2, RC3).
+
+  PA-06  Geschrieben wird nur bei einer Aenderung von Status oder Grund.
+         Ein Lauf ohne geaenderte Eingaben schreibt nichts: keinen
+         Status, kein Lifecycle-Ereignis, keinen Auftrag (Z-4).
+
+  PA-07  Ist eine Auskunft (Plan-Limit, Kontingent) nicht lesbar oder
+         widerspruechlich, gilt ihre Bedingung als UNBEKANNT - nie als
+         "nicht aktiv". Fuer die betroffene Connection wird in diesem
+         Lauf weder eingeschraenkt noch freigegeben; die Lage wird
+         gemeldet (A-4, Z-1).
+
+  PA-08  Je Connection gilt die Reihenfolge: Kaskade aus dem
+         Customer-Status, harte Frist ohne Claim, Gruende neu bestimmen,
+         Finalisierung. Eine Finalisierungsfrist loest nur aus, wenn ihr
+         Grund nach der Neubestimmung weiter gilt und in diesem Durchgang
+         kein Uebergang stattfand; ein entfallener Grund fuehrt nie zur
+         endgueltigen Sperrung (E2 bis E7, DEC-PA-13).
+
+  PA-09  Jede Connection wird in EINER Transaktion bewertet; die Eingaben
+         werden erst nach dem Erwerb der Zeilensperre gelesen. Ein Fehler
+         oder Abbruch laesst keinen Teilzustand zurueck und beendet den
+         Lauf nicht; der naechste Lauf setzt fort (E1, E8, BL6).
+
+  PA-10  Der Bewertungskern (Gruende bestimmen, vergleichen, uebergehen)
+         existiert in genau einer Implementierung. Wiederherstellung
+         (T-08) und Claim (T-01) rufen ihn in ihrer eigenen Transaktion:
+         Sie ergeben nur dann ACTIVE, wenn kein Grund aktiv ist, sonst
+         RESTRICTED mit dem hoechstprioren Grund (BASE-080_020 Abschnitt
+         5, WH1).
+
+  PA-11  Unumkehrbare Uebergaenge - Sperrung nach claim_deadline,
+         Finalisierung, Widerruf - fuehrt JEDER Aufruf des Bewerters nur
+         aus, wenn die Zeit bestaetigt ist (U-1), keine Zeitanomalie
+         vorliegt und keine Ruhezeit laeuft (U-2) und ihre Zahl die
+         Grenze nicht uebersteigt (U-3). Andernfalls wird KEINER von
+         ihnen ausgefuehrt - auch kein Teil bis zur Grenze -, und das
+         wird gemeldet. Umkehrbare Uebergaenge und Kaskaden laufen
+         weiter.
+
+  PA-12  Jede Zeitanomalie - fehlende Marke, negativer oder zu grosser
+         Abstand zum letzten Lauf, Marke in der Zukunft - beginnt eine
+         Ruhezeit von vpn_policy_eval_gap_hold_seconds; jede weitere
+         beginnt sie neu. Die Marken schreibt allein der Lauf --all; ein
+         Einzelaufruf kann eine Luecke nicht verdecken (U-2).
+
+  PA-13  Die Freigabe zurueckgestellter Uebergaenge durch den Betreiber
+         gilt fuer EINEN Lauf, traegt Obergrenze und Akteur und ist im
+         Lifecycle-Log kenntlich. Eine Abweichung zwischen Datenbankzeit
+         und Systemzeit und ein negativer Abstand zur Marke sind nicht
+         bestaetigbar (BASE-080_020 Abschnitt 7).
+
+  PA-14  Kaskaden aus dem Customer-Status: SUSPENDED sperrt jede ACTIVE-
+         oder RESTRICTED-Connection mit DISABLE_CUSTOMER_SUSPENDED;
+         DELETED fuehrt die Tombstone-Routine fuer JEDE Connection aus,
+         auch fuer bereits gesperrte. Je Connection eine Transaktion mit
+         Auftrag. Unterbleibt der Anstoss, findet der naechste Lauf die
+         Connections als Kandidaten. Das Aufheben einer Sperrung des
+         Customers stellt keine Connection selbsttaetig wieder her
+         (E2, BL4, KA1 bis KA3).
+
+  PA-15  Der Bewerter widerruft nur Connections, deren Grund
+         AFTER_RESTORE_WINDOW traegt und deren Restore-Fenster abgelaufen
+         ist. MANUAL_ONLY wird nie vom Bewerter widerrufen (E4).
+
+  PA-16  Ein ausgeschoepftes Kontingent wirkt im Kernel nach hoechstens:
+         Messlatenz des Tunnels, Bewertungstakt, Raster des Auftragslaufs
+         und Dauer der Herstellung. Nach einem Periodenwechsel und nach
+         einer Datenbankstoerung werden alle Connections neu bewertet
+         (DEC-PA-15, BASE-080_020 Abschnitt 8).
+
+  PA-17  Ist die Datenbank nicht erreichbar, trifft der Bewerter keine
+         Entscheidung und schreibt nichts (BL2, DEC-PA-18).
+
+================================================================================
+HERSTELLUNG
+================================================================================
+
+  PA-18  EIN SCHREIBER: restricted_*, allowed_l2tp_v4, connect_pending_*,
+         das Peer-Set, conntrack und die Verkehrsformung aendert allein
+         vpn-policy-apply - unter dem Kernel-Lock, nacheinander, nie
+         parallel. Hooks, Panel und Laeufe anderer Module enthalten keine
+         eigene Logik zur Durchsetzung (GP-1, GP-7).
+
+  PA-19  Die Herstellung ist zustandsbasiert: Jede Handlung folgt allein
+         aus dem Vergleich von SQL-SOLL und Kernel-IST; SQL wird erst
+         unter dem Lock gelesen. Ein wiederholter, doppelter oder
+         verspaeteter Aufruf aendert das Ergebnis nicht. Der
+         Laufzeit-Bestand wird aus Kernel und Adapter bestimmt - nie aus
+         Hinweisfeldern, Ereignissen oder Sperren (DEC-PA-02, H4, H6,
+         GP-4).
+
+  PA-20  Eingaben werden vor jeder Wirkung streng geprueft; nichts wird
+         aus der Umgebung uebernommen; unbekannte Schalter und
+         ueberzaehlige Argumente sind ein Fehler ohne Wirkung (H1).
+
+  PA-21  Ein Ergebniscode ungleich 0 wird nie als Erfolg gemeldet oder
+         protokolliert. Ein Einzelziel kennt keinen Teilerfolg. Die Codes
+         2, 3, 5 und 8 lassen den Kernel unveraendert (EC-1).
+
+  PA-22  Ohne lesbare Datenbank aendert vpn-policy-apply den Kernel
+         nicht: keine Herstellung aus zwischengespeicherten Werten, kein
+         Ersatzzustand "eingeschraenkt". Zulaessig sind allein
+         Handlungen, die nichts oeffnen und kein SQL brauchen: Reste
+         beendeter Sitzungen raeumen und eine nie freigegebene Sitzung
+         beenden (DEC-PA-18).
+
+  PA-23  Im Zustand RIEGEL oder KEIN_REGELWERK der Firewall schreibt kein
+         Aufruf ein Set; das Ergebnis ist Code 8 (H3, AL1, V0).
+
+  PA-24  Die Soll-Funktion kennt drei Ergebnisse: zugelassen, nicht
+         zugelassen, nicht auswertbar. Sperrung und Widerruf verweigern
+         immer, gleich was die uebrigen Felder sagen. Der Status des
+         Customers und die Bedingungen der Einschraenkung gehen nicht in
+         sie ein (S-1, S-4).
+
+  PA-25  Eine Lage, aus der kein eindeutiges SOLL folgt, oeffnet nichts
+         und schaltet nichts um: keine Freigabe, kein Peer-Eintrag, kein
+         Entfernen aus restricted_*, kein Ersatzzustand, kein
+         vorsorgliches Beenden - je Connection, nicht fuer das ganze
+         System. Ergebnis 6 und Meldung. Gehandelt wird trotzdem bei
+         doppelter Adresse, unbekannter Adresse und einem Widerspruch
+         zwischen Anmeldename und Adresse einer Sitzung (N-1 bis N-4,
+         DEC-PA-22).
+
+  PA-26  POLICY VOR FREIGABE, ADMISSION ZUERST ENTZIEHEN - fuer beide
+         Tunnel und jeden Weg: Beim Aufbau steht der Policy-Zustand,
+         bevor Peer bzw. Freigabe eingetragen werden; beim Abbau wird
+         zuerst die Admission entzogen. Kein Abbruch hinterlaesst eine
+         zugelassene Laufzeit ohne hergestellten Policy-Zustand
+         (DEC-PA-05, L-B, L-C).
+
+  PA-27  Eine Tunneladresse steht genau dann in restricted_*, wenn ihre
+         Connection eingeschraenkt ist und eine Kernel-Repraesentation
+         hat oder gerade erhaelt. IPv4 und IPv6 einer Connection werden
+         in EINER Transaktion der Firewall geschrieben; L2TP fuehrt nur
+         IPv4. Eine Connection ohne Laufzeit hat keine
+         Kernel-Repraesentation (S-3, H7).
+
+  PA-28  Fuer WireGuard ist die Herstellung der Aufruf des Treibers von
+         BASE-040; ein eigenes Gate-Verfahren gibt es nicht. Laesst sich
+         ein Peer nicht entfernen, stehen seine Adressen sofort in
+         connect_pending_* (DEC-PA-06).
+
+  PA-29  Eine L2TP-Sitzung wird der Connection ueber ihre
+         Gegenstellen-Adresse zugeordnet und ueber den Anmeldenamen -
+         byteweise - gegengeprueft. Freigegeben wird sie als LETZTER
+         Schritt und nur mit genau einem Element (Index der
+         Schnittstelle, Adresse). Eine Sitzung mit unbekannter Adresse,
+         mit widerspruechlicher Zuordnung oder auf einer Adresse, die
+         mehrere Schnittstellen tragen, wird nie freigegeben und beendet
+         (BASE-080_030 Abschnitt 6.1, L-B, L-D, L-E).
+
+  PA-30  KEIN VERKEHR VOR HERGESTELLTER POLICY, KEIN STUMMER
+         DAUERZUSTAND: Gelingt der Beginn einer L2TP-Sitzung nicht, wird
+         sie bei endgueltiger Ursache und bei nicht lesbarer Datenbank
+         sofort beendet; bei voruebergehender Ursache bleibt sie
+         gesperrt, ein Auftrag wiederholt die Herstellung, und nach
+         vpn_connect_gate_ttl_seconds ohne Freigabe wird sie beendet -
+         auch ohne Datenbank und auch, wenn der Hook nie lief. Solange
+         das Siegel besteht, ruht diese Frist (DEC-PA-07, BASE-080_030
+         Abschnitte 6.3, 6.5).
+
+  PA-31  Das Ende einer Sitzung und die Reihenfolge der Hooks aendern
+         nichts am Ergebnis: Die Routine prueft den Bestand am Kernel.
+         Ein verspaetetes Sitzungsende entfernt nur die Elemente der
+         beendeten Schnittstelle und nie die Freigabe einer neuen
+         Sitzung. Reste beendeter Sitzungen werden auch ohne Datenbank
+         geraeumt (BASE-080_030 Abschnitt 6.4).
+
+  PA-32  FLUSS-SCHNITT: Wird eine Adresse in restricted_* eingefuegt, in
+         dem sie zuvor nicht stand, werden nach dem Schreiben des Sets
+         alle conntrack-Eintraege aller Tunneladressen der Connection
+         geloescht - beide Familien, beide Richtungen. Der Vorzustand
+         wird je Familie am Kernel gelesen, bevor das Set geschrieben
+         wird. Scheitert das Loeschen, wird die Laufzeit beendet;
+         scheitert auch das, ist das Ergebnis ein Fehler. Kein Schnitt
+         beim Entfernen und bei bereits vorhandener Mitgliedschaft -
+         ausser der Auftrag traegt das Merkmal "Schnitt ausstehend"
+         (F1 bis F5, MK3).
+
+  PA-33  LAUFZEIT ZUERST: Bei Sperrung, Widerruf und fuer jede nicht
+         zugelassene Laufzeit wird die Laufzeit beendet (L2TP: erst
+         Freigabe entziehen, dann Hard-Cut-Kern von BASE-070; WireGuard:
+         Remove-Sequenz) und erst danach der Policy-Zustand geraeumt. Das
+         Raeumen der Sets gilt nie als Beenden. Laesst sich die Laufzeit
+         nicht beenden, bleibt die Freigabe entzogen bzw. das Gate
+         gesetzt, das Ergebnis ist ein Fehler und die Lage CRITICAL
+         gemeldet (DEC-PA-09, L-C).
+
+  PA-34  Jede Abfolge ist so geordnet, dass ein Abbruch an beliebiger
+         Stelle einen Zustand hinterlaesst, der hoechstens STRENGER ist
+         als der Zielzustand, und dass die Wiederholung ihn vollendet
+         (BASE-080_030 Abschnitt 10).
+
+  PA-35  vpn-policy-apply erwirbt nie eine Sperre in vpn_session_locks.
+         Sperren werden stets in der Reihenfolge Sperre der Datenbank,
+         Einzel-Lock des Laufs, Kernel-Lock, Zeilensperren erworben - nie
+         umgekehrt (NB-1).
+
+================================================================================
+ABGLEICH UND SIEGEL
+================================================================================
+
+  PA-36  Der Abgleich bringt Peers, restricted_* und allowed_l2tp_v4 fuer
+         ALLE Connections auf den Stand von SQL und Laufzeit. Jede
+         Abweichung, die kein Einzelauftrag behebt, ist spaetestens nach
+         vpn_reconcile_interval_seconds zuzueglich des Rasters erkannt
+         und - soweit behebbar - behoben; ein Eingriff von Hand an den
+         dynamischen Zustaenden ueberlebt ihn nicht (BASE-080_040
+         Abschnitt 1).
+
+  PA-37  Der Abgleich bewertet keine Bedingungen, schreibt keinen Status
+         und erledigt keine Auftraege (BASE-080_040 Abschnitt 1).
+
+  PA-38  Der Abgleich laeuft in Abschnitten: Jeder liest SQL frisch und
+         haelt den Kernel-Lock hoechstens vpn_reconcile_section_seconds.
+         ERST SCHLIESSEN, DANN OEFFNEN - Sicherheitsfaelle zuerst. Vor
+         jedem Oeffnen werden die betroffenen Zeilen frisch gelesen; ist
+         eine Connection inzwischen nicht mehr zugelassen, unterbleibt es
+         (V1, V3, NB-5).
+
+  PA-39  restricted_*: Nach dem Abschnitt "Schliessen" fehlt kein
+         Soll-Mitglied; nach dem Abschnitt "Oeffnen" gibt es kein
+         Mitglied ausserhalb des Solls. Es gibt keinen Augenblick, in dem
+         ein eingeschraenkter Client mit Kernel-Repraesentation nicht im
+         Set steht: Geleert und neu aufgebaut wird nur innerhalb EINER
+         Transaktion. Fremde Elemente werden entfernt und gemeldet;
+         Adressen werden geparst verglichen (BASE-080_040 Abschnitte 3,
+         4).
+
+  PA-40  allowed_l2tp_v4 traegt je freigegebener Sitzung einer
+         zugelassenen Connection mit hergestelltem Policy-Zustand genau
+         ein Element. Alles andere ist Rest und wird entfernt:
+         Schnittstelle fehlt, Adresse passt nicht, mehr als ein Element
+         je Adresse (BASE-080_040 Abschnitt 4).
+
+  PA-41  Ein Element in connect_pending_* wird nie wegen seines Alters
+         entfernt. Entfernt wird es allein, wenn kein Peer im Kernel eine
+         seiner Adressen fuehrt. Fuehrt ein Peer die Adresse und ist
+         seine Connection nicht zugelassen, nicht auswertbar oder die
+         Datenbank nicht lesbar, bleibt es und wird gemeldet (P-1 bis
+         P-6, DEC-PA-11).
+
+  PA-42  Das Siegel wird nur geloest, wenn seine Vorbedingung in
+         DERSELBEN Generation des Regelwerks hergestellt und unmittelbar
+         zuvor am Kernel Peer fuer Peer nachgewiesen ist - unter
+         durchgehend gehaltenem Kernel-Lock, der an vpn-fw-load
+         uebergeben wird. Peers nicht auswertbarer Connections erhalten
+         vorher ein Gate-Element. Es gibt keinen Weg, das Siegel ohne
+         Nachweis zu loesen (G1 bis G4).
+
+  PA-43  MENGENBREMSE: Findet der Abgleich schliessende Abweichungen
+         ohne Auftrag der Herkunft CHANGE in einer Zahl oberhalb der
+         Schwellen, fuehrt er fuer KEINES dieser Ziele eine schliessende
+         Handlung an bestehender Laufzeit aus und meldet CRITICAL.
+         Solange die Bremse haelt, gilt dasselbe fuer Einzelziele ohne
+         solchen Auftrag. Die Bremse oeffnet nichts und verweigert keine
+         ordentliche Sperrung: Handlungen mit Auftrag laufen immer. Sie
+         endet durch Wegfall der Ursache oder durch Freigabe des
+         Betreibers fuer einen Lauf (M-1 bis M-8).
+
+  PA-44  Ein Abgleich gilt nur als fehlerfrei, wenn kein Schritt
+         gescheitert ist, nichts zurueckgestellt wurde und sich die
+         Generation des Regelwerks waehrend des Laufs nicht geaendert
+         hat. Eine Anforderung des Abgleichs bleibt bestehen, bis ein
+         Lauf fehlerfrei endet, der NACH ihr begonnen hat. Zwei Abgleiche
+         laufen nie zugleich (V5, BASE-080_040 Abschnitte 2, 8, 9).
+
+  PA-45  Nach Systemstart, nach dem Neuladen des Regelwerks, nach der
+         Rueckkehr der Datenbank und nach dem Neustart der
+         WireGuard-Schnittstelle folgt ein vollstaendiger Abgleich. Nach
+         der Rueckkehr der Datenbank laeuft zuvor der Bewerter
+         (BASE-080_040 Abschnitte 2, 8; AL2).
+
+================================================================================
+AUFTRAGSBUCH UND NEBENLAEUFIGKEIT
+================================================================================
+
+  PA-46  Jede Transaktion, die den herzustellenden Zustand einer
+         Connection aendert, schreibt in DERSELBEN Transaktion den
+         Auftrag. Es gibt keinen Statuswechsel ohne Auftrag und keinen
+         Auftrag ohne Aenderung; je Ziel besteht hoechstens ein Auftrag
+         (Q-1 bis Q-3, GP-5).
+
+  PA-47  Einen Auftrag erledigt nur vpn-policy-apply, nur nach der
+         Schlusspruefung am Kernel, nur mit Vergleich des gelesenen
+         Zaehlers und - je Connection - nur unter dem Kernel-Lock. Ein
+         waehrend der Herstellung fortgeschriebener Auftrag bleibt
+         bestehen (Q-4, H8).
+
+  PA-48  Der Auftrag traegt keinen Zielzustand; die Herstellung liest SQL
+         immer frisch. Seine Merkmale (alte Adressen, Laufzeit-Schnitt
+         vor einem Zeitpunkt, Schnitt ausstehend) ergaenzen die
+         Herstellung nur um schliessende Handlungen und oeffnen nie etwas
+         (Q-5, MK1 bis MK3).
+
+  PA-49  Ein Auftrag wird nie aufgegeben oder geloescht, weil er zu oft
+         gescheitert ist. Schliessende Auftraege werden vor allen anderen
+         bearbeitet und warten nach einem voruebergehenden Fehler nicht;
+         gescheiterte Auftraege verdraengen neue nicht (W-1, W-2, AL3).
+
+  PA-50  Eine festgeschriebene Aenderung ist im ungestoerten Betrieb nach
+         hoechstens einem Raster des Auftragslaufs zuzueglich der
+         Wartezeit auf den Kernel-Lock und der Dauer der Herstellung im
+         Kernel wirksam - auch wenn der ausloesende Prozess zwischen
+         Commit und Aufruf endet. Kein Ausloeser ist die einzige
+         Sicherung: Hinter jedem Aufruf steht der Auftrag bzw. die
+         Aufsicht des Auftragslaufs und der Abgleich (BASE-080_050
+         Abschnitte 4, 8).
+
+  PA-51  Das Warten auf den Kernel-Lock ist begrenzt und endet ohne
+         Teilwirkung. Der Lock endet mit dem Prozess; seine Datei wird im
+         Betrieb nie geloescht oder ersetzt. Kein Programm ruft
+         vpn-policy-apply, waehrend es den Kernel-Lock haelt -
+         ausgenommen die Uebergabe an vpn-fw-load beim Loesen des
+         Siegels. Unter dem Kernel-Lock wird keine Datenbanktransaktion
+         offen gehalten, die auf eine fremde Zeilensperre warten koennte
+         (NB-2 bis NB-6, UP-6).
+
+  PA-52  Das Auftragsbuch schreibt nur der DB-User system. Der DB-User
+         radius hat keinen Zugriff; das Panel liest nur ueber eine Sicht
+         ohne Adressen und kann keinen Auftrag anlegen, aendern oder
+         loeschen. Die Tabelle enthaelt keine Geheimnisse (Q-6, Q-7).
+
+  PA-53  Kein Kernel-Zustand haengt an Beginn oder Ende einer
+         Aktivitaetsepisode, an der E-Mail-Bestaetigung eines Customers
+         oder an einer Anmeldung am Panel (GP-6, BASE-080_050 Abschnitt
+         8).
+
+================================================================================
+UMBAUTEN
+================================================================================
+
+  PA-54  Jeder Umbau folgt der Reihenfolge: Sperre (wo verlangt), EINE
+         Transaktion mit fachlicher Aenderung, Lifecycle-Ereignis und
+         Auftrag je betroffener Connection, Commit, Herstellung, Freigabe
+         der Sperre. Der Commit liegt immer VOR dem Laufzeit- bzw.
+         Fluss-Schnitt. Endet der Umbau nach dem Commit, vollendet der
+         Auftragslauf die Herstellung (UB1 bis UB6, DEC-PA-16).
+
+  PA-55  Ein Rollenwechsel stellt ALLE Connections des Customers um -
+         auch gesperrte - oder keine. Massgeblich ist die Pruefung der
+         Freimenge in der Transaktion, nicht die Vorpruefung. Die alten
+         Adressen stehen ab dem Commit in Quarantaene; Laufzeit auf ihnen
+         wird beendet, ihre Freigaben, Sperr-Set-Eintraege und
+         conntrack-Eintraege werden geraeumt. Verbrauch und Periode
+         bleiben (RC1 bis RC7, MK1).
+
+  PA-56  Keine Laufzeit besteht unter einem abgeloesten Schluessel oder
+         Kennwort fort: Der alte Peer ist entfernt, bevor der neue
+         eingetragen wird; jede L2TP-Sitzung, die vor dem Kennwortwechsel
+         begann, wird beendet. Eine Sitzung, die danach mit dem neuen
+         Kennwort entstand, bleibt - auch wenn der Schnitt verspaetet
+         ausgefuehrt wird. Ist der Beginn einer Sitzung nicht
+         feststellbar, gilt sie als vorher begonnen (SR1 bis SR4, KW1
+         bis KW5, MK2).
+
+  PA-57  Eine Adress-Reparatur gibt es nur je Connection, als
+         Verwaltungshandlung mit Sperre, Quarantaene der bisherigen
+         Adresse und Auftrag (AD1 bis AD3).
+
+  PA-58  Ein neues WireGuard-Profil wird erst zugestellt, nachdem die
+         Herstellung der Connection abgeschlossen ist. Die Folgehandlung
+         ist als eigener dauerhafter Vermerk in der Transaktion des
+         Umbaus gesichert (BASE-080_060 Abschnitt 9).
+
+================================================================================
+HELFER, BETRIEB, BEOBACHTBARKEIT, GRENZEN
+================================================================================
+
+  PA-59  Sperrliste, Verwaltungsfreigabe und Verkehrsformung werden nur
+         ueber registrierte Helfer geschrieben: festes, nur fuer root
+         schreibbares Verzeichnis; ein Eingang mit gegen ein Schema
+         geprueften Argumenten; unter dem Kernel-Lock mit Zeitlimit; nur
+         die zugewiesenen Objekte. Jeder Helfer hat den vollstaendigen
+         Abgleich seiner Objekte; ein Ergebnis ungleich OK wird nie als
+         Erfolg behandelt (HF-1 bis HF-8).
+
+  PA-60  Die Verkehrsformung einer Connection wird im selben Schritt
+         hergestellt wie ihr Policy-Zustand - vor Freigabe bzw.
+         Peer-Eintrag, beim Abbau nach dem Entzug. Solange MOD-003 nichts
+         anderes festlegt, ist ein Fehler des Formungs-Helfers ein Fehler
+         der Herstellung: Die Connection wird nicht geoeffnet
+         (DEC-PA-20).
+
+  PA-61  Die Zeitgeber laufen in festem Raster; ob ein Lauf faellig ist,
+         entscheidet er aus Setting und Marke. Kein Tunnel-Dienst haengt
+         von einer Unit dieses Moduls ab, und keine Unit dieses Moduls
+         verlangt die Datenbank als harte Startbedingung. Jeder Lauf hat
+         ein Zeitlimit (UP-1 bis UP-5).
+
+  PA-62  Das Modul haelt keine eigenen Rueckfallwerte fuer Settings.
+         Verletzt eine Kombination eine Konsistenzregel, gelten die
+         Notwerte des Katalogs und die Lage wird gemeldet. Die Notwerte
+         der Bremsen sind die strengsten: Fehlt ein Pflicht-Setting,
+         geschieht nichts Unumkehrbares und nichts in Massen
+         (BASE-080_070 Abschnitt 3, KP-a bis KP-f).
+
+  PA-63  Statusdateien und Ereignisse dieses Moduls enthalten keine
+         personenbezogenen Daten, keine Anmeldenamen, keine
+         Tunneladressen von Kunden und keine oeffentlichen Adressen;
+         Connections erscheinen nur als connection_ref. Ohne Datenbank
+         werden Ereignisse im Journal und ueber den
+         datenbankunabhaengigen Alarmweg gemeldet. Jedes Ereignis der
+         Stufe CRITICAL benennt, was geschlossen bleibt und was der
+         Betreiber tun kann (BASE-080_070 Abschnitte 5, 6).
+
+  PA-64  Der Webprozess des Panels fuehrt vpn-policy-apply,
+         vpn-policy-eval und vpn-role-change nie selbst aus; alle
+         Handlungen laufen ueber den privilegierten Auftragsweg mit
+         festem Schema. Das Panel kann weder Sets noch Auftraege noch
+         Marken noch einen Status am Werkzeug vorbei bearbeiten; es gibt
+         keine Handlung "Auftrag loeschen" und keine Handlung "Siegel
+         loesen" (BASE-080_080 Abschnitt 5, ANF-PA-03).
+
+  PA-65  Der Lese-Helfer zeigt SOLL und IST einer Connection ohne
+         Kernel-Lock, ohne Schreibzugriff, ohne Schluesselmaterial und
+         ohne oeffentliche Adressen (BASE-080_070 Abschnitt 1).
+
+  PA-66  Alle Datenbankverbindungen dieses Moduls laufen mit Weltzeit als
+         Sitzungszeitzone. Keine Marke dieses Moduls liegt planmaessig in
+         der Zukunft; die Marken "zuletzt gelaufen" tragen den BEGINN des
+         Laufs (UP-7, BASE-080_070 Abschnitt 5).
+
+  PA-67  BASE-080 definiert keine Regel der Firewall, keine
+         Tunnel-Mechanik, keinen Statusuebergang, keinen Grund und kein
+         Limit. Wo es eine Reihenfolge festlegt, benutzt es die Bausteine
+         der Owner unveraendert (GP-8, BASE-080_080 Abschnitt 2).
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
