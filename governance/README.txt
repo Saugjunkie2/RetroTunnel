@@ -1,86 +1,74 @@
 ================================================================================
-RetroTunnel — governance/  (Ausführungszustand des Betreiberauftrags 2026-11-11)
+RetroTunnel — governance/  (Auftragsebene und maschinenlesbare Register)
 ================================================================================
 STATUS: ACTIVE
-ANGELEGT: 2026-11-11 (Arbeitspaket AP-S02)
+ANGELEGT: 2026-11-11   NEU GEFASST: 2026-11-14 (Betreiberanweisung BM-0015)
 
-ZWECK
-  Dieser Ordner hält den dauerhaften, in GitHub gesicherten Arbeitszustand der
-  autonomen KONZEPT-Fertigstellung von RetroTunnel fest (kein Produktcode):
-  Regel-Arbeitskopie, belegte Umgebungsprüfung, Register, Status/Checkpoint,
-  Fortsetzungseinstieg, Gate-Zustände, später Auditberichte und Gate-Protokolle.
+ROLLE: DIENEND
+  Dieser Ordner ist KEINE Projektsteuerung. Gesteuert wird RetroTunnel über
+  die Dokumente des Betreibers im Wurzelverzeichnis; welche Datei für welche
+  Funktion maßgeblich ist, legt 00_MANIFEST.txt Abschnitt 6a fest (KR-07).
+  Hier liegt nur, was dort keine Entsprechung hat oder maschinenlesbar sein
+  muss:
+    (a) die Auftragsebene des Betreiberauftrags vom 2026-11-11
+        (Betreiberregeln, Fachstatus, Abschluss-Gates, Mitteilungen),
+    (b) Register, die die maschinellen Prüfungen unter qa/ brauchen,
+    (c) Prüfberichte unabhängiger Prüfer im Wortlaut.
+  Fachliche Festlegungen stehen nie hier, sondern in den kanonischen
+  Konzeptdateien (base/, modules/, model/, decisions/).
 
-ARBEITSBRANCH (seit 2026-11-13)
-  Auf ausdrückliche Anweisung des Betreibers ("arbeite direkt auf main",
-  BM-0005) wird der laufende Stand direkt auf main geführt. Der Inhalt von
-  main ist damit IN BEARBEITUNG und NICHT freigegeben; maßgeblich ist allein
-  der Fachstatus in STATUS.yaml.
+EINSTIEG
+  Jede neue Ausführung beginnt mit CLAUDE_BRIEFING.txt (TEIL 5), nicht hier.
 
-AUTORITÄT (wichtig — bitte nicht missverstehen)
-  1. Höchste Ebene ist die vom Betreiber bestätigte, EXTERN geschützte
-     Betreiberregel-Fassung. Eine solche externe, gegen den Hauptarchitekten
-     geschützte Referenz ist derzeit NICHT eingerichtet (siehe STATUS.yaml, G4).
-  2. betreiberregeln/ enthält nur eine ARBEITSKOPIE. Sie liegt im frei
-     beschreibbaren Repository und ist deshalb KEIN Schutz- oder
-     Autoritätsnachweis; dasselbe gilt für jeden hier notierten Hash.
-  3. Ältere Arbeits- und Prozessanweisungen im Repository (CLAUDE_BRIEFING.txt,
-     MARCOS_ARBEITSWEISE.txt, REVIEW_STANDARD.txt, Konzept-Regel KR-05 u. a.)
-     sind historische Quellen. Sie werden gewürdigt und nicht gelöscht, haben
-     aber keine Autorität über dem Betreiberauftrag (Betreiberentscheidung E1).
-     Festgestellte Widersprüche: register/BEFUNDE.yaml.
-
-INHALT
-  betreiberregeln/          Arbeitskopie der Betreiberregeln + Hinweis zur Identität
-  UMGEBUNGSPRUEFUNG.yaml    Eingangs-/Berechtigungsprüfung (nachgewiesen /
-                            nicht verfügbar / nicht geprüft), mit Methode und Beleg
-  STATUS.yaml               Aktueller Checkpoint: Fachstatus, Ausführungsstatus,
-                            Identitäten, Gates G1–G4, Blockaden, nächste Schritte
-  FORTSETZUNG.md            Sofort ausführbarer Wiedereinstieg für jede neue Ausführung
+INHALT UND ZWECK
+  betreiberregeln/          Arbeitskopie der Betreiberregeln. Sie liegt im
+                            frei beschreibbaren Repository und ist deshalb
+                            KEIN Schutz- oder Autoritätsnachweis; dasselbe
+                            gilt für jeden hier notierten Hash. Eine extern
+                            geschützte Referenz ist nicht eingerichtet
+                            (STATUS.yaml, Gate G4).
+  STATUS.yaml               Fachstatus nach Betreiberregeln Abschnitt 8,
+                            Abschluss-Gates G1-G4, Quellen-Commits,
+                            Blockaden. Kein Modulfortschritt - der steht in
+                            PRIORITAETENLISTE.txt und 04_PHASE_PLAN.txt.
+  UMGEBUNGSPRUEFUNG.yaml    Eingangs- und Berechtigungsprüfung (nachgewiesen /
+                            nicht verfügbar / nicht geprüft) mit Methode.
+  BETREIBER_EINRICHTUNGSANFRAGE.md
+                            Die einmalige Anfrage vom 2026-11-11 (Antwort:
+                            BM-0002). Beleg, kein laufendes Dokument.
   register/
-    QUELLENINVENTAR.yaml    Q1: alle Dateien beider Repos an den Baseline-Commits
-                            (Git-Blob-ID, Größe, Zeilen, Kategorie, Lesestatus)
-    ARBEITSPAKETE.yaml      Aufgaben, Abhängigkeiten, Status, Ausgangs-Commits
-    BEFUNDE.yaml            Befunde (kritisch/schwerwiegend/geringfügig/Verbesserung)
-    VERBESSERUNGEN.yaml     Funktions-/Verbesserungsanalyse (Grundlage des Freeze)
-    BETREIBERMITTEILUNGEN.yaml  Mitteilungen/Entscheidungen des Betreibers nach dem
-                            Startauftrag, wörtlich, mit Einordnung und Folgen
-    MODULPRUEFUNG.yaml      Liste der maschinell geprüften Module (Invarianten/Tests)
-    trace/                  Q2: Rückverfolgung Quelle <-> aktuelle Spezifikation
-                            (wird arbeitspaketweise gefüllt)
-  pruefungen/               Berichte unabhängiger Gegenprüfungen einzelner Module
-                            (getrennter Kontext, unverändert abgelegt). Kein
-                            Vollaudit, kein Freigabegate; die Befunde stehen im
-                            Befundregister.
+    BETREIBERMITTEILUNGEN.yaml  Mitteilungen des Betreibers seit dem
+                            Startauftrag, im Wortlaut, mit Auslegung.
+    ARBEITSPAKETE.yaml      Maschinenlesbarer Index der Pakete der
+                            PRIORITAETENLISTE.txt (Kennung, Abhängigkeiten,
+                            Status-Spiegel). Maßgeblich ist die Liste.
+    BEFUNDE.yaml            Einzelbefunde seit 2026-11-11 mit Fundstelle,
+                            Klasse und Status. Überblick und Review-Stand
+                            je Datei: REVIEW_TRACKER.txt.
+    MODULPRUEFUNG.yaml      Welche Module die maschinelle Modulprüfung
+                            durchlaufen (Invarianten, Tests, Index, Herkunft).
+    QUELLENINVENTAR.yaml    Alle Quelldateien an den Baseline-Commits mit
+                            Lesestand. Thematischer Wegweiser:
+                            NAVIGATIONSKARTE_ALTES_KONZEPT.txt.
+    trace/                  Rückverfolgung Quelle <-> heutiger Erfüllungsort
+                            mit wörtlichen, maschinell geprüften Zitaten.
+    VERBESSERUNGEN.yaml     Funktions- und Verbesserungsanalyse als Grundlage
+                            des Funktions-Freeze; jeder aufgenommene Punkt
+                            verweist auf seine Stelle im Konzept.
+  pruefungen/               Berichte unabhängiger Prüfer, unverändert
+                            abgelegt. Prüfhistorie und Ergebnis im Überblick:
+                            REVIEW_TRACKER.txt. Kein Vollaudit, kein
+                            Freigabegate.
+  arbeitsmaterial/          Sichtung und Extrakte der Nachlieferung.
+                            Arbeitsmaterial, kein Lesebeleg.
 
-VERHÄLTNIS ZU BESTEHENDEN REGISTERN (keine Parallelsysteme)
-  PRIORITAETENLISTE.txt  bleibt die Arbeitspaket-Liste der Modellphasen M0–M4
-                         (Status-Tags [DONE]/[WAITING]/…). ARBEITSPAKETE.yaml
-                         verweist per "bezug" auf diese Kennungen und ergänzt nur,
-                         was dort fehlt (Ausgangs-Commit, Nachweise, Abschluss-/
-                         Prüfpakete). qa/ prüft beide gegeneinander.
-  04_PHASE_PLAN.txt      bleibt SOLL-Liste (PH1–PH10, Acceptance).
-  REVIEW_TRACKER.txt     bleibt historischer Review-Stand der bisherigen Arbeit.
-  03_CHANGELOG.txt       bleibt zentrale Projektchronik; materielle Änderungen
-                         dieses Auftrags werden dort eingetragen.
+ARBEITSBRANCH
+  Seit 2026-11-13 wird auf ausdrückliche Anweisung des Betreibers direkt auf
+  main gearbeitet (BM-0005). Der Inhalt von main ist IN BEARBEITUNG und nicht
+  freigegeben.
 
-KENNUNGS-NAMENSRÄUME DIESES AUFTRAGS (zur Vermeidung von Label-Drift)
-  Die Betreiberregeln verwenden Kennungen, die bestehenden RetroTunnel-/XPN-
-  Kennungen ähneln. Im Repository gilt deshalb folgende Zitierform:
-    OP-B01 … OP-B15, OP-E1 … OP-E3   Betreiberentscheidungen (Regeln §1: B01–B15, E1–E3)
-                                     — NICHT zu verwechseln mit XPN-Blöcken B010 … B344.
-    OP-K1 … OP-K10                   Konsistenzentscheidungen (Regeln §9: K1–K10)
-                                     — NICHT zu verwechseln mit K-01 … K-12 (BASE-000).
-    Q1 … Q6                          Qualitätsebenen des Abschlusses (Regeln §5)
-                                     — NICHT die Qualitätsstandards Q-01 … Q-07
-                                       (02_ASSUMPTIONS_AND_RULES §4) und NICHT PH1–PH10.
-    G1 … G4                          Schluss-Gates (Regeln §8) — NICHT Gate-0/Gate-1 (XPN/IKEv2).
-    AP-…                             Arbeitspakete dieses Auftrags (ARBEITSPAKETE.yaml)
-    BF-…                             Befunde (BEFUNDE.yaml)
-    VB-…                             Verbesserungen/Funktionen (VERBESSERUNGEN.yaml)
-    UP-…                             Einzelprüfungen der Umgebungsprüfung
-    BM-…                             Betreibermitteilungen (BETREIBERMITTEILUNGEN.yaml)
-    BL-…                             Blockaden (STATUS.yaml)
-    TR-…                             Rückverfolgungs-Records (register/trace/)
-  Die Kennungen der Betreiberregeln selbst werden nicht umbenannt; die Präfixe
-  dienen nur der eindeutigen Zitierung innerhalb dieses Repositories.
+KENNUNGEN
+  Die Präfixe der Register (AP-, BF-, VB-, BM-, UP-, BL-, TR-) und die
+  Zitierform der Betreiberregeln (OP-B01 ..., OP-E1 ..., OP-K1 ..., Q1-Q6,
+  G1-G4) stehen in der PREFIX-LEGENDE von 01_GLOSSARY.txt.
 ================================================================================

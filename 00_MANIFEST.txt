@@ -1,12 +1,12 @@
 ================================================================================
 RetroTunnel — MANIFEST
 ================================================================================
-VERSION: v1.0
-DATUM: 2026-04-19
+VERSION: v1.1
+DATUM: 2026-11-14
 STATUS: ACTIVE
 OWNER: Marco (Owner) + Claude (Co-Architect)
 LIZENZ: MIT
-REPOSITORY: [noch nicht vergeben]
+REPOSITORY: https://github.com/Saugjunkie2/RetroTunnel
 
 ================================================================================
 1) WAS IST RETROTUNNEL?
@@ -215,7 +215,9 @@ DP-08  Plans differenzieren über Leistung, nicht über Sicherheit
   DB-String (fd77::16:0:0:16:42 statt fd77:0:0:16::16:42).
   Binaer identisch. Beim Debugging: DB ist Referenz, nicht CLI.
   SERVICE_NET ist AUSNAHME (Infrastruktur, nicht Connection).
-  Detail: entwuerfe/ENTWURF_IPV6_VISUELLE_KODIERUNG_v2.txt
+  Detail: entwuerfe/ENTWURF_IPV6_VISUELLE_KODIERUNG_v2.txt (KR-01)
+  [Stand 2026-11-14: Die Datei liegt nicht im Repository und nicht in
+  der Nachlieferung; Befund BF-0003. Massgeblich ist der Text hier.]
 
   Ein Admin mit einem XP-Gerät (L2TP_IPSEC) und einem modernen Gerät
   (WIREGUARD) bekommt beide IPs aus dem ADMIN-Pool. tunnel_type bestimmt
@@ -288,6 +290,10 @@ in diesem Konzept explizit geändert):
   - QoS WIREGUARD: OFFEN/unlösbar (IKEv2) → lösbar (awg0-Interface + tc)
   - WG-Feldnamen: Prefix wg_ (nicht awg_). WireGuard ist die Konstante.
   - WG-Server-Config: Komplett in SQL (Option A). Kein Hidden Config File.
+    [Praezisiert 2026-11-12 durch BASE-040 DEC-WT-03/04: awg0.conf ist
+    ein aus SQL gerendertes Artefakt ohne Peers und ohne Secret; allein
+    der Server-PrivateKey liegt nicht in SQL, sondern root-only in einer
+    eigenen Schluesseldatei.]
 
   Nicht übernommen / Entfallen:
   - strongSwan IKEv2 Konfiguration (B059, B100 IKEv2-Teile)
@@ -358,7 +364,10 @@ RetroTunnel/
   proofs/                      Tests, Acceptance, DoD
     base/                       Proofs pro Base-Modul
     modules/                    Proofs pro Erweiterungsmodul
-  implementation/              Build-Order, Phase-Plan, Configs
+  implementation/              Configs (SOLL-Stand). Der Phase-Plan liegt
+                               seit 2026-05-26 im Root (04_PHASE_PLAN);
+                               Build-Order und Implementierungsplan
+                               entstehen mit M4.
   docs/                        Referenz-Dokumente
   entwuerfe/                   Ideen, Diskussionen, Vorstudien (NICHT normativ)
                                Pro Thema ein Unterordner.
@@ -366,6 +375,113 @@ RetroTunnel/
   temp_drittreviews/           Permanenter Arbeitsordner: temporäre Ablage für
                                Full-Audit + Drittreviews (Inhalt flüchtig, wird
                                nach Obsoleszenz gelöscht; nicht normativ)
+
+  Seit dem Betreiberauftrag vom 2026-11-11 hinzugekommen (alle DIENEND,
+  siehe Abschnitt 6a und KR-07):
+  nachlieferung/               Vom Betreiber am 2026-11-13 nachgelieferte
+                               Altunterlagen. Unveränderliche Lesequelle
+                               wie ../xp-vpn-stack/ (KR-04); nicht normativ.
+  governance/                  Auftragsebene des Betreiberauftrags
+                               (Betreiberregeln-Arbeitskopie, Fachstatus,
+                               Gates, Betreibermitteilungen) und die
+                               maschinenlesbaren Register. Keine eigene
+                               Projektsteuerung, keine fachlichen
+                               Festlegungen.
+    pruefungen/                Berichte unabhängiger Prüfer im Wortlaut
+                               (dauerhaft; temp_drittreviews/ bleibt die
+                               flüchtige Ablage für Prüfpakete).
+  qa/                          Prüfwerkzeuge für Konzeptdokumente und
+                               Register (kein Produktcode). Sie setzen
+                               Teile des REVIEW_STANDARD maschinell um.
+  .github/workflows/           CI-Lauf derselben Prüfungen. Kein
+                               Freigabegate.
+
+  Noch ohne Inhalt und deshalb im Repository nicht sichtbar (Git führt
+  keine leeren Ordner): modules/, proofs/, temp_drittreviews/.
+
+================================================================================
+6a) STEUERUNG DES PROJEKTS: ZUSTÄNDIGKEITEN
+================================================================================
+
+Für jede Funktion der Projektsteuerung gibt es genau EINE maßgebliche
+Datei (KR-07). Festgelegt am 2026-11-14 auf Anweisung des Betreibers;
+Hergang und Begründung: 03_CHANGELOG v2.7.0.
+
+RANGFOLGE
+  (1) Betreiberregeln (Arbeitskopie: governance/betreiberregeln/) und
+      spätere Mitteilungen des Betreibers (BM-nnnn). Auftragsebene.
+  (2) Die Steuerungsdokumente des Betreibers (Zeilen 1 bis 11 unten).
+      Sie gelten für die Konzeptarbeit. Wo eine ihrer Arbeitsanweisungen
+      dem Auftrag vom 2026-11-11 widerspricht, ist die Stelle IM DOKUMENT
+      sichtbar markiert (KR-06) - nicht stillschweigend übergangen und
+      nicht pauschal als "historisch" abgetan.
+  (3) governance/, qa/, .github/: dienend. Sie belegen Herkunft, Prüfung,
+      Umsetzung und Auftragsstatus.
+
+ZUSTÄNDIGKEITEN
+   1  Grundentscheidungen, Achsen, Ordnerstruktur, Konzept-Regeln (KR)
+        Maßgeblich: 00_MANIFEST.txt
+   2  Begriffe und Kennungs-Präfixe
+        Maßgeblich: 01_GLOSSARY.txt - die PREFIX-LEGENDE gilt auch für
+        die Kennungen der Register unter governance/.
+   3  Regeln der Konzeptarbeit (A-, R-, NA-, Q-)
+        Maßgeblich: 02_ASSUMPTIONS_AND_RULES.txt
+        Fachliche Entscheidungen stehen in decisions/ (modulübergreifend,
+        Dnnn) und in der Datei _010 des Moduls (DEC-xx-nn), nie unter
+        governance/.
+   4  Projekthistorie
+        Maßgeblich: 03_CHANGELOG.txt (einzige Historie, R-14)
+        Ergänzend: Git-Verlauf; governance/pruefungen/ (Wortlaut der
+        Prüfberichte).
+   5  Phasen PH1-PH10: Reifegrad, Acceptance, Proof-Anker, Modul-Matrix
+        Maßgeblich: 04_PHASE_PLAN.txt
+   6  Arbeitsreihenfolge, Status, Stand und nächster Schritt je Paket
+        Maßgeblich: PRIORITAETENLISTE.txt
+        Ergänzend: governance/register/ARBEITSPAKETE.yaml - maschinen-
+        lesbarer Index DERSELBEN Pakete (Kennung, Abhängigkeiten,
+        Status-Spiegel). Kein eigener Stand, keine eigenen Pakete.
+   7  Datei-Inventar, Review-Stand je Datei, Prüfhistorie, offene
+      Befunde im Überblick
+        Maßgeblich: REVIEW_TRACKER.txt
+        Ergänzend: governance/register/BEFUNDE.yaml (die Einzelbefunde
+        seit 2026-11-11, maschinell geprüft; der Tracker nennt je Paket
+        die offenen Kennungen), governance/pruefungen/,
+        governance/register/MODULPRUEFUNG.yaml (welche Module die
+        maschinelle Modulprüfung durchlaufen).
+   8  Prüfmaßstab und Prüfverfahren
+        Maßgeblich: REVIEW_STANDARD.txt
+        Ergänzend: qa/ (maschinelle Teilprüfungen; was sie abdecken und
+        was nicht, steht im Standard); Betreiberregeln Abschnitt 5 und 6
+        für die Abschlussprüfung (Q1-Q6, zwei Vollaudits).
+   9  Einstieg, Arbeitsregeln und Projektstand in Kurzform für jede
+      neue Ausführung
+        Maßgeblich: CLAUDE_BRIEFING.txt (Start: TEIL 5)
+        Ergänzend: MARCOS_ARBEITSWEISE.txt (Arbeitsweise, projekt-
+        übergreifend).
+        Abgelöst: governance/FORTSETZUNG.md - ihr Inhalt geht in das
+        Briefing über (TEIL 0, 3 und 5); die Datei entfällt.
+  10  Wegweiser in die Altquellen (Thema -> Quelle)
+        Maßgeblich: NAVIGATIONSKARTE_ALTES_KONZEPT.txt
+        Ergänzend: governance/register/QUELLENINVENTAR.yaml (Bestand und
+        Lesestand je Quelldatei), governance/register/trace/ (Herkunft:
+        Quelle <-> heutiger Erfüllungsort), governance/arbeitsmaterial/
+        (Sichtung der Nachlieferung).
+  11  Außendarstellung
+        Maßgeblich: README.md - führt keinen eigenen Paket- oder
+        Modulstand; verweist auf PRIORITAETENLISTE und Changelog.
+  12  Auftragsebene (Betreiberauftrag 2026-11-11; im früheren Bestand
+      ohne Entsprechung, deshalb eigene Dateien)
+        governance/STATUS.yaml: Fachstatus nach Betreiberregeln
+          Abschnitt 8, Abschluss-Gates G1-G4, Quellen-Commits,
+          Blockaden. KEIN Modulfortschritt, keine nächsten Schritte.
+        governance/UMGEBUNGSPRUEFUNG.yaml: Eingangs- und
+          Berechtigungsprüfung mit Methode und Ergebnis.
+        governance/register/BETREIBERMITTEILUNGEN.yaml: Mitteilungen
+          des Betreibers im Wortlaut, mit Auslegung und Folgen.
+        governance/register/VERBESSERUNGEN.yaml: Funktions- und
+          Verbesserungsanalyse als Grundlage des Funktions-Freeze. Jede
+          aufgenommene Verbesserung ist in einer kanonischen Datei
+          verankert; der Eintrag verweist dorthin.
 
 ================================================================================
 7) REGELN FÜR DIESES KONZEPT
@@ -398,11 +514,36 @@ KR-04  Vorgänger als Referenz: xp-vpn-stack liegt unter ../xp-vpn-stack/
 KR-05  Owner-Entscheide: Konzeptionelle Entscheidungen trifft Marco.
       Claude liefert Analyse, Optionen und Empfehlungen, entscheidet
       aber nicht eigenständig über Architektur.
+      STAND SEIT 2026-11-11 (Betreiberauftrag; Betreiberregeln B01 bis
+      B03): Für die autonome Konzept-Fertigstellung hat Marco die
+      technischen und funktionalen Architekturentscheidungen an den
+      Hauptarchitekten übertragen. KR-05 gilt damit in dieser Form fort:
+      (a) Dem Betreiber vorbehalten bleiben der Grundzweck des Projekts,
+          die Betreiberregeln, die Abschluss-Gates und die Freigabe,
+          Käufe und unumkehrbare äußere Eingriffe sowie alles, was er
+          durch eine Mitteilung an sich zieht.
+      (b) Jede selbst getroffene Entscheidung wird mit Quelle,
+          Begründung und Folgen in der kanonischen Datei festgehalten
+          (Dnnn oder DEC-xx-nn), zurückverfolgt und unabhängig
+          gegengeprüft. "Analyse, Optionen, Empfehlung" bleibt die
+          Pflichtform der Begründung.
 
 KR-06  Konsistenzfehler: Wenn im Material ein formaler Widerspruch,
       Zählfehler, Label-Drift oder Tippfehler vorliegt, wird dieser
       als Konsistenzfehler markiert. Stillschweigende Umdeutung ist
       verboten.
+
+KR-07  Eine Funktion, eine maßgebliche Datei: Für jede Funktion der
+      Projektsteuerung gibt es genau eine maßgebliche Datei (Abschnitt
+      6a). Erst prüfen, welche vorhandene Datei zuständig ist, und diese
+      weiterentwickeln. Eine andere Datei darf dieselbe Angabe nur
+      führen, wenn sie in 6a als ergänzend genannt ist UND eine
+      maschinelle Prüfung den Gleichstand erzwingt. Eine neue
+      Steuerungsdatei oder ein neuer Ordner entsteht nur, wenn keine
+      bestehende Datei die Funktion durch Erweiterung erfüllen kann;
+      der Zweck wird in 6a eingetragen. Wird eine Funktion abgelöst,
+      steht das mit Begründung im Changelog und an der abgelösten
+      Stelle. (Betreiberanweisung vom 2026-11-14.)
 
 ================================================================================
 8) SERVER-RAHMENDATEN
