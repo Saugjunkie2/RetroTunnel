@@ -26,11 +26,16 @@ zwei getrennten Vollaudits und Fail-Closed-Freigabe über die Gates G1–G4.
    setzen → Konzeptdateien schreiben → Rückverfolgung (`register/trace/`) → Register/Status aktualisieren →
    **committen und pushen**. Kleine, abgeschlossene Einheiten; keine breite Parallelität (Nutzungslimit).
 
-## Stand der Module (Checkpoint 5, 2026-11-13)
-Geschrieben und unter maschineller Modulprüfung: BASE-040, BASE-050, BASE-070 (alle noch `IN_ARBEIT`: es fehlen
-die Antworten der Nachbarmodule und für BASE-070 die unabhängige Gegenprüfung). Als Nächstes: AP-K080 (BASE-080).
-Arbeitsnotizen dafür liegen nicht im Repository; maßgeblich sind die offenen Anforderungen `ANF-WT-07/08`,
-`ANF-FW-03`, `ANF-SC-07` in den jeweiligen `_OWNER_GRENZEN`-Dateien.
+## Stand der Module (Checkpoint 6, 2026-11-14)
+Geschrieben und unter maschineller Modulprüfung: BASE-040 (v1.1), BASE-050, BASE-070 (v1.1) – alle noch
+`IN_ARBEIT`: es fehlen die Antworten der Nachbarmodule. Die Gegenprüfung von BASE-070 (27 Befunde) ist eingearbeitet;
+der Nachweis je Befund steht in `governance/pruefungen/BASE-070_BEHEBUNGSPLAN.md`. **Die Behebung ist noch nicht
+unabhängig nachgeprüft** – erst danach dürfen BF-0013…BF-0042 auf `BEHOBEN` gesetzt werden.
+BASE-080 ist begonnen: `_010` bis `_040` liegen als Entwurf vor (Kopfzeile „IN ARBEIT"); es fehlen `_050` bis `_095`,
+Index, Rückverfolgung und Modulprüfung. Reihenfolge: (1) Nachprüfung der Behebung BASE-070, (2) BASE-080
+fertigstellen (dabei DEC-PA-10 an `_040` angleichen, VB-0024 „Mengenbremse des Abgleichs" eintragen, Verweise auf
+BASE-070 prüfen: Hard-Cut-Kern, Zuordnung über Name ODER Adresse, vier Antworten der Sonde), (3) Abgleich der
+Nachlieferung mit BASE-040/050 (Fehlerverhalten der Settings: `LKG` in BASE-040_020 gegen TRUTH_MODEL, BF-0041).
 
 **Nachlieferung durch den Betreiber (BM-0010, BM-0012, BM-0014):** Seit 2026-11-13 liegen unter `nachlieferung/`
 95 wiedergefundene Dateien (Liefer-Commits `413ba25`, `df55ea2`). Sie sind **unveränderliche Lesequelle** (Quelle
@@ -54,8 +59,9 @@ Abbruch am Nutzungslimit nichts kostet. Was Agenten gelesen oder geprüft haben,
 unter einer Stunde und halten dann auch die eigene Arbeit an. Deshalb: Lesen und Schreiben selbst; Agenten nur für
 klar umrissene Prüfaufgaben, einzeln oder zu zweit, mit laufend abgelegten Ergebnissen.
 
-**Gegenprüfung BASE-070 (abgeschlossen am 2026-11-13):** Berichte und Behebungsplan in `governance/pruefungen/`;
-27 Befunde (3 kritisch, 3 hoch). Die Behebung hat Vorrang vor neuen Modulen; BASE-080 baut auf BASE-070 auf.
+**Gegenprüfung BASE-070 (2026-11-13) und Behebung (2026-11-14):** Berichte, Behebungsplan und Nachweis in
+`governance/pruefungen/`; 27 Befunde (3 kritisch, 3 hoch), dazu BF-0040…BF-0042 aus eigenem Abgleich. Eingearbeitet
+in BASE-070, BASE-040 und D004 (P-01 berichtigt). Offen ist die unabhängige Nachprüfung der Behebung.
 
 ## Feste Grenzen
 - Kein `FREIGEGEBEN` und kein `ABGESCHLOSSEN_UND_UEBERNOMMEN`, solange G4 nicht nachweislich erfüllt ist

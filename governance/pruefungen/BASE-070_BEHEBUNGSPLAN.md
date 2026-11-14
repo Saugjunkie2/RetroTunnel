@@ -2,7 +2,7 @@
      Nicht normativ; maßgeblich sind die Moduldateien und das Befundregister. Kennungen A-Bnn / B-Bnn = Befund nn
      aus Teil A bzw. Teil B. -->
 
-# Behebungsplan Gegenpruefung BASE-070 (Stand 2026-11-13 ~21:00Z)
+# Behebungsplan und Behebungsnachweis Gegenpruefung BASE-070
 
 Berichte: governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_A_2026-11-13.md (Endfassung, 612 Zeilen, 13 Befunde A-B01..A-B13),
 governance/pruefungen/BASE-070_GEGENPRUEFUNG_TEIL_B_2026-11-13.md (Endfassung, 512 Zeilen, 14 Befunde B-B01..B-B14). Geprueft wurde Commit e05ae8e.
@@ -117,7 +117,51 @@ N-4 Plans: serverweites Monatsvolumen 40 TB, danach Drosselung auf 100 Mbit/s ->
     Gesamtvolumen, MOD-007/MOD-010).
 N-5 BASE-050_070 unseal: Uebergabe des gehaltenen Locks (ANF-PA-08) nachziehen.
 
+## Behebungsnachweis (Stand 2026-11-14)
+
+Je Befund: wo er eingearbeitet ist, welche Invarianten ihn tragen und welche Tests ihn pruefen. `_0xx` ohne
+Modulangabe meint BASE-070. Commits: c6bf293, bb3b98d, fdef6ad, 0959a54, 7007c45.
+Der Nachweis ist die Angabe des Hauptarchitekten; die unabhaengige Nachpruefung steht im Abschnitt darunter.
+
+| Befund | Pruefer | Thema | Eingearbeitet in | Invarianten | Tests |
+|---|---|---|---|---|---|
+| BF-0013 | A B-01 | Anmeldename nicht eindeutig | _020 Abschn. 1 (ZUGEHOERIG, EINE SCHREIBWEISE), S-5, S-6, L7; _030 P3, P5 a, Fall M, Schicht 4; _040 Abschn. 1 (Adapter, AD-2, kill), O2/O3, HC-6; _080 ANF-SC-16, ANF-SC-03 a, GS-8, E-SC-01, E-SC-10; _010 DEC-SC-22 | SC-12, SC-13, SC-62, SC-30 | T-SC-81, T-SC-18, T-SC-09, T-SC-92 |
+| BF-0014 | A B-02 | Neustart-Regel L3 | _020 L1, L3; _040 AD-7, G-2, Abschn. 5; _070 Marke l2tp_daemon_instance; _080 E-SC-12 | SC-25, SC-71, SC-24 | T-SC-33 |
+| BF-0015 | A B-03 | Kennwortwechsel ausserhalb der Sperre | _030 Abschn. 4 (Voraussetzung, P5 b, 'P5 b'), Abschn. 6 (Kennwortwechsel als Umbau), Fall K; _080 ANF-SC-01 f, ANF-SC-04 a | SC-63, SC-14 | T-SC-82, T-SC-29 |
+| BF-0016 | A B-04 | Freigabe ohne Haltervergleich | _030 K-5, P4, P6, 'NACH DER ZUSAGE', Abschn. 5, Faelle F und L; _080 ANF-SC-03 f, ANF-SC-04 b, E-SC-13 | SC-19 | T-SC-26, T-SC-76 |
+| BF-0017 | A B-05 | Geist-Urteil ohne Karenz | _040 G-5, G-6, G-8, K6; _020 Abschn. 6 (H-a bis H-c), L1, L4 c, 'WARUM L1 VOR L2'; _050 P-g, Feld end_reason_hint_at; _030 Zusagen; _080 ANF-SC-03 d, E-SC-14 | SC-24, SC-27, SC-64 | T-SC-84, T-SC-83, T-SC-30, T-SC-47 |
+| BF-0018 | A B-06 | Widerspruch L4 gegen G-1 | _040 G-1, AD-6, probe (Sitzungen), O3; _020 L4 ('r in S', ruhende Zeilen); _080 E-SC-11 | SC-23, SC-71 | T-SC-95, T-SC-31, T-SC-32 |
+| BF-0019 | A B-07 | Hard-Cut ohne Datenbank | _040 K2, K4, K5, K7, J8, HC-6, HC-7; _070 Pfad hardcut-audit | SC-31, SC-32, SC-33, SC-64 | T-SC-42, T-SC-40, T-SC-39 |
+| BF-0020 | A B-08 | Stufung der Systemzeit | _030 K-2, E1; _040 J1, G-2, Abschn. 7 ('Uhr wird verstellt'); _070 M-7, U-1, U-5; _080 ANF-SC-14, E-SC-16 | SC-16, SC-27, SC-57, SC-66 | T-SC-86, T-SC-25, T-SC-23, T-SC-72, T-SC-33 |
+| BF-0021 | A B-09 | Uebergangszustaende ohne Frist | _020 L4 b; _030 P1, P2, Fall N, Zusagen; _040 probe (TRANSITION), O3; _070 Key vpn_l2tp_transition_max_seconds; _010 DEC-SC-08 | SC-15, SC-65, SC-27 | T-SC-85, T-SC-32 |
+| BF-0022 | A B-10 | Nachtraeglicher Beginn loest Hard-Cut aus | _020 SV-1 ('NACHTRAEGLICHER BEGINN'), S-6, L5 | SC-07 | T-SC-94 |
+| BF-0023 | A B-11 | SV-Details | _020 SV-1 Schritt 2, SV-2 (t_begin, Schritt 2), L5 ('REIHENFOLGE JE CONNECTION') | SC-08 | T-SC-10 |
+| BF-0024 | A B-12 | Sammelbefund Sperr-, Settings-, Laufvertrag | _070 K-f, K-g, Abschn. 4, U-1; _030 Abschn. 3 (BELEGT/STOERUNG, einzeln festgeschrieben), Abschn. 4 ('DB-RECHTE UND KAPSELUNG'), Abschn. 5 (HARDCUT verlaengerbar); _020 'ANSTOSS BEI BELEGTEM EINZEL-LOCK', L9; _040 J3, J9 | SC-17, SC-21, SC-28 | T-SC-21, T-SC-23, T-SC-28, T-SC-36, T-SC-38 |
+| BF-0025 | A B-13 | Unbenannte Annahmen (accel-ppp, FreeRADIUS, MariaDB) | _080 Abschn. 6 (E-SC-01 bis E-SC-16, Vermerk [Q]) | - | T-SC-76, T-SC-77, T-SC-18, T-SC-86 |
+| BF-0026 | B B-01 | WireGuard: Vergleich nur auf counter_epoch | D004 P-01 (v2.1); BASE-040_050 F4, F5, 'NUR EIN LAUF'; BASE-040_030 R1, A4 (0), Abschn. 7; BASE-040_060 Abschn. 5; BASE-070_050 B-3, Abschn. 4, Abschn. 9 | SC-35, WT-37, WT-54, WT-40 | T-SC-90, T-WT-45, T-WT-59 |
+| BF-0027 | B B-02 | L2TP-Marke nicht an Buchungsstand gebunden | _050 A-4, A-5, NACHZUEGLER, SICHERHEITSNETZ, 'FEHLT DIE MARKE'; _020 L2; _040 J5; _070 M-4, Key vpn_l2tp_late_acct_window_days; _080 ANF-SC-05, ANF-SC-11 | SC-38, SC-69, SC-37 | T-SC-89, T-SC-48, T-SC-47 |
+| BF-0028 | B B-03 | Drift-Waechter repariert selbsttaetig | _060 Abschn. 4 (DRIFT-WAECHTER, ADRESS-REPARATUR), W4, Ursache DRIFT_REPAIR; _040 J6; _070 Ereignisse ADDR_DRIFT; _010 DEC-SC-23 | SC-61, SC-53, SC-46 | T-SC-79, T-SC-93 |
+| BF-0029 | B B-04 | Unbenannte Annahmen zur Isolation | _060 V-1, V-2, AL1, AL2, AL7, RW0, RW1, 'SPERR-REIHENFOLGE'; _070 U-7; _080 E-SC-06, ANF-SC-01 b, ANF-SC-02 | SC-52, SC-68 | T-SC-64, T-SC-88, T-SC-77 |
+| BF-0030 | B B-05 | Uhrfehler bei Periodenwechsel und Rueckgabe | _050 SV-6 (Vorbedingung, Schritt 2a, QUOTA_PERIOD_SKIPPED), LAUF (WAECHTER); _060 RS-1 bis RS-3; _070 U-5 | SC-42, SC-54, SC-66, SC-70 | T-SC-86, T-SC-57, T-SC-68 |
+| BF-0031 | B B-06 | Tagesreihe stoppt die Buchung | _050 B-9, T-2, T-5, Abschn. 4; BASE-040_050 F4, F6; BASE-040_060 Abschn. 2 | SC-35, WT-55 | T-SC-91, T-WT-60, T-SC-50 |
+| BF-0032 | B B-07 | Stop vor aelterem Interim | _050 P-c, P-f, SV-5 (regression_noted), Abschn. 9; _080 ANF-SC-04 d, E-SC-04 | SC-39, SC-37 | T-SC-46 |
+| BF-0033 | B B-08 | Schreiberliste unvollstaendig | _050 Abschn. 1 (SCHREIBER), Abschn. 4, T-1; BASE-040_030 R1; BASE-040_060 Abschn. 5; _080 ANF-SC-09 c | SC-34, WT-54 | T-SC-43, T-SC-90, T-WT-59 |
+| BF-0034 | B B-09 | Zeitzone und Uebergabe von Zeitpunkten | _070 U-6; _050 Abschn. 5 (DEFINITION), T-2; _080 ANF-SC-02, ANF-SC-04 f | SC-41, SC-67 | T-SC-54, T-SC-87 |
+| BF-0035 | B B-10 | Quarantaene-Randfaelle, Pool-Regeln | _060 R1, W3, PC-5, PC-6, RS-3; _080 ANF-SC-01 d | SC-53, SC-54, SC-55 | T-SC-67, T-SC-68, T-SC-69 |
+| BF-0036 | B B-11 | Ampel, Statusdateien, Ereignisse | _060 Abschn. 7 (Marke, 'nutzbar'); _070 Marke pool_level_<rolle>, Statusdatei (puffer), L2TP_BUFFER_DISCARD, L2TP_BUFFER_NOT_DRAINED | SC-56 | T-SC-70, T-SC-51, T-SC-84 |
+| BF-0037 | B B-12 | Settings: Grenzen, fremde Keys | _070 Abschn. 3 (FREMDE KEYS, K-e, SESSION_SETTING_CONFLICT), U-1; _060 FRIST | SC-59, SC-28 | T-SC-74, T-SC-53 |
+| BF-0038 | B B-13 | Unbenannte Annahmen (Buchung) | _080 E-SC-04, E-SC-15; _050 P-h, Abschn. 3 (MESSLATENZ) | SC-39 | T-SC-77, T-SC-51 |
+| BF-0039 | B B-14 | SV-6 und B-2: Nebenwirkungen, Wortlaut | _050 SV-6 (Bedingung revoked_at, 'Wiederholung ist wirkungslos'), LAUF (J7 ohne Stichtagsbuchung), B-2 | SC-42 | T-SC-55 |
+| BF-0040 | eigen | B052: nicht auswertbarer Zustand | BASE-040_030 Abschn. 1 (UNBESTIMMT, Verweigern geht vor), Abschn. 2, 6, 8; BASE-040_050 B2; BASE-080 DEC-PA-22 und _030 Abschn. 9 (Entwurf) | WT-09, WT-53 | T-WT-62 |
+| BF-0041 | eigen | Settings-Rueckfall als lokale Regel | _070 Abschn. 3 (Fehlerklasse und Notwert je Key, K-a, K-f), SESSION_SETTING_BLOCKED; _060 FRIST; _050 Abschn. 5; _010 DEC-SC-24; _080 ANF-SC-08 | SC-59 | T-SC-74 |
+| BF-0042 | eigen | Mengenbremse des Abgleichs, Mehrfachsitzung | _020 L6, L7; _070 Key vpn_l2tp_kill_hold_threshold, Ereignisse L2TP_KILL_HELD, RT_DUPLICATE_SESSION; _010 DEC-SC-23 | SC-70, SC-30 | T-SC-92 |
+
+Zusaetzlich beim Einarbeiten berichtigt: Reihenfolge und Vollstaendigkeit der Puffer-Regeln (P-a bis P-h),
+J2 und J5 des Bereinigungslaufs, Schreiber des Buchungsstands (A-2), Erwerb der Sperre in einzeln
+festgeschriebenen Anweisungen, Rueckverfolgung der bisher nicht erfassten Vorgaenger-Regel 'trim' (B169).
+
 ## Stand der Abarbeitung
 [x] Schritt 1 Berichte/QA/Register (BF-0013..BF-0041)
-[x] _020  [x] _030  [x] _040  [ ] _050  [ ] _060  [ ] _070  [ ] _080  [ ] _090  [ ] _095  [ ] INDEX  [ ] _010
-[ ] BASE-040_030/_050/_060/_090/_095  [ ] D004 P-01  [ ] Trace/NEU_BEGRUENDET  [ ] Changelog  [ ] Verifikationslauf
+[x] _020  [x] _030  [x] _040  [x] _050  [x] _060  [x] _070  [x] _080  [x] _090  [x] _095  [x] INDEX  [x] _010
+[x] BASE-040_030/_050/_060/_070/_090/_095  [x] D004 P-01  [x] Trace/NEU_BEGRUENDET  [ ] Changelog
+[ ] Unabhaengige Nachpruefung der Behebung (danach erst Status BEHOBEN im Befundregister)

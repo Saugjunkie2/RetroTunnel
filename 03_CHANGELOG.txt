@@ -1,8 +1,8 @@
 ================================================================================
 RetroTunnel — CHANGELOG (Zentrales Projektgedaechtnis)
 ================================================================================
-VERSION: v2.4.0
-DATUM: 2026-11-13
+VERSION: v2.5.0
+DATUM: 2026-11-14
 STATUS: ACTIVE
 
 HINWEIS: Dies ist die einzige Projekthistorie. Dateieigene Changelogs
@@ -13,6 +13,113 @@ sind leer (Verweis auf diese Datei).
 ================================================================================
 VERSIONSHISTORIE
 ================================================================================
+
+v2.5.0 (2026-11-14) — Gegenpruefung BASE-070 eingearbeitet; Nachlieferung
+
+  AUSLOESER: (1) Unabhaengige Gegenpruefung von BASE-070 durch zwei
+  Pruefer in getrennten Kontexten (2026-11-13): 27 Befunde, davon 3
+  kritisch, 3 hoch, 10 mittel, 11 niedrig. Berichte unveraendert unter
+  governance/pruefungen/. (2) Nachlieferung des Betreibers (95 Dateien
+  unter nachlieferung/; BM-0012, BM-0014) als dritte Quelle "NL".
+
+  NACHLIEFERUNG: inventarisiert und an den Liefer-Commit gebunden;
+    unveraenderliche Lesequelle. Vollstaendig gelesen: B052
+    (Datenbankausfall), B345 (Schreibrechte), D009, D011. 30 Dateien
+    durch Leseagenten erschlossen (Extrakte mit wortgenau geprueften
+    Zitaten, Arbeitsmaterial). Sichtung fuer den Betreiber:
+    governance/arbeitsmaterial/nachlieferung/SICHTUNG.md. Das Original
+    von D004 ist NICHT dabei; es bleibt bei der Rekonstruktion.
+
+  base/BASE-070_SESSION_CORE (v1.1): alle 27 Befunde und zwei aus dem
+    Abgleich der Nachlieferung eingearbeitet. Jetzt DEC-SC-01..24,
+    SC-01..SC-71, T-SC-01..T-SC-95, ANF-SC-01..16, E-SC-01..16.
+    Wesentliche Aenderungen:
+    - ZUORDNUNG: Eine L2TP-Sitzung gehoert zu einer Connection ueber
+      Anmeldename ODER Tunneladresse; Namen werden ueberall byteweise
+      verglichen; der Daemon sichert mit zwei Riegeln (Name, Adresse).
+      Vorher umgingen abweichende Schreibweisen des Namens Sonde,
+      Geister-Regel, Schlussriegel und Hard-Cut (kritisch).
+    - GEISTER: eine Schliessbedingung, gebunden an die Sitzungskennung;
+      Mindestalter ohne Ausnahme; Karenz nach einem beobachteten Ende;
+      kein Schliessen, solange der Abrechnungspuffer nicht leer ist.
+      Ein Neustart des Daemons wird an seiner Instanzkennung erkannt,
+      nicht an der Uhr, und schliesst nichts ausser der Reihe.
+    - ANMELDUNG: Unter der Sperre wird auch der Zulassungsstand erneut
+      geprueft (Status, Widerruf, Adresse, Kennwort); die Sperre gibt
+      nur die Start-Meldung der zugelassenen Sitzung frei (Halter im
+      Attribut Class); eigene Antwort fuer Sitzungen im Auf- oder Abbau.
+    - BUCHUNG L2TP: Jede Protokollzeile erhaelt ihren Buchungsstand in
+      der Transaktion, in der die Marke vorrueckt; Sicherheitsnetz fuer
+      Zeilen ohne Stand; der Stand lebt so lange wie seine Zeile
+      (kritisch: stiller Verlust bzw. Doppelbuchung).
+    - UHR: Periodenwechsel, Rueckgabe von Adressen und physisches
+      Loeschen laufen nur bei bestaetigter Systemzeit; Zeitwerte in der
+      Zukunft sind eine Anomalie; Weltzeit fuer alle
+      Datenbankverbindungen.
+    - ADRESSEN: Der Drift-Waechter meldet nur noch; die Reparatur ist
+      eine Verwaltungshandlung ueber den Allokator mit Quarantaene der
+      alten Adresse. Pool-Sperre als erste Anweisung, festgeschriebenes
+      Lesen.
+    - KEIN SELBSTTAETIGER MASSENEINGRIFF (DEC-SC-23): Oberhalb einer
+      Schwelle beendet der Abgleich keine Sitzung und gibt der
+      Bereinigungslauf keine Adresse zurueck; es wird alarmiert.
+    - SETTINGS: kein eigener Rueckfallweg; Fehlerklasse und Notwert je
+      Key nach model/TRUTH_MODEL.txt Abschnitt 7 (dort Festgelegtes
+      gilt unveraendert, etwa der Abbruch bei fehlender
+      Quarantaenefrist), fuer neue Keys als Antrag an BASE-090.
+    - HARD-CUT: trifft jede Sitzung der Connection; ohne Datenbank wird
+      das Protokoll nachgetragen; "nicht aktiv" nur nach einer Lesung.
+
+  base/BASE-040_TUNNEL_WIREGUARD (v1.1) und decisions/D004
+  (v2.1-REKONSTRUKTION):
+    - D004 P-01 BERICHTIGT: Der Vergleich beim Buchen gilt dem gelesenen
+      Buchungsstand (beide Cursorwerte und counter_epoch). Der Vergleich
+      allein auf die Epoche liess zwei gleichzeitige Bucher denselben
+      Verkehr doppelt buchen (kritisch).
+    - Schlussbuchung vor dem Entfernen eines Peers und Nachbuchen eines
+      Snapshots sind Buchungen derselben Implementierung; Tagesreihe als
+      eigene Fehlerklasse (stoppt weder Buchung noch WireGuard);
+      Buchungslauf auf Anforderung.
+    - Soll-Funktion mit drittem Ergebnis UNBESTIMMT: Eine nicht
+      auswertbare Zeile friert ihren Peer ein, statt ihn zu entfernen
+      (Herkunft B052). Sperrung und Widerruf entfernen den Peer immer.
+    - Laufzeit-Adapter WireGuard; Antworten auf ANF-SC-09.
+    Jetzt WT-01..WT-56, T-WT-01..T-WT-62.
+
+  ABWEICHUNGEN VON FRUEHEREN FESTLEGUNGEN (jeweils begruendet; Fundstelle
+  in governance/register/trace/):
+    - Der Anmeldename wird nicht mehr um Leerraum gekuerzt, sondern bei
+      jeder Abweichung vom festen Format abgelehnt (BASE-020_030 Schritt
+      2.1, Vorgaenger B169); Nachzug AP-Q04
+    - Abweichende Adressen werden nicht mehr selbsttaetig neu
+      materialisiert (Vorgaenger B064 5.5)
+    - Kein Sonderweg "alle alten Zeilen schliessen" nach einem Neustart
+      (bisher SC-25; LT-34)
+    - Der DB-User radius hat an der Sperrtabelle kein Tabellenrecht
+      mehr, nur das Ausfuehren zweier Routinen
+    - Freigabe der Admission-Sperre nur mit Haltervergleich (AAA-13)
+
+  RUECKVERFOLGUNG: gesamt 1746 Records (26 neu, darunter die ersten aus
+    der Nachlieferung und aus model/TRUTH_MODEL.txt; rund 45 neu
+    eingeordnet oder begruendet). 12 neu begruendete Invarianten
+    (SC-63..SC-71, WT-54..WT-56). model/TRUTH_MODEL.txt vollstaendig
+    gelesen.
+
+  QA: dritte Quelle NL in allen Werkzeugen; Fundstellen am Arbeitsstand
+    (ZIEL:...@commit); qa/pruefe_extrakte.py; 55 Selbsttests.
+
+  REGISTER: BF-0013..BF-0039 (Gegenpruefung), BF-0040 und BF-0041
+    (Abgleich der Nachlieferung), BF-0042 (eigener Befund beim
+    Einarbeiten: Mengenbremse des Abgleichs); BM-0012..BM-0014.
+    Nachweis je Befund: governance/pruefungen/BASE-070_BEHEBUNGSPLAN.md.
+
+  OFFEN: Die Behebung ist noch nicht unabhaengig nachgeprueft; die
+    Befunde stehen deshalb auf IN_ARBEIT, nicht auf BEHOBEN. Die
+    Annahmen E-SC-01..16 sind nicht praktisch bestaetigt; Aussagen der
+    Pruefer ueber fremde Software stammen aus dem Lesen oeffentlichen
+    Quelltexts. BASE-080 ist begonnen (vier Teile im Entwurf).
+
+  STATUS: Fachstatus IN_BEARBEITUNG.
 
 v2.4.0 (2026-11-13) — BASE-070_SESSION_CORE
 
