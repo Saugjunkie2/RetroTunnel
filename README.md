@@ -101,6 +101,7 @@ RetroTunnel/
 ├── MARCOS_ARBEITSWEISE.txt         Arbeitsweise des Betreibers
 ├── REVIEW_STANDARD.txt             Review-Methodik, 8 Prüfebenen
 ├── REVIEW_TRACKER.txt              Datei-Inventar, Review-Status
+├── REVIEW_TRACKER_HISTORIE.txt     Teil 2: Prüfhistorie und Nachweise
 ├── PRIORITAETENLISTE.txt           Arbeitspakete (M0–M4)
 ├── NAVIGATIONSKARTE_ALTES_KONZEPT.txt  Themen-Index Vorgänger
 │
@@ -183,7 +184,8 @@ Governance-Dateien für die Zusammenarbeit mit Claude (AI Co-Architect):
 | `CLAUDE_BRIEFING.txt` | Einstieg, Arbeitsregeln und Projektstand in Kurzform für jede neue Claude-Ausführung |
 | `MARCOS_ARBEITSWEISE.txt` | Arbeitsweise des Betreibers (projektübergreifend) |
 | `REVIEW_STANDARD.txt` | Review-Methodik, 8 Prüfebenen, Autonomie-Grenze |
-| `REVIEW_TRACKER.txt` | Datei-Inventar, Review-Status, Sweep-Plan, Exit-Kriterien |
+| `REVIEW_TRACKER.txt` | Datei-Inventar, Review-Status, offene Befunde im Überblick, Sweep-Plan, Exit-Kriterien |
+| `REVIEW_TRACKER_HISTORIE.txt` | Zweiter Teil des Trackers: Prüfhistorie und Nachweise der Prüfungen vom Mai 2026 |
 | `PRIORITAETENLISTE.txt` | Arbeitspakete in 5 Modellphasen (M0–M4) |
 | `NAVIGATIONSKARTE_ALTES_KONZEPT.txt` | Themen-Index zum Vorgänger xp-vpn-stack |
 
