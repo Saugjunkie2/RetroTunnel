@@ -84,10 +84,12 @@ ZWECK:
   GS-6  BASE-070 schreibt keinen op_status und loest keine Einschraenkung
         aus; es misst und meldet.
   GS-7  vpn_session_locks bleibt tunnelneutral (G5).
-  GS-8  Anmeldenamen werden in keinem Modul gekuerzt, umgewandelt oder
-        anders als byteweise verglichen (ANF-SC-16). Wo Anmeldename und
-        Tunneladresse einer Laufzeitsitzung vorliegen, ordnet kein Modul
-        die Sitzung allein ueber den Namen zu.
+  GS-8  Anmeldenamen werden in keinem Modul gekuerzt oder umgewandelt.
+        Wo ein Name ZUORDNET oder ZULAESST, wird er byteweise verglichen
+        (ANF-SC-16); groeber gleichsetzen darf allein ein Schlussriegel,
+        und nur, um abzuweisen. Wo Anmeldename und Tunneladresse einer
+        Laufzeitsitzung vorliegen, ordnet kein Modul die Sitzung allein
+        ueber den Namen zu.
 
 ================================================================================
 4) ANTWORTEN AUF ANFORDERUNGEN ANDERER MODULE
@@ -132,7 +134,9 @@ ZWECK:
        Adressen. Die Transaktion liest festgeschrieben und sperrt als
        erste Anweisung die beteiligten Pools (_060 V-1, V-2; beim
        Rollenwechsel Quell- und Zielpool). INV-83 und INV-84 laut
-       Changelog v2.0 nachziehen.
+       Changelog v2.0 nachziehen. D002 Abschnitt 7.4 nennt die
+       Pool-Sperre nicht als erste Anweisung der Transaktion; im Nachzug
+       ergaenzen.
     c) INV-82 um vpn_ip_quarantine erweitern (_060 Abschnitt 6).
     d) Physische Loeschung nach Quarantaene gilt fuer jede widerrufene
        Connection; der vorzeitige Loeschpfad erzeugt einen Quarantaene-
@@ -153,6 +157,17 @@ ZWECK:
        (Ablauf im Panel: MOD-006). VB-0021.
     g) subaccount_login wird byteweise verglichen und ist in dieser
        Vergleichsweise eindeutig (ANF-SC-16).
+    h) KEIN ENTZUG SCHEITERT AN FRIST ODER UHR: Widerruf und Tombstone
+       schreiben Sperrung und revoked_at immer. Ist vpn_quarantine_days
+       nicht lesbar oder die Zeit nicht bestaetigt, bleibt
+       quarantine_until NULL (offene Frist, _060 Abschnitt 6); der
+       Bereinigungslauf traegt sie nach. Der Tombstone-Schreibvorgang
+       (BASE-010_070) ist entsprechend zu fassen; quarantine_until wird
+       NULL-faehig.
+    i) Alle Schreiber in Spalten der Gruppe D und in Fristfelder
+       arbeiten mit Weltzeit als Sitzungszeitzone (_070 U-6).
+    j) Lifecycle-Ereignis QUOTA_PERIOD_CORRECTED fuer die Berichtigung
+       einer Periode (_050 SV-6b).
 
   ANF-SC-02 (BASE-000, Nachzug AP-Q04)
     Registry: vpn_sessions als ENTFALLEN; neu log_runtime_activity,
@@ -175,48 +190,64 @@ ZWECK:
        keine Adresse aus einem eigenen Vorrat (_060 AV-3).
     b) L2TP-Adapter mit list, probe, kill nach _040 Abschnitt 1:
        Zugehoerigkeit ueber Anmeldename ODER Tunneladresse; vier
-       Antworten einschliesslich TRANSITION; Sitzungen im Auf- und Abbau
-       mit Zustand und Beginn; Sitzungskennung (AD-6) und Instanzkennung
-       des Daemons (AD-7); Beenden ueber Sitzungskennung bzw. Adresse,
-       nie allein ueber den Namen; geschuetzte lokale
+       Antworten einschliesslich TRANSITION (ohne die Sitzung des
+       anfragenden Versuchs); Sitzungen im Auf- und Abbau mit Zustand und
+       Beginn; Sitzungskennung (AD-6) und Instanzkennung des Daemons
+       (AD-7) in list() UND probe(); Beenden ueber Sitzungskennung bzw.
+       Adresse, nie allein ueber den Namen; geschuetzte lokale
        Verwaltungsschnittstelle.
     c) vpn-l2tp-sync nach _020 Abschnitt 7 und _050 Abschnitt 3,
        einschliesslich Merker bei belegtem Einzel-Lock, Reihenfolge je
-       Connection, Mengenbremse (L6, L7) und Marken (L9).
+       Connection, Frist fuer haengende Sitzungen (L6a), EINER
+       Mengenbremse fuer alle Beendigungen samt Stundenfenster (L7a),
+       Pufferauskunft (L1), Gedaechtnis ueber Laeufe (not_listed_since,
+       observed/, kill-window) und Marken (L0, L9).
     d) Hooks ohne radacct-Korrelation, ohne vpn_sessions, ohne Loeschen
-       von Sperren. ip-up: Spiegel schreiben, Connection lesen, Adresse
-       pruefen, vpn-policy-apply, Abgleich anstossen. ip-down: als
-       ERSTEN Schritt den Ende-Vermerk schreiben (_040 G-8), dann Abbau,
-       Spiegel entfernen, Abgleich anstossen. BASE-030_050 neu fassen.
+       von Sperren, ohne eigene Lesung der Datenbank. ip-up: Spiegel
+       schreiben, vpn-policy-apply --l2tp-up rufen (das Werkzeug bestimmt
+       die Connection und prueft die Adresse, BASE-080 ANF-PA-04), die
+       gemeldete Kennung in den Spiegel eintragen, Abgleich anstossen.
+       ip-down: als ERSTEN Schritt den Ende-Vermerk schreiben (Inhalt:
+       Betriebszeit des Systems; _040 G-8), dann --l2tp-down, Spiegel
+       entfernen, Abgleich anstossen. BASE-030_050 neu fassen.
        Der Laufzeit-Spiegel ist nur fuer root schreibbar. Der Spiegel
        enthaelt keine oeffentliche Gegenstelle (der bisherige Eintrag
        CALLING_SID entfaellt; DEC-SC-20).
-    e) LT-34 durch die Neustart-Regel ersetzen (_020 Schritt L3:
-       Erkennung an der Instanzkennung; geschlossen wird nur nach den
-       Geister-Regeln).
+    e) LT-34 durch die Neustart-Regel ersetzen (_020 Schritt L3 und _040
+       Regel G-5: Erkennung an der Instanzkennung; geschlossen wird nur
+       nach den Geister-Regeln).
     f) Der Daemon sendet das Attribut Class der Zusage in den
        Abrechnungsmeldungen der Sitzung unveraendert zurueck
        (Halterkennung der Sperre, _030 Abschnitt 4).
     g) Accounting-Start ohne Verzoegerung (LT-25 bleibt, mit neuer
        Begruendung): Die Nutzung soll innerhalb der Sperr-TTL im Protokoll
        stehen.
+    h) BASE-030 benennt die Dauer, ueber die der Daemon eine
+       Abrechnungsmeldung wiederholt (Zeitlimit mal Versuche); gegen sie
+       wird die Karenz geprueft (_070 Regel K-h).
+    i) Die Anmeldeanfrage traegt die Sitzungskennung des Daemons, damit
+       die Sonde die Sitzung des eigenen Versuchs erkennt (_030 P1;
+       Annahme E-SC-02).
 
   ANF-SC-04 (BASE-020, Nachzug AP-Q04)
     a) SimUse-Baustein P1 bis P6 nach erfolgreicher Credential-Pruefung
        (_030 Abschnitt 4): Die Schritte 2.2 bis 2.4 halten den geprueften
        Zulassungsstand fest (op_status, revoked_at, fixed_ip,
-       credential_version); P3 bis P5 sind EIN Aufruf einer
+       credential_version); Kennwort-Hash und Zulassungsstand stammen aus
+       EINER Lesung. P3 bis P5 sind EIN Aufruf einer
        gespeicherten Routine; die Nachpruefung liest den aktuell
        festgeschriebenen Stand. vpn-session-check wird ohne Shell
-       aufgerufen, mit numerischem Argument und Zeitlimit; die Antwort
-       TRANSITION fuehrt zu R_SIMUSE_GUARD_BUSY.
+       aufgerufen, mit numerischem Argument, der Sitzungskennung des
+       Versuchs (soweit die Anfrage sie traegt) und Zeitlimit; die
+       Antwort TRANSITION fuehrt zu R_SIMUSE_GUARD_BUSY.
     b) Die Halterkennung ist ein frischer Zufallswert je Anmeldeversuch
        und steht in der Zusage als Attribut Class. Freigabe der Sperre
        bei Accounting-Start NACH dem Schreiben der radacct-Zeile, ueber
        die zweite Routine, NUR mit holder = Class der Meldung. Ohne
        Class oder mit fremdem Class: keine Freigabe.
     c) Annahme der Abrechnungsmeldungen ohne Datenbank mit Puffer nach
-       _050 Abschnitt 8 (P-a bis P-h).
+       _050 Abschnitt 8 (P-a bis P-h), einschliesslich der
+       Pufferauskunft je Sitzung (P-g).
     d) Eine Interim-Meldung legt eine fehlende radacct-Zeile an; 64-Bit-
        Zaehler werden vollstaendig gefuehrt; eine Zwischenmeldung senkt
        keinen Zaehler und aendert eine geschlossene Zeile nur nach oben
@@ -258,7 +289,8 @@ ZWECK:
 
   ANF-SC-08 (BASE-090)
     Keys aus _070 Abschnitt 3 katalogisieren: Grenzen, Konsistenzregeln
-    K-a bis K-g, Alias fuer Altnamen; je Key Fehlerklasse und Notwert
+    K-a bis K-j, Geltungsbereich (nur global), Alias fuer Altnamen; je
+    Key Fehlerklasse und Notwert
     laut der dortigen zweiten Tabelle - fuer Keys aus TRUTH_MODEL
     Abschnitt 7 unveraendert, fuer neue Keys als Antrag mit Richtung
     und Begruendung (ein Notwert darf nur verschaerfen). Die Aufloesung
@@ -280,8 +312,31 @@ ZWECK:
        es in der vorgesehenen Zahl von Versuchen nicht, wird der
        Zaehlerstand als Snapshot abgelegt, BEVOR der Peer entfernt wird.
     d) Sicherungspunkt je Connection im Buchungslauf. Scheitert allein
-       die Tagesreihe, wird ohne sie gebucht; das zaehlt nicht als
-       Datenbankstoerung (_050 B-9).
+       die Tagesreihe - an der Anweisung, an einer Sperre oder einem
+       Zeitlimit AN DIESER Anweisung, oder weil die Zeitzone nicht lesbar
+       ist -, wird ohne sie gebucht; das zaehlt nicht als
+       Datenbankstoerung (_050 B-9). Die Anweisung der Tagesreihe laeuft
+       mit eigenem kurzem Wartelimit.
+    e) Der Buchungslauf bearbeitet die Connections in aufsteigender
+       Reihenfolge ihrer Kennung, liest festgeschrieben (_070 U-7) und
+       behandelt Verklemmung, Wartezeit auf eine Sperre und
+       zwischenzeitlich geaenderte Zeile gleich: wiederholbarer Abbruch,
+       keine Datenbankstoerung.
+    f) EINZEL-SNAPSHOT der Schlussbuchung: mit Epoche; Nachbuchen nur bei
+       gleicher Epoche und nie ueber den Reset-Zweig; genau EIN
+       Nachbucher (WG-Treiber unter dem Kernel-Lock); Cursor-Reset erst,
+       wenn der Snapshot der Connection nachgebucht ist (BASE-040_060).
+    g) Die Soll-Funktion ist dreiwertig bis in die Schrittfolge (A1) und
+       die Invarianten; "zugelassener Status ohne Auth-Zeile" ist
+       UNBESTIMMT. Eingefrorene Peers werden gebucht. kill(c) bei
+       UNBESTIMMT fuehrt nichts aus (_040 Abschnitt 1).
+    h) Die Adress-Reparatur (_060 Abschnitt 4) steht in der
+       Ereignis-Matrix des Treibers wie der Rollenwechsel (Peer ersetzen,
+       neues Profil); Ende-Grund CONNECTION_ADDRESS_REPAIR.
+    i) Controller und WG-Treiber arbeiten mit Weltzeit als
+       Sitzungszeitzone (_070 U-6); die Geschaeftszeitzone fuer den
+       Kalendertag der Tagesreihe lesen sie ueber die Aufloesung des
+       Settings-Kerns.
 
   ANF-SC-10 (BASE-110, MOD-006)
     Sichten auf log_runtime_activity (mit und ohne Gegenstelle),
@@ -290,8 +345,11 @@ ZWECK:
     Aktivitaetsereignissen (DEC-SC-03); privilegierter Auftragsweg fuer
     Hard-Cut, Live-Auskunft, Live-Liste, Pool-Stellgroessen,
     Reservefreigabe, Adress-Reparatur, Freigabe zurueckgestellter
-    Rueckgaben, Bestaetigung der Zeit fuer einen Lauf (_070 U-5) und
-    Berichtigung einer Periode in der Zukunft;
+    Rueckgaben, Bestaetigung der Zeit fuer einen Lauf (_070 U-5),
+    Berichtigung einer Periode in der Zukunft (SV-6b), Freigabe des
+    Beendens fuer einen Lauf (_020 L7a), Freigabe des Sicherheitsnetzes
+    und "Bestand gilt als gebucht" (_050 Abschnitt 3), Neudatieren oder
+    Freigeben eines unplausiblen Quarantaene-Eintrags (_060 RS-3);
     Kennzeichnung "zuletzt gesehen"; keine Bearbeitung von Sperren,
     Marken, Hinweisfeldern, Buchungsstaenden.
 
@@ -328,7 +386,8 @@ ZWECK:
 
   ANF-SC-15 (BASE-005, Nachzug AP-Q04)
     Registry: Units, Werkzeuge, Pfade (einschliesslich ended/,
-    sync-request/ und hardcut-audit/), Gruppe fuer den Socket,
+    sync-request/, buffer-index, observed/, kill-window und
+    hardcut-audit/), Gruppe fuer den Socket,
     Spool-Grenzen; das Kennwort der Verwaltungsschnittstelle von accel-ppp
     im Secret-Inventar.
 
@@ -345,7 +404,9 @@ ZWECK:
        subaccount_login gilt in dieser Vergleichsweise.
     c) BASE-030: Der Schlussriegel ueber den Namen ist mindestens so
        streng; kann der Daemon dabei Gross- und Kleinschreibung
-       gleichsetzen, wird das genutzt (zusaetzliche Sicherung).
+       gleichsetzen, wird das genutzt (zusaetzliche Sicherung). Der
+       Riegel weist damit nur AB - er ordnet nichts zu und laesst nichts
+       zu (GS-8).
 
 ================================================================================
 6) ZU VERIFIZIERENDE ANNAHMEN
@@ -382,8 +443,12 @@ ZWECK:
            [Q], bleibt sie fuer zugelassene Namen eindeutig, weil diese
            ein festes Format ohne Leerraum haben (ANF-SC-16); jede
            andere Zeile ergibt UNKNOWN (AD-2). Erscheint die
-           authentisierende Sitzung bereits unter dem Namen, entscheidet
-           die Sitzungskennung.
+           authentisierende Sitzung bereits unter dem Namen, erkennt die
+           Sonde sie an der Sitzungskennung des Versuchs, die die
+           Anmeldeanfrage traegt (_030 P1). Traegt die Anfrage keine:
+           Betriebsart "Sitzungen im AUFBAU zaehlen nicht fuer
+           TRANSITION" - dann schuetzen Zulassungssperre, zweiter
+           Schlussriegel und Mehrfachregel (_020 L7).
   E-SC-03  accel-ppp sendet nach hartem Beenden Accounting-Stop und fuehrt
            kumulative 64-Bit-Zaehler in Interim- und Stop-Meldungen.
            AUSWEICHWEG: Schlusswerte ueber den ip-down-Hook in den Spool
@@ -399,10 +464,11 @@ ZWECK:
            keinen Zaehler senkt (P-f).
            AUSWEICHWEG: wie E-SC-03; ohne Puffer ist der Verlust bei
            Datenbankstoerung auf Sitzungen begrenzt, die waehrend der
-           Stoerung enden. Wird eine Kennung doch wiederverwendet, faellt
-           der Zaehler unter den Buchungsstand: Die Anomalie
-           L2TP_ACCT_COUNTER_REGRESSION zeigt es; Abhilfe ist eine
-           Kennung, die die Instanz des Daemons einschliesst.
+           Stoerung enden. Wird eine Kennung doch wiederverwendet, zeigt
+           sich das spaetestens mit der Stop-Meldung der neuen Sitzung
+           als L2TP_ACCT_COUNTER_REGRESSION (eine Zwischenmeldung senkt
+           den Zaehler nach P-f nicht mehr); Abhilfe ist eine Kennung,
+           die die Instanz des Daemons einschliesst.
   E-SC-05  Clients, insbesondere Windows XP und Vista ueber L2TP, arbeiten
            mit Tunneladressen, deren letztes Oktett 0 oder 255 ist.
            AUSWEICHWEG: skip_edge_octets = 1.
@@ -456,15 +522,18 @@ ZWECK:
            Wiedereinwahl unmittelbar nach einer sehr kurzen Sitzung
            wartet hoechstens die TTL.
   E-SC-14  ENDE-VERMERK: Der ip-down-Pfad laeuft bei jedem regulaeren
-           Sitzungsende und beginnt, BEVOR die Sitzung aus der Liste des
-           Daemons verschwindet [Q]. NICHT vorausgesetzt wird, dass die
-           Stop-Meldung dann schon in radacct steht - sie wird
-           unabhaengig davon gesendet [Q].
+           Sitzungsende und hat den Ende-Vermerk GESCHRIEBEN, bevor die
+           Sitzung aus der Liste des Daemons verschwindet [Q: der Hook
+           beginnt vorher; dass er auch fertig ist, ist zu pruefen].
+           NICHT vorausgesetzt wird, dass die Stop-Meldung dann schon in
+           radacct steht - sie wird unabhaengig davon gesendet [Q]. Wer
+           selbst beendet, schreibt den Vermerk vor dem kill() und haengt
+           nicht am Hook.
            AUSWEICHWEG: Karenz ab der ersten Beobachtung: Eine Zeile wird
-           erst geschlossen, wenn ihre Sitzung in zwei Lesungen im
-           Abstand von mindestens vpn_ghost_stop_grace_seconds nicht
-           gelistet war; die Aussperrzeit steigt um hoechstens einen
-           Takt des Abgleichs.
+           erst geschlossen, wenn ihre Sitzung seit mindestens
+           vpn_ghost_stop_grace_seconds nicht gelistet ist
+           (not_listed_since); die Aussperrzeit steigt um hoechstens
+           einen Takt des Abgleichs.
   E-SC-15  ZEITEN IN radacct: acctstarttime, acctupdatetime und
            acctstoptime tragen die Zeit, zu der der AAA-Dienst die
            Meldung angenommen hat [Q] - auch fuer nachgespielte
@@ -480,6 +549,36 @@ ZWECK:
            Periodenwechsel und Rueckgaben (U-5), bis der Betreiber die
            Zeit fuer einen Lauf bestaetigt; nichts geht verloren, die
            Entlastung der Kunden zum Monatswechsel verzoegert sich.
+  E-SC-17  SITZUNGSKENNUNG EINDEUTIG: Der Daemon vergibt eine
+           Sitzungskennung nach einem Neustart nicht erneut, solange die
+           Protokollzeile der frueheren Sitzung offen ist.
+           AUSWEICHWEG: bereits eingebaut - "r in S" verlangt neben der
+           Kennung, dass Name oder Adresse passen (_020 Schritt L4, _040
+           G-1); eine wiederverwendete Kennung schuetzt keine fremde
+           Geisterzeile.
+  E-SC-18  ROUTINE SCHREIBT EINZELN FEST: Eine gespeicherte Routine, vom
+           AAA-Dienst ohne umschliessende Transaktion gerufen, schreibt
+           die Anweisungen des Sperrerwerbs (E1, E2) je fuer sich fest.
+           AUSWEICHWEG: Der AAA-Dienst setzt E1 und E2 als zwei Aufrufe
+           eng gefasster Routinen ab; Reihenfolge und Rechte bleiben.
+  E-SC-19  ADRESSE IN DER PROTOKOLLZEILE: Jede offene radacct-Zeile traegt
+           die Tunneladresse (framedipaddress), sobald die Start-Meldung
+           geschrieben ist.
+           AUSWEICHWEG: Eine Zeile ohne Adresse wird ueber den Namen
+           zugeordnet (_050 Regel A-3); die Statusdatei zaehlt solche
+           Zeilen. Der Schutz gegen abweichende Schreibweisen ruht fuer
+           sie auf ANF-SC-16 und dem zweiten Schlussriegel.
+  E-SC-20  WARTELIMIT JE ANWEISUNG: Laeuft das Wartelimit an der Anweisung
+           der Tagesreihe ab, bricht die Datenbank nur diese Anweisung
+           ab; die Transaktion bleibt bis zum Sicherungspunkt gueltig.
+           AUSWEICHWEG: Tagesreihe in eigener, nachgelagerter
+           Transaktion - dann nicht mehr atomar mit der Buchung; die
+           Abweichung zaehlt wie ein Ausfall der Tagesreihe (_050 T-5).
+  E-SC-21  PUFFERAUSKUNFT: Der Puffer des AAA-Dienstes laesst sich ohne
+           Datenbank nach Sitzungskennungen lesen.
+           AUSWEICHWEG: die Regel "solange der Puffer nicht leer ist" mit
+           derselben Wartegrenze (_040 G-8 a); bis zur Grenze sind dann
+           alle Geister betroffen, nicht nur der eine.
 
 ================================================================================
 7) VERBLEIB DER INVARIANTEN AUS SM_SESSION

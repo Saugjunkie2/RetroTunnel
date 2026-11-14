@@ -4,14 +4,14 @@ BASE-070 — INVARIANTEN (Sitzungskern)
 DATEI: BASE-070_090_INVARIANTEN.txt
 STATUS: ACTIVE
 
-Harter Vertrag. Jede Verletzung ist ein Fehler. Kennungen SC-01..SC-71.
+Harter Vertrag. Jede Verletzung ist ein Fehler. Kennungen SC-01..SC-73.
 Regelkennungen in Klammern verweisen auf die Detaildateien dieses Moduls
 (H-, S-, W-, E-, L in _020; K-, P in _030; AD-, G-, HC-, J in _040; B-, A-,
 T-, Q-, P- in _050; AV-, PC-, V-, AL, RS- in _060; M-, U-, K- in _070;
 GS- in _080).
 Herkunft je Invariante: Rueckverfolgungs-Records unter
 governance/register/trace/ (Feld erfuellt_in) bzw. NEU_BEGRUENDET.yaml.
-Die Kennungen SC-61 bis SC-71 sind nachgetragen und stehen sachlich bei
+Die Kennungen SC-61 bis SC-73 sind nachgetragen und stehen sachlich bei
 ihrem Thema, nicht am Ende.
 
 ================================================================================
@@ -56,10 +56,14 @@ SIGNALVERTRAG UND EPISODEN
          Connection existiert, op_status ACTIVE oder RESTRICTED hat, nicht
          widerrufen ist und Tunneltyp, Tunneladressen und die Zuordnung
          ueber Anmeldename und Adresse mit der Connection-Zeile
-         uebereinstimmen. Andernfalls wird die EINE betroffene Sitzung
-         beendet (Fail-Closed) und ein Ereignis gemeldet. Der
-         nachtraeglich vermerkte Beginn einer bereits beendeten Sitzung
-         prueft nichts davon und beendet nichts (S-3, S-5, S-6).
+         uebereinstimmen. Ist die Connection gesperrt, widerrufen oder
+         nicht vorhanden oder stimmt die Zuordnung nicht, wird die EINE
+         betroffene Sitzung beendet (Fail-Closed) und ein Ereignis
+         gemeldet. Ist die Zeile nicht auswertbar, gibt es weder Beginn
+         noch Beenden, nur die Meldung. Der nachtraeglich vermerkte Beginn
+         einer bereits beendeten Sitzung prueft nichts davon, beendet
+         nichts und laesst eine inzwischen laufende neuere Episode
+         unberuehrt (S-3, S-5, S-6).
 
   SC-08  Das Ende einer Episode loescht den Vermerk runtime_active_since
          nur, wenn er zu dieser Episode gehoert; ihr Beginn stammt aus
@@ -67,7 +71,8 @@ SIGNALVERTRAG UND EPISODEN
          abgeleitet. Das Ende traegt den letzten belegten Zeitpunkt der
          Aktivitaet und einen Grund aus der festen Liste. Eine fruehere
          Episode endet mit ihrem eigenen Grund, bevor der Beginn der
-         naechsten gemeldet wird.
+         naechsten gemeldet wird. Ein aelterer oder nachtraeglich
+         vermerkter Beginn beendet nie eine juengere Episode.
 
   SC-09  Scheitert ein Schreibvorgang des Signalvertrags, wird nichts
          zwischengespeichert; der naechste Lauf leitet ihn aus Laufzeit,
@@ -85,8 +90,10 @@ SIGNALVERTRAG UND EPISODEN
          Ablauf der jeweiligen Aufbewahrung (E-1).
 
   SC-64  Ein vorab hinterlegter Ende-Grund traegt seinen Zeitpunkt und
-         verfaellt nach einer benannten Frist. Die Bereinigung
-         ueberschreibt keinen vorhandenen Hinweis. Wer einen Hinweis setzt
+         gilt nur in seinem Fenster: nicht frueher als ein Meldeabstand
+         vor dem Setzen, hoechstens die benannte Frist danach, nie mit
+         einem Zeitpunkt in der Zukunft. Ein gueltiger Hinweis wird nie
+         ueberschrieben, ein verfallener ersetzt. Wer einen Hinweis setzt
          und die Laufzeit dann nicht beendet, nimmt ihn zurueck.
          Ueberschreibt eine echte Stop-Meldung eine von der Bereinigung
          geschlossene Zeile, bevor das Ende gemeldet ist, gelten Grund
@@ -102,10 +109,11 @@ SIMUSE UND SPERREN
          Namens: Eine L2TP-Laufzeitsitzung gehoert zu ihr, wenn ihr
          Anmeldename ODER ihre Tunneladresse uebereinstimmt.
 
-  SC-62  Anmeldenamen werden ueberall byteweise verglichen. Der
-         Anmeldedienst laesst nur zu, wenn der gesendete Name dem
-         gespeicherten Zeichen fuer Zeichen gleicht; kein Modul kuerzt
-         oder wandelt ihn (GS-8).
+  SC-62  Wo ein Anmeldename zuordnet oder zulaesst, wird er byteweise
+         verglichen. Der Anmeldedienst laesst nur zu, wenn der gesendete
+         Name dem gespeicherten Zeichen fuer Zeichen gleicht; kein Modul
+         kuerzt oder wandelt ihn. Groeber gleichsetzen darf allein ein
+         Schlussriegel, und nur, um abzuweisen (GS-8).
 
   SC-13  Der L2TP-Daemon weist eine zweite Sitzung desselben Anmeldenamens
          und eine neue Sitzung mit bereits zugewiesener Tunneladresse
@@ -122,20 +130,24 @@ SIMUSE UND SPERREN
          Widerruf, Tunneladresse, Kennwort), waehrend eine Anmeldung
          laeuft, wird das unter der Sperre erkannt und die Anmeldung
          abgelehnt. Jeder Kennwortwechsel erhoeht den Credential-Stand in
-         der Transaktion, die das Kennwort schreibt. Keine Sitzung
-         entsteht oder besteht unter einem abgeloesten Kennwort fort.
+         der Transaktion, die das Kennwort schreibt; Kennwort-Hash und
+         Credential-Stand einer Pruefung stammen aus EINER Lesung. Keine
+         Sitzung entsteht oder besteht unter einem abgeloesten Kennwort
+         fort.
 
   SC-15  Meldet die Sonde LIVE oder zeigt radacct eine offene Zeile der
          Connection (Anmeldename oder Tunneladresse), wird abgelehnt.
-         Sind nur Sitzungen im Auf- oder Abbau gelistet, wird
-         voruebergehend abgelehnt. UNKNOWN wird nie wie NOT_LIVE
+         Sind nur ANDERE Sitzungen der Connection im Auf- oder Abbau
+         gelistet, wird voruebergehend abgelehnt; die Sitzung des
+         anfragenden Versuchs zaehlt nicht. UNKNOWN wird nie wie NOT_LIVE
          behandelt: Es wird nichts geschlossen und streng nach radacct
          entschieden.
 
   SC-16  Jede Sperre hat Zweck, Halter und Ablauf. Je Connection existiert
          hoechstens eine Sperre. Kein Ablauf liegt jenseits der Obergrenze
-         des Zwecks; eine Sperre mit unmoeglich fernem Ablauf gilt als
-         abgelaufen (K-2).
+         des Zwecks; eine Sperre, deren Ablauf weiter in der Zukunft liegt
+         als die feste Obergrenze IHRES Zwecks, gilt als abgelaufen
+         (K-2).
 
   SC-17  Sperrerwerb geschieht in zwei einzeln festgeschriebenen
          Anweisungen (Abgelaufenes und Unmoegliches loeschen, dann
@@ -177,8 +189,9 @@ BEREINIGUNG
 
   SC-23  Geschlossen wird nur bei positiver Kenntnis, dass die Sitzung
          DIESER Zeile nicht lebt: Eine Laufzeitlesung zeigt keine Sitzung
-         mit ihrer Sitzungskennung - gleich in welchem Zustand -, oder der
-         Daemon laeuft gesichert nicht. Nie bei UNKNOWN. Die Bedingung
+         mit ihrer Sitzungskennung, die nach Name oder Adresse zu ihr
+         passt - gleich in welchem Zustand -, oder der Daemon laeuft
+         gesichert nicht. Nie bei UNKNOWN. Die Bedingung
          gilt auf jedem Weg: Abgleich, On-Demand-Pruefung, nach einem
          Neustart. Eine lebende Sitzung wird nie geschlossen (AD-1, AD-2,
          G-1).
@@ -188,18 +201,23 @@ BEREINIGUNG
          die Uhrzeit der Auswertung) und mit dem letzten belegten
          Lebenszeichen als Endzeit geschlossen. Vom Mindestalter gibt es
          keine Ausnahme. Nicht geschlossen wird, solange der
-         Abrechnungspuffer nicht leer ist oder die Karenz nach einem
-         beobachteten Ende laeuft. Das Schliessen ist idempotent (G-2,
-         G-3, G-4, G-7, G-8).
+         Abrechnungspuffer eine Meldung DIESER Sitzung enthaelt -
+         hoechstens bis zur benannten Wartegrenze - oder die Karenz nach
+         einem beobachteten Ende laeuft. Den Ende-Vermerk schreibt der
+         ip-down-Pfad als ersten Schritt und jeder, der selbst beendet,
+         vor dem Beenden; die Karenz ist nie null. Das Schliessen ist
+         idempotent (G-2, G-3, G-4, G-7, G-8).
 
   SC-25  Ein Neustart des L2TP-Daemons wird an seiner Instanzkennung
          erkannt, nicht an einem Vergleich von Uhrzeiten. Er schliesst
          nichts ausserhalb der Geister-Regeln; offene Zeilen aus der Zeit
          davor, deren Sitzung nicht mehr gelistet ist, erhalten den Grund
-         SYSTEM_RESTART.
+         SYSTEM_RESTART - gleich, ob der Abgleich oder die
+         On-Demand-Pruefung sie schliesst (L3, G-5).
 
   SC-71  Der L2TP-Adapter nennt je Sitzung die Sitzungskennung des Daemons
-         und zu jeder Lesung dessen Instanzkennung. Kann er keine
+         und zu jeder Lesung - list und probe - dessen Instanzkennung.
+         Kann er keine
          Sitzungskennungen nennen, sagt er es ausdruecklich; dann wird
          ueber die Connection zugeordnet, aeltere offene Zeilen ruhen,
          und der Zustand ist gemeldet. kill() beendet ueber
@@ -212,44 +230,58 @@ BEREINIGUNG
          keine Anmeldung; er macht die Pruefung nur strenger.
 
   SC-27  Aussperrzusagen: Eine Sperr-Leiche blockiert hoechstens fuer die
-         TTL ihres Zwecks, auch nach einer verstellten Uhr; ein Geist bei
-         arbeitender Sonde hoechstens bis zum Mindestalter zuzueglich
-         eines Begrenzungsfensters der Sonde; nach einem regulaeren Ende
-         ohne Stop-Meldung zusaetzlich hoechstens die Karenz; bei
-         stehendem vpn-sessiond hoechstens fuer den Takt des
+         TTL ihres Zwecks, nach einer verstellten Uhr hoechstens fuer die
+         feste Obergrenze der TTL ihres Zwecks; ein Geist bei arbeitender
+         Sonde hoechstens bis zum Mindestalter zuzueglich eines
+         Begrenzungsfensters der Sonde; nach einem regulaeren Ende ohne
+         Stop-Meldung zusaetzlich hoechstens die Karenz; liegt eine
+         Meldung der Sitzung noch im Abrechnungspuffer, hoechstens bis
+         zur Wartegrenze - andere Connections sind davon nicht betroffen;
+         bei stehendem vpn-sessiond hoechstens fuer den Takt des
          L2TP-Abgleichs plus Mindestalter; eine im Auf- oder Abbau
          haengende Sitzung hoechstens bis zu ihrer Frist plus Takt.
-         Solange der Abrechnungspuffer nicht leer ist, wird kein Geist
-         geschlossen; dauert das laenger als die Schwelle, wird
-         alarmiert.
+         Ohne benannte Frist sperren allein zwei ausgewiesene, gemeldete
+         Lagen: die gestoerte Verwaltungsschnittstelle des Daemons und
+         die gehaltene Mengenbremse des Abgleichs.
 
   SC-65  Eine Sitzung, die laenger als die benannte Frist im Auf- oder
-         Abbau haengt, wird gemeldet und beendet. Solange fuer eine
-         Connection nur solche Sitzungen gelistet sind, wird eine
+         Abbau haengt, wird gemeldet und beendet - mit oder ohne
+         Protokollzeile, sofern die Mengenbremse nicht haelt. Solange fuer
+         eine Connection nur solche Sitzungen gelistet sind, wird eine
          Anmeldung voruebergehend abgelehnt und nichts geschlossen.
 
   SC-28  Abgleich-, Bereinigungs- und Periodenlaeufe sind idempotent,
          einzeln gesperrt, zeitbegrenzt und bei nicht erreichbarer
          Datenbank wirkungslos. Kein Tunnel-Dienst haengt von ihnen ab.
-         Ob ein Lauf faellig ist, haengt an der Marke "zuletzt begonnen";
+         Ob ein Lauf faellig ist, haengt an der Marke "zuletzt begonnen",
+         die unmittelbar nach dem Erwerb des Einzel-Locks gesetzt wird;
          ein Anstoss bei belegtem Einzel-Lock geht nicht verloren (U-1,
          U-2, U-3).
 
   SC-29  Der L2TP-Abgleich liest zuerst die Laufzeit und danach die
          Datenbank.
 
-  SC-30  Eine lebende L2TP-Sitzung ohne Berechtigung wird beendet: wenn
-         sie zu keiner Connection gehoert, wenn ihr Anmeldename und ihre
-         Tunneladresse zu verschiedenen Connections fuehren oder wenn
-         ihre Connection DISABLED oder widerrufen ist. Von mehreren
-         aktiven Sitzungen einer Connection werden alle bis auf die
-         aelteste beendet. Eine lebende Sitzung ohne Protokollzeile wird
-         gemeldet, im Regelfall aber nicht beendet.
+  SC-30  Eine lebende L2TP-Sitzung ohne Berechtigung wird beendet, sofern
+         die Mengenbremse nicht haelt: wenn sie zu keiner Connection
+         gehoert, wenn ihr Anmeldename und ihre Tunneladresse zu keiner
+         oder zu verschiedenen Connections fuehren oder wenn ihre
+         Connection DISABLED oder widerrufen ist. Von mehreren
+         BERECHTIGTEN aktiven Sitzungen einer Connection werden alle bis
+         auf die aelteste beendet. Eine Sitzung, deren Connection-Zeile
+         nicht auswertbar ist, wird nicht beendet. Eine lebende Sitzung
+         ohne Protokollzeile wird gemeldet, im Regelfall aber nicht
+         beendet. Jede Beendigung durch den Abgleich schreibt zuvor
+         Ende-Vermerk und Grund-Hinweis SESSION_GUARD (L6, L6a, L7, L7a).
 
-  SC-70  Kein Lauf dieses Moduls beendet in einem Durchgang mehr
-         Sitzungen und gibt mehr Adressen zurueck, als seine Schwelle
-         erlaubt. Oberhalb der Schwelle geschieht NICHTS davon; es wird
-         alarmiert, und die Handlung liegt beim Betreiber (L6, L7, RS-2).
+  SC-70  Der L2TP-Abgleich wertet EINE Bremse fuer den ganzen Lauf aus,
+         bevor er die erste Sitzung beendet: Uebersteigt die Zahl aller
+         Kandidaten - haengend, unabgerechnet, ohne Berechtigung, mehrfach
+         - die Schwelle oder zusammen mit den Beendigungen der letzten
+         Stunde die Obergrenze je Stunde, beendet er KEINE. Ebenso gibt
+         der Bereinigungslauf oberhalb seiner Schwelle keine Adresse
+         zurueck und bucht oberhalb seiner Schwelle keine Protokollzeile
+         nach. Es wird alarmiert, und die Handlung liegt beim Betreiber
+         (L7a, RS-2, N-c).
 
 ================================================================================
 HARD-CUT
@@ -267,7 +299,9 @@ HARD-CUT
          Aufruf erfolgt ueber den privilegierten Auftragsweg mit
          numerischer Kennung. Jeder Verwaltungs-Hard-Cut wird im
          Lifecycle-Log mit Akteur protokolliert - sofort oder, bei
-         gestoerter Datenbank, nachgetragen (HC-2, HC-7).
+         gestoerter Datenbank, nachgetragen. Er wird nicht ausgefuehrt,
+         bevor seine Protokoll-Absicht gesichert ist; das Nachtragen ist
+         wiederholungsfest (HC-2, HC-7).
 
   SC-33  Der Hard-Cut einer L2TP-Sitzung funktioniert auch ohne Datenbank
          (Merkmale aus dem Laufzeit-Spiegel). Fehlt dort der Eintrag,
@@ -287,8 +321,10 @@ VERBRAUCHSBUCHUNG
          L2TP: bisher gebuchter Stand); Wiederholung und gleichzeitige
          Bucher zaehlen nichts doppelt und verlieren nichts. Die
          Tagesreihe wird in derselben Transaktion fortgeschrieben;
-         scheitert allein sie, wird ohne sie gebucht und der Ausfall
-         gemeldet (B-1, B-2, B-3, B-9).
+         scheitert allein sie - an ihrer Anweisung, an einer Sperre oder
+         einem Zeitlimit an ihrer Anweisung oder an fehlender Zeitzone -,
+         wird ohne sie gebucht und der Ausfall gemeldet (B-1, B-2, B-3,
+         B-9).
 
   SC-36  quota_used ist das einzige Aggregat fuer das Budget und zaehlt
          beide Richtungen. Tagesreihe und Periodenprotokoll werden fuer
@@ -302,16 +338,23 @@ VERBRAUCHSBUCHUNG
          Nachzuegler-Fensters nachgebucht.
 
   SC-38  JEDE radacct-Zeile erhaelt bei ihrer ersten Sichtung einen
-         Buchungsstand, der die Zuordnung zur Connection festhaelt - in
+         Buchungsstand, der die Zuordnung zur Connection nach EINER Regel
+         festhaelt (Name und Adresse; bei Widerspruch gilt die Adresse,
+         und die Abweichung ist vermerkt) - in
          derselben Transaktion, in der die Marke der gesichteten Zeilen
          ueber sie hinaus vorrueckt. Eine radacct-Zeile wird nicht
          geloescht, bevor ihr Buchungsstand abgeschlossen ist, und kein
          Buchungsstand vor seiner radacct-Zeile (A-3, A-4, A-5).
 
-  SC-69  Eine geschlossene radacct-Zeile ohne Buchungsstand wird vom
-         Bereinigungslauf gefunden, gebucht und gemeldet. Fehlt die Marke
-         der gesichteten Zeilen, ist das ein Alarm und fuehrt weder zu
-         Verlust noch zu Doppelbuchung.
+  SC-69  Eine geschlossene radacct-Zeile ohne Buchungsstand, die
+         unterhalb der Marke liegt und aelter ist als zwei Takte des
+         Abgleichs, wird vom Bereinigungslauf gefunden, gebucht und
+         gemeldet - sofern die Zahl solcher Zeilen die Schwelle nicht
+         uebersteigt. Oberhalb der Schwelle, und wenn Marke UND alle
+         Buchungsstaende bei vorhandenem Protokollbestand fehlen, wird
+         NICHTS nachgebucht; der Betreiber entscheidet. Weder eine
+         fehlende Marke noch der Verlust der Buchungsstaende fuehrt so zu
+         einer Doppelbuchung (N-a bis N-c).
 
   SC-39  Eine Datenbankstoerung allein verliert keinen Verbrauch:
          WireGuard ueber weiterlaufende Kernelzaehler und den Snapshot
@@ -325,6 +368,9 @@ VERBRAUCHSBUCHUNG
          Buchungsintervall; L2TP ein Interim-Intervall plus Takt des
          Abgleichs. Die Schwelle fuer Meldeverzug betraegt mindestens das
          Doppelte des Interim-Intervalls plus den Takt des Abgleichs.
+         Endet eine Sitzung ohne Stop-Meldung, fehlt hoechstens der
+         Verbrauch eines Interim-Intervalls zuzueglich der Zeit, fuer die
+         der Puffer Interim-Meldungen dieser Sitzung verworfen hat.
 
 ================================================================================
 QUOTA-PERIODE
@@ -339,9 +385,18 @@ QUOTA-PERIODE
          Abschlussprotokoll, Nullstellen und neuen Grenzen mit Vergleich
          auf das alte Periodenende. Er findet nur fuer nicht widerrufene
          Connections statt und nur, wenn die neue Periode nicht vor dem
-         Ende der alten beginnt. Er ist bei Wiederholung wirkungslos und
-         veraendert weder Cursor noch counter_epoch noch Buchungsstaende
-         (B-8).
+         Ende der alten beginnt; eine widerrufene Connection erhaelt
+         genau EINEN Abschluss ihrer letzten Periode und keine neue. Er
+         ist bei Wiederholung wirkungslos und veraendert weder Cursor
+         noch counter_epoch noch Buchungsstaende (B-8).
+
+  SC-72  Eine Periode, die in der Zukunft beginnt, wird gemeldet und vom
+         Lauf nicht veraendert. Berichtigt wird sie allein durch die
+         Betreiberhandlung SV-6b: je Connection EINE Transaktion, nur bei
+         bestaetigter Zeit, mit Akteur; der zu Unrecht abgeschlossene
+         Verbrauch kehrt in quota_used zurueck. Das Periodenprotokoll
+         bleibt INSERT-only; je Periode gilt die Zeile mit der hoechsten
+         Folgenummer, und kein spaeterer Wechsel scheitert am Schluessel.
 
   SC-43  Keine Verschraenkung von Buchung und Periodenwechsel verliert
          oder verdoppelt Verbrauch.
@@ -374,11 +429,13 @@ ADRESSEN
          v6_addr_policy = FIXED_SQL gebildet, in der Projektform
          "fd77:0:0:<v6_visual>::A:B"; sonst ist es NULL. Die Textform wird
          nie umgeformt; die Datenbank vergleicht sie als Zeichenkette;
-         niemand rechnet aus einer Adresse Slot oder Rolle zurueck.
+         niemand rechnet aus einer Adresse Slot oder Rolle zurueck -
+         ausser der Adress-Reparatur, die zu einer VORGEFUNDENEN Adresse
+         Pool und Slot bestimmt, um ihn zu sperren.
 
   SC-50  Ein Slot ist nicht vergebbar, solange eine Connection-Zeile ihn
-         traegt (gleich in welchem Zustand) oder ein gueltiger
-         Quarantaene-Eintrag ihn fuehrt.
+         traegt (gleich in welchem Zustand) oder ein Quarantaene-Eintrag
+         mit laufender ODER offener Frist ihn fuehrt.
 
   SC-51  Reicht die Freimenge nicht, scheitert der gesamte Vorgang mit
          POOL_EXHAUSTED_OR_QUARANTINED. Es gibt keine Teilvergabe und kein
@@ -396,12 +453,24 @@ ADRESSEN
          einer Connection bleibt ihre Adresse fuer die Restfrist gesperrt,
          ohne Personenbezug; Eintrag und Loeschung sind eine Transaktion.
 
+  SC-73  Kein Entzug scheitert an der Quarantaenefrist oder an der Uhr:
+         Widerruf, Sperrung, Rollenwechsel, vorzeitige Loeschung und
+         Adress-Reparatur wirken auch, wenn die Frist nicht berechenbar
+         oder die Systemzeit nicht bestaetigt ist - dann mit OFFENER
+         Frist (gesperrt ohne Ende). Sie wird erst bei bestaetigter Zeit
+         und lesbarem Key nachgetragen und beginnt mit dem Nachtrag.
+         Keine Frist entsteht aus einer unbestaetigten Uhr (R0).
+
   SC-54  Eine Adresse kehrt nur auf zwei Wegen in den Pool zurueck: durch
          Ablauf eines Quarantaene-Eintrags oder durch physische Loeschung
          einer widerrufenen Connection nach Ablauf ihrer Quarantaene. Vor
          dieser Loeschung wird CONNECTION_DELETED geschrieben. Die
          Loeschung gilt einheitlich fuer jede widerrufene Connection.
-         Eine unplausible Frist fuehrt zu keiner Rueckgabe (RS-3).
+         Zurueckgegeben wird nur bei gesetzter, abgelaufener Frist. Eine
+         unplausible Frist - vor ihrem Beginn endend oder laenger als die
+         Obergrenze des Keys - fuehrt zu keiner Rueckgabe; eine
+         Verkuerzung des Keys macht aeltere Fristen nicht unplausibel
+         (RS-3).
 
   SC-55  vpn_pool_config enthaelt genau eine gueltige Zeile je Rolle
          (PC-1 bis PC-6). Netz, Praefix und v6_visual sind unveraenderlich,
@@ -409,16 +478,19 @@ ADRESSEN
          Konfiguration wird nicht vergeben.
 
   SC-56  Je Pool werden Fuellstaende berechnet und Stufenwechsel gemeldet;
-         die zuletzt gemeldete Stufe steht in einer Marke, und nur der
-         Lauf meldet. Kunden sehen nur eigene Adressen; Adresslisten
+         die zuletzt gemeldete Stufe (eine von vier) steht in einer
+         Marke, und nur der Lauf meldet. Kunden sehen nur eigene
+         Adressen; Adresslisten
          eines Pools erhaelt nur ADMIN.
 
   SC-61  Weichen fixed_ip oder fixed_ipv6 einer Connection von der
          Ableitung aus Rolle und Slot ab, wird das in jedem
-         Bereinigungslauf erkannt und gemeldet. Der Waechter aendert
+         Bereinigungslauf erkannt und gemeldet - je Connection beim
+         ersten Feststellen, danach als Summe. Der Waechter aendert
          nichts und beendet nichts. Die Reparatur ist eine protokollierte
          Verwaltungshandlung je Connection: eine Neuvergabe ueber den
-         Allokator, bei der die bisherige Adresse in Quarantaene geht.
+         Allokator unter der Sperre ALLER betroffenen Pools, bei der die
+         bisherige Adresse in Quarantaene geht.
 
 ================================================================================
 MARKEN, BETRIEB, GRENZEN
@@ -438,19 +510,27 @@ MARKEN, BETRIEB, GRENZEN
          eigenen Rueckfallwerte: Fehlt ein Setting oder ist es ungueltig,
          greift die Fehlerklasse des Katalogs - der Notwert oder, bei
          Keys ohne Ersatzwert, der Abbruch des abhaengigen Vorgangs.
-         Verletzt eine Kombination die Regeln K-a bis K-g, gelten die
+         Verletzt eine Kombination die Regeln K-a bis K-j, gelten die
          Notwerte. Jeder dieser Faelle wird gemeldet; ein Konflikt mit
          einem fremden Key bleibt gemeldet, bis er behoben ist. Einen
          stillen Default gibt es nicht (U-1).
 
-  SC-66  Unumkehrbare, allein zeitgesteuerte Vorgaenge - Periodenwechsel,
-         Rueckgabe von Adressen, physisches Loeschen - laufen nur bei
-         bestaetigter Systemzeit. Zeitwerte in der Zukunft der
-         Datenbankzeit (Sperren, Marken, Beginnzeiten, Perioden) gelten
-         als Anomalie, werden gemeldet und fuehren nie zu einer
-         vorzeitigen oder verlaengerten Wirkung (U-5, K-2, M-7, G-2).
+  SC-66  Unumkehrbare, allein zeitgesteuerte Vorgaenge - Periodenwechsel
+         und seine Berichtigung, Rueckgabe von Adressen, physisches
+         Loeschen, Nachtragen offener Fristen - laufen nur bei
+         bestaetigter Systemzeit und nicht in einem Lauf, dessen eigene
+         Marke "zuletzt begonnen" in der Zukunft lag. Zeitwerte in der
+         Zukunft der Datenbankzeit (Sperren, Marken, Beginnzeiten,
+         Perioden, Hinweise) gelten als Anomalie, werden gemeldet und
+         fuehren nie zu einer vorzeitigen oder verlaengerten Wirkung.
+         Fenster und Alter, die ohne Datenbank gemessen werden
+         (Zwischenspeicher der Sonde, Ende-Vermerk, Beobachtungen des
+         Abgleichs), rechnen mit der monotonen Uhr; ein Lauf, in dem die
+         Systemzeit verstellt wurde, schliesst nichts und beendet nichts
+         (U-5, K-2, M-7, G-2, L0).
 
-  SC-67  Alle Datenbankverbindungen dieses Moduls und des AAA-Dienstes
+  SC-67  Alle Datenbankverbindungen dieses Moduls, des AAA-Dienstes und
+         jedes fremden Schreibers in Spalten dieses Moduls
          laufen mit Weltzeit als Sitzungszeitzone; Zeitpunkte werden als
          Weltzeit uebergeben. Die Geschaeftszeitzone wirkt nur in der
          Periodenrechnung und in der Tagesreihe (U-6).

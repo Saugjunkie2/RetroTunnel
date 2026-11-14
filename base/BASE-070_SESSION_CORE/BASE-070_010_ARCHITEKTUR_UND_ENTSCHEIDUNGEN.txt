@@ -36,7 +36,10 @@ ZWECK:
         ein Zustandswechsel beendet sie.
   SZ-3  KEIN DAUERHAFTES AUSSPERREN. Verwaiste Protokollzeilen und Sperren
         blockieren eine Anmeldung hoechstens fuer eine benannte, endliche
-        Frist.
+        Frist. Ausgewiesene Ausnahmen (BASE-070_030 Abschnitt 7): die
+        gestoerte Verwaltungsschnittstelle des Daemons und die gehaltene
+        Mengenbremse des Abgleichs - beide gemeldet, beide enden mit der
+        Stoerung bzw. mit der Entscheidung des Betreibers.
   SZ-4  KEINE ZWEITE WAHRHEIT. Kein SQL-Feld wird als Beleg fuer Liveness
         gelesen; Hinweisfelder sind als Hinweis gekennzeichnet.
   SZ-5  VERBRAUCH GENAU EINMAL. Keine Doppelzaehlung bei Wiederholung,
@@ -241,7 +244,7 @@ DEC-SC-07  EIN SPERRVERTRAG, ZWEI VERWENDUNGEN
   WireGuard). Jede Sperre traegt Zweck, Halter und Ablauf. Erwerb in zwei
   Schritten (Abgelaufenes loeschen, dann einfuegen), NICHT als "Einfuegen
   oder Aktualisieren": Dessen Rueckgabewert ist je nach Verbindungsoption
-  des Datenbanktreibers nicht eindeutig (BASE-070_030 Abschnitt 4).
+  des Datenbanktreibers nicht eindeutig (BASE-070_030 Abschnitt 3).
   Der Halter ist je Vorgang ein frischer Zufallswert; freigeben kann nur,
   wer ihn kennt. Beim Admission-Guard traegt ihn die Zusage im Attribut
   Class, und die Start-Meldung der zugelassenen Sitzung bringt ihn
@@ -255,7 +258,9 @@ DEC-SC-08  SONDE MIT VIER ANTWORTEN
   TRANSITION (nur Sitzungen im Auf- oder Abbau) ist eine eigene Antwort:
   Es wird nichts geschlossen und voruebergehend abgelehnt, weil der
   Daemon eine neue Sitzung in diesem Augenblick abwiese; haengt der
-  Zustand, wird die Sitzung nach einer Frist beendet.
+  Zustand, wird die Sitzung nach einer Frist beendet - mit oder ohne
+  Protokollzeile. Die Sitzung des anfragenden Versuchs selbst zaehlt
+  nicht als Uebergang.
 
 DEC-SC-09  BEREINIGUNG DREIFACH, NUR FUER BELEGT TOTES
   On-Demand im Anmeldepfad, periodisch, und nach Daemon- bzw. Systemstart.
@@ -395,15 +400,25 @@ DEC-SC-23  KEIN SELBSTTAETIGER MASSENEINGRIFF
   Laeufe dieses Moduls melden Abweichungen; sie greifen nur einzeln und
   begrenzt ein. Der Drift-Waechter der Adressen aendert nichts (die
   Reparatur ist eine Verwaltungshandlung je Connection). Der Abgleich
-  beendet oberhalb einer Schwelle keine Sitzung, der Bereinigungslauf
-  gibt oberhalb einer Schwelle keine Adresse zurueck. Grund: Eine grosse
-  Zahl gleichartiger Abweichungen zeigt in aller Regel einen Fehler der
-  Lesung, der Uhr oder der Daten - nicht viele einzelne Faelle. Ein
-  selbsttaetiger Eingriff wuerde den Fehler zum Schaden machen (SZ-9).
-  Der Schutz haengt dabei nie am Eingriff: Unberechtigter Verkehr bleibt
-  ueber die Policy gesperrt, Adressen bleiben laenger gesperrt.
+  beendet oberhalb EINER Schwelle fuer den ganzen Lauf - und oberhalb
+  einer Obergrenze je Stunde - keine Sitzung, gleich aus welchem Anlass
+  (haengend, unabgerechnet, ohne Berechtigung, mehrfach). Der
+  Bereinigungslauf gibt oberhalb einer Schwelle keine Adresse zurueck
+  und bucht oberhalb einer Schwelle keine Protokollzeile nach. Grund:
+  Eine grosse Zahl gleichartiger Abweichungen zeigt in aller Regel
+  einen Fehler der Lesung, der Uhr oder der Daten - nicht viele einzelne
+  Faelle. Ein selbsttaetiger Eingriff wuerde den Fehler zum Schaden
+  machen (SZ-9).
+  WORAN DER SCHUTZ DANN HAENGT: Fuer nicht berechtigte Connections nicht
+  am Eingriff - ihre Sperrung traegt einen Auftrag, ihre Freigabe ist
+  entzogen (BASE-080); Adressen bleiben laenger gesperrt; Verbrauch
+  bleibt ungebucht statt doppelt gebucht. Fuer eine Mehrfachsitzung oder
+  eine Abweichung der Zuordnung an einer BERECHTIGTEN Connection haengt
+  er am Beenden: Haelt die Bremse, besteht die Verletzung fort, bis der
+  Betreiber eingreift. Das ist eine bewusste, als CRITICAL gemeldete
+  Abwaegung - ein Lesefehler darf nicht alle Sitzungen kosten.
   Ersetzt die selbsttaetige Reparatur aus dem Vorgaenger (B064 5.5);
-  Befund BF-0028.
+  Befunde BF-0028, BF-0042.
 
 DEC-SC-24  SETTINGS OHNE EIGENEN RUECKFALLWEG
   Das Modul liest Settings nur ueber die Aufloesung des Settings-Kerns

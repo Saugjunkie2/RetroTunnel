@@ -28,7 +28,9 @@ Allokator-Tests (T-IS-01..04) gehen in T-SC-61 bis T-SC-66 auf.
 
 Soweit nicht anders angegeben, wird jeder Labortest fuer L2TP UND
 WireGuard ausgefuehrt, wo der Fall beide betrifft. Die Kennungen T-SC-79
-bis T-SC-95 sind nachgetragen und stehen sachlich bei ihrem Thema.
+bis T-SC-95 sind nachgetragen und stehen sachlich bei ihrem Thema;
+T-SC-96 bis T-SC-109 stehen im Schlussabschnitt "Nachpruefung der
+Behebung".
 
 ================================================================================
 WAHRHEIT UND HINWEISE
@@ -268,8 +270,10 @@ SIMUSE UND SPERREN
             abweichender Gross- oder Kleinschreibung des Namens, mit
             Leerraum davor oder dahinter, mit Zusatzzeichen: jeweils
             Ablehnung vor der Suche; vpn-session-check wird nicht
-            aufgerufen. [K] subaccount_login und radacct.username werden
-            in allen Abfragen byteweise verglichen. [L] Die Formatpruefung
+            aufgerufen. [K] Jede Abfrage, die ueber subaccount_login oder
+            radacct.username zuordnet oder zulaesst, vergleicht byteweise;
+            der Schlussriegel des Daemons darf groeber gleichsetzen und
+            weist dann nur ab. [L] Die Formatpruefung
             testweise umgehen und eine Sitzung unter abweichender
             Schreibweise erzwingen: Die Sonde meldet die Connection als
             LIVE (ueber die Tunneladresse); eine weitere Anmeldung wird
@@ -286,7 +290,10 @@ SIMUSE UND SPERREN
             entsteht keine Sitzung. Dasselbe mit einer Sperrung
             (DISABLED), einem Widerruf und einem Rollenwechsel waehrend
             P1. [K] Der Kennwortwechsel erhoeht credential_version in der
-            Transaktion, die das Kennwort schreibt. [SC-63, SC-14]
+            Transaktion, die das Kennwort schreibt. [L] Mit einem
+            Haltepunkt ZWISCHEN den Lesungen der Schritte 2.2 bis 2.4
+            denselben Wechsel ausfuehren: Ablehnung - Hash und
+            Credential-Stand stammen aus EINER Lesung. [SC-63, SC-14]
 
 ================================================================================
 BEREINIGUNG
@@ -374,14 +381,18 @@ BEREINIGUNG
             Karenz; die Stop-Meldung schliesst sie mit echtem Grund und
             echter Endzeit. Die Stop-Meldung ganz verwerfen: Nach Ablauf
             der Karenz wird die Zeile als Geist geschlossen.
-            Abrechnungspuffer nicht leer (Datenbankstoerung eben beendet,
-            Nachspielen laeuft): Kein Geist wird geschlossen; Sitzungen,
-            die waehrend der Stoerung endeten, tragen danach ihren echten
+            Eine Meldung der Sitzung liegt noch im Abrechnungspuffer
+            (Datenbankstoerung eben beendet, Nachspielen laeuft): Ihre
+            Zeile wird nicht als Geist geschlossen; Sitzungen, die
+            waehrend der Stoerung endeten, tragen danach ihren echten
             Grund und ihre echte Endzeit; bleibt der Puffer laenger als
             die Schwelle gefuellt: Alarm L2TP_BUFFER_NOT_DRAINED.
+            On-Demand-Pruefung bei gestopptem Daemon (NOT_LIVE): Es
+            gelten dieselben Regeln - Karenz und Puffer.
             [SC-24, SC-27]
 
-  T-SC-85  [L] Uebergangszustand: Eine Sitzung im Abbau festhalten und
+  T-SC-85  [L] Uebergangszustand: Eine Sitzung im Abbau festhalten (ihre
+            Zeile ist noch offen; die uebrigen Faelle: T-SC-103) und
             neu anmelden: Ablehnung mit R_SIMUSE_GUARD_BUSY, keine
             Sperr-Leiche, nichts wird geschlossen. Nach Ablauf von
             vpn_l2tp_transition_max_seconds: Ereignis L2TP_SESSION_STUCK,
@@ -518,8 +529,10 @@ VERBRAUCHSBUCHUNG
   T-SC-53  [L] Messlatenz: Zeit zwischen Verkehr und Sichtbarkeit in
             quota_used je Tunnel liegt unter der zugesagten Schranke
             (L2TP fuer Interim-Intervall 300 und 60). Eine Konfiguration,
-            die Regel K-b verletzt, wird als SESSION_SETTING_CONFLICT
-            gemeldet und bleibt gemeldet, bis sie behoben ist.
+            die Regel K-b ueber den FREMDEN Key (Interim-Intervall)
+            verletzt, wird als SESSION_SETTING_CONFLICT gemeldet und
+            bleibt gemeldet, bis sie behoben ist; liegt die Ursache im
+            eigenen Key, wirkt der Notwert (SESSION_SETTING_FALLBACK).
             [SC-40, SC-59]
 
   T-SC-89  [L] Marke und Sicherheitsnetz: Den Abgleich an beliebiger
@@ -572,7 +585,8 @@ QUOTA-PERIODE
             wirkungslos; zwei gleichzeitige Laeufe erzeugen genau eine
             Protokollzeile; Cursor, counter_epoch und Buchungsstaende sind
             unveraendert. Eine widerrufene Connection erhaelt keinen
-            Wechsel und keine Protokollzeile. [SC-42]
+            Wechsel; ihre letzte Periode wird genau einmal abgeschlossen
+            (T-SC-107). [SC-42]
 
   T-SC-56  [L] Dauerverkehr ueber die Monatsgrenze auf beiden Tunneln,
             Buchungs- und Wechsellaeufe in zufaelliger Reihenfolge, 100
@@ -734,17 +748,19 @@ MARKEN, BETRIEB, GRENZEN
             folgt dem neuen Takt, ohne dass eine Unit-Datei geaendert
             wurde. Ein Setting der Klasse FAIL_SAFE_HARDCAP loeschen bzw.
             ungueltig setzen: Die Aufloesung liefert den Notwert des
-            Katalogs. Eine der Regeln K-a, K-c, K-f oder K-g verletzen:
-            Die Notwerte wirken. In diesen Faellen ist
+            Katalogs. Eine der Regeln K-a, K-c, K-f, K-g, K-i oder K-j
+            verletzen: Die Notwerte wirken. In diesen Faellen ist
             SESSION_SETTING_FALLBACK gemeldet und steht in der
-            Statusdatei. vpn_quarantine_days loeschen: Widerruf und
-            Rollenwechsel scheitern ohne Teilwirkung, keine Adresse wird
-            zurueckgegeben, SESSION_SETTING_BLOCKED. vpn_quota_timezone
-            loeschen: kein Periodenwechsel, die Anlage einer Connection
-            scheitert. Eine Regel ueber einen fremden Key
-            verletzen (K-b, K-d, K-e): SESSION_SETTING_CONFLICT bleibt
-            gemeldet. vpn-sessiond ohne Datenbank neu starten: Er
-            arbeitet mit den Notwerten aus seiner Konfiguration. [K] Das
+            Statusdatei. vpn_quarantine_days loeschen: Keine Adresse wird
+            zurueckgegeben, SESSION_SETTING_BLOCKED; Widerruf und
+            Rollenwechsel wirken mit offener Frist (T-SC-108).
+            vpn_quota_timezone loeschen: kein Periodenwechsel, die Anlage
+            einer Connection scheitert; die Buchung laeuft weiter
+            (T-SC-106). Eine Regel ueber einen fremden Key
+            verletzen (K-b, K-d, K-e, K-h): SESSION_SETTING_CONFLICT
+            bleibt gemeldet. vpn-sessiond ohne Datenbank neu starten: Er
+            arbeitet mit den Notwerten, die der Settings-Kern fuer diesen
+            Fall bereitstellt (BASE-090, ANF-SC-08). [K] Das
             Modul enthaelt keine eigenen Rueckfallwerte ausserhalb des
             Katalogs. [SC-59]
 
@@ -828,6 +844,170 @@ MARKEN, BETRIEB, GRENZEN
             bleibt keine Teilwirkung. Derselbe Fehler bei SV-1 und bei
             der L2TP-Buchung: begrenzte Wiederholung, kein doppelter
             Eintrag. [SC-68, SC-52]
+
+================================================================================
+NACHPRUEFUNG DER BEHEBUNG (2026-11-14; nachgetragen)
+================================================================================
+
+  T-SC-96  [L] Uhr ohne Neustart: Systemzeit bei 20 lebenden Sitzungen
+            ohne Neustart des Daemons um 120 s vor- und danach
+            zurueckstellen: kein Hinweis SYSTEM_RESTART, keine Zeile wird
+            geschlossen, keine Sitzung beendet; RT_CLOCK_ANOMALY. Ein
+            Lauf, in dem die Uhr verstellt wurde, schliesst nichts. Daemon
+            neu starten und SOFORT neu anmelden, bevor der Abgleich
+            laeuft: Die On-Demand-Pruefung schliesst die alte Zeile mit
+            dem Grund SYSTEM_RESTART (Instanzkennung).
+            [SC-25, SC-66, SC-71]
+
+  T-SC-97  [L] Nachtraeglicher Beginn und Episoden: Die Zeile einer
+            frueheren Sitzung wird erst verarbeitet, nachdem der Beginn
+            einer neueren Sitzung derselben Connection gemeldet ist
+            (nachgespielte Meldungen ueber mehrere Laeufe;
+            Sicherheitsnetz): Die Episode der neueren bleibt offen, ihr
+            Hinweis runtime_active_since bleibt; kein SUPERSEDED.
+            Dasselbe nach einem Rollenwechsel (Adresse der frueheren
+            Zeile weicht ab): kein Hard-Cut. Beginn in der Zukunft
+            begrenzen und danach das Ende melden: Der Hinweis wird
+            geloescht. SV-2 ein zweites Mal aufrufen, nachdem der Hinweis
+            beim ersten Mal stehen blieb: Er wird geloescht, kein
+            zweiter Eintrag. [SC-08, SC-07, SC-06]
+
+  T-SC-98  [L] Puffer je Sitzung: Datenbankstoerung; waehrenddessen den
+            Daemon neu starten; nach der Rueckkehr sofort mehrere Kunden
+            neu anmelden, waehrend der Puffer noch nachspielt: Nur
+            Connections, deren Sitzung eine Meldung im Puffer hat,
+            warten; alle anderen Geister werden sofort geschlossen. Einen
+            Eintrag im Puffer unspielbar machen: Die betroffene Zeile
+            wird nach vpn_ghost_buffer_wait_max_seconds geschlossen
+            (SESSION_GHOST_BUFFER_EXPIRED); eine spaete Stop-Meldung wird
+            nach G-6 behandelt. Pufferauskunft je Sitzung abschalten: Es
+            gilt "Puffer nicht leer" mit derselben Grenze.
+            [SC-24, SC-27]
+
+  T-SC-99  [L] Ende-Vermerk bei eigenem Beenden: Hard-Cut bei kuenstlich
+            verzoegertem ip-down-Hook: Der Vermerk steht vor dem kill();
+            der angestossene Abgleich schliesst die Zeile nicht als
+            Geist; die Stop-Meldung traegt Grund und Zeit. Systemzeit
+            waehrend der Karenz zurueckstellen: Die Karenz verlaengert
+            sich nicht (monotone Uhr). Karenz 0 einstellen: abgelehnt.
+            Regel K-h verletzen: SESSION_SETTING_CONFLICT.
+            [SC-24, SC-66, SC-59]
+
+  T-SC-100  [L] Fenster des Grund-Hinweises: Hard-Cut einer Connection
+            mit einer zweiten, aelteren Geisterzeile: Nur das Ende im
+            Fenster traegt den Grund des Hard-Cuts; die alte Zeile
+            erhaelt JANITOR_GHOST. Einen verfallenen Hinweis stehen
+            lassen und erneut Hard-Cut: Der neue Hinweis ersetzt ihn.
+            Hinweis mit Zeitpunkt in der Zukunft: gilt nicht. Regel K-i
+            verletzen: Notwerte. [SC-64, SC-59]
+
+  T-SC-101  [L] Hard-Cut-Protokoll: Datenbank gestoert UND Spool nicht
+            schreibbar: Der Verwaltungs-Hard-Cut endet, OHNE zu beenden.
+            Den Bereinigungslauf zwischen Schreiben und Entfernen eines
+            Nachtrags abbrechen: Der naechste Lauf schreibt keinen
+            zweiten Eintrag. Das Werkzeug nach K4 abbrechen: Der Nachtrag
+            traegt das Ergebnis "unbekannt". HARDCUT-Sperre bei langem
+            kill() verlaengern: Sie bleibt gehalten. [SC-32, SC-22]
+
+  T-SC-102  [L] Sperre nach Rueckstufung der Uhr: Zulassungssperre liegen
+            lassen und die Uhr um 2 Minuten zurueckstellen: Sie wird beim
+            naechsten Erwerb entfernt (Ablauf jenseits von 60 s); eine
+            Umbau-Sperre mit 250 s Rest bleibt. Die Umbau-TTL senken,
+            waehrend eine Sperre gehalten wird: Sie bleibt gueltig.
+            [SC-16, SC-27]
+
+  T-SC-103  [L] Haengende Sitzung in beiden Faellen: (a) Sitzung im Abbau
+            festhalten, NACHDEM ihre Stop-Meldung die Zeile geschlossen
+            hat; (b) Sitzung im Aufbau festhalten, bevor eine Zeile
+            entsteht: jeweils nach der Frist L2TP_SESSION_STUCK und
+            Beenden genau dieser Sitzung; danach gelingt die Anmeldung.
+            kill() scheitern lassen: Ereignis mit FAILED, der naechste
+            Lauf versucht es erneut. Die Sitzung des eigenen
+            Anmeldeversuchs erscheint im Aufbau unter ihrem Namen: Die
+            Anmeldung wird NICHT als Uebergang abgelehnt
+            (Sitzungskennung in der Anfrage); ohne Kennung in der
+            Anfrage gilt die Betriebsart "Aufbau zaehlt nicht".
+            [SC-65, SC-15, SC-30]
+
+  T-SC-104  [L] Eine Bremse fuer den ganzen Lauf: Den Adapter so
+            verfaelschen, dass ALLE Sitzungen im Uebergang erscheinen:
+            Nach der Frist wird KEINE beendet (L2TP_KILL_HELD mit Zahlen
+            je Klasse). Kandidaten aus zwei Klassen, je unter der
+            Schwelle, zusammen darueber: Keine wird beendet. Eine
+            Stoerung, die je Lauf eine Sitzung trifft: Nach Erreichen der
+            Obergrenze je Stunde haelt die Bremse. Mehrfachsitzung, deren
+            aelteste Sitzung nicht berechtigt ist: Die nicht berechtigte
+            endet, die berechtigte bleibt. Zeile der Connection nicht
+            auswertbar: Die Sitzung wird nicht beendet
+            (RT_STATE_UNDETERMINED). Freigabe fuer einen Lauf: Die
+            Kandidaten werden beendet, jede mit Ende-Vermerk und Grund
+            SESSION_GUARD. [SC-70, SC-30, SC-07]
+
+  T-SC-105  [L] Sicherheitsnetz und verlorene Buchungsstaende: Die
+            Tabelle der Buchungsstaende leeren bei vorhandenem
+            radacct-Bestand (Marke vorhanden): Der Bereinigungslauf bucht
+            NICHTS (L2TP_ACCT_UNTRACKED_MASS); quota_used aendert sich
+            nicht. Zusaetzlich die Marke loeschen: L2TP_SYNC_STATE_LOST,
+            der Abgleich bucht nicht; nach "Bestand gilt als gebucht"
+            laeuft die Buchung weiter, offene Sitzungen werden ab ihrem
+            aktuellen Zaehler gebucht. Eine sehr kurze Sitzung endet
+            zwischen zwei Laeufen des Abgleichs, der Bereinigungslauf
+            laeuft dazwischen: keine Meldung L2TP_ACCT_UNTRACKED.
+            Erstinbetriebnahme mit leerem radacct: Marke 0 ohne Alarm.
+            Zeile, deren Name und Adresse zu verschiedenen Connections
+            fuehren: gebucht bei der Connection der Adresse, Vermerk
+            gesetzt. [SC-69, SC-38]
+
+  T-SC-106  [L] Tagesreihe gesperrt: log_usage_daily laenger als das
+            Zeitlimit sperren: Beide Tunnel buchen weiter - ohne
+            Tagesreihe, USAGE_DAILY_WRITE_FAILED je Bucher gezaehlt; der
+            Grace-Automat von WireGuard zaehlt keinen Fehler, awg0 wird
+            nicht gestoppt. vpn_quota_timezone loeschen: Die Buchung
+            laeuft, die Tagesreihe entfaellt, es gibt keinen
+            Periodenwechsel. Interim-Meldungen einer Sitzung im Puffer
+            verwerfen lassen und die Sitzung ohne Stop beenden: Der
+            Verlust liegt in der ausgewiesenen Grenze, der Verwurf ist
+            gemeldet. [SC-35, SC-40, SC-39]
+
+  T-SC-107  [L] Berichtigung einer Periode: Uhr um zwei Monate
+            vorstellen (Zeit gilt als bestaetigt), Wechsel laufen lassen,
+            Uhr berichtigen: QUOTA_PERIOD_IN_FUTURE, der Lauf aendert
+            nichts. SV-6b ausfuehren: Die Periode ist die laufende,
+            quota_used enthaelt den Verbrauch des Monats einschliesslich
+            der zu Unrecht abgeschlossenen Staende; je betroffener
+            Periode steht eine Berichtigungszeile; der naechste
+            regulaere Wechsel gelingt und schreibt die naechste
+            Folgenummer. Widerrufene Connection ueber die Monatsgrenze:
+            genau EINE Abschlusszeile fuer ihre letzte Periode, keine
+            neue Periode. [SC-72, SC-42]
+
+  T-SC-108  [L] Offene Frist: vpn_quarantine_days loeschen bzw. das
+            Zeitsignal entziehen; dann einen Customer loeschen, eine
+            Connection widerrufen, eine Rolle wechseln: Alle wirken
+            (Sperrung, revoked_at, neue Adressen); quarantine_until
+            bleibt offen; keine Adresse wird zurueckgegeben oder neu
+            vergeben; SESSION_SETTING_BLOCKED bzw.
+            SESSION_TIME_UNCONFIRMED. Key und Zeit wiederherstellen: Der
+            Bereinigungslauf traegt die Fristen ab JETZT nach
+            (POOL_QUARANTINE_DATED). Uhr unbestaetigt 400 Tage
+            zurueckstellen und widerrufen: Nach der Berichtigung der Uhr
+            ist die Adresse NICHT wieder frei. vpn_quarantine_days von
+            365 auf 180 verkuerzen: Aeltere Eintraege kehren nach ihrer
+            eigenen Frist zurueck, keiner wird als unplausibel gemeldet.
+            [SC-73, SC-54, SC-50]
+
+  T-SC-109  [K, L] Laufmarken, Adress-Reparatur, Ampel: Einen Lauf vor
+            seinem letzten Schritt abbrechen (Zeitlimit): Die Marke
+            "zuletzt begonnen" steht; der Lauf ist nicht in jedem Raster
+            faellig. Die Marke in die Zukunft setzen: Der naechste Lauf
+            laeuft, laesst die unumkehrbaren Schritte ruhen, der
+            uebernaechste fuehrt sie aus. Adress-Reparatur, bei der die
+            bisherige Adresse im Netz eines anderen Pools liegt: Beide
+            Pools sind gesperrt; Ende-Grund CONNECTION_ADDRESS_REPAIR.
+            Flaechige Adress-Drift ueber mehrere Laeufe: je Connection
+            EIN Ereignis, danach nur die Summe. Ampel: frei = 0 ergibt
+            die Stufe ERSCHOEPFT und genau ein Ereignis je Wechsel.
+            [SC-28, SC-66, SC-61, SC-56]
 
 ================================================================================
 CHANGELOG
