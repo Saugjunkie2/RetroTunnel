@@ -1,0 +1,580 @@
+{
+ "datei": "nachlieferung/decisions/D009_CONNECT_GATING_D1A_SQL_FIRST.txt",
+ "abschnitt": "1-69",
+ "zeilen_gesamt": 69,
+ "gelesen_bereiche": "1-69 (Nachlieferung); zusaetzlich XPN-Fassung XPN:decisions/D009_CONNECT_GATING_D1A_SQL_FIRST.txt 1-70 und vollstaendiger diff beider Fassungen",
+ "vollstaendig_gelesen": true,
+ "dokument": {
+  "titel": "Connect Gating (D1a) – SQL-First / No Unpoliced Window",
+  "doc_id": "D009",
+  "status_laut_datei": "ACCEPTED",
+  "version_laut_datei": "v1.0",
+  "datum_laut_datei": "2026-01-23",
+  "projekt": "XPN",
+  "art": "ENTSCHEIDUNG",
+  "normativitaet_laut_datei": "Abschnitt 2 'Entscheidung (D1a – FINAL)'; Abschnitt 4 'Constraints / Invariants (MUST)'; einzelne Saetze mit MUSS/FAIL-CLOSED"
+ },
+ "zusammenfassung": "D009 ist ein angenommener, als FINAL bezeichneter Entscheidungs-Record des XPN-Projekts zum Connect-Gate (Variante D1a). Ziel ist, dass es keinen Zustand gibt, in dem eine PPP-Sitzung aktiv ist, die Kernel-Policy (restricted/full + QoS + Abuse-Regeln) aber noch nicht deterministisch angewendet wurde ('No Unpoliced Window'). Zugleich wird ein 'Default Restricted'-Rueckfall (D1b) abgelehnt, damit bei SQL-Ausfall kein gesperrter (BANNED) User Zugriff auf interne Dienste wie Portal oder DNS erhaelt. Eingefuehrt werden kurzlebige nftables-Sets connect_pending_v4 und - nur in der Nachlieferung - connect_pending_v6: Quelladressen in diesen Sets werden im forward-Pfad vollstaendig verworfen (Blackhole/Drop, kein Walled Garden). Die Reihenfolge im ip-up-Hook ist: Client-IP sofort und vor jedem SQL-Zugriff ins Set eintragen, vpn-policy-apply ausfuehren, nur bei Exit 0 wieder austragen, bei TEMPFAIL_SQL/ERROR/TIMEOUT fail-closed mit PPP-Kill; ip-down bereinigt das Set best-effort. Als MUST-Invarianten gelten: Drop vor allen accept-Regeln, Austragen erst nach erfolgreichem policy-apply, kein Rueckfall auf Portal/Restricted. Der Record setzt B120, B150, B166, B167 und D002 voraus und beeinflusst B310. Er ist reif, aber in der Nachlieferung nur halb auf Dualstack umgestellt: Abschnitt A nennt v4 und v6, die Schrittfolge, der Disconnect und die Invarianten nennen weiterhin nur connect_pending_v4. Dies ist die einzige Datei der Gruppe mit einer inhaltlichen Abweichung zur XPN-Fassung.",
+ "aussagen": [
+  {
+   "nr": 1,
+   "zeilen": "3-8",
+   "zitat": "TITLE: Connect Gating (D1a) – SQL-First / No Unpoliced Window",
+   "aussage": "Kopf des Records: DECISION-ID D009, VERSION v1.0, DATUM 2026-01-23, STATUS ACCEPTED, OWNER Marco (Owner) + ChatGPT (Co-Architect). Titel: Connect Gating (D1a), SQL-First, No Unpoliced Window.",
+   "art": "HISTORIE",
+   "kennung": "D009",
+   "rt_bezug": [
+    "BASE-050",
+    "BASE-080"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 2,
+   "zeilen": "14-15",
+   "zitat": "- Ziel: Es darf keinen Zustand geben, in dem eine PPP-Session aktiv ist, aber die Kernel-Policy",
+   "aussage": "Ziel: Es darf keinen Zustand geben, in dem eine PPP-Sitzung aktiv ist, die Kernel-Policy (restricted/full + QoS + Abuses) aber nicht deterministisch angewendet wurde.",
+   "art": "SCHUTZZIEL",
+   "kennung": "No-Unpoliced-Window",
+   "rt_bezug": [
+    "BASE-050",
+    "BASE-080",
+    "BASE-030",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 3,
+   "zeilen": "16-17",
+   "zitat": "- Gleichzeitig soll es KEIN „Default Restricted“ Fallback geben (D1b wird abgelehnt),",
+   "aussage": "Es soll KEINEN 'Default Restricted'-Rueckfall geben; die Variante D1b wird abgelehnt, damit bei SQL-Ausfall kein BANNED User ploetzlich Zugriff auf interne Dienste (Portal/DNS) erhaelt.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "D1b (abgelehnt)",
+   "rt_bezug": [
+    "BASE-050",
+    "BASE-080",
+    "MOD-002",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 4,
+   "zeilen": "17",
+   "zitat": "  damit bei SQL-Ausfall kein BANNED User plötzlich Zugriff auf interne Services (Portal/DNS) erhält.",
+   "aussage": "Begruendung der Ablehnung von D1b: Ein Rueckfall auf Restricted wuerde bei SQL-Ausfall auch gesperrten Usern Zugang zu Portal und DNS oeffnen.",
+   "art": "SCHUTZZIEL",
+   "kennung": "D1b (abgelehnt)",
+   "rt_bezug": [
+    "BASE-050",
+    "BASE-010",
+    "MOD-002"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 5,
+   "zeilen": "18",
+   "zitat": "- Architektur-Pattern: SQL ist Control-Plane (SoT), Kernel ist Data-Plane (Enforcement).",
+   "aussage": "Architekturmuster: SQL ist die Control-Plane (massgebliche Quelle), der Kernel ist die Data-Plane (Durchsetzung).",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-000",
+    "BASE-050",
+    "BASE-080"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 6,
+   "zeilen": "21-23",
+   "zitat": "Wir führen ein separates, kurzlebiges Kernel-Gate für den Connect-Pfad ein:",
+   "aussage": "Entscheidung D1a (FINAL): Fuer den Connect-Pfad wird ein separates, kurzlebiges Kernel-Gate eingefuehrt.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "D1a",
+   "rt_bezug": [
+    "BASE-050",
+    "BASE-080"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 7,
+   "zeilen": "25",
+   "zitat": "A) Neue nftables sets: connect_pending_v4 (IPv4) + connect_pending_v6 (IPv6)",
+   "aussage": "Teil A: Es werden zwei neue nftables-Sets eingefuehrt: connect_pending_v4 (IPv4) und connect_pending_v6 (IPv6). (Die XPN-Fassung kennt nur connect_pending_v4.)",
+   "art": "IMPL_DETAIL",
+   "kennung": "D1a-A",
+   "rt_bezug": [
+    "BASE-050"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 8,
+   "zeilen": "26-27",
+   "zitat": "  - Wenn ip saddr @connect_pending_v4 => DROP ALL im forward path.",
+   "aussage": "Semantik v4: Ist die IPv4-Quelladresse im Set connect_pending_v4, wird im forward-Pfad alles verworfen (DROP ALL).",
+   "art": "IMPL_DETAIL",
+   "kennung": "D1a-A",
+   "rt_bezug": [
+    "BASE-050"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 9,
+   "zeilen": "28",
+   "zitat": "  - Wenn ip6 saddr @connect_pending_v6 => DROP ALL im forward path (Dualstack Parität für ADMIN/MODERN).",
+   "aussage": "Semantik v6: Ist die IPv6-Quelladresse im Set connect_pending_v6, wird im forward-Pfad alles verworfen; begruendet mit Dualstack-Paritaet fuer ADMIN/MODERN. (Nur in der Nachlieferung.)",
+   "art": "IMPL_DETAIL",
+   "kennung": "D1a-A",
+   "rt_bezug": [
+    "BASE-050",
+    "BASE-040"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 10,
+   "zeilen": "29",
+   "zitat": "- Dieses Gate ist NICHT „Restricted/Walled Garden“, sondern „Blackhole/Drop“.",
+   "aussage": "Abgrenzung: Das Connect-Gate ist NICHT 'Restricted/Walled Garden', sondern 'Blackhole/Drop'.",
+   "art": "DEFINITION",
+   "kennung": "D1a-A",
+   "rt_bezug": [
+    "BASE-050",
+    "MOD-002"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 11,
+   "zeilen": "31-32",
+   "zitat": "1) Sofort CLIENT_IP in connect_pending_v4 eintragen (VOR jedem SQL Zugriff).",
+   "aussage": "Teil B, Schritt 1 (ip-up-Hook): CLIENT_IP sofort in connect_pending_v4 eintragen, VOR jedem SQL-Zugriff.",
+   "art": "IMPL_DETAIL",
+   "kennung": "D1a-B",
+   "rt_bezug": [
+    "BASE-050",
+    "BASE-030",
+    "BASE-080"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 12,
+   "zeilen": "33",
+   "zitat": "2) vpn-policy-apply ausführen (SQL Truth -> Kernel State: restricted_v4 / full state / tc / etc.).",
+   "aussage": "Teil B, Schritt 2: vpn-policy-apply ausfuehren; es ueberfuehrt die SQL-Wahrheit in den Kernel-Zustand (restricted_v4 / full state / tc usw.).",
+   "art": "IMPL_DETAIL",
+   "kennung": "D1a-B",
+   "rt_bezug": [
+    "BASE-080",
+    "BASE-050",
+    "MOD-003",
+    "MOD-002"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 13,
+   "zeilen": "34",
+   "zitat": "3) Nur bei SUCCESS (Exit 0): CLIENT_IP wieder aus connect_pending_v4 entfernen.",
+   "aussage": "Teil B, Schritt 3: Nur bei SUCCESS (Exit 0) wird CLIENT_IP wieder aus connect_pending_v4 entfernt.",
+   "art": "IMPL_DETAIL",
+   "kennung": "D1a-B",
+   "rt_bezug": [
+    "BASE-050",
+    "BASE-080"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 14,
+   "zeilen": "35",
+   "zitat": "4) Bei TEMPFAIL_SQL/ERROR/TIMEOUT: FAIL-CLOSED => PPP Kill; Gate bleibt bis Cleanup.",
+   "aussage": "Teil B, Schritt 4: Bei TEMPFAIL_SQL, ERROR oder TIMEOUT gilt FAIL-CLOSED: die PPP-Sitzung wird beendet (PPP Kill), das Gate bleibt bis zum Cleanup bestehen.",
+   "art": "SCHUTZZIEL",
+   "kennung": "D1a-B",
+   "rt_bezug": [
+    "BASE-050",
+    "BASE-080",
+    "BASE-070",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 15,
+   "zeilen": "37-39",
+   "zitat": "- connect_pending_v4 MUSS best-effort bereinigt werden (CLIENT_IP delete),",
+   "aussage": "Teil C (ip-down-Hook): connect_pending_v4 MUSS best-effort bereinigt werden (CLIENT_IP loeschen), damit ein Reconnect nicht 'haengend' bleibt.",
+   "art": "BETRIEB",
+   "kennung": "D1a-C",
+   "rt_bezug": [
+    "BASE-050",
+    "BASE-030",
+    "BASE-070"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 16,
+   "zeilen": "44",
+   "zitat": "+ Kein Traffic-Leak vor Policy Apply (No-Unpoliced-Window wird technisch garantiert).",
+   "aussage": "Folge (+): Kein Traffic-Leak vor dem Anwenden der Policy; das No-Unpoliced-Window wird technisch garantiert.",
+   "art": "SCHUTZZIEL",
+   "kennung": "No-Unpoliced-Window",
+   "rt_bezug": [
+    "BASE-050",
+    "BASE-080"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 17,
+   "zeilen": "45",
+   "zitat": "+ Kein Portal/DNS Zugriff als „Fallback“ bei SQL-Ausfall (kein Default-Restricted).",
+   "aussage": "Folge (+): Bei SQL-Ausfall gibt es keinen Portal/DNS-Zugriff als 'Fallback' (kein Default-Restricted).",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-050",
+    "MOD-002",
+    "BASE-060"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 18,
+   "zeilen": "46",
+   "zitat": "+ SQL-First bleibt wahr: Wenn SQL nicht erreichbar ist, wird die Session beendet (FAIL-CLOSED).",
+   "aussage": "Folge (+): SQL-First bleibt gewahrt - ist SQL nicht erreichbar, wird die Sitzung beendet (FAIL-CLOSED).",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-000",
+    "BASE-080",
+    "BASE-070"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 19,
+   "zeilen": "47",
+   "zitat": "- Minimaler zusätzlicher nftables Set-Lookup im forward path (nur relevant während Connect-Phase).",
+   "aussage": "Folge (-): minimaler zusaetzlicher nftables-Set-Lookup im forward-Pfad, nur waehrend der Connect-Phase relevant.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-050"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 20,
+   "zeilen": "50-52",
+   "zitat": "- connect_pending_v4 DROP muss vor allen accept rules im forward path evaluated werden.",
+   "aussage": "Invariante (MUST): Die DROP-Regel fuer connect_pending_v4 muss im forward-Pfad vor allen accept-Regeln ausgewertet werden.",
+   "art": "SCHUTZZIEL",
+   "kennung": "Invariant",
+   "rt_bezug": [
+    "BASE-050"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 21,
+   "zeilen": "53",
+   "zitat": "- ip-up darf connect_pending_v4 erst nach erfolgreichem policy-apply entfernen.",
+   "aussage": "Invariante (MUST): ip-up darf den Eintrag in connect_pending_v4 erst nach erfolgreichem policy-apply entfernen.",
+   "art": "SCHUTZZIEL",
+   "kennung": "Invariant",
+   "rt_bezug": [
+    "BASE-050",
+    "BASE-080",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 22,
+   "zeilen": "54",
+   "zitat": "- Bei SQL/Apply Fehlern: Session wird beendet (FAIL-CLOSED), kein Fallback auf Portal/Restricted.",
+   "aussage": "Invariante (MUST): Bei SQL- oder Apply-Fehlern wird die Sitzung beendet (FAIL-CLOSED); es gibt keinen Rueckfall auf Portal/Restricted.",
+   "art": "SCHUTZZIEL",
+   "kennung": "Invariant",
+   "rt_bezug": [
+    "BASE-050",
+    "BASE-080",
+    "BASE-070",
+    "MOD-002"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 23,
+   "zeilen": "59-61",
+   "zitat": "- Blocks: B120, B150, B166, B167",
+   "aussage": "Voraussetzungen (Requires): Bloecke B120, B150, B166, B167 sowie Decision D002 (SQL-First).",
+   "art": "DEFINITION",
+   "kennung": "Requires",
+   "rt_bezug": [
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 24,
+   "zeilen": "62-63",
+   "zitat": "- Blocks: B310 (Tests/Acceptance)",
+   "aussage": "Beeinflusst (Influences): Block B310 (Tests/Acceptance).",
+   "art": "DEFINITION",
+   "kennung": "Influences",
+   "rt_bezug": [
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 25,
+   "zeilen": "66-68",
+   "zitat": "- v1.0 (2026-01-13): initial",
+   "aussage": "Changelog der Nachlieferung: einziger Eintrag v1.0 (2026-01-13) 'initial' - mit Datum 2026-01-13, abweichend vom Kopfdatum 2026-01-23. Die XPN-Fassung nennt v1.0 (2026-01-10) 'Neu – D1a Connect-Gate als kanonische Decision festgeschrieben' und v1.1 (2026-01-13) VERSION-Kopffeld.",
+   "art": "HISTORIE",
+   "kennung": "v1.0",
+   "rt_bezug": [],
+   "gewicht": "NORMAL"
+  }
+ ],
+ "werte": [
+  {
+   "zeilen": "25, 27",
+   "name": "connect_pending_v4",
+   "wert": "nftables-Set fuer IPv4-Quelladressen; Treffer => DROP ALL im forward path",
+   "einheit": "nftables-Set",
+   "status": "FIX",
+   "zitat": "  - Wenn ip saddr @connect_pending_v4 => DROP ALL im forward path."
+  },
+  {
+   "zeilen": "25, 28",
+   "name": "connect_pending_v6",
+   "wert": "nftables-Set fuer IPv6-Quelladressen; Treffer => DROP ALL im forward path (nur Nachlieferung; fehlt in XPN)",
+   "einheit": "nftables-Set",
+   "status": "FIX",
+   "zitat": "  - Wenn ip6 saddr @connect_pending_v6 => DROP ALL im forward path (Dualstack Parität für ADMIN/MODERN)."
+  },
+  {
+   "zeilen": "33",
+   "name": "restricted_v4",
+   "wert": "Kernel-Zustand (Set), den vpn-policy-apply setzt; neben 'full state' und tc",
+   "einheit": "nftables-Set",
+   "status": "FIX",
+   "zitat": "2) vpn-policy-apply ausführen (SQL Truth -> Kernel State: restricted_v4 / full state / tc / etc.)."
+  },
+  {
+   "zeilen": "33",
+   "name": "vpn-policy-apply",
+   "wert": "Werkzeug/Kommando, das SQL-Wahrheit in Kernel-Zustand ueberfuehrt",
+   "einheit": "Kommando",
+   "status": "FIX",
+   "zitat": "2) vpn-policy-apply ausführen (SQL Truth -> Kernel State: restricted_v4 / full state / tc / etc.)."
+  },
+  {
+   "zeilen": "34",
+   "name": "Erfolgskriterium policy-apply",
+   "wert": "SUCCESS = Exit 0",
+   "einheit": "Exit-Code",
+   "status": "FIX",
+   "zitat": "3) Nur bei SUCCESS (Exit 0): CLIENT_IP wieder aus connect_pending_v4 entfernen."
+  },
+  {
+   "zeilen": "35",
+   "name": "Fehlerklassen policy-apply",
+   "wert": "TEMPFAIL_SQL, ERROR, TIMEOUT => FAIL-CLOSED, PPP Kill (kein Zeitwert fuer TIMEOUT genannt)",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "4) Bei TEMPFAIL_SQL/ERROR/TIMEOUT: FAIL-CLOSED => PPP Kill; Gate bleibt bis Cleanup."
+  },
+  {
+   "zeilen": "31, 37",
+   "name": "PPP-Hooks",
+   "wert": "ip-up (Connect), ip-down (Disconnect)",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "B) Connect Reihenfolge (ip-up Hook)"
+  },
+  {
+   "zeilen": "32",
+   "name": "CLIENT_IP",
+   "wert": "Variable fuer die Client-Adresse der Sitzung, die ins Gate-Set eingetragen wird",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "1) Sofort CLIENT_IP in connect_pending_v4 eintragen (VOR jedem SQL Zugriff)."
+  }
+ ],
+ "verweise_auf_dokumente": [
+  {
+   "zeilen": "60",
+   "name": "B120",
+   "zitat": "- Blocks: B120, B150, B166, B167"
+  },
+  {
+   "zeilen": "60",
+   "name": "B150",
+   "zitat": "- Blocks: B120, B150, B166, B167"
+  },
+  {
+   "zeilen": "60",
+   "name": "B166",
+   "zitat": "- Blocks: B120, B150, B166, B167"
+  },
+  {
+   "zeilen": "60",
+   "name": "B167",
+   "zitat": "- Blocks: B120, B150, B166, B167"
+  },
+  {
+   "zeilen": "61",
+   "name": "D002",
+   "zitat": "- Decisions: D002 (SQL-First)"
+  },
+  {
+   "zeilen": "63",
+   "name": "B310",
+   "zitat": "- Blocks: B310 (Tests/Acceptance)"
+  },
+  {
+   "zeilen": "16",
+   "name": "D1b (abgelehnte Variante, kein eigenes Dokument genannt)",
+   "zitat": "- Gleichzeitig soll es KEIN „Default Restricted“ Fallback geben (D1b wird abgelehnt),"
+  }
+ ],
+ "offene_punkte": [
+  {
+   "zeilen": "35",
+   "kennung": "",
+   "text": "Fuer TIMEOUT ist kein Zeitwert angegeben; 'Gate bleibt bis Cleanup' nennt weder, wer den Cleanup ausfuehrt, noch wann (ausser ip-down in Teil C)."
+  },
+  {
+   "zeilen": "32-39, 52-53",
+   "kennung": "",
+   "text": "Die Behandlung der IPv6-Adresse im Ablauf ist nicht beschrieben: Schritte 1 und 3, der Disconnect und die Invarianten nennen nur connect_pending_v4, obwohl Teil A auch connect_pending_v6 einfuehrt."
+  },
+  {
+   "zeilen": "38",
+   "kennung": "",
+   "text": "Die Bereinigung beim Disconnect ist nur 'best-effort'; was geschieht, wenn sie fehlschlaegt (haengender Set-Eintrag), ist offen. Set-Timeouts werden nicht genannt."
+  },
+  {
+   "zeilen": "23-35",
+   "kennung": "",
+   "text": "Der Record beschreibt nur den PPP-Pfad (ip-up/ip-down); ein Connect-Gate fuer andere Tunnelarten ist nicht Gegenstand."
+  }
+ ],
+ "innere_widersprueche": [
+  {
+   "zeilen": "25-28 gegen 32, 34, 38, 52, 53",
+   "text": "Teil A fuehrt connect_pending_v4 UND connect_pending_v6 ein und verlangt Dualstack-Paritaet fuer ADMIN/MODERN; die Schrittfolge im ip-up-Hook (Zeilen 32, 34), der Disconnect (Zeile 38) und die MUST-Invarianten (Zeilen 52-53) nennen dagegen ausschliesslich connect_pending_v4. Die Dualstack-Erweiterung ist nur in Abschnitt A nachgezogen, der Rest ist auf dem v4-Stand geblieben."
+  },
+  {
+   "zeilen": "33",
+   "text": "vpn-policy-apply wird mit dem Zielzustand 'restricted_v4' beschrieben; ein v6-Gegenstueck (restricted_v6) wird nicht erwaehnt, obwohl D003 Kernel-Enforcement 'via restricted_*' nennt."
+  },
+  {
+   "zeilen": "6 gegen 68",
+   "text": "Kopfdatum 2026-01-23, Changelog datiert v1.0 auf 2026-01-13; die XPN-Fassung datiert v1.0 auf 2026-01-10 und v1.1 auf 2026-01-13."
+  },
+  {
+   "zeilen": "14 gegen 28",
+   "text": "Das Ziel ist auf die 'PPP-Session' bezogen (Zeile 14); die v6-Zeile begruendet sich mit 'ADMIN/MODERN' - Gruppen, die es im PPP-Pfad geben mag, deren v6-Adressvergabe ueber PPP hier aber nicht erlaeutert ist."
+  }
+ ],
+ "relevanz": {
+  "stufe": "HOCH",
+  "begruendung": "Normativer Ursprung des Connect-Gates: Sets connect_pending_v4/_v6 mit Blackhole-Semantik, Reihenfolge im ip-up-Hook (Set-Eintrag vor jedem SQL-Zugriff, policy-apply, Austragen nur bei Exit 0), Fail-Closed mit PPP-Kill bei SQL-/Apply-Fehlern, ausdrueckliche Ablehnung eines Default-Restricted-Rueckfalls, drei MUST-Invarianten. Beruehrt Firewall-, Policy-Herstellungs-, L2TP- und Sitzungs-Vertraege. Zusaetzlich die einzige Datei mit inhaltlicher Abweichung zur XPN-Fassung (IPv6-Gate).",
+  "rt_module": [
+   "BASE-050",
+   "BASE-080",
+   "BASE-030",
+   "BASE-070",
+   "BASE-000",
+   "MOD-002",
+   "MOD-003",
+   "BASE-040",
+   "BASE-060",
+   "QUERSCHNITT"
+  ]
+ },
+ "auffaelligkeiten": [
+  "EINZIGE Datei der Gruppe mit inhaltlicher Abweichung zur XPN-Fassung: Die Nachlieferung fuehrt in den Zeilen 25-29 zusaetzlich connect_pending_v6 ein und formuliert die Abgrenzung um ('sondern Blackhole/Drop' statt 'reines deny-all, bis Policy applied ist').",
+  "Zeile 26 endet mit einem Leerzeichen nach '- Semantik:'.",
+  "Der Changelog der Nachlieferung traegt das Datum 2026-01-13 (Zeile 68), nicht 2026-01-23 wie der Kopf (Zeile 6).",
+  "In der XPN-Fassung folgt nach dem Changelog eine Schlusszeile 'END DECISION D009' mit weiterer Trennlinie (XPN Zeilen 69-70); sie fehlt in der Nachlieferung.",
+  "Der Record ist anders gegliedert als D001-D008 (nummerierte Abschnitte 1-5 statt CONTEXT/DECISION/ALTERNATIVES/CONSEQUENCES).",
+  "Zeile 1 traegt den Pfad 'xp-vpn-stack/decisions/D009_CONNECT_GATING_D1A_SQL_FIRST.txt'.",
+  "Keine Zugangsdaten in der Datei."
+ ],
+ "abweichungen_zu_xpn": [
+  {
+   "zeilen_nachlieferung": "5",
+   "zeilen_xpn": "5",
+   "text_nachlieferung": "VERSION: v1.0",
+   "text_xpn": "VERSION: v1.1",
+   "bedeutung": "nur Kopf/Historie"
+  },
+  {
+   "zeilen_nachlieferung": "6",
+   "zeilen_xpn": "6",
+   "text_nachlieferung": "DATUM: 2026-01-23",
+   "text_xpn": "DATUM: 2026-01-10",
+   "bedeutung": "nur Kopf/Historie"
+  },
+  {
+   "zeilen_nachlieferung": "25",
+   "zeilen_xpn": "25",
+   "text_nachlieferung": "A) Neue nftables sets: connect_pending_v4 (IPv4) + connect_pending_v6 (IPv6)",
+   "text_xpn": "A) Neues nftables set: connect_pending_v4 (IPv4 addresses)",
+   "bedeutung": "INHALTLICH: Die Nachlieferung fuehrt zusaetzlich ein IPv6-Set connect_pending_v6 ein; die XPN-Fassung kennt nur das IPv4-Set. Erweiterung des Connect-Gates auf Dualstack."
+  },
+  {
+   "zeilen_nachlieferung": "26-28",
+   "zeilen_xpn": "26",
+   "text_nachlieferung": "- Semantik:  /   - Wenn ip saddr @connect_pending_v4 => DROP ALL im forward path. /   - Wenn ip6 saddr @connect_pending_v6 => DROP ALL im forward path (Dualstack Parität für ADMIN/MODERN).",
+   "text_xpn": "- Semantik: Wenn ip saddr @connect_pending_v4 => DROP ALL im forward path (egal wohin).",
+   "bedeutung": "INHALTLICH: In der Nachlieferung ist die Semantik in zwei Unterpunkte (v4 und v6) aufgeteilt; neu ist die v6-Regel mit der Begruendung 'Dualstack Paritaet fuer ADMIN/MODERN'. Der XPN-Zusatz '(egal wohin)' (Drop unabhaengig vom Ziel) fehlt in der Nachlieferung."
+  },
+  {
+   "zeilen_nachlieferung": "29",
+   "zeilen_xpn": "27",
+   "text_nachlieferung": "- Dieses Gate ist NICHT „Restricted/Walled Garden“, sondern „Blackhole/Drop“.",
+   "text_xpn": "- Dieses Gate ist NICHT „Restricted/Walled Garden“. Es ist ein reines „deny-all“, bis Policy applied ist.",
+   "bedeutung": "INHALTLICH (Formulierung): Nachlieferung nennt das Gate 'Blackhole/Drop'; XPN nennt es 'reines deny-all, bis Policy applied ist'. Der zeitliche Bezug 'bis Policy applied ist' steht nur in XPN; sachlich gleiche Wirkung (alles verwerfen)."
+  },
+  {
+   "zeilen_nachlieferung": "30-67",
+   "zeilen_xpn": "28-65",
+   "text_nachlieferung": "(identischer Text, um zwei Zeilen verschoben)",
+   "text_xpn": "(identischer Text)",
+   "bedeutung": "keine inhaltliche Abweichung; nur Zeilenversatz durch die zwei zusaetzlichen Zeilen in Abschnitt A. Folge: Schritte B/C und Invarianten nennen in BEIDEN Fassungen nur connect_pending_v4."
+  },
+  {
+   "zeilen_nachlieferung": "68",
+   "zeilen_xpn": "66-67",
+   "text_nachlieferung": "- v1.0 (2026-01-13): initial",
+   "text_xpn": "- v1.1 (2026-01-13): Added VERSION header field (protocol compliance). / - v1.0 (2026-01-10): Neu – D1a Connect-Gate als kanonische Decision festgeschrieben.",
+   "bedeutung": "nur Kopf/Historie (CHANGELOG); die Nachlieferung traegt hier das Datum 2026-01-13 statt 2026-01-23. Die Einfuehrung von connect_pending_v6 ist in KEINEM der beiden Changelogs vermerkt."
+  },
+  {
+   "zeilen_nachlieferung": "(fehlt; nach Zeile 69)",
+   "zeilen_xpn": "69-70",
+   "text_nachlieferung": "",
+   "text_xpn": "END DECISION D009 / ================================================================================",
+   "bedeutung": "nur Kopf/Historie (Schlussmarke der Datei fehlt in der Nachlieferung)"
+  }
+ ],
+ "verhaeltnis_zu_xpn": "Dem INHALT nach ist die Nachlieferung die juengere bzw. weiterentwickelte Fassung: Sie erweitert Abschnitt A um ein IPv6-Gate (connect_pending_v6, 'Dualstack Paritaet fuer ADMIN/MODERN'), das in der XPN-Fassung v1.1 (2026-01-10/13) noch fehlt. Das passt zeitlich dazu, dass das Dualstack-Modell fuer ADMIN/MODERN in D003 laut XPN-Changelog erst am 2026-01-21 (v2.2-v2.4) eingefuehrt wurde - also nach dem Stand der XPN-D009 und vor dem Kopfdatum der Nachlieferung (2026-01-23). Die Erweiterung ist jedoch unvollstaendig: Schrittfolge, Disconnect und Invarianten nennen weiterhin nur connect_pending_v4, und der Changelog ('v1.0 ... initial') vermerkt die Aenderung nicht. Umgekehrt ist die XPN-Fassung in zwei Punkten vollstaendiger: Sie enthaelt die Praezisierungen '(egal wohin)' und 'bis Policy applied ist', die echte Entstehungshistorie (v1.0 2026-01-10 'D1a Connect-Gate als kanonische Decision festgeschrieben') und die Schlussmarke 'END DECISION D009'. Ergebnis: inhaltlich juenger = Nachlieferung (IPv6-Gate); historisch vollstaendiger = XPN."
+}

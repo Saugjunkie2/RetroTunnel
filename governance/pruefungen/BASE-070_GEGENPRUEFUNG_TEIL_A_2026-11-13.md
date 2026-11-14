@@ -1,5 +1,7 @@
 <!--
-ABLAGE: Bericht einer unabhängigen Gegenprüfung (Modulebene). Unverändert übernommen.
+ABLAGE: Bericht einer unabhängigen Gegenprüfung (Modulebene). Unverändert übernommen (Endfassung des Prüfers,
+        einschließlich des Anhangs mit seinen Arbeitsnotizen). Ersetzt die am 2026-11-13 abgelegte Vorfassung, die
+        der Prüfer danach noch überarbeitet hat (u. a. B-09 von MITTEL auf NIEDRIG, B-01 um Vorschlag 3 ergänzt).
 Prüfer:      eigenständiger Prüf-Agent in getrenntem Kontext (ohne Kenntnis der Arbeitsnotizen des Hauptarchitekten),
              Auftrag: BASE-070 Teil A (Aktivität, Signalvertrag, SimUse, Sperrvertrag, Bereinigung, Hard-Cut) auf
              Fehlerszenarien, Widersprüche und unbenannte Annahmen prüfen; nichts verändern.
@@ -7,8 +9,9 @@ Zeitraum:    2026-11-13 (am Nutzungslimit unterbrochen, danach fortgesetzt; BM-0
 Gegenstand:  Stand der Moduldateien am Commit e05ae8e.
 Einordnung:  Beleg der Stufe "unabhängig gegengeprüft (Modul, Agent)". KEIN Vollaudit im Sinn der Betreiberregeln
              (AP-P03, AP-P04) und KEIN Freigabegate. Aussagen mit der Kennzeichnung [QUELLTEXT] beruhen auf dem
-             Lesen öffentlicher Quelltexte durch den Prüfer; sie sind NICHT am Zielsystem ausgeführt.
-Bearbeitung: Die Befunde B-01 bis B-13 sind im Befundregister geführt (BF-0013 ff.); Behebung in BASE-070 siehe dort.
+             Lesen öffentlicher Quelltexte durch den Prüfer; sie sind NICHT am Zielsystem ausgeführt und vom
+             Hauptarchitekten nicht nachgeprüft.
+Bearbeitung: Befunde B-01 bis B-13 = BF-0013 bis BF-0025 im Befundregister; Entscheidungen im Behebungsplan.
 -->
 
 # Gegenprüfung BASE-070 (Sitzungskern), Teil A — ENDFASSUNG
@@ -21,8 +24,10 @@ Vollständig gelesen: BASE-070_010, _020, _030, _040. Gezielt nachgeschlagen: BA
 _070 (ganz), _080 (ganz), _090 (ganz), _095 (bis T-SC-44), BASE-020_030, BASE-010_030, BASE-000_010,
 BASE-030_010, BASE-030_040, BASE-040 (nur Suche nach Hard-Cut-Gründen).
 Zusätzlich (nur gelesen, öffentliche Quellen): accel-ppp 1.13.0 (session.c, radius/acct.c, radius/radius.c,
-radius/req.c, cli/std_cmd.c, cli/show_sessions.c, extra/pppd_compat.c, ppp/ipcp_opt_ipaddr.c) und
-FreeRADIUS v3.2.x (rlm_mschap.c, mods-config/sql/main/mysql/queries.conf). Am Repository wurde nichts verändert.
+radius/req.c, radius/packet.c, radius/serv.c, radius/auth.c, cli/std_cmd.c, cli/show_sessions.c,
+extra/pppd_compat.c, ppp/ppp.c, ppp/ppp_lcp.c, ppp/ipcp_opt_ipaddr.c) und FreeRADIUS v3.2.x (rlm_mschap.c,
+mods-config/sql/main/mysql/queries.conf). Am Repository wurde nichts verändert.
+Nicht geprüft (nicht Teil des Auftrags): Ordner nachlieferung/ und der Entwurf unter base/BASE-080_POLICY_APPLY_CORE/.
 
 Kennzeichnung der Belege:
 - [GELESEN]    steht so im Konzepttext (Datei, Abschnitt, Zeile).
@@ -41,7 +46,7 @@ Kennzeichnung der Belege:
 | B-06 | MITTEL   | Widerspruch: L3/L4a/L4c schließen bei gelistetem Anmeldenamen, G-1/SC-23 verbieten es; G-1 Satz 2 in O3 nicht auswertbar |
 | B-07 | MITTEL   | Hard-Cut: ohne Datenbank kein Audit-Eintrag, Ergebnis bei fehlendem Spiegel unbestimmt, Grund-Hinweis bleibt liegen |
 | B-08 | MITTEL   | Stufung der Systemzeit (= Datenbankzeit) ist nicht abgedeckt: Sperren, Geister, Fälligkeit der Läufe |
-| B-09 | MITTEL   | Sitzung hängt im Auf- oder Abbau: UNKNOWN/abwarten ohne Frist und ohne Alarm |
+| B-09 | NIEDRIG  | Übergangszustände (Auf-/Abbau) ohne Frist und ohne Alarm; im Abbau sagt der AAA-Dienst zu, der Daemon weist ab |
 | B-10 | NIEDRIG  | Nachträglicher Beginn in L5 löst Vorbedingungs-Hard-Cut aus; trifft ggf. die neue Sitzung |
 | B-11 | NIEDRIG  | SV-Details: SUPERSEDED statt echtem Grund; SV-2-Vergleich und Idempotenzabbruch lassen Hinweis hängen |
 | B-12 | NIEDRIG  | Kleinere Lücken in Sperr-, Settings- und Laufvertrag (Sammelbefund) |
@@ -87,7 +92,9 @@ Kennzeichnung der Belege:
   berührt, weil A längst sichtbar ist. P3 sieht die Zeile nicht mehr (von O3 geschlossen) oder, bei binärem Vergleich
   in radacct, gar nicht erst.
 - G-1 Satz 2 (Vergleich über acctsessionid) würde das Schließen verhindern, ist aber nur bedingt formuliert und in O3
-  mit probe() nicht auswertbar (siehe B-06). Dann lehnt P3 den zweiten Versuch ab — allein wegen der _ci-Kollation.
+  mit probe() nicht auswertbar (siehe B-06). Bliebe die Zeile offen, lehnte P3 den zweiten Versuch ab — aber nur, weil
+  radacct.username unter _ci verglichen wird (Datenbankvorgabe laut BASE-000_010; für radacct nicht eigens
+  festgelegt). Schlussriegel und Hard-Cut blieben auch dann an die Zeichenkette gebunden.
 - T-SC-18 prüft den Schlussriegel nur mit identischem Namen.
 - Die umgekehrte Reihenfolge (erst kanonisch, dann Alias) wird in P1 abgelehnt; die Lücke besteht, wenn die ERSTE
   Sitzung den Alias trägt.
@@ -102,7 +109,10 @@ Kennzeichnung der Belege:
 2. Zweiter Schlussriegel über die Adresse: "Der Daemon weist eine Sitzung ab, deren Tunneladresse bereits einer anderen
    Sitzung zugewiesen ist" (accel-ppp: check-ip=1, lehnt die NEUE Sitzung ab; ipcp_opt_ipaddr.c [QUELLTEXT]). Weil
    fixed_ip je Connection eindeutig ist, sichert das SZ-1 je Connection statt je Zeichenkette.
-3. Zusätzlich single-session-ignore-case=1 (BASE-030) und G-1 über die Sitzungskennung (siehe B-06).
+3. Sonde und kill() nicht allein über den Namen führen: LIVE(c) auch dann, wenn eine Sitzung die Tunneladresse fixed_ip
+   von c trägt; Hard-Cut über Adresse bzw. Sitzungskennung (accel-ppp kennt "terminate ip" und "terminate sid",
+   cli/std_cmd.c [QUELLTEXT]; "terminate username" vergleicht exakt und beendet nur die erste passende Sitzung).
+4. Zusätzlich single-session-ignore-case=1 (BASE-030) und G-1 über die Sitzungskennung (siehe B-06).
 
 ---
 
@@ -131,8 +141,9 @@ Kennzeichnung der Belege:
 5. Folgen: P3 ist für diese Sitzungen blind (Interim-Meldungen öffnen eine geschlossene Zeile nicht wieder, queries.conf
    [QUELLTEXT]); L6 meldet jede als L2TP_UNACCOUNTED; mit vpn_l2tp_unaccounted_action = KILL werden die lebenden
    Sitzungen nach Ablauf der Schwelle beendet (Massenabwurf, SZ-9).
-6. Gleiches Bild nach Anhalten/Fortsetzen einer VM: CLOCK_MONOTONIC zählt die Pause nicht, d_start rückt um die
-   Pausendauer vor; betroffen sind die noch lebenden Sitzungen aus den ersten Sekunden nach dem Daemon-Start.
+6. Gleiches Bild nach Anhalten/Fortsetzen einer VM [VERMUTUNG zum Verhalten der Plattform]: Die monotone Uhr zählt die
+   Pause in der Regel nicht, die Systemzeit wird nachgestellt; d_start rückt um die Pausendauer vor. Betroffen sind die
+   noch lebenden Sitzungen aus den ersten Sekunden nach dem Daemon-Start (bei Dauerverbindungen die Einwahlwelle).
 
 **Warum die vorhandenen Mittel nicht greifen**
 - L3 ist der einzige Schließweg ohne G-1 und ohne Mindestalter; die Toleranz "deckt ungenaue Zeitstempel" (G-2) fehlt
@@ -236,9 +247,9 @@ Kennzeichnung der Belege:
 - BASE-070_020 Abschn. 7 und BASE-070_040 Abschn. 2 [GELESEN]: Der Zustand des Abrechnungspuffers wird nirgends berücksichtigt.
 - accel-ppp [QUELLTEXT]: Der Stop wird asynchron gesendet (rad_acct_stop), bei Sitzungsende ohne Antwort sitzungsunabhängig
   weitergeführt (rad_acct_stop_defer); ip-down hängt an EV_SES_PRE_FINISHED, unmittelbar bevor die Sitzung aus der
-  Liste entfernt wird. Bei hartem Beenden (kill) liegen Absenden des Stop, ip-down und Entfernen aus der Liste
-  unmittelbar hintereinander; bei weichem Abbau geht der Stop schon zu Beginn des Abbaus hinaus (dort ist das Fenster
-  entsprechend kleiner).
+  Liste entfernt wird. Bei hartem Beenden — kill, aber auch Leitungsverlust nach ausbleibendem LCP-Echo
+  (ppp_lcp.c Z.646) — liegen Absenden des Stop, ip-down und Entfernen aus der Liste unmittelbar hintereinander; bei
+  weichem Abbau (Client trennt) geht der Stop schon zu Beginn des Abbaus hinaus, dort ist das Fenster kleiner.
 
 **Abläufe**
 - Nach einer Datenbankstörung (sicher): Sitzung X endet um 10:02 während der Störung, ihr Stop liegt im Puffer. 10:05
@@ -247,11 +258,11 @@ Kennzeichnung der Belege:
   Störung), L5 meldet ACTIVITY_END(JANITOR_GHOST) und schließt den Buchungsstand ab. Der nachgespielte Stop
   überschreibt radacct; im Ereignisprotokoll bleiben falscher Grund und zu frühe Endzeit (INSERT-only).
   Das trifft JEDE Sitzung, die während der Störung endete.
-- Unter Last (regelmäßig): Der ip-down-Hook stößt den Abgleich für genau diesen Anmeldenamen an, während der Stop noch
-  nicht festgeschrieben ist; ebenso K6 direkt nach kill() und P1 bei gestopptem Daemon ("Daemon läuft gesichert nicht"
-  -> NOT_LIVE), während dessen Stop-Meldungen noch verarbeitet werden.
-- Hard-Cut: K4 hinterlegt ADMIN_HARDCUT, der von K6 angestoßene Lauf urteilt "Geist" und schreibt nach G-5
-  JANITOR_GHOST in dasselbe Feld.
+- Unter Last (Wettlauf, vor allem bei hartem Beenden): Der ip-down-Hook stößt den Abgleich für genau diesen
+  Anmeldenamen an, während der Stop noch nicht festgeschrieben ist; ebenso K6 direkt nach kill() und P1 bei gestopptem
+  Daemon ("Daemon läuft gesichert nicht" -> NOT_LIVE), während dessen Stop-Meldungen noch verarbeitet werden.
+- Hard-Cut: K4 hinterlegt ADMIN_HARDCUT; urteilt der von K6 angestoßene Lauf "Geist", verlangt G-5 den Hinweis
+  JANITOR_GHOST in demselben Feld. Welcher Hinweis gilt, regelt der Text nicht.
 
 **Warum die vorhandenen Mittel nicht greifen bzw. inwieweit doch**
 - SimUse und Aussperrzusagen sind nicht berührt; die Buchung holt J5 nach (Nachzügler), allerdings erst im Takt des
@@ -285,9 +296,12 @@ Kennzeichnung der Belege:
    kommt nie (S_alt endete mit einem Daemon-Absturz). Jetzt gibt es zwei offene Zeilen desselben Anmeldenamens.
 2. Lesart L4: r_alt ist "nicht in S" (andere Sitzungskennung) bzw. "älter" -> Geist -> schließen.
    Lesart G-1/SC-23: Der Anmeldename ist gelistet -> Schließen unzulässig.
-3. Folgt die Umsetzung G-1 und behandelt r_alt deshalb als "in S" (ohne Sitzungskennungen wörtlich so definiert), ruft
-   L4a SV-1(r_alt) auf; Schritt 2 von SV-1 beendet die "andere offene Episode" — die der LEBENDEN S_neu — mit SUPERSEDED.
-   SV-1(r_neu) ist danach wirkungslos (Beginn existiert). Die lebende Episode steht als beendet im Protokoll.
+3. Folgt die Umsetzung G-1, bleibt der "Geist" offen, solange S_neu lebt — bei Dauerverbindungen über Tage. Was bis
+   dahin mit ihm geschieht, ist nicht festgelegt: Sein Buchungsstand bleibt unabgeschlossen (die radacct-Zeile darf
+   nach ANF-SC-05 nicht gelöscht werden), und L8 kann für die gesunde Sitzung Meldeverzug melden, weil "ihre" ältere
+   Zeile nicht fortgeschrieben wird. Führt die Umsetzung die ältere Zeile mangels Schließmöglichkeit doch als lebend
+   ("r in S" ist ohne Sitzungskennungen wörtlich erfüllt), beendet SV-1 Schritt 2 die Episode der LEBENDEN S_neu mit
+   SUPERSEDED, und SV-1 für die neue Zeile bleibt wirkungslos.
 4. O3: vpn-sessiond kennt nur das Dreiwert-Ergebnis von probe(); ob "keine gelistete Sitzung die Kennung der Zeile
    trägt", kann es nicht prüfen. Genau dieser Satz wäre der Schutz in B-01.
 
@@ -320,8 +334,9 @@ Kennzeichnung der Belege:
   K2 findet keine Kennung. Welches Ergebnis dann gilt, steht nicht da; TEMPFAIL_DB ist nur für WireGuard vorgesehen.
   Meldet die Umsetzung OK_NOT_ACTIVE, ist das ein Schein-Erfolg bei laufender Sitzung.
 - (c) K4 hinterlegt ADMIN_HARDCUT, K5 liefert FAILED. Der Hinweis bleibt im Buchungsstand; trennt der Kunde am nächsten
-  Tag selbst, meldet L5 das Ende mit ADMIN_HARDCUT (Vorrang des Hinweises). Ebenso bei NOT_FOUND auf einer
-  Geisterzeile: Ein längst beendeter Geist endet im Protokoll als Betreiberhandlung.
+  Tag selbst, meldet L5 das Ende mit ADMIN_HARDCUT (Vorrang des Hinweises). Ähnlich bei NOT_FOUND auf einer
+  Geisterzeile: Je nachdem, welcher Hinweis gilt (ungeregelt, siehe B-05), endet ein längst toter Geist im Protokoll
+  als Betreiberhandlung.
 
 **Warum die vorhandenen Mittel nicht greifen**
 - T-SC-40 prüft nur das unmittelbare Ausbleiben eines Endes, T-SC-42 nur den Erfolgsfall mit vorhandenem Spiegel.
@@ -369,30 +384,35 @@ Kennzeichnung der Belege:
 
 ---
 
-## B-09 — MITTEL — Sitzung hängt im Auf- oder Abbau: UNKNOWN/abwarten ohne Frist und ohne Alarm
+## B-09 — NIEDRIG — Übergangszustände (Auf-/Abbau) ohne Frist und ohne Alarm; im Abbau sagt der AAA-Dienst zu und der Daemon weist ab
 
 **Fundstellen**
 - BASE-070_040 Abschn. 1 (Z.60) [GELESEN]: "UNKNOWN: es sind nur Sitzungen im Auf- oder Abbau gelistet";
   BASE-070_020 L4b (Z.325-326): "-> abwarten (Auf- oder Abbau)" — ohne Frist.
 - BASE-070_030 Abschn. 7, Zusagen zum Aussperren (Z.314-326) und BASE-070_090 SC-27 [GELESEN]: Der Fall fehlt.
   BASE-070_070 Abschn. 6: kein Ereignis dafür (SESSION_PROBE_UNAVAILABLE gilt nur für einen stummen Adapter).
-- accel-ppp [QUELLTEXT]: Der Stop wird erst am Ende des Abbaus gesendet (EV_SES_FINISHING in ap_session_finished); bis
-  dahin bleibt die Zeile offen, und die Sitzung steht mit Namen in der Liste (Zustand "finish").
+- accel-ppp session.c [QUELLTEXT]: Bei weichem Abbau wird der Stop zu Beginn gesendet (ap_session_terminate), die Sitzung
+  bleibt bis zum Ende des Abbaus mit Namen in der Liste (Zustand "finish"); die Abweisung einer zweiten Sitzung
+  (ap_session_set_username) gilt auch gegenüber einer solchen Sitzung.
 
 **Ablauf**
-1. Die Sitzung von Kunde U bleibt im Zustand "finish" stehen (Abbau wird nie fertig). Die Zeile bleibt offen.
-2. Jeder neue Versuch: P1 UNKNOWN, P3 findet die offene Zeile -> R_SIMUSE_ACTIVE. Der Abgleich wartet nach L4b, die
-   On-Demand-Prüfung schließt bei UNKNOWN nichts. Das hält an, bis jemand den Daemon neu startet.
-3. Kein Alarm: Der Adapter antwortet einwandfrei.
+1. Der Server beendet die Sitzung von Kunde U weich (etwa bei erreichter Höchstdauer); die Gegenstelle antwortet
+   nicht. Der Stop schließt die Zeile sofort, die Sitzung steht noch Sekunden als "finish" in der Liste.
+2. U wählt neu: P1 UNKNOWN, P3 leer, P4/P5, ACCEPT — der Daemon weist ab, weil der Name noch vergeben ist. Die
+   Abweisung steht nicht im AAA-Protokoll; die Sperre bleibt für ihre TTL (Fall D), weitere Versuche erhalten
+   R_SIMUSE_GUARD_BUSY.
+3. Bleibt eine Sitzung im Abbau hängen, wiederholt sich Schritt 2 ohne Ende. Kein Alarm: Der Adapter antwortet
+   einwandfrei; ob L6 eine Sitzung im Abbau als "ohne offene Zeile" meldet, steht nicht da.
 
 **Einordnung**
-- Die Lücke im Text ist belegt. Dass accel-ppp-Sitzungen bei L2TP tatsächlich im Abbau hängen bleiben, ist
-  [VERMUTUNG] (nicht geprüft). Der Aufbau ist durch die Zeitlimits der PPP-Aushandlung begrenzt.
+- Im Regelfall durch die Abbaudauer des Daemons plus eine Sperr-TTL begrenzt. Dass eine L2TP-Sitzung dauerhaft im Abbau
+  hängen bleibt, ist [VERMUTUNG] (nicht geprüft). Belegt ist die Lücke im Text: keine Frist, kein Ereignis, kein
+  Eintrag in den Zusagen.
 
 **Vorschlag**
-- Frist für Übergangszustände (zum Beispiel doppelte Abbau-Zeit des Daemons): danach Ereignis mit Stufe ALERT und
-  kill() über den Adapter; bestätigt der Adapter das Verschwinden, greift die normale Geisterregel. Den Fall mit seiner
-  Frist in die Zusagen (SC-27) aufnehmen.
+- Frist für Übergangszustände: danach Ereignis mit Stufe ALERT und kill() über den Adapter. Solange nur Sitzungen im
+  Abbau gelistet sind, in P2 mit einem eigenen vorübergehenden Grund ablehnen statt zuzusagen (kein Sperr-Rest, die
+  Ablehnung steht im AAA-Protokoll). Den Fall mit seiner Frist in die Zusagen (SC-27) aufnehmen.
 
 ---
 
@@ -450,8 +470,9 @@ Ereignis schon existiert.
   60 s) darf größer sein als die Operations-TTL (ab 15 s).
 - HARDCUT ist in BASE-070_030 Abschn. 5 (Z.224) nicht "verlängerbar", nach Abschn. 3/6 (Z.99, Z.237-238, Z.254-255) aber
   ein Umbau, der verlängert.
-- Fehler in P4: nach Abschn. 3 (Z.81-83) "NICHT ERWORBEN" (also R_SIMUSE_GUARD_BUSY), nach Abschn. 4 (Z.159-160)
-  Backend-Grund. T-SC-21 und T-SC-23 erwarten Verschiedenes.
+- Fehler in P4: nach Abschn. 3 (Z.81-83) heißt jeder Fehler "NICHT ERWORBEN", und P4 (Z.138) ordnet dem pauschal
+  R_SIMUSE_GUARD_BUSY zu; nach Abschn. 4 (Z.159-160) und T-SC-21 gilt der Backend-Grund. Welcher Grund bei einem
+  Datenbankfehler in P4 gemeldet wird, ist damit offen.
 - Rechte (BASE-070_070 Z.248-251): Der DB-User radius darf jede Sperre löschen; die Beschränkung auf L2TP_ADMISSION ist
   nur "vertraglich". Vorschlag: Die Kapselung als gespeicherte Routine (Z.191-195) zur Pflicht machen und die direkten
   Tabellenrechte entziehen.
@@ -475,7 +496,7 @@ Ereignis schon existiert.
 | acctstarttime ist die wahre Beginnzeit und mit der Lesezeit der Sonde vergleichbar | G-2, L3, source_event_at | [QUELLTEXT] Empfangszeit; für nachgespielte Meldungen vom Puffer abhängig; wiederholter Start überschreibt den Wert (B-11) |
 | Die Sitzungsliste ist eindeutig zerlegbar; Kürzen/Umformen wäre erkennbar (AD-2) | Adapter | [QUELLTEXT] mit Leerzeichen aufgefüllte Texttabelle; Leerraum im Namen nicht erkennbar |
 | Eine Interim-Meldung öffnet eine geschlossene Zeile nicht wieder | "Sicherungen, falls doch" (BASE-070_040 Z.319-324) | [QUELLTEXT] trifft zu — P3 bleibt deshalb bis zum Sitzungsende blind |
-| kill(Anmeldename) erfasst auch Sitzungen im Aufbau | Umbau, Kennwortwechsel | [VERMUTUNG], nicht geprüft |
+| kill(Anmeldename) erfasst auch Sitzungen im Aufbau | Umbau, Kennwortwechsel | [QUELLTEXT] trifft zu (jeder Zustand mit gesetztem Namen); beendet aber nur die ERSTE passende Sitzung und kann Namen mit Leerraum nicht adressieren |
 | Datenbank: NOW() ist der Anweisungsbeginn; E1/E2 und P3..P5 laufen einzeln festgeschrieben | Sperr-TTL, P5 | P5 im Text behandelt; E1/E2 in EINER Transaktion führen unter gleichzeitigen Erwerbern zu einem Verklemmungsfehler -> Ablehnung (unkritisch, aber als "kein Deadlock" in T-SC-16 erwartet) |
 
 Vorschlag: als E-SC-10 ff. mit Ausweichweg aufnehmen und je einen Test der Art [E] ergänzen.
@@ -514,3 +535,94 @@ Vorschlag: als E-SC-10 ff. mit Ausweichweg aufnehmen und je einen Test der Art [
   begründete Ereignisse siehe B-05, B-07, B-10, B-11.
 - WireGuard-Anteile (Zweck WG_ACTIVITY_START, Einordnung in BASE-070_030 Abschn. 9): nur am Rand geprüft, nichts gefunden.
 - Verhalten nach Neustarts außerhalb von L3 (Sperren, vpn-sessiond, Startreihenfolge ohne Datenbank).
+
+---
+
+# ANHANG — Arbeitsnotizen aus dem Prüfverlauf (durch die Endfassung oben überholt)
+
+Kandidatenkürzel K-a..K-n entsprechen: K-l -> B-01, K-d -> B-02, K-b -> B-03, K-a -> B-04, K-c -> B-05, K-e -> B-06,
+K-j -> B-07, K-k -> B-08, K-f -> B-09, K-i -> B-10, K-g/K-h -> B-11, K-m -> B-13, K-n -> entkräftet.
+
+## (Notiz) Gegenpruefung BASE-070 (Sitzungskern) - Pruefer A - ARBEITSSTAND (laufend)
+
+Status damals: IN ARBEIT. Dateien 010-040 vollstaendig gelesen; Nachschlagen in 050/070/080/090 und Nachbarmodulen laeuft.
+Hinweis: Diese Datei wird laufend ergaenzt; die Endfassung ist nach Schwere sortiert.
+
+### Rohliste der Kandidaten nach Lesen von 010-040 (noch NICHT gegen 050/070/080/090 gegengeprueft)
+
+K-a  Freigabe der L2TP_ADMISSION-Sperre bei Acct-Start ohne Haltervergleich: nachgespielte/verspaetete Start-Meldung
+     einer FRUEHEREN Sitzung loescht die Sperre eines NEUEN Versuchs (030 Abschn. 4 "ohne Haltervergleich", ANF-SC-04 Replay).
+K-b  Kennwortwechsel-Umbau: Credential-Pruefung (2.1-2.4) liegt VOR P4; Versuch, der waehrend P1 haengt, wird nach
+     Freigabe der Umbau-Sperre mit ALTEM Kennwort zugelassen (030 Abschn. 6; 020 Abschn. 8 "Keine Sitzung laeuft unter
+     einem abgeloesten Kennwort weiter"). Kein Auffangnetz (L7 prueft nur Status).
+K-c  Geist-Urteil ohne Karenz nach Verschwinden: ip-down-Hook / K6 stossen den Abgleich genau dann an, wenn die
+     Stop-Meldung noch unterwegs ist -> Zeile wird als Janitor-Ghost geschlossen, Ende-Grund JANITOR_GHOST, t_end = letzte
+     Zwischenmeldung (020 L4c, 040 G-2 misst nur Alter des BEGINNS; 040 Abschn. 7 "ausgeschlossen bzw. folgenlos").
+K-d  L3 (Daemon-Neustart) schliesst ohne Mindestalter und OHNE Abgleich mit S; haengt an d_start (Quelle/Genauigkeit
+     ungeklaert; Uhrsprung, uptime-Rundung) -> lebende Sitzungen koennen geschlossen werden.
+K-e  Widerspruch L4a/L4c ("aeltere sind Geister", exakte Zuordnung ueber Sitzungskennung) gegen G-1 (Anmeldename darf
+     in KEINEM Zustand gelistet sein).
+K-f  Sitzung haengt im Auf-/Abbau: probe = UNKNOWN, L4b "abwarten" ohne Frist -> unbegrenztes Aussperren ohne Alarm;
+     fehlt in "Zusagen zum Aussperren".
+K-g  SV-1 Schritt 2 / J2 brauchen Kennung + t_end der ANDEREN Episode; nur runtime_active_since verfuegbar.
+     SV-2 "Eintrag existiert -> ohne weitere Wirkung" laesst haengenden Hinweis unreparierbar.
+K-h  L4 vor L5: schneller Wiederverbinder -> altes Ende als SUPERSEDED statt echtem Grund.
+K-i  SV-1-Vorbedingungen (S-3 / b) mit Hard-Cut auch beim nachtraeglichen Beginn in L5 (Zeile schon zu): kill() wirkt
+     auf den Anmeldenamen -> trifft ggf. die neue rechtmaessige Sitzung (nach Rollenwechsel).
+K-j  Hard-Cut ohne Datenbank: K7 entfaellt ersatzlos (Audit-Eintrag nie geschrieben); Spiegel ohne Eintrag -> Ergebnis
+     unbestimmt (OK_NOT_ACTIVE waere Schein-Erfolg). K4-Hinweis bleibt nach FAIL_KILL liegen.
+K-k  Uhrsprung: Sperre mit expires_at in ferner Zukunft (keine Obergrenzenpruefung beim Erwerb, K-6 keine
+     Verwaltungshandlung); acctstarttime in der Zukunft -> Geist nicht schliessbar.
+K-l  Anmeldename: SQL-Vergleich (Kollation, PAD SPACE, Gross/Klein) vs. exakter Vergleich im Adapter / strcmp im
+     Daemon -> zu pruefen in BASE-020.
+K-m  Annahmen accel-ppp/FreeRADIUS/MariaDB gegen E-SC-Liste pruefen (single-session auch im Aufbau, Acct-Session-Id
+     eindeutig ueber Neustarts, Stop ueberschreibt geschlossene Zeile, NOW() = Anweisungsbeginn, ...).
+K-n  WireGuard-Hard-Cut: wer schreibt ENDE(ADMIN_HARDCUT)? K1-K8 nennen nur L2TP (K4, K6).
+
+### Zwischenstand 2 (nach Nachschlagen in 050 Abschn. 3/8, 070, 080, 090, 095 sowie BASE-020_030, BASE-010_030, BASE-000_010, BASE-030_010/_040)
+
+Bestaetigt / verschaerft:
+- K-l (NEU, voraussichtlich KRITISCH): Anmeldename nicht eindeutig. BASE-020_030 2.1 "User-Name wird getrimmt (Whitespace)";
+  BASE-000_010 "Collation: utf8mb4_unicode_ci"; BASE-010_030 subaccount_login VARCHAR(64) UNIQUE ohne binaere Kollation.
+  => mehrere Zeichenketten (Gross/Klein, Leerraum) fuehren zur selben Connection; Schlussriegel (SC-13 "desselben
+  Anmeldenamens") und Adapter (AD-2 "exakt verglichen") vergleichen aber Zeichenketten. Folge: probe = NOT_LIVE fuer
+  lebende Sitzung unter Alias -> Zeile der lebenden Sitzung wird als Geist geschlossen (radacct-Vergleich ist _ci) ->
+  P3 leer -> ACCEPT -> Daemon weist nicht ab -> zwei Sitzungen. Nicht in E-SC-01..09.
+- K-a bestaetigt: 050 Abschn. 8 P-c "Nachspielen in Eingangsreihenfolge je Sitzung" -> nachgespielter Start loescht fremde Sperre.
+- K-c bestaetigt: end_reason_hint ist EIN Feld (050 Abschn. 3); Vorrang G-5 (JANITOR_GHOST) gegen K4 (Hard-Cut-Grund) ungeregelt;
+  kein Loeschen des Hinweises nach FAIL_KILL.
+- K-d: SC-25/L3 gegen SC-23 ("Geschlossen wird nur bei positiver Kenntnis ... list() ohne die Kennung") - L3 prueft S nicht.
+  Zusatzfolge: L6 mit vpn_l2tp_unaccounted_action=KILL beendet danach die faelschlich geschlossenen lebenden Sitzungen.
+- K-j: SC-32 ("ein Verwaltungs-Hard-Cut wird im Lifecycle-Log mit Akteur protokolliert") gegen K2 ("K3, K4, K7 entfallen").
+- K-k: U-1 (Faelligkeit aus Marke) + Rueckwaertssprung der Uhr -> Laeufe "nicht faellig".
+- G-1 Satz 2 (acctsessionid gegen gelistete Sitzungen) ist mit probe(kennung) -> LIVE|NOT_LIVE|UNKNOWN in O3 nicht auswertbar.
+Entkraeftet / herabgestuft:
+- K-n (WG-Hard-Cut-Grund): BASE-040_050 Z.127ff "Weitere Ende-Gruende setzt der WG-Treiber bei Hard-Cut" -> KEIN Befund.
+- K-g: Kennung der anderen Episode ist ueber vpn_l2tp_acct_state (vpn_connection_id, started_at) herleitbar -> nur NIEDRIG.
+
+### Zwischenstand 3 (Quelltextpruefung accel-ppp 1.13.0, oeffentliches Repository, nur gelesen)
+
+- session.c ap_session_set_username(): Vergleich der Anmeldenamen mit strcmp (Gross/Klein UND Leerraum relevant);
+  nur mit Option single-session-ignore-case=1 strcasecmp. Abweisung greift fuer jede Sitzung in der Liste mit gesetztem
+  Namen (auch im Aufbau und im Abbau). => K-l: Schlussriegel haelt bei Alias-Schreibweisen NICHT (am Quelltext belegt).
+- radius/acct.c rad_acct_stop(): Stop wird asynchron gesendet; radius.c ses_finished(): ist der Stop bei Sitzungsende
+  noch nicht bestaetigt, laeuft er ueber rad_acct_stop_defer() sitzungsunabhaengig weiter. session.c
+  ap_session_finished(): list_del (Sitzung aus der Liste) unabhaengig von der Stop-Antwort.
+  => K-c: Fenster "nicht mehr gelistet, radacct-Zeile noch offen" existiert real (am Quelltext belegt).
+
+### Zwischenstand 4 (weitere Quelltextbelege; alle Kandidaten gegengeprueft - Endfassung steht oben)
+
+- cli/std_cmd.c show_stat_exec(): die Verwaltungsschnittstelle liefert nur "uptime" aus CLOCK_MONOTONIC (Sekunden),
+  keine absolute Startzeit => d_start (L3) muss abgeleitet werden; jede Stufung der Systemzeit verschiebt den Wert. (K-d)
+- extra/pppd_compat.c: ip-down haengt an EV_SES_PRE_FINISHED, also NACH dem Absenden des Stop (EV_SES_FINISHING) und
+  unmittelbar VOR dem Entfernen aus der Sitzungsliste => der vom ip-down-Hook angestossene Abgleich laeuft genau im
+  Fenster "nicht mehr gelistet / Stop evtl. noch nicht geschrieben". (K-c)
+- radius/req.c: Class aus dem Access-Accept wird in Accounting-Meldungen zurueckgesendet => Halterkennung der
+  Admission-Sperre ist ohne Daemon-Aenderung transportierbar (Vorschlag zu K-a).
+- radius/*.c: kein Event-Timestamp in Accounting-Meldungen => acctstarttime ist Empfangszeit des AAA-Dienstes
+  (bzw. bei nachgespielten Meldungen vom Pufferverfahren abhaengig).
+- session.c: sid-source Vorgabe "seq" mit +1000 Sicherheitsabstand beim Start => Wiederverwendung von
+  Sitzungskennungen praktisch ausgeschlossen (Kandidat "Kennung nicht eindeutig" ENTKRAEFTET).
+- FreeRADIUS v3.2.x rlm_mschap.c: Challenge-Hash wird mit dem Namen aus der Anfrage gebildet => Anmeldung mit
+  abweichender Gross-/Kleinschreibung gelingt, wenn die SQL-Suche den Hash liefert. (K-l)
+- BASE-020_090 / BASE-020_020 / BASE-030_090: keine Regel "User-Name muss byteidentisch zu subaccount_login sein". (K-l)

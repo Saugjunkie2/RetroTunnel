@@ -1,0 +1,1135 @@
+{
+ "datei": "nachlieferung/entwuerfe/peak_mode_v2/PEAK MODE v2 — BR-07.txt",
+ "abschnitt": "1-209",
+ "zeilen_gesamt": 209,
+ "gelesen_bereiche": "1-209",
+ "vollstaendig_gelesen": true,
+ "dokument": {
+  "titel": "PEAK MODE v2 — BR-07 Attribution (A1+A4) — MULTI-Logik + Top-N Täter (dynamic, latched)",
+  "doc_id": "BR-07",
+  "status_laut_datei": "ENTWURF (Phase 3)",
+  "version_laut_datei": "v2 (Entwurf; Änderungsprotokoll CHG-01..CHG-03)",
+  "datum_laut_datei": "kein Datum angegeben",
+  "projekt": "XPN",
+  "art": "NORM",
+  "normativitaet_laut_datei": "Abschnitte durchgehend als MUST gekennzeichnet; laut BR-00 normative Quelle für die Top-N-Täterlogik. Enthält FIX-Punkte (FP-PEAK-01, FP-PEAK-02, FP-BR07-03) und ausdrücklich offene Owner-Fixpunkte (FP-BR07-04..06)."
+ },
+ "zusammenfassung": "BR-07 definiert die Attribution: die Frage, welcher Client die Traffic-Last eines Peaks dominiert hat. Nach dem Modell A1+A4 wird je Fenster das Δbytes je pppX der USER-Kandidaten gebildet, ein Anteil (share) am Nenner berechnet, nach Δbytes sortiert und entschieden: Liegt der Anteil des größten Talkers bei mindestens 30 % (FP-PEAK-01, MULTI_SHARE_THRESHOLD_PCT), gilt er als Einzeltäter, sonst lautet das Ergebnis MULTI. Die Länge der Top-N-Liste ist dynamisch nach der Zahl aktiver USER-Sessions (bis 20: 3; 21 bis 100: 5; über 100: 10) und wird je Episode gelatched (FP-PEAK-02). Kandidaten sind ausschließlich USER-Sessions (conn_group=USER), ADMIN ist ausgeschlossen (FP-BR07-03). Offen sind das Attributionsfenster (60 s rollierend, 180 s oder Minuten-Bucket), die Nenner-Regel, der Umgang mit USER-pppX ohne gültiges Mapping und der Fallback bei Nenner 0. Sitzungsliste und Mapping stammen aus /run/vpn-sessions/*.env, die Zähler aus sysfs; die Attribution ist read-only und laut Dokument Audit/Diagnose ohne Einfluss auf das Enforcement. Drei Fehlerklassen und sieben Tests T-01..T-07 sind beschrieben. Reifegrad: Entwurf (Phase 3); wegen des offenen Fensters würde die eigene Fehlerklasse ERR-BR07-WINDOW_UNDEFINED derzeit einen HARD FAIL verlangen. Durchgehend an PPP-Schnittstellen gebunden.",
+ "aussagen": [
+  {
+   "nr": 1,
+   "zeilen": "2-6",
+   "zitat": "PEAK MODE v2 — BR-07 Attribution (A1+A4) — MULTI-Logik + Top-N Täter (dynamic, latched)",
+   "aussage": "BR-07 (Status ENTWURF, Phase 3) ist die self-contained Spezifikation der Attribution nach Modell A1+A4 mit MULTI-Logik und dynamischer, gelatchter Top-N-Täterliste; ohne Patch, Copy-Code oder Snippets.",
+   "art": "DEFINITION",
+   "kennung": "BR-07",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 2,
+   "zeilen": "9-10",
+   "zitat": "“welcher Client hat den Peak (Traffic-Last) dominiert?” inklusive:",
+   "aussage": "Scope: BR-07 definiert ausschließlich die Attribution-Logik – welcher Client den Peak (Traffic-Last) dominiert hat.",
+   "art": "DEFINITION",
+   "kennung": "Attribution",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 3,
+   "zeilen": "11-15",
+   "zitat": "- Top-N Täterliste (Speicherung intern, Peak-Logs/Snapshots)",
+   "aussage": "Zum Scope gehören: das A1+A4-Modell (Single Täter gegenüber MULTI), die MULTI-Schwelle (Share-Threshold), die Top-N-Täterliste (interne Speicherung, Peak-Logs/Snapshots), die Latch-Regel für Top-N (N je Episode fest) und Randfälle (Mapping fehlt, Δbytes negativ, denom=0, Interface churn).",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 4,
+   "zeilen": "16-20",
+   "zitat": "- Keine Peak-Trigger-Regeln (SoftIRQ/CPU Gate) (BR-10/BR-03)",
+   "aussage": "Anti-Scope: keine Peak-Trigger-Regeln (SoftIRQ/CPU-Gate; BR-10/BR-03), keine tc-Apply/Batches (BR-09/BR-01), keine DB-Schemata (BR-08/BR-08A), keine UI/Notifications (PM-01 separat).",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 5,
+   "zeilen": "26-31",
+   "zitat": "• Decision: max_share >= share_threshold -> Täter=max_client sonst Täter=MULTI",
+   "aussage": "[PPP-gebunden] Kanon-Import K-IMP-01 aus \"Peak-Mode_Was es ist, wie es funktioniert.txt\" (Abschnitt 7 Mapping & Attribution, 7.2 Attribution A1+A4): Δbytes je pppX im Fenster, Top-N-Liste, Entscheidung max_share >= share_threshold ergibt Täter=max_client, sonst Täter=MULTI; Top-Liste und selected_taeter werden gespeichert.",
+   "art": "HISTORIE",
+   "kennung": "K-IMP-01",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-030"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 6,
+   "zeilen": "32-33",
+   "zitat": "- Importiert: Owner-Fixpunkte (Share-Schwelle & Top-N) müssen als Zahl/Regel festgelegt werden.",
+   "aussage": "Kanon-Import K-IMP-02 aus Peak-Mode_entscheidung.txt (FP-PEAK-01 und FP-PEAK-02): Die Owner-Fixpunkte Share-Schwelle und Top-N müssen als Zahl bzw. Regel festgelegt werden.",
+   "art": "HISTORIE",
+   "kennung": "K-IMP-02 / FP-PEAK-01 / FP-PEAK-02",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 7,
+   "zeilen": "34-35",
+   "zitat": "- Importiert: Peak ist CAKE Edition; Attribution ist “ehrlich”, kein random blame.",
+   "aussage": "Kanon-Import K-IMP-03 aus \"peak-mode_OWNER-FIXPUNKTE (CAKE Edition).txt\": Peak ist CAKE Edition; die Attribution ist \"ehrlich\", kein zufälliges Beschuldigen.",
+   "art": "SCHUTZZIEL",
+   "kennung": "K-IMP-03",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 8,
+   "zeilen": "36-37",
+   "zitat": "Listenquelle /run/vpn-sessions/*.env ist VALID (SoT für Sessionliste+Mapping)",
+   "aussage": "[PPP-gebunden] Import K-IMP-04 aus PEAK MODE v2 BR-09: Die Listenquelle /run/vpn-sessions/*.env ist VALID und SoT für Sessionliste und Mapping; das Candidate-Set kann USER/Admin über conn_group bestimmen; das Mapping ppp_ifname<->connection_id ist /run-basiert.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K-IMP-04 / BR-09",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-030",
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 9,
+   "zeilen": "38",
+   "zitat": "aber Attribution nutzt per-ppp Δbytes; BR-04 ist nicht der per-ppp Counter-SoT",
+   "aussage": "[PPP-gebunden] Import K-IMP-05 aus PEAK MODE v2 BR-04: vpn_bps existiert global, die Attribution nutzt aber per-ppp-Δbytes; BR-04 ist nicht die SoT für per-ppp-Counter.",
+   "art": "DEFINITION",
+   "kennung": "K-IMP-05 / BR-04",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-030"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 10,
+   "zeilen": "41",
+   "zitat": "entweder ein einzelner Client (via vpn_connection_id/sub_account_id) oder der Sammelbegriff MULTI.",
+   "aussage": "Begriff Täter (selected_taeter): entweder ein einzelner Client (über vpn_connection_id/sub_account_id) oder der Sammelbegriff MULTI.",
+   "art": "DEFINITION",
+   "kennung": "selected_taeter",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-010"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 11,
+   "zeilen": "42",
+   "zitat": "- “Top-N Täterliste”: Liste der N größten Talker (pro Fenster/Snapshot), mit bytes/bps + share.",
+   "aussage": "Begriff Top-N-Täterliste: Liste der N größten Talker je Fenster/Snapshot mit bytes/bps und share.",
+   "art": "DEFINITION",
+   "kennung": "Top-N Täterliste",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 12,
+   "zeilen": "45-48",
+   "zitat": "in Peak-Mode_CHECKLISTE taucht “BR-07 Session Lifecycle & Timepoints” auf.",
+   "aussage": "Konfliktcheck K-CONF-01 (Status RISK, nur Nummerierung): In Peak-Mode_TEIL2_BUILD_READY_CHECKLISTE ist BR-07 = MULTI/Top-N, in Peak-Mode_CHECKLISTE heißt BR-07 \"Session Lifecycle & Timepoints\". Für v2 gilt: BR-07 bezeichnet ausdrücklich die Attribution (A1+A4); der Session-Lifecycle-Block muss in v2 als eigenes BR geführt werden (Nummer offen).",
+   "art": "OFFEN",
+   "kennung": "K-CONF-01",
+   "rt_bezug": [
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 13,
+   "zeilen": "49-51",
+   "zitat": "- v1 nennt “z.B. 60s oder 180s je nach Design” und fordert “genau eins festlegen”.",
+   "aussage": "Konfliktcheck K-CONF-02 (Status RISK): Attributionsfenster 60 s, 180 s oder 1/min-Snapshot – v1 nennt \"z.B. 60s oder 180s je nach Design\" und fordert, genau eines festzulegen; der Owner-Entscheid fehlt.",
+   "art": "OFFEN",
+   "kennung": "K-CONF-02",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 14,
+   "zeilen": "52-54",
+   "zitat": "- v1 Peak-Apply ist USER-only (ADMIN exclude); Attribution soll “nicht random blame” für Peak-intern sein.",
+   "aussage": "[PPP-gebunden] Konfliktcheck K-CONF-03 (USER-only gegenüber allen ppp*): Das v1-Peak-Apply ist USER-only (ADMIN ausgeschlossen); Status NONE, wenn das Candidate-Set der Attribution ebenfalls USER-only ist.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K-CONF-03",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-100"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 15,
+   "zeilen": "59-61",
+   "zitat": "- Bedeutung: wenn max_share >= 30% → Single Täter (max_client), sonst Täter=MULTI.",
+   "aussage": "FIX FP-PEAK-01 (MULTI_SHARE_THRESHOLD_PCT) = 30 %: Ist max_share >= 30 %, gibt es einen Single Täter (max_client), andernfalls lautet der Täter MULTI. Die 30 % sind damit ein Anteil am Traffic im Attributionsfenster.",
+   "art": "PARAMETER",
+   "kennung": "FP-PEAK-01 / MULTI_SHARE_THRESHOLD_PCT",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 16,
+   "zeilen": "62-65",
+   "zitat": "- FP-PEAK-02 (TOP_N_DYNAMIC_LATCHED): Option B (dynamic nach active_ppp) + Latch pro Episode:",
+   "aussage": "[PPP-gebunden] FIX FP-PEAK-02 (TOP_N_DYNAMIC_LATCHED): Option B, dynamisch nach active_ppp mit Latch je Episode – active_ppp <= 20 ergibt N = 3, 21..100 ergibt N = 5, > 100 ergibt N = 10.",
+   "art": "PARAMETER",
+   "kennung": "FP-PEAK-02 / TOP_N_DYNAMIC_LATCHED",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 17,
+   "zeilen": "66",
+   "zitat": "- LATCH: N wird beim Episode-Start (oder beim ersten Snapshot der Episode) festgelegt",
+   "aussage": "Latch-Regel: N wird beim Episode-Start (oder beim ersten Snapshot der Episode) festgelegt und bleibt bis zum Episode-Ende konstant.",
+   "art": "FUNKTION",
+   "kennung": "FP-PEAK-02",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 18,
+   "zeilen": "68-69",
+   "zitat": "Attribution berechnet Top-N und share nur über USER-Sessions (conn_group=USER). ADMIN ist ausgeschlossen.",
+   "aussage": "FIX FP-BR07-03 (CANDIDATE_SET), kanonisch aus v1/v2-Kontext: Die Attribution berechnet Top-N und share nur über USER-Sessions (conn_group=USER); ADMIN ist ausgeschlossen.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "FP-BR07-03",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-100"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 19,
+   "zeilen": "71-76",
+   "zitat": "- Option B: 180s window (entspricht peak_trigger_window_seconds default 180)",
+   "aussage": "Offener Owner-Fixpunkt FP-BR07-04 (ATTR_WINDOW_SECONDS): exaktes Zeitfenster für Δbytes/share – Option A: 60 s rollierend; Option B: 180 s (entspricht dem Default 180 von peak_trigger_window_seconds); Option C: Snapshot-Minute (1/min-Bucket). Es muss genau eine Option werden.",
+   "art": "OFFEN",
+   "kennung": "FP-BR07-04 / ATTR_WINDOW_SECONDS",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 20,
+   "zeilen": "77-80",
+   "zitat": "- Option A (empfohlen, aber Owner muss fixen): denom = Σ Δbytes (USER-only, mapped)",
+   "aussage": "Offener Owner-Fixpunkt FP-BR07-05 (DENOM_RULE): Nenner für share – Option A (empfohlen, aber vom Owner zu fixieren): denom = Σ Δbytes (USER-only, gemappt); Option B: denom = globale VPN-Bytes inkl. unmapped/ADMIN (macht die Anteile kleiner und kann MULTI erzwingen).",
+   "art": "OFFEN",
+   "kennung": "FP-BR07-05 / DENOM_RULE",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 21,
+   "zeilen": "81-84",
+   "zitat": "- Option A: exclude from Top-N + denom, set flag ATTR_INCOMPLETE",
+   "aussage": "[PPP-gebunden] Offener Owner-Fixpunkt FP-BR07-06 (UNMAPPED_RULE): Umgang mit USER-pppX ohne gültiges Mapping (fehlende *.env oder fehlende connection_id) – Option A: aus Top-N und Nenner ausschließen und Flag ATTR_INCOMPLETE setzen; Option B: als Eintrag \"UNKNOWN\" aufnehmen (Anteil möglich, Täter-ID nicht auflösbar).",
+   "art": "OFFEN",
+   "kennung": "FP-BR07-06 / UNMAPPED_RULE",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 22,
+   "zeilen": "90-93",
+   "zitat": "- Input-01: Liste aktiver Sessions aus /run/vpn-sessions/*.env (BR-09 SoT), je Eintrag:",
+   "aussage": "[PPP-gebunden] Input-01: Liste aktiver Sessions aus /run/vpn-sessions/*.env (SoT laut BR-09), je Eintrag ppp_ifname, conn_group (USER/ADMIN) und vpn_connection_id (oder sub_account_id).",
+   "art": "IMPL_DETAIL",
+   "kennung": "Input-01",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-030",
+    "BASE-010",
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 23,
+   "zeilen": "94",
+   "zitat": "- Input-02: Pro ppp_ifname: rx_bytes + tx_bytes Counter (sysfs), plus vorheriger Stand (runtime)",
+   "aussage": "[PPP-gebunden] Input-02: je ppp_ifname die sysfs-Counter rx_bytes + tx_bytes sowie der vorherige Stand (Laufzeit), um Δbytes zu bilden.",
+   "art": "IMPL_DETAIL",
+   "kennung": "Input-02",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-030"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 24,
+   "zeilen": "95",
+   "zitat": "- Input-03: Δt bzw. Fenster-Definition (ATTR_WINDOW_SECONDS) (Owner-Fix).",
+   "aussage": "Input-03: Δt bzw. die Fenster-Definition ATTR_WINDOW_SECONDS (Owner-Fix, noch offen).",
+   "art": "IMPL_DETAIL",
+   "kennung": "Input-03",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 25,
+   "zeilen": "96",
+   "zitat": "active_ppp = Anzahl aktiver USER Sessions (conn_group=USER) zum Zeitpunkt der N-Festlegung.",
+   "aussage": "[PPP-gebunden] Input-04: active_ppp ist die Anzahl aktiver USER-Sessions (conn_group=USER) zum Zeitpunkt der N-Festlegung – also nicht die Zahl aller ppp-Interfaces.",
+   "art": "DEFINITION",
+   "kennung": "active_ppp",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070",
+    "BASE-100"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 26,
+   "zeilen": "98-100",
+   "zitat": "- Determinismus: gleiche Eingänge → gleiche Top-N + selected_taeter.",
+   "aussage": "Constraints: Die Attribution ist read-only (keine tc-Schreibzugriffe) und deterministisch – gleiche Eingänge ergeben dieselbe Top-N-Liste und denselben selected_taeter.",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 27,
+   "zeilen": "103-106",
+   "zitat": "- Output-01: top_talkers[1..N] pro Fenster/Snapshot:",
+   "aussage": "Output-01: top_talkers[1..N] je Fenster/Snapshot mit vpn_connection_id (oder \"UNKNOWN\" je nach UNMAPPED_RULE), delta_bytes (oder delta_bps, falls bps persistiert werden soll; muss konsistent sein) und share_pct.",
+   "art": "FUNKTION",
+   "kennung": "Output-01 / top_talkers",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 28,
+   "zeilen": "107-109",
+   "zitat": "- entweder vpn_connection_id (Single Täter)",
+   "aussage": "Output-02: selected_taeter ist entweder eine vpn_connection_id (Single Täter) oder \"MULTI\".",
+   "art": "FUNKTION",
+   "kennung": "Output-02 / selected_taeter",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 29,
+   "zeilen": "110-113",
+   "zitat": "- COUNTER_RESET (wenn per-ppp Δbytes negativ korrigiert wurde)",
+   "aussage": "[PPP-gebunden] Output-03 Flags/Anomalien (mindestens): ATTR_INCOMPLETE (unmapped USER-Traffic existiert und wird von der UNMAPPED_RULE nicht vollständig abgebildet), COUNTER_RESET (per-ppp-Δbytes wurde negativ korrigiert), DENOM_ZERO (denom == 0, Anteile nicht definierbar; selected_taeter muss dann deterministisch sein).",
+   "art": "FUNKTION",
+   "kennung": "ATTR_INCOMPLETE / COUNTER_RESET / DENOM_ZERO",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 30,
+   "zeilen": "115-119",
+   "zitat": "- share_pppX = Δbytes_pppX / denom",
+   "aussage": "[PPP-gebunden] Decision Rule, Schritt 1: Für das definierte Fenster werden Δbytes_pppX für alle USER-Kandidaten (nach UNMAPPED_RULE), der Nenner nach DENOM_RULE und share_pppX = Δbytes_pppX / denom berechnet.",
+   "art": "FUNKTION",
+   "kennung": "Decision Rule",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 31,
+   "zeilen": "120-121",
+   "zitat": "- Sortiere nach Δbytes (absteigend), Top-N = N (aus FP-PEAK-02, latched)",
+   "aussage": "Decision Rule, Schritt 2: Sortierung nach Δbytes absteigend, Top-N mit dem gelatchten N aus FP-PEAK-02; max_share ist der Anteil des größten Talkers.",
+   "art": "FUNKTION",
+   "kennung": "Decision Rule",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 32,
+   "zeilen": "122-123",
+   "zitat": "- wenn denom == 0: selected_taeter = MULTI + Flag DENOM_ZERO",
+   "aussage": "Decision Rule, Schritt 3a: Bei denom == 0 gilt selected_taeter = MULTI plus Flag DENOM_ZERO – oder ein anderer fixer Fallback, der im v2-Contract noch fest zu definieren ist.",
+   "art": "OFFEN",
+   "kennung": "DENOM_ZERO",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 33,
+   "zeilen": "124-126",
+   "zitat": "• wenn max_share >= MULTI_SHARE_THRESHOLD_PCT → selected_taeter = top1.connection_id",
+   "aussage": "Decision Rule, Schritt 3b: Ist max_share >= MULTI_SHARE_THRESHOLD_PCT, wird selected_taeter = top1.connection_id; andernfalls selected_taeter = MULTI.",
+   "art": "FUNKTION",
+   "kennung": "MULTI_SHARE_THRESHOLD_PCT",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 34,
+   "zeilen": "129",
+   "zitat": "- E-01: Candidate-Set Enforcement: nur USER (ADMIN exclude).",
+   "aussage": "Enforcement E-01: Das Candidate-Set umfasst nur USER; ADMIN ist ausgeschlossen.",
+   "art": "FUNKTION",
+   "kennung": "E-01",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-100"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 35,
+   "zeilen": "130",
+   "zitat": "N ist pro Episode gelatched; Snapshot-Berechnung nutzt immer denselben N.",
+   "aussage": "Enforcement E-02 (Top-N-Determinismus): N ist je Episode gelatched; die Snapshot-Berechnung nutzt immer dasselbe N.",
+   "art": "FUNKTION",
+   "kennung": "E-02",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 36,
+   "zeilen": "131",
+   "zitat": "- E-03: Share Threshold ist fix 30% (keine hidden defaults).",
+   "aussage": "Enforcement E-03: Der Share-Threshold ist fest 30 %, ohne versteckte Defaults.",
+   "art": "PARAMETER",
+   "kennung": "E-03 / FP-PEAK-01",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 37,
+   "zeilen": "132",
+   "zitat": "es muss über UNMAPPED_RULE + Flag sichtbar werden.",
+   "aussage": "Enforcement E-04: Fehlendes Mapping wird nicht still ignoriert, sondern muss über UNMAPPED_RULE und Flag sichtbar werden.",
+   "art": "SCHUTZZIEL",
+   "kennung": "E-04",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007",
+    "BASE-070"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 38,
+   "zeilen": "135",
+   "zitat": "- ERR-BR07-RUN_SESSIONS_MISSING: /run/vpn-sessions nicht verfügbar → Attribution DEGRADED (kein blame).",
+   "aussage": "Fehlerklasse ERR-BR07-RUN_SESSIONS_MISSING: /run/vpn-sessions ist nicht verfügbar; die Attribution ist DEGRADED, es wird niemand beschuldigt.",
+   "art": "IMPL_DETAIL",
+   "kennung": "ERR-BR07-RUN_SESSIONS_MISSING",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 39,
+   "zeilen": "136",
+   "zitat": "- ERR-BR07-SYSFS_UNREADABLE: per-ppp counters nicht lesbar → Attribution DEGRADED.",
+   "aussage": "[PPP-gebunden] Fehlerklasse ERR-BR07-SYSFS_UNREADABLE: per-ppp-Counter nicht lesbar; die Attribution ist DEGRADED.",
+   "art": "IMPL_DETAIL",
+   "kennung": "ERR-BR07-SYSFS_UNREADABLE",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 40,
+   "zeilen": "137",
+   "zitat": "- ERR-BR07-WINDOW_UNDEFINED: ATTR_WINDOW_SECONDS ist nicht gefixt → HARD FAIL (damit niemand rät).",
+   "aussage": "Fehlerklasse ERR-BR07-WINDOW_UNDEFINED: Ist ATTR_WINDOW_SECONDS nicht fixiert, erfolgt ein HARD FAIL, damit niemand rät.",
+   "art": "IMPL_DETAIL",
+   "kennung": "ERR-BR07-WINDOW_UNDEFINED",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 41,
+   "zeilen": "139-141",
+   "zitat": "- Read-only; keine Locks wie tc-write.",
+   "aussage": "Die Attribution ist read-only und braucht keine Locks wie ein tc-Schreibzugriff; bei gleichem Fensterzustand sind die Outputs identisch.",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 42,
+   "zeilen": "143-144",
+   "zitat": "BR-07 liefert nur das Datenformat + Entscheidungsregel.",
+   "aussage": "Die Speicherung (Snapshots, Episode Summary) liegt in BR-08/BR-10; BR-07 liefert nur das Datenformat und die Entscheidungsregel.",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 43,
+   "zeilen": "147-148",
+   "zitat": "Attribution ist “ehrlich” (A1+A4), reproduzierbar und ops-debugbar (kein random blame)",
+   "aussage": "Fix-Intention: Die Attribution ist \"ehrlich\" (A1+A4), reproduzierbar und ops-debugbar (kein zufälliges Beschuldigen) und erzeugt keine Drift, weil die zwei Owner-Zahlen sowie die Regeln für window/denom/mapping eindeutig sind.",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 44,
+   "zeilen": "149-153",
+   "zitat": "- Fix: Top-N dynamic nach active_ppp, aber gelatched pro Episode.",
+   "aussage": "[PPP-gebunden] Delta: Fix sind MULTI-Threshold = 30 %, Top-N dynamisch nach active_ppp mit Latch je Episode und Candidate-Set USER-only; offen sind die Regeln für window/denom/unmapped, die als Owner-Fix geschlossen werden müssen, \"sonst implementiert man irgendwie\".",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 45,
+   "zeilen": "154-155",
+   "zitat": "- Kein Einfluss auf Security/Enforcement selbst; Attribution ist Audit/Diagnose.",
+   "aussage": "Grenze: Die Attribution hat keinen Einfluss auf Security/Enforcement selbst; sie ist Audit/Diagnose.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 46,
+   "zeilen": "156",
+   "zitat": "- Keine DB-SoT Verschiebung: Mapping kommt aus /run (BR-09).",
+   "aussage": "Grenze: keine Verschiebung der DB-SoT; das Mapping kommt aus /run (BR-09).",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-000",
+    "BASE-070",
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 47,
+   "zeilen": "162-166",
+   "zitat": "- Setup: 1 USER erzeugt >=30% des Traffic im Fenster, andere weniger.",
+   "aussage": "Test T-01 Single-Täter-Fall (>=30 %): Erzeugt ein USER mindestens 30 % des Traffics im Fenster, ist selected_taeter dieser USER (connection_id), er steht auf Platz 1 der Top-N mit share>=30 %; der Snapshot zeigt Anteil und Entscheidung.",
+   "art": "TEST",
+   "kennung": "T-01",
+   "rt_bezug": [
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 48,
+   "zeilen": "168-171",
+   "zitat": "- Setup: mehrere USER teilen Traffic so, dass #1 < 30%.",
+   "aussage": "Test T-02 MULTI-Fall (<30 %): Teilen sich mehrere USER den Traffic so, dass Platz 1 unter 30 % bleibt, ist selected_taeter = MULTI; der Snapshot zeigt max_share < 30 %.",
+   "art": "TEST",
+   "kennung": "T-02",
+   "rt_bezug": [
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 49,
+   "zeilen": "173-176",
+   "zitat": "- Setup: Episode startet mit active_ppp=15 → N=3; später wachsen Sessions auf 60.",
+   "aussage": "[PPP-gebunden] Test T-03 Top-N dynamisch mit Latch: Startet die Episode mit active_ppp=15 (N=3) und wachsen die Sessions später auf 60, bleibt N während der Episode 3; die Snapshots persistieren exakt 3 Einträge (sofern verfügbar).",
+   "art": "TEST",
+   "kennung": "T-03",
+   "rt_bezug": [
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 50,
+   "zeilen": "178-181",
+   "zitat": "- Setup: active_ppp=20 → N=3; 21 → N=5; 101 → N=10.",
+   "aussage": "[PPP-gebunden] Test T-04 active_ppp-Schwellen: active_ppp=20 ergibt N=3, 21 ergibt N=5, 101 ergibt N=10; die Episode-Meta zeigt das gelatchte N.",
+   "art": "TEST",
+   "kennung": "T-04",
+   "rt_bezug": [
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 51,
+   "zeilen": "183-186",
+   "zitat": "- Erwartung: deterministisches Verhalten nach UNMAPPED_RULE + ATTR_INCOMPLETE Flag.",
+   "aussage": "[PPP-gebunden] Test T-05 Mapping fehlt: Hat ein USER-pppX keine env bzw. keine connection_id, ist das Verhalten deterministisch nach UNMAPPED_RULE mit Flag ATTR_INCOMPLETE; der Snapshot zeigt das Flag, nichts wird still verschluckt.",
+   "art": "TEST",
+   "kennung": "T-05",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 52,
+   "zeilen": "188-191",
+   "zitat": "- Erwartung: deterministischer Fallback (z.B. MULTI) + DENOM_ZERO Flag; keine division-by-zero.",
+   "aussage": "Test T-06 denom == 0: In einem Fenster ohne Traffic bzw. mit Δbytes überall 0 gilt ein deterministischer Fallback (z. B. MULTI) mit Flag DENOM_ZERO, ohne Division durch null.",
+   "art": "TEST",
+   "kennung": "T-06",
+   "rt_bezug": [
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 53,
+   "zeilen": "193-196",
+   "zitat": "- Erwartung: Δbytes korrigiert (0) + COUNTER_RESET Flag; Entscheidung bleibt deterministisch.",
+   "aussage": "[PPP-gebunden] Test T-07 Counter reset: Bei negativen Δbytes eines pppX (Reset/Wrap) wird Δbytes auf 0 korrigiert und COUNTER_RESET gesetzt; die Entscheidung bleibt deterministisch, keine Phantom-Spikes.",
+   "art": "TEST",
+   "kennung": "T-07",
+   "rt_bezug": [
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 54,
+   "zeilen": "200",
+   "zitat": "- O-01 FP-BR07-04 ATTR_WINDOW_SECONDS (60s vs 180s vs 1/min) → Owner muss fixen",
+   "aussage": "Offen O-01: FP-BR07-04 ATTR_WINDOW_SECONDS (60 s, 180 s oder 1/min) muss der Owner fixieren; die Checkliste fordert genau eine Festlegung.",
+   "art": "OFFEN",
+   "kennung": "O-01 / FP-BR07-04",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 55,
+   "zeilen": "201",
+   "zitat": "- O-02 FP-BR07-05 DENOM_RULE → Owner muss fixen (sonst drift in share).",
+   "aussage": "Offen O-02: FP-BR07-05 DENOM_RULE muss der Owner fixieren, sonst driftet die share-Berechnung.",
+   "art": "OFFEN",
+   "kennung": "O-02 / FP-BR07-05",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 56,
+   "zeilen": "202",
+   "zitat": "- O-03 FP-BR07-06 UNMAPPED_RULE → Owner muss fixen (sonst drift in blame/flags).",
+   "aussage": "Offen O-03: FP-BR07-06 UNMAPPED_RULE muss der Owner fixieren, sonst driften Zuschreibung und Flags.",
+   "art": "OFFEN",
+   "kennung": "O-03 / FP-BR07-06",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 57,
+   "zeilen": "203",
+   "zitat": "- O-04 denom==0 Fallback ist noch nicht als Fakt fixiert",
+   "aussage": "Offen O-04: Der Fallback bei denom==0 ist noch nicht als Fakt fixiert; im v2-Contract muss dafür eine Zeile stehen (z. B. selected_taeter=MULTI).",
+   "art": "OFFEN",
+   "kennung": "O-04",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 58,
+   "zeilen": "207",
+   "zitat": "- CHG-01: BR-07 v2 übernimmt A1+A4 1:1 aus v1 (“max_share vs threshold => Single vs MULTI”).",
+   "aussage": "Änderungsprotokoll CHG-01: BR-07 v2 übernimmt A1+A4 unverändert aus v1 (max_share gegen Threshold ergibt Single oder MULTI).",
+   "art": "HISTORIE",
+   "kennung": "CHG-01",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 59,
+   "zeilen": "208",
+   "zitat": "- CHG-02: Owner-Fixpunkte sind geschlossen für MULTI=30% + Top-N dynamic + Latch-Regel.",
+   "aussage": "Änderungsprotokoll CHG-02: Die Owner-Fixpunkte sind geschlossen für MULTI=30 %, Top-N dynamisch und Latch-Regel.",
+   "art": "HISTORIE",
+   "kennung": "CHG-02",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 60,
+   "zeilen": "209",
+   "zitat": "- CHG-03: Die drei Driftstellen (window/denom/unmapped) werden explizit als OPEN markiert",
+   "aussage": "Änderungsprotokoll CHG-03: Die drei Driftstellen window/denom/unmapped werden ausdrücklich als OPEN markiert, statt stillschweigend zu raten.",
+   "art": "HISTORIE",
+   "kennung": "CHG-03",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  }
+ ],
+ "werte": [
+  {
+   "zeilen": "60-61, 131, 150, 208",
+   "name": "FP-PEAK-01 MULTI_SHARE_THRESHOLD_PCT",
+   "wert": "30 (max_share >= 30 % -> Single Täter, sonst MULTI)",
+   "einheit": "%",
+   "status": "FIX",
+   "zitat": "- FP-PEAK-01 (MULTI_SHARE_THRESHOLD_PCT): 30%"
+  },
+  {
+   "zeilen": "62-63, 179",
+   "name": "FP-PEAK-02 TOP_N bei active_ppp <= 20",
+   "wert": "N = 3",
+   "einheit": "Einträge",
+   "status": "FIX",
+   "zitat": "- wenn active_ppp <= 20  → N = 3"
+  },
+  {
+   "zeilen": "64, 179",
+   "name": "FP-PEAK-02 TOP_N bei active_ppp 21..100",
+   "wert": "N = 5",
+   "einheit": "Einträge",
+   "status": "FIX",
+   "zitat": "- wenn 21..100           → N = 5"
+  },
+  {
+   "zeilen": "65, 179",
+   "name": "FP-PEAK-02 TOP_N bei active_ppp > 100",
+   "wert": "N = 10",
+   "einheit": "Einträge",
+   "status": "FIX",
+   "zitat": "- wenn > 100             → N = 10"
+  },
+  {
+   "zeilen": "66",
+   "name": "Top-N Latch-Zeitpunkt",
+   "wert": "Episode-Start (oder erster Snapshot der Episode) bis Episode-Ende",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- LATCH: N wird beim Episode-Start (oder beim ersten Snapshot der Episode) festgelegt"
+  },
+  {
+   "zeilen": "69, 129",
+   "name": "FP-BR07-03 CANDIDATE_SET",
+   "wert": "nur USER-Sessions (conn_group=USER); ADMIN ausgeschlossen",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "Attribution berechnet Top-N und share nur über USER-Sessions (conn_group=USER). ADMIN ist ausgeschlossen."
+  },
+  {
+   "zeilen": "72-76, 200",
+   "name": "FP-BR07-04 ATTR_WINDOW_SECONDS",
+   "wert": "Option A: 60 s rolling; Option B: 180 s; Option C: 1/min-Bucket",
+   "einheit": "Sekunden",
+   "status": "OPEN",
+   "zitat": "- FP-BR07-04 (ATTR_WINDOW_SECONDS): Exaktes Zeitfenster für Δbytes/share:"
+  },
+  {
+   "zeilen": "73",
+   "name": "ATTR_WINDOW_SECONDS Option A",
+   "wert": "60 (rolling window)",
+   "einheit": "Sekunden",
+   "status": "KANDIDAT",
+   "zitat": "- Option A: 60s rolling window"
+  },
+  {
+   "zeilen": "74",
+   "name": "ATTR_WINDOW_SECONDS Option B",
+   "wert": "180",
+   "einheit": "Sekunden",
+   "status": "KANDIDAT",
+   "zitat": "- Option B: 180s window (entspricht peak_trigger_window_seconds default 180)"
+  },
+  {
+   "zeilen": "75",
+   "name": "ATTR_WINDOW_SECONDS Option C",
+   "wert": "Snapshot-Minute (1/min bucket)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- Option C: “Snapshot-Minute” (1/min bucket)"
+  },
+  {
+   "zeilen": "74",
+   "name": "peak_trigger_window_seconds",
+   "wert": "Default 180 (nur beiläufig als bestehender Default erwähnt; nicht in BR-07 definiert)",
+   "einheit": "Sekunden",
+   "status": "UNKLAR",
+   "zitat": "- Option B: 180s window (entspricht peak_trigger_window_seconds default 180)"
+  },
+  {
+   "zeilen": "77-80, 201",
+   "name": "FP-BR07-05 DENOM_RULE",
+   "wert": "Option A (empfohlen): Σ Δbytes USER-only, mapped; Option B: globale VPN-Bytes inkl. unmapped/ADMIN",
+   "einheit": "Bytes",
+   "status": "OPEN",
+   "zitat": "- FP-BR07-05 (DENOM_RULE): Was ist der Nenner für share?"
+  },
+  {
+   "zeilen": "81-84, 202",
+   "name": "FP-BR07-06 UNMAPPED_RULE",
+   "wert": "Option A: aus Top-N + denom ausschließen, Flag ATTR_INCOMPLETE; Option B: als UNKNOWN aufnehmen",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- Option B: include as “UNKNOWN” entry (share möglich, aber Täter-ID nicht auflösbar)"
+  },
+  {
+   "zeilen": "123, 190, 203",
+   "name": "Fallback bei denom == 0",
+   "wert": "selected_taeter = MULTI + Flag DENOM_ZERO (noch nicht als Fakt fixiert)",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- O-04 denom==0 Fallback ist noch nicht als Fakt fixiert"
+  },
+  {
+   "zeilen": "96",
+   "name": "active_ppp",
+   "wert": "Anzahl aktiver USER-Sessions (conn_group=USER) zum Zeitpunkt der N-Festlegung",
+   "einheit": "Sessions",
+   "status": "FIX",
+   "zitat": "active_ppp = Anzahl aktiver USER Sessions (conn_group=USER) zum Zeitpunkt der N-Festlegung."
+  },
+  {
+   "zeilen": "90",
+   "name": "Pfad Sessionliste/Mapping",
+   "wert": "/run/vpn-sessions/*.env (Felder: ppp_ifname, conn_group, vpn_connection_id oder sub_account_id)",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- Input-01: Liste aktiver Sessions aus /run/vpn-sessions/*.env (BR-09 SoT), je Eintrag:"
+  },
+  {
+   "zeilen": "110-113",
+   "name": "Flags der Attribution",
+   "wert": "ATTR_INCOMPLETE, COUNTER_RESET, DENOM_ZERO",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- ATTR_INCOMPLETE (wenn unmapped USER traffic existiert und UNMAPPED_RULE es nicht vollständig abbildet)"
+  },
+  {
+   "zeilen": "107-109",
+   "name": "selected_taeter",
+   "wert": "vpn_connection_id (Single Täter) oder \"MULTI\"",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- oder “MULTI”"
+  },
+  {
+   "zeilen": "103-106",
+   "name": "top_talkers[1..N] Felder",
+   "wert": "vpn_connection_id (oder UNKNOWN), delta_bytes (oder delta_bps), share_pct",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- Output-01: top_talkers[1..N] pro Fenster/Snapshot:"
+  },
+  {
+   "zeilen": "105",
+   "name": "Persistenzform delta_bytes oder delta_bps",
+   "wert": "nicht entschieden (\"muss konsistent sein\")",
+   "einheit": "",
+   "status": "UNKLAR",
+   "zitat": "- delta_bytes (oder delta_bps, wenn du bps persistieren willst — muss konsistent sein)"
+  },
+  {
+   "zeilen": "135",
+   "name": "ERR-BR07-RUN_SESSIONS_MISSING",
+   "wert": "Attribution DEGRADED (kein blame)",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- ERR-BR07-RUN_SESSIONS_MISSING: /run/vpn-sessions nicht verfügbar → Attribution DEGRADED (kein blame)."
+  },
+  {
+   "zeilen": "136",
+   "name": "ERR-BR07-SYSFS_UNREADABLE",
+   "wert": "Attribution DEGRADED",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- ERR-BR07-SYSFS_UNREADABLE: per-ppp counters nicht lesbar → Attribution DEGRADED."
+  },
+  {
+   "zeilen": "137",
+   "name": "ERR-BR07-WINDOW_UNDEFINED",
+   "wert": "HARD FAIL",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- ERR-BR07-WINDOW_UNDEFINED: ATTR_WINDOW_SECONDS ist nicht gefixt → HARD FAIL (damit niemand rät)."
+  },
+  {
+   "zeilen": "174",
+   "name": "Testwerte T-03",
+   "wert": "active_ppp=15 -> N=3; später 60 Sessions, N bleibt 3",
+   "einheit": "",
+   "status": "BEISPIEL",
+   "zitat": "- Setup: Episode startet mit active_ppp=15 → N=3; später wachsen Sessions auf 60."
+  },
+  {
+   "zeilen": "179",
+   "name": "Testwerte T-04 (Grenzwerte)",
+   "wert": "active_ppp=20 -> N=3; 21 -> N=5; 101 -> N=10",
+   "einheit": "",
+   "status": "BEISPIEL",
+   "zitat": "- Setup: active_ppp=20 → N=3; 21 → N=5; 101 → N=10."
+  }
+ ],
+ "verweise_auf_dokumente": [
+  {
+   "zeilen": "26",
+   "name": "Peak-Mode_Was es ist, wie es funktioniert.txt (Abschnitt 7 / 7.2)",
+   "zitat": "Abschnitt “7) Mapping & Attribution” / “7.2 Attribution A1+A4”"
+  },
+  {
+   "zeilen": "32",
+   "name": "Peak-Mode_entscheidung.txt (FP-PEAK-01, FP-PEAK-02)",
+   "zitat": "- K-IMP-02: Peak-Mode_entscheidung.txt → FP-PEAK-01 & FP-PEAK-02"
+  },
+  {
+   "zeilen": "34",
+   "name": "peak-mode_OWNER-FIXPUNKTE (CAKE Edition).txt",
+   "zitat": "- K-IMP-03: peak-mode_OWNER-FIXPUNKTE (CAKE Edition).txt"
+  },
+  {
+   "zeilen": "36, 90, 156",
+   "name": "PEAK MODE v2 BR-09 (SoT Sessionliste/Mapping)",
+   "zitat": "- Keine DB-SoT Verschiebung: Mapping kommt aus /run (BR-09)."
+  },
+  {
+   "zeilen": "38",
+   "name": "PEAK MODE v2 BR-04",
+   "zitat": "- K-IMP-05: PEAK MODE v2 BR-04 → vpn_bps global existiert"
+  },
+  {
+   "zeilen": "46",
+   "name": "Peak-Mode_TEIL2_BUILD_READY_CHECKLISTE",
+   "zitat": "- Beobachtung: In Peak-Mode_TEIL2_BUILD_READY_CHECKLISTE ist BR-07 = MULTI/Top-N;"
+  },
+  {
+   "zeilen": "46, 200",
+   "name": "Peak-Mode_CHECKLISTE",
+   "zitat": "in Peak-Mode_CHECKLISTE taucht “BR-07 Session Lifecycle & Timepoints” auf."
+  },
+  {
+   "zeilen": "17-19, 144",
+   "name": "BR-10 / BR-03 / BR-09 / BR-01 / BR-08 / BR-08A",
+   "zitat": "- Keine DB-Schemata (BR-08/BR-08A)"
+  },
+  {
+   "zeilen": "20",
+   "name": "PM-01 (UI/Notifications)",
+   "zitat": "- Keine UI/Notifications (PM-01 separat)"
+  }
+ ],
+ "offene_punkte": [
+  {
+   "zeilen": "72-76, 200",
+   "kennung": "FP-BR07-04 / O-01",
+   "text": "ATTR_WINDOW_SECONDS: 60 s rollierend, 180 s oder 1/min-Bucket – genau eines ist festzulegen."
+  },
+  {
+   "zeilen": "77-80, 201",
+   "kennung": "FP-BR07-05 / O-02",
+   "text": "DENOM_RULE: Nenner für share (USER-only gemappt oder globale VPN-Bytes)."
+  },
+  {
+   "zeilen": "81-84, 202",
+   "kennung": "FP-BR07-06 / O-03",
+   "text": "UNMAPPED_RULE: USER-pppX ohne gültiges Mapping ausschließen (mit Flag) oder als UNKNOWN aufnehmen."
+  },
+  {
+   "zeilen": "123, 203",
+   "kennung": "O-04",
+   "text": "Fallback bei denom==0 ist noch nicht als Fakt fixiert (z. B. selected_taeter=MULTI)."
+  },
+  {
+   "zeilen": "48",
+   "kennung": "K-CONF-01",
+   "text": "Der Session-Lifecycle-Block (v1 \"BR-07 Session Lifecycle & Timepoints\") braucht in v2 ein eigenes BR; Nummer offen."
+  },
+  {
+   "zeilen": "66",
+   "kennung": "FP-PEAK-02",
+   "text": "Latch-Zeitpunkt ist mit einer Alternative formuliert (Episode-Start oder erster Snapshot der Episode)."
+  },
+  {
+   "zeilen": "105",
+   "kennung": "",
+   "text": "Ob delta_bytes oder delta_bps persistiert wird, ist nicht entschieden."
+  }
+ ],
+ "innere_widersprueche": [
+  {
+   "zeilen": "60-61",
+   "text": "Bedeutung der 30 %: BR-07 definiert FP-PEAK-01 als Anteils-Schwelle der Attribution (max_share >= 30 % ergibt Single Täter, sonst MULTI). BR-00 (Zeilen 52-54) beschreibt denselben Fixpunkt als \"Multi-Last\", ab der \"Peak relevant werden\" kann, und verweist auf Trigger/Score-BRs. Nach BR-00s eigener Vorrangregel gilt BR-07; die Darstellung in BR-00 ist damit irreführend."
+  },
+  {
+   "zeilen": "155, 13",
+   "text": "BR-07 erklärt die Attribution zu reiner Audit/Diagnose ohne Einfluss auf das Enforcement; die Top-N-Liste dient laut Scope den Peak-Logs/Snapshots. BR-00 (Zeilen 26-27, 85-91) stellt Top-N-Ermittlung und Drosselung als aufeinanderfolgende Pipeline-Schritte dar, sodass der Eindruck entsteht, nur die Top-N würden gedrosselt; BR-00A (Zeile 20) spricht von Reduktion \"pro aktiver USER-PPP-Session\", BR-01 (Zeile 60) von \"pro betroffenen USER-pppX\". Wer genau gedrosselt wird (alle USER-Sessions oder eine Auswahl), ist in BR-00..BR-07 nicht eindeutig festgelegt und soll laut BR-05 Zeile 33 in BR-09 stehen."
+  },
+  {
+   "zeilen": "137, 72-76",
+   "text": "ERR-BR07-WINDOW_UNDEFINED verlangt HARD FAIL, solange ATTR_WINDOW_SECONDS nicht fixiert ist; genau dieser Wert ist OPEN. BR-07 ist damit in der vorliegenden Fassung nach eigener Regel nicht lauffähig, während BR-00 (Zeile 114) v2 als implementierbar bezeichnet und die offenen FP-BR07-*-Punkte nicht unter den OPEN-Familien führt."
+  },
+  {
+   "zeilen": "96",
+   "text": "active_ppp ist hier als Zahl aktiver USER-Sessions definiert, während BR-04 (FP-BR04-01) für vpn_bps bewusst alle ppp*-Interfaces zählt; der Name active_ppp legt die zweite Lesart nahe. BR-00 und BR-00A verwenden active_ppp ohne Definition."
+  },
+  {
+   "zeilen": "17",
+   "text": "BR-07 verortet die Peak-Trigger-Regeln (SoftIRQ/CPU-Gate) in \"BR-10/BR-03\"; BR-00 und BR-00A nennen dafür BR-04/05/06, die in dieser Lieferung jedoch vpn_bps, Profil-SoT und CAKE-Doktrin enthalten. Eine Spezifikation der Trigger-Schwellen (SoftIRQ%-Schwelle, Gates) findet sich in BR-00..BR-07 nicht."
+  },
+  {
+   "zeilen": "123, 203",
+   "text": "Die als MUST überschriebene Decision Rule enthält für denom == 0 selbst eine offene Alternative (\"oder anderer fixer Fallback\"), die O-04 als noch nicht fixiert führt."
+  },
+  {
+   "zeilen": "57-69",
+   "text": "Die Zählung der BR-07-Fixpunkte beginnt bei FP-BR07-03; FP-BR07-01/02 existieren nicht, an ihrer Stelle stehen FP-PEAK-01/02."
+  }
+ ],
+ "relevanz": {
+  "stufe": "HOCH",
+  "begruendung": "Normative Quelle für die Verursacher-Ermittlung: 30-%-Anteilsschwelle (Single gegenüber MULTI), Top-N-Staffel 3/5/10 mit Latch, Kandidatenmenge USER-only mit ADMIN-Ausnahme, Entscheidungsregel, Flags, Fehlerklassen und Tests. Klärt zugleich, dass die Attribution Audit/Diagnose ist. Drei Regeln (Fenster, Nenner, ungemappte Sessions) sind offen; alles ist an pppX-Zähler und /run/vpn-sessions gebunden.",
+  "rt_module": [
+   "MOD-009",
+   "MOD-007",
+   "BASE-070",
+   "BASE-090",
+   "BASE-100",
+   "BASE-030",
+   "BASE-000"
+  ]
+ },
+ "auffaelligkeiten": [
+  "Die Unterlage kennt nur die Gruppen USER und ADMIN (conn_group); weitere Rollen kommen nicht vor.",
+  "Der Begriff \"Täter\" (selected_taeter) ist als Feldname festgeschrieben.",
+  "Beiläufig wird ein Key peak_trigger_window_seconds mit Default 180 erwähnt (Zeile 74), der in BR-00..BR-07 nirgends definiert ist.",
+  "Die Modellbezeichnung \"A1+A4\" wird nicht hergeleitet (v1-Begriff aus Peak-Mode_Was es ist, wie es funktioniert.txt, Abschnitt 7.2).",
+  "Verweise auf nicht vorliegende Dokumente: Peak-Mode_Was es ist, wie es funktioniert.txt, Peak-Mode_entscheidung.txt, peak-mode_OWNER-FIXPUNKTE (CAKE Edition).txt, Peak-Mode_TEIL2_BUILD_READY_CHECKLISTE, Peak-Mode_CHECKLISTE, BR-08A, PM-01.",
+  "Direkte Ansprache des Owners in Zeile 105 (\"wenn du bps persistieren willst\").",
+  "Kein Datum; die Datei endet ohne abschließenden Zeilenumbruch (wc -l meldet 208, Read zeigt 209 Zeilen)."
+ ]
+}

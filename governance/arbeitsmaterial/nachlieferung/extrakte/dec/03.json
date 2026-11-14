@@ -1,0 +1,1150 @@
+{
+ "datei": "nachlieferung/decisions/D003_SEGMENTATION_SINGLE_WEBPANEL.txt",
+ "abschnitt": "1-152",
+ "zeilen_gesamt": 152,
+ "gelesen_bereiche": "1-152 (Nachlieferung); zusaetzlich XPN-Fassung XPN:decisions/D003_SEGMENTATION_SINGLE_WEBPANEL.txt 1-156 und vollstaendiger diff beider Fassungen",
+ "vollstaendig_gelesen": true,
+ "dokument": {
+  "titel": "Segmentierung (LEGACY/MODERN/ADMIN) + Single Webpanel + Admin-only Tools Isolation",
+  "doc_id": "D003",
+  "status_laut_datei": "ACCEPTED",
+  "version_laut_datei": "v1.0",
+  "datum_laut_datei": "2026-01-23",
+  "projekt": "XPN",
+  "art": "ENTSCHEIDUNG",
+  "normativitaet_laut_datei": "Abschnitt 'DECISION (NORMATIV)' mit Teilentscheidungen D003-DEC-01 bis D003-DEC-05; einzelne Saetze als 'NORM (MUST)' markiert; Abschnitte SECURITY/ABUSE, OPS/OPERABILITY und DEFINITION OF DONE jeweils mit (MUST)"
+ },
+ "zusammenfassung": "D003 ist ein angenommener, ausdruecklich normativer Entscheidungs-Record des XPN-Projekts. Er fuehrt drei conn_group-Segmente (LEGACY fuer Windows XP/Vista, MODERN, ADMIN) als Policy-Segmente ein und legt fest, dass es genau EIN Webpanel auf SERVICE_WEB 10.77.0.3 mit Panel-Rollen USER/ADMIN gibt und kein separates 'Admin-Panel'. Admin-only Tools/UIs (AdGuard UI, DB-Tools/pma, SSH) sind getrennte Werkzeuge, deren primaeres Gate der Netzwerk-Scope (ADMIN_VPN_NET / nftables) ist; die Rolle ADMIN ersetzt diesen Scope nie. Der Record nennt die Service-Anker in Zone 0 (SERVICE_DNS .1, SERVICE_RESOLVER .2, SERVICE_WEB .3, SERVICE_NTP .4, SERVICE_SSH .5, jeweils mit fd77:0:0:0::N) und die VPN-Netze (SERVICE 10.77.0.0/28, ADMIN 10.77.2.0/24, MODERN 10.77.32.0/20, LEGACY 10.77.16.0/20, v6 je /64; LEGACY ist v4-only) mit B060 als massgeblicher Quelle. Segmentierung gilt nur als erfuellt, wenn sie an vier Stellen erzwungen wird: AAA/RADIUS (DB-gefuehrte conn_group, Pflicht-Fix-IP je Subaccount, Orthogonalitaet von conn_group und Panel-Rolle, USER-Gates nur fuer conn_group != ADMIN, manual_restricted als Not-Aus fuer alle), getrennte IP-Pools mit Fail-Closed, nftables/Routing (Peer-/Segment-Isolation, Resolver server-only, DNS-Zwang auf 10.77.0.1) und Webpanel-Gates. Es folgen Begruendung, Sicherheits- und Betriebsregeln sowie eine Definition of Done mit fuenf Pruefgruppen einschliesslich Negativtests gegen Rechteausweitung. Der Record ist inhaltlich reif und weitgehend stimmig, enthaelt aber redaktionelle Maengel im IPv6-Abschnitt (verrutschter Satz, doppelte Netzangabe). Der Textkoerper ist identisch mit der XPN-Fassung v2.4.",
+ "aussagen": [
+  {
+   "nr": 1,
+   "zeilen": "3-8",
+   "zitat": "TITLE: Segmentierung (LEGACY/MODERN/ADMIN) + Single Webpanel + Admin-only Tools Isolation",
+   "aussage": "Kopf des Records: DECISION-ID D003, VERSION v1.0, DATUM 2026-01-23, STATUS ACCEPTED, OWNER Marco (Owner) + ChatGPT (Co-Architect).",
+   "art": "HISTORIE",
+   "kennung": "D003",
+   "rt_bezug": [
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 2,
+   "zeilen": "12-13",
+   "zitat": "In der Dokumentation darf aus “admin-only Tools/UIs” niemals ein separates “Admin-Panel” als Produkt/Surface entstehen.",
+   "aussage": "Drift-Guard: In der Dokumentation darf aus 'admin-only Tools/UIs' niemals ein separates 'Admin-Panel' als Produkt oder Oberflaeche entstehen.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-110",
+    "MOD-006",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 3,
+   "zeilen": "14-16",
+   "zitat": "    - Es gibt genau EIN Webpanel (Verify/Claim/Status/Diag).",
+   "aussage": "Problemstellung: Das 'Admin Panel'-Framing gilt als driftig; es gibt genau EIN Webpanel mit den Funktionen Verify, Claim, Status und Diag.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-110",
+    "MOD-006",
+    "MOD-001"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 4,
+   "zeilen": "17",
+   "zitat": "    - “Admin” ist eine Rolle/Capability innerhalb dieses Panels, kein separates Panel-Produkt.",
+   "aussage": "'Admin' ist eine Rolle/Capability innerhalb des einen Panels und kein separates Panel-Produkt.",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-110",
+    "MOD-006",
+    "BASE-100"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 5,
+   "zeilen": "18",
+   "zitat": "Zusätzlich existieren Admin-only Tools/UIs (AdGuard UI, DB-Tools/pma, SSH) — diese sind NICHT “Admin Panel”.",
+   "aussage": "Zusaetzlich existieren Admin-only Tools/UIs (AdGuard UI, DB-Tools/pma, SSH); diese sind ausdruecklich NICHT das 'Admin Panel'.",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-110",
+    "BASE-060",
+    "BASE-000",
+    "BASE-005"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 6,
+   "zeilen": "19-21",
+   "zitat": "  - Saubere Segmentierung für Policy/Isolation/Abuse-Resistenz (Legacy XP/Vista + Modern),",
+   "aussage": "Ziel: saubere Segmentierung fuer Policy, Isolation und Abuse-Resistenz (Legacy XP/Vista + Modern) ohne UI-Doppelungen und mit klaren Enforcement-Punkten (Defense-in-Depth).",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-050",
+    "BASE-100",
+    "BASE-010"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 7,
+   "zeilen": "25-29",
+   "zitat": "- Wir führen drei conn_group-Segmente als kanonisches Modell:",
+   "aussage": "D003-DEC-01: Drei conn_group-Segmente bilden das kanonische Modell: LEGACY (Windows XP/Vista), MODERN (moderne Clients), ADMIN (Admin-Verbindungen/Admin-Geraete).",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "D003-DEC-01",
+   "rt_bezug": [
+    "BASE-010",
+    "BASE-100",
+    "BASE-070",
+    "BASE-050"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 8,
+   "zeilen": "30",
+   "zitat": "- Diese Segmente sind Policy-Segmente (IP-Pools, nftables Scopes, Limits, Flows) und keine “Panels”.",
+   "aussage": "Die Segmente sind Policy-Segmente (IP-Pools, nftables-Scopes, Limits, Flows) und keine 'Panels'.",
+   "art": "DEFINITION",
+   "kennung": "D003-DEC-01",
+   "rt_bezug": [
+    "BASE-100",
+    "BASE-050",
+    "BASE-070"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 9,
+   "zeilen": "31",
+   "zitat": "- Ableitungs-/SoT-/Gate-Normen (deterministische derived_policy, Verify-vs-AAA Trennung): siehe B058.",
+   "aussage": "Die Normen zu Ableitung, massgeblicher Quelle und Gates (deterministische derived_policy, Trennung Verify gegenueber AAA) stehen in B058; D003 verweist nur darauf.",
+   "art": "DEFINITION",
+   "kennung": "D003-DEC-01",
+   "rt_bezug": [
+    "BASE-080",
+    "BASE-100",
+    "BASE-020"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 10,
+   "zeilen": "33-35",
+   "zitat": "  - Webpanel läuft intern auf SERVICE_WEB 10.77.0.3.",
+   "aussage": "D003-DEC-02: Es gibt GENAU EIN Webpanel als Oberflaeche; es laeuft intern auf SERVICE_WEB 10.77.0.3.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "D003-DEC-02",
+   "rt_bezug": [
+    "BASE-110",
+    "MOD-006"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 11,
+   "zeilen": "36",
+   "zitat": "  - Panel-User existiert mit Rollen (USER/ADMIN) innerhalb dieses EINEN Panels.",
+   "aussage": "Panel-User haben Rollen innerhalb dieses einen Panels; genannt werden genau USER und ADMIN.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "D003-DEC-02",
+   "rt_bezug": [
+    "BASE-110",
+    "MOD-006",
+    "BASE-100"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 12,
+   "zeilen": "37",
+   "zitat": "- Es gibt KEIN separates “Admin-Panel”.",
+   "aussage": "Es gibt kein separates 'Admin-Panel'.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "D003-DEC-02",
+   "rt_bezug": [
+    "BASE-110",
+    "MOD-006"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 13,
+   "zeilen": "39-43",
+   "zitat": "- Admin-Oberflächen/Tools sind getrennte Tools/UIs, keine zweite Panel-Instanz:",
+   "aussage": "D003-DEC-03: Admin-Oberflaechen/Tools sind getrennte Tools/UIs und keine zweite Panel-Instanz; aufgezaehlt werden AdGuard UI, DB-Tools/pma und SSH, jeweils admin-only.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "D003-DEC-03",
+   "rt_bezug": [
+    "BASE-110",
+    "BASE-060",
+    "BASE-000",
+    "BASE-005",
+    "BASE-050"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 14,
+   "zeilen": "44",
+   "zitat": "- Diese Tools/UIs werden über ADMIN-Scope abgesichert (netz-/ip-basiert) und wo zutreffend zusätzlich über Role=ADMIN.",
+   "aussage": "Die Admin-only Tools/UIs werden ueber den ADMIN-Scope (netz-/IP-basiert) abgesichert und, wo zutreffend, zusaetzlich ueber Role=ADMIN.",
+   "art": "SCHUTZZIEL",
+   "kennung": "D003-DEC-03",
+   "rt_bezug": [
+    "BASE-050",
+    "BASE-110"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 15,
+   "zeilen": "45",
+   "zitat": "Netzwerk-Scope (ADMIN_VPN_NET / nftables Scope) ist das primäre Gate für Admin-only Tools/UIs.",
+   "aussage": "NORM (MUST): Der Netzwerk-Scope (ADMIN_VPN_NET / nftables-Scope) ist das primaere Gate fuer Admin-only Tools/UIs. Role=ADMIN ist kein Ersatz fuer den ADMIN-Scope und darf niemals Netzwerkzugang 'freischalten'.",
+   "art": "SCHUTZZIEL",
+   "kennung": "D003-DEC-03",
+   "rt_bezug": [
+    "BASE-050",
+    "BASE-110",
+    "BASE-100"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 16,
+   "zeilen": "47-53",
+   "zitat": "- Service anchors in Zone 0 (v4/v6):",
+   "aussage": "D003-DEC-04: Service-Anker in Zone 0 (v4/v6): SERVICE_DNS 10.77.0.1 / fd77:0:0:0::1, SERVICE_RESOLVER 10.77.0.2 / fd77:0:0:0::2, SERVICE_WEB 10.77.0.3 / fd77:0:0:0::3, SERVICE_NTP 10.77.0.4 / fd77:0:0:0::4, SERVICE_SSH 10.77.0.5 / fd77:0:0:0::5 (SSH admin-only scoped).",
+   "art": "PARAMETER",
+   "kennung": "D003-DEC-04",
+   "rt_bezug": [
+    "BASE-005",
+    "BASE-060",
+    "BASE-110",
+    "BASE-050"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 17,
+   "zeilen": "54",
+   "zitat": "Service-Targets sind nicht PPP-Interface-gebunden, sondern als always-up Anchors im SERVICE_NET modelliert",
+   "aussage": "NORM (MUST): Service-Ziele sind nicht an PPP-Interfaces gebunden, sondern als immer vorhandene Anker im SERVICE_NET modelliert - stabile Bind- und Routing-Ziele unabhaengig vom Auf- und Abbau von Sitzungen.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "D003-DEC-04",
+   "rt_bezug": [
+    "BASE-005",
+    "BASE-030",
+    "BASE-060",
+    "BASE-110"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 18,
+   "zeilen": "55, 58",
+   "zitat": "- SERVICE_NET_v4: 10.77.0.0/28 (SoT: B060_NETPLAN_IPS_SEGMENTS)",
+   "aussage": "SERVICE_NET_v4 ist 10.77.0.0/28; massgebliche Quelle (SoT) ist B060_NETPLAN_IPS_SEGMENTS. Dieselbe Angabe wird in Zeile 58 in der Netzuebersicht wiederholt.",
+   "art": "PARAMETER",
+   "kennung": "D003-DEC-04",
+   "rt_bezug": [
+    "BASE-005",
+    "BASE-050",
+    "BASE-070"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 19,
+   "zeilen": "57-64",
+   "zitat": "- VPN-Netze (SoT: B060_NETPLAN_IPS_SEGMENTS):",
+   "aussage": "VPN-Netze laut B060: SERVICE_NET_v6 fd77:0:0:0::/64, ADMIN_VPN_NET_v4 10.77.2.0/24, ADMIN_VPN_NET_v6 fd77:0:0:2::/64, MODERN_VPN_NET_v4 10.77.32.0/20, MODERN_VPN_NET_v6 fd77:0:0:32::/64, LEGACY_VPN_NET_v4 10.77.16.0/20.",
+   "art": "PARAMETER",
+   "kennung": "D003-DEC-04",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-050",
+    "BASE-030",
+    "BASE-040"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 20,
+   "zeilen": "64, 67",
+   "zitat": "- LEGACY_VPN_NET_v4: 10.77.16.0/20 (v4-only; kein LEGACY_VPN_NET_v6)",
+   "aussage": "LEGACY ist IPv4-only: es gibt kein LEGACY_VPN_NET_v6 und keinen v6-Stack im Legacy-Pfad (Zeile 67 wiederholt dies).",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "D003-DEC-04",
+   "rt_bezug": [
+    "BASE-030",
+    "BASE-070",
+    "BASE-050"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 21,
+   "zeilen": "68-70",
+   "zitat": "ADMIN und MODERN sind Dualstack (v4+v6) auf Basis der B060-SoT Prefixe:, gleiche Regeln/Enforcement wie v4",
+   "aussage": "ADMIN und MODERN sind Dualstack (v4+v6) auf Basis der B060-Praefixe (ADMIN_VPN_NET_v6 fd77:0:0:2::/64, MODERN_VPN_NET_v6 fd77:0:0:32::/64), mit gleichen Regeln und gleichem Enforcement wie v4 (DNS-Zwang, Peer-Isolation, Abuse-Blocks usw.), ohne Sonderbehandlung.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "D003-DEC-04",
+   "rt_bezug": [
+    "BASE-040",
+    "BASE-050",
+    "BASE-060",
+    "BASE-070"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 22,
+   "zeilen": "71-72",
+   "zitat": "  - SERVICE_NET_v6: fd77:0:0:0::/64 (SERVICE_* Targets parallel zu v4).",
+   "aussage": "SERVICE_NET ist dualstack: SERVICE_NET_v6 fd77:0:0:0::/64, die SERVICE_*-Ziele liegen parallel zu v4.",
+   "art": "PARAMETER",
+   "kennung": "D003-DEC-04",
+   "rt_bezug": [
+    "BASE-005",
+    "BASE-060",
+    "BASE-050"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 23,
+   "zeilen": "73",
+   "zitat": "- Regeln gelten identisch für v4 und v6 (DNS-Zwang/Isolation/Abuse-Blocks); keine Sonderbehandlung für IPv6.",
+   "aussage": "Die Regeln (DNS-Zwang, Isolation, Abuse-Blocks) gelten identisch fuer v4 und v6; IPv6 erhaelt keine Sonderbehandlung.",
+   "art": "SCHUTZZIEL",
+   "kennung": "D003-DEC-04",
+   "rt_bezug": [
+    "BASE-050",
+    "BASE-060"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 24,
+   "zeilen": "74-75",
+   "zitat": "- Segmentierung gilt nur als erfüllt, wenn sie an mehreren Stellen erzwungen wird:",
+   "aussage": "D003-DEC-05 (MUST, Defense-in-Depth): Segmentierung gilt nur dann als erfuellt, wenn sie an mehreren Stellen erzwungen wird (AAA/RADIUS, IP-Pool/Allocator, nftables/Routing, Webpanel-Gates).",
+   "art": "SCHUTZZIEL",
+   "kennung": "D003-DEC-05",
+   "rt_bezug": [
+    "BASE-020",
+    "BASE-050",
+    "BASE-070",
+    "BASE-110"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 25,
+   "zeilen": "77-78",
+   "zitat": "     - conn_group ist DB-geführt und bestimmt Pool/Policy.",
+   "aussage": "Enforcement-Punkt 1 (AAA/RADIUS, SQL-first): conn_group ist DB-gefuehrt und bestimmt Pool und Policy.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "D003-DEC-05",
+   "rt_bezug": [
+    "BASE-020",
+    "BASE-000",
+    "BASE-010",
+    "BASE-100"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 26,
+   "zeilen": "79",
+   "zitat": "fixed_ip / fixed_ipv6 / Framed-IP ist DB-geführt und PFLICHT pro Subaccount (nicht optional; nicht frei änderbar).",
+   "aussage": "fixed_ip / fixed_ipv6 / Framed-IP sind DB-gefuehrt und PFLICHT je Subaccount - nicht optional und nicht frei aenderbar.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "D003-DEC-05",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-010",
+    "BASE-020",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 27,
+   "zeilen": "80",
+   "zitat": "     - Panel-Rolle (USER/ADMIN) ist DB-geführt und steuert Panel-Authorisation.",
+   "aussage": "Die Panel-Rolle (USER/ADMIN) ist DB-gefuehrt und steuert die Autorisierung im Panel.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "D003-DEC-05",
+   "rt_bezug": [
+    "BASE-110",
+    "BASE-000",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 28,
+   "zeilen": "81",
+   "zitat": "conn_group (Netz/Policy-Scope) und Panel-Rolle (Authorisation im Webpanel) sind orthogonal.",
+   "aussage": "NORM (MUST): conn_group (Netz-/Policy-Scope) und Panel-Rolle (Autorisierung im Webpanel) sind orthogonal; kein Attribut darf das andere implizieren (weder 'ADMIN-Netz => Adminrolle' noch 'Adminrolle => ADMIN-Netz').",
+   "art": "SCHUTZZIEL",
+   "kennung": "D003-DEC-05",
+   "rt_bezug": [
+    "BASE-010",
+    "BASE-100",
+    "BASE-110",
+    "BASE-050"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 29,
+   "zeilen": "82",
+   "zitat": "USER-Gates (Quota/Expiry/UNCLAIMED_OVERDUE/WalledGardenPolicy) werden nur für conn_group != ADMIN evaluiert",
+   "aussage": "NORM (MUST): Die USER-Gates Quota, Expiry, UNCLAIMED_OVERDUE und WalledGardenPolicy werden nur fuer conn_group != ADMIN ausgewertet; ADMIN ignoriert diese Gates.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "D003-DEC-05",
+   "rt_bezug": [
+    "BASE-080",
+    "BASE-100",
+    "BASE-010",
+    "MOD-002"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 30,
+   "zeilen": "83",
+   "zitat": "manual_restricted gilt als Not-Aus für alle conn_groups inkl. ADMIN (Kernel-Enforcement via restricted_*).",
+   "aussage": "manual_restricted wirkt als Not-Aus fuer alle conn_groups einschliesslich ADMIN; die Durchsetzung erfolgt im Kernel ueber die restricted_*-Sets.",
+   "art": "SCHUTZZIEL",
+   "kennung": "D003-DEC-05",
+   "rt_bezug": [
+    "BASE-050",
+    "MOD-002",
+    "BASE-010",
+    "BASE-080"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 31,
+   "zeilen": "85-86",
+   "zitat": "     - LEGACY/MODERN/ADMIN haben getrennte Pools (keine Vermischung).",
+   "aussage": "Enforcement-Punkt 2 (IP-Pool/Allocator): LEGACY, MODERN und ADMIN haben getrennte Adress-Pools ohne Vermischung.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "D003-DEC-05",
+   "rt_bezug": [
+    "BASE-070"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 32,
+   "zeilen": "87",
+   "zitat": "     - Exhaustion/Fail-Closed Verhalten ist definiert (deterministisch).",
+   "aussage": "Das Verhalten bei Pool-Erschoepfung ist definiert: deterministisch und Fail-Closed.",
+   "art": "SCHUTZZIEL",
+   "kennung": "D003-DEC-05",
+   "rt_bezug": [
+    "BASE-070"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 33,
+   "zeilen": "89-90",
+   "zitat": "     - Peer-Isolation und Segment-Isolation (client↔client nach Policy geblockt).",
+   "aussage": "Enforcement-Punkt 3 (nftables/Routing): Peer-Isolation und Segment-Isolation; Verkehr Client zu Client ist nach Policy geblockt.",
+   "art": "SCHUTZZIEL",
+   "kennung": "D003-DEC-05",
+   "rt_bezug": [
+    "BASE-050"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 34,
+   "zeilen": "91",
+   "zitat": "     - Admin-only Tools/UIs nur im ADMIN-Scope erreichbar.",
+   "aussage": "Admin-only Tools/UIs sind auf nftables-/Routing-Ebene nur im ADMIN-Scope erreichbar (siehe auch Zeile 107).",
+   "art": "SCHUTZZIEL",
+   "kennung": "D003-DEC-05",
+   "rt_bezug": [
+    "BASE-050"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 35,
+   "zeilen": "92",
+   "zitat": "     - SERVICE_RESOLVER ist server-only (Clients dürfen nicht direkt 10.77.0.2:53 erreichen).",
+   "aussage": "SERVICE_RESOLVER ist server-only: Clients duerfen 10.77.0.2:53 nicht direkt erreichen.",
+   "art": "SCHUTZZIEL",
+   "kennung": "D003-DEC-05",
+   "rt_bezug": [
+    "BASE-060",
+    "BASE-050"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 36,
+   "zeilen": "93",
+   "zitat": "     - DNS-Zwang/Redirect (wenn aktiv) verweist auf SERVICE_DNS 10.77.0.1.",
+   "aussage": "DNS-Zwang/Redirect verweist, sofern aktiv, auf SERVICE_DNS 10.77.0.1.",
+   "art": "IMPL_DETAIL",
+   "kennung": "D003-DEC-05",
+   "rt_bezug": [
+    "BASE-060",
+    "BASE-050"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 37,
+   "zeilen": "95-96",
+   "zitat": "     - Verify/Claim sind Panel-Flows (kein impliziter “VPN-State flip”).",
+   "aussage": "Enforcement-Punkt 4 (Webpanel-Gates): Verify und Claim sind Panel-Ablaeufe und bewirken keinen impliziten Wechsel des VPN-Zustands.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "D003-DEC-05",
+   "rt_bezug": [
+    "MOD-001",
+    "BASE-010",
+    "MOD-006"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 38,
+   "zeilen": "97",
+   "zitat": "     - Admin-Aktionen (Promotion/Demotion/Provisioning) sind Role=ADMIN-gebunden.",
+   "aussage": "Admin-Aktionen im Panel (Promotion, Demotion, Provisioning) sind an Role=ADMIN gebunden.",
+   "art": "SCHUTZZIEL",
+   "kennung": "D003-DEC-05",
+   "rt_bezug": [
+    "MOD-006",
+    "BASE-110"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 39,
+   "zeilen": "99-100",
+   "zitat": "- Verhindert semantischen Drift (“Admin Panel”) und hält das Produkt-/Surface-Modell sauber.",
+   "aussage": "Begruendung: Die Entscheidung verhindert semantischen Drift ('Admin Panel') und haelt das Produkt-/Oberflaechenmodell sauber.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "RATIONALE",
+   "rt_bezug": [
+    "QUERSCHNITT",
+    "BASE-110"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 40,
+   "zeilen": "101",
+   "zitat": "- conn_group trennt Policies/Netze ohne UI-Duplikation.",
+   "aussage": "Begruendung: conn_group trennt Policies und Netze, ohne die Oberflaeche zu verdoppeln.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "RATIONALE",
+   "rt_bezug": [
+    "BASE-100",
+    "BASE-050"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 41,
+   "zeilen": "102",
+   "zitat": "- Admin-only Tools bleiben streng begrenzt, ohne eine zweite Panel-Angriffsfläche zu definieren.",
+   "aussage": "Begruendung: Admin-only Tools bleiben streng begrenzt, ohne eine zweite Panel-Angriffsflaeche zu schaffen.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "RATIONALE",
+   "rt_bezug": [
+    "BASE-110",
+    "BASE-050"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 42,
+   "zeilen": "103",
+   "zitat": "- XP/Vista Constraints bleiben kompatibel (keine modernen Browser-/TLS-Annahmen für VPN-Basisfunktion).",
+   "aussage": "Begruendung: Die Einschraenkungen von XP/Vista bleiben beruecksichtigt; fuer die VPN-Basisfunktion werden keine modernen Browser- oder TLS-Faehigkeiten vorausgesetzt.",
+   "art": "SCHUTZZIEL",
+   "kennung": "RATIONALE",
+   "rt_bezug": [
+    "BASE-030",
+    "BASE-110",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 43,
+   "zeilen": "105-106",
+   "zitat": "- Kein WAN-Webpanel (nur intern über VPN).",
+   "aussage": "SECURITY/ABUSE (MUST): Es gibt kein Webpanel am WAN; das Panel ist nur intern ueber das VPN erreichbar.",
+   "art": "SCHUTZZIEL",
+   "kennung": "SECURITY / ABUSE",
+   "rt_bezug": [
+    "BASE-110",
+    "BASE-050"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 44,
+   "zeilen": "107",
+   "zitat": "- Admin-only Tools/UIs ausschließlich über ADMIN-Scope erreichbar; zusätzliche AuthZ wo passend.",
+   "aussage": "SECURITY/ABUSE (MUST): Admin-only Tools/UIs sind ausschliesslich ueber den ADMIN-Scope erreichbar; zusaetzliche Autorisierung, wo passend.",
+   "art": "SCHUTZZIEL",
+   "kennung": "SECURITY / ABUSE",
+   "rt_bezug": [
+    "BASE-050",
+    "BASE-110"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 45,
+   "zeilen": "108",
+   "zitat": "- Keine Secrets in Logs; PII minimieren.",
+   "aussage": "SECURITY/ABUSE (MUST): Keine Geheimnisse in Logs; personenbezogene Daten (PII) minimieren.",
+   "art": "SCHUTZZIEL",
+   "kennung": "SECURITY / ABUSE",
+   "rt_bezug": [
+    "MOD-007",
+    "BASE-005"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 46,
+   "zeilen": "109",
+   "zitat": "- Promotion/Demotion darf nicht über conn_group “erschlichen” werden (Role=ADMIN Gate im Panel).",
+   "aussage": "SECURITY/ABUSE (MUST): Promotion/Demotion darf nicht ueber die conn_group erschlichen werden; massgeblich ist das Role=ADMIN-Gate im Panel.",
+   "art": "SCHUTZZIEL",
+   "kennung": "SECURITY / ABUSE",
+   "rt_bezug": [
+    "MOD-006",
+    "BASE-110",
+    "BASE-010"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 47,
+   "zeilen": "111-112",
+   "zitat": "- Deterministische Outcome/Reason-Codes bei DENY/RESTRICT.",
+   "aussage": "OPS (MUST): Bei DENY und RESTRICT gibt es deterministische Outcome- und Reason-Codes.",
+   "art": "BETRIEB",
+   "kennung": "OPS / OPERABILITY",
+   "rt_bezug": [
+    "BASE-010",
+    "BASE-020",
+    "BASE-080"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 48,
+   "zeilen": "113",
+   "zitat": "- Admin kann Policies/Accounts SQL-first steuern (keine Hidden Config).",
+   "aussage": "OPS (MUST): Der Admin steuert Policies und Accounts SQL-first; es gibt keine versteckte Konfiguration.",
+   "art": "BETRIEB",
+   "kennung": "OPS / OPERABILITY",
+   "rt_bezug": [
+    "BASE-000",
+    "BASE-090",
+    "BASE-100"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 49,
+   "zeilen": "114",
+   "zitat": "- Healthchecks prüfen SERVICE_WEB 10.77.0.3 (/diag) sowie DNS/NTP nach jeweiligen Blocks.",
+   "aussage": "OPS (MUST): Healthchecks pruefen SERVICE_WEB 10.77.0.3 (/diag) sowie DNS und NTP gemaess den jeweiligen Bloecken.",
+   "art": "BETRIEB",
+   "kennung": "OPS / OPERABILITY",
+   "rt_bezug": [
+    "MOD-007",
+    "BASE-005",
+    "BASE-060",
+    "BASE-110"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 50,
+   "zeilen": "117-119",
+   "zitat": "  - Im Repo existiert kein aktiver Begriff “Admin Panel” als separates Panel-Produkt.",
+   "aussage": "DoD-01 Terminologie: Im Repo existiert kein aktiver Begriff 'Admin Panel' als separates Panel-Produkt; 'Admin-only Tools/UIs' ist der kanonische Begriff.",
+   "art": "TEST",
+   "kennung": "DoD-01",
+   "rt_bezug": [
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 51,
+   "zeilen": "121-122",
+   "zitat": "  - LEGACY erhält IP aus LEGACY_VPN_NET_v4 und erreicht keine Admin-only Tools.",
+   "aussage": "DoD-02 Segment Enforcement: Eine LEGACY-Verbindung erhaelt ihre IP aus LEGACY_VPN_NET_v4 und erreicht keine Admin-only Tools.",
+   "art": "TEST",
+   "kennung": "DoD-02",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-050",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 52,
+   "zeilen": "123",
+   "zitat": "  - ADMIN erhält IP aus ADMIN_VPN_NET_v4 und erreicht Admin-only Tools.",
+   "aussage": "DoD-02: Eine ADMIN-Verbindung erhaelt ihre IP aus ADMIN_VPN_NET_v4 und erreicht die Admin-only Tools.",
+   "art": "TEST",
+   "kennung": "DoD-02",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-050",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 53,
+   "zeilen": "124",
+   "zitat": "  - SERVICE_RESOLVER (10.77.0.2) ist für Clients nicht direkt erreichbar.",
+   "aussage": "DoD-02: SERVICE_RESOLVER (10.77.0.2) ist fuer Clients nicht direkt erreichbar.",
+   "art": "TEST",
+   "kennung": "DoD-02",
+   "rt_bezug": [
+    "BASE-060",
+    "BASE-050",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 54,
+   "zeilen": "126-127",
+   "zitat": "  - /diag ist über SERVICE_WEB 10.77.0.3 erreichbar.",
+   "aussage": "DoD-03 Service Targets: /diag ist ueber SERVICE_WEB 10.77.0.3 erreichbar.",
+   "art": "TEST",
+   "kennung": "DoD-03",
+   "rt_bezug": [
+    "BASE-110",
+    "MOD-007",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 55,
+   "zeilen": "128",
+   "zitat": "  - DNS läuft über SERVICE_DNS 10.77.0.1; Resolver bleibt server-only.",
+   "aussage": "DoD-03: DNS laeuft ueber SERVICE_DNS 10.77.0.1; der Resolver bleibt server-only.",
+   "art": "TEST",
+   "kennung": "DoD-03",
+   "rt_bezug": [
+    "BASE-060",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 56,
+   "zeilen": "130-131",
+   "zitat": "  - Pool exhausted → Fail-Closed, deterministisch (keine “halben” Sessions).",
+   "aussage": "DoD-04 Failure/Exhaustion: Ist ein Pool erschoepft, wird deterministisch Fail-Closed reagiert; es entstehen keine 'halben' Sitzungen.",
+   "art": "TEST",
+   "kennung": "DoD-04",
+   "rt_bezug": [
+    "BASE-070",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 57,
+   "zeilen": "132",
+   "zitat": "  - Logging/Rotation verhindert Disk-Full Kaskaden.",
+   "aussage": "DoD-04: Logging und Log-Rotation verhindern Disk-Full-Kaskaden.",
+   "art": "TEST",
+   "kennung": "DoD-04",
+   "rt_bezug": [
+    "MOD-007",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 58,
+   "zeilen": "134-135",
+   "zitat": "Ein Client im ADMIN_VPN_NET_v4 mit Panel-Rolle USER darf keine Admin-Aktionen im Panel ausführen (Role-Gate hält).",
+   "aussage": "DoD-05 Negativtest: Ein Client im ADMIN_VPN_NET_v4 mit Panel-Rolle USER darf keine Admin-Aktionen im Panel ausfuehren (Role-Gate haelt).",
+   "art": "TEST",
+   "kennung": "DoD-05",
+   "rt_bezug": [
+    "MOD-006",
+    "BASE-110",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 59,
+   "zeilen": "136",
+   "zitat": "Ein Panel-User mit Rolle ADMIN aus LEGACY/MODERN darf keine Admin-only Tools/UIs erreichen",
+   "aussage": "DoD-05 Negativtest: Ein Panel-User mit Rolle ADMIN, der aus LEGACY/MODERN kommt und nicht im ADMIN-Scope ist, darf keine Admin-only Tools/UIs erreichen (Scope-Gate haelt).",
+   "art": "TEST",
+   "kennung": "DoD-05",
+   "rt_bezug": [
+    "BASE-050",
+    "BASE-110",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 60,
+   "zeilen": "137",
+   "zitat": "SERVICE_RESOLVER bleibt server-only auch bei aktivem DNS-Zwang/Redirect (kein direkter Client-Zugriff auf 10.77.0.2:53).",
+   "aussage": "DoD-05 Negativtest: SERVICE_RESOLVER bleibt auch bei aktivem DNS-Zwang/Redirect server-only; kein direkter Client-Zugriff auf 10.77.0.2:53.",
+   "art": "TEST",
+   "kennung": "DoD-05",
+   "rt_bezug": [
+    "BASE-060",
+    "BASE-050",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 61,
+   "zeilen": "139-146",
+   "zitat": "- conn_group Ableitungen/SoT/Gates: B058_CONN_GROUP_POLICYKEY_DETERMINISTIC_DERIVATIONS",
+   "aussage": "Verknuepfte Bloecke/Records: B060_NETPLAN_IPS_SEGMENTS (SoT Netze/Service), B058_CONN_GROUP_POLICYKEY_DETERMINISTIC_DERIVATIONS (conn_group-Ableitungen/SoT/Gates), B180_SYSTEMD_RESTART_HEALTHCHECKS, B300_SECURITY_STEALTH_GUIDELINES, D011 (Reason-Codes/Outcomes), D001 (Web-Frontend), D006 (NTP).",
+   "art": "DEFINITION",
+   "kennung": "LINKED BLOCKS / RECORDS",
+   "rt_bezug": [
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 62,
+   "zeilen": "149-151",
+   "zitat": "- v1.0 (2026-01-23): initial",
+   "aussage": "Changelog der Nachlieferung: einziger Eintrag v1.0 (2026-01-23) 'initial'. Die XPN-Fassung fuehrt stattdessen v2.0 (2026-01-20, Neuformulierung fuer conn_group-Modell und Single Webpanel) bis v2.4 (2026-01-21, IPv6-Abschnitt praezisiert) auf.",
+   "art": "HISTORIE",
+   "kennung": "v1.0",
+   "rt_bezug": [],
+   "gewicht": "RANDNOTIZ"
+  }
+ ],
+ "werte": [
+  {
+   "zeilen": "49",
+   "name": "SERVICE_DNS",
+   "wert": "10.77.0.1 / fd77:0:0:0::1",
+   "einheit": "IPv4/IPv6-Adresse",
+   "status": "FIX",
+   "zitat": "  - SERVICE_DNS:      10.77.0.1 / fd77:0:0:0::1"
+  },
+  {
+   "zeilen": "50",
+   "name": "SERVICE_RESOLVER",
+   "wert": "10.77.0.2 / fd77:0:0:0::2 (server-only, Port 53 fuer Clients gesperrt)",
+   "einheit": "IPv4/IPv6-Adresse",
+   "status": "FIX",
+   "zitat": "  - SERVICE_RESOLVER: 10.77.0.2 / fd77:0:0:0::2"
+  },
+  {
+   "zeilen": "51",
+   "name": "SERVICE_WEB",
+   "wert": "10.77.0.3 / fd77:0:0:0::3",
+   "einheit": "IPv4/IPv6-Adresse",
+   "status": "FIX",
+   "zitat": "  - SERVICE_WEB:      10.77.0.3 / fd77:0:0:0::3"
+  },
+  {
+   "zeilen": "52",
+   "name": "SERVICE_NTP",
+   "wert": "10.77.0.4 / fd77:0:0:0::4",
+   "einheit": "IPv4/IPv6-Adresse",
+   "status": "FIX",
+   "zitat": "  - SERVICE_NTP:      10.77.0.4 / fd77:0:0:0::4"
+  },
+  {
+   "zeilen": "53",
+   "name": "SERVICE_SSH",
+   "wert": "10.77.0.5 / fd77:0:0:0::5 (admin-only scoped)",
+   "einheit": "IPv4/IPv6-Adresse",
+   "status": "FIX",
+   "zitat": "  - SERVICE_SSH:      10.77.0.5 / fd77:0:0:0::5  (SSH admin-only scoped)"
+  },
+  {
+   "zeilen": "55, 58",
+   "name": "SERVICE_NET_v4",
+   "wert": "10.77.0.0/28",
+   "einheit": "IPv4-Netz",
+   "status": "FIX",
+   "zitat": "- SERVICE_NET_v4: 10.77.0.0/28"
+  },
+  {
+   "zeilen": "59, 72",
+   "name": "SERVICE_NET_v6",
+   "wert": "fd77:0:0:0::/64",
+   "einheit": "IPv6-Netz",
+   "status": "FIX",
+   "zitat": "- SERVICE_NET_v6: fd77:0:0:0::/64"
+  },
+  {
+   "zeilen": "60",
+   "name": "ADMIN_VPN_NET_v4",
+   "wert": "10.77.2.0/24",
+   "einheit": "IPv4-Netz",
+   "status": "FIX",
+   "zitat": "- ADMIN_VPN_NET_v4: 10.77.2.0/24"
+  },
+  {
+   "zeilen": "61, 69",
+   "name": "ADMIN_VPN_NET_v6",
+   "wert": "fd77:0:0:2::/64",
+   "einheit": "IPv6-Netz",
+   "status": "FIX",
+   "zitat": "- ADMIN_VPN_NET_v6: fd77:0:0:2::/64"
+  },
+  {
+   "zeilen": "62",
+   "name": "MODERN_VPN_NET_v4",
+   "wert": "10.77.32.0/20",
+   "einheit": "IPv4-Netz",
+   "status": "FIX",
+   "zitat": "- MODERN_VPN_NET_v4: 10.77.32.0/20"
+  },
+  {
+   "zeilen": "63, 70",
+   "name": "MODERN_VPN_NET_v6",
+   "wert": "fd77:0:0:32::/64",
+   "einheit": "IPv6-Netz",
+   "status": "FIX",
+   "zitat": "- MODERN_VPN_NET_v6: fd77:0:0:32::/64"
+  },
+  {
+   "zeilen": "64",
+   "name": "LEGACY_VPN_NET_v4",
+   "wert": "10.77.16.0/20 (v4-only, kein v6-Netz)",
+   "einheit": "IPv4-Netz",
+   "status": "FIX",
+   "zitat": "- LEGACY_VPN_NET_v4: 10.77.16.0/20 (v4-only; kein LEGACY_VPN_NET_v6)"
+  },
+  {
+   "zeilen": "26-29",
+   "name": "conn_group (Wertemenge)",
+   "wert": "LEGACY | MODERN | ADMIN",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "  - LEGACY  (Windows XP/Vista)"
+  },
+  {
+   "zeilen": "36, 80",
+   "name": "Panel-Rolle (Wertemenge)",
+   "wert": "USER | ADMIN",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "  - Panel-User existiert mit Rollen (USER/ADMIN) innerhalb dieses EINEN Panels."
+  },
+  {
+   "zeilen": "79",
+   "name": "fixed_ip / fixed_ipv6 / Framed-IP",
+   "wert": "DB-gefuehrt, Pflicht je Subaccount, nicht frei aenderbar",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "     - fixed_ip / fixed_ipv6 / Framed-IP ist DB-geführt und PFLICHT pro Subaccount"
+  },
+  {
+   "zeilen": "83",
+   "name": "manual_restricted",
+   "wert": "Not-Aus fuer alle conn_groups inkl. ADMIN; Kernel-Enforcement via restricted_*",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "manual_restricted gilt als Not-Aus für alle conn_groups inkl. ADMIN (Kernel-Enforcement via restricted_*)."
+  },
+  {
+   "zeilen": "82",
+   "name": "USER-Gates",
+   "wert": "Quota, Expiry, UNCLAIMED_OVERDUE, WalledGardenPolicy (nur fuer conn_group != ADMIN)",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "USER-Gates (Quota/Expiry/UNCLAIMED_OVERDUE/WalledGardenPolicy) werden nur für conn_group != ADMIN evaluiert"
+  },
+  {
+   "zeilen": "92, 137",
+   "name": "Resolver-Port (fuer Clients gesperrt)",
+   "wert": "10.77.0.2:53",
+   "einheit": "Adresse:Port",
+   "status": "FIX",
+   "zitat": "SERVICE_RESOLVER ist server-only (Clients dürfen nicht direkt 10.77.0.2:53 erreichen)."
+  }
+ ],
+ "verweise_auf_dokumente": [
+  {
+   "zeilen": "31",
+   "name": "B058",
+   "zitat": "- Ableitungs-/SoT-/Gate-Normen (deterministische derived_policy, Verify-vs-AAA Trennung): siehe B058."
+  },
+  {
+   "zeilen": "55, 57, 140",
+   "name": "B060_NETPLAN_IPS_SEGMENTS",
+   "zitat": "- SoT Netze/Service: B060_NETPLAN_IPS_SEGMENTS"
+  },
+  {
+   "zeilen": "141",
+   "name": "B058_CONN_GROUP_POLICYKEY_DETERMINISTIC_DERIVATIONS",
+   "zitat": "- conn_group Ableitungen/SoT/Gates: B058_CONN_GROUP_POLICYKEY_DETERMINISTIC_DERIVATIONS"
+  },
+  {
+   "zeilen": "142",
+   "name": "B180_SYSTEMD_RESTART_HEALTHCHECKS",
+   "zitat": "- Healthchecks: B180_SYSTEMD_RESTART_HEALTHCHECKS"
+  },
+  {
+   "zeilen": "143",
+   "name": "B300_SECURITY_STEALTH_GUIDELINES",
+   "zitat": "- Security/Stealth: B300_SECURITY_STEALTH_GUIDELINES"
+  },
+  {
+   "zeilen": "144",
+   "name": "D011_POLICY_OUTCOME_DENY_RESTRICT_REASON_CODES",
+   "zitat": "- Reason-Codes / Outcomes: D011_POLICY_OUTCOME_DENY_RESTRICT_REASON_CODES"
+  },
+  {
+   "zeilen": "145",
+   "name": "D001_OPENRESTY_OVER_APACHE",
+   "zitat": "- Web-Frontend: D001_OPENRESTY_OVER_APACHE"
+  },
+  {
+   "zeilen": "146",
+   "name": "D006_NTP_MANDATORY_XP",
+   "zitat": "- NTP: D006_NTP_MANDATORY_XP"
+  }
+ ],
+ "offene_punkte": [
+  {
+   "zeilen": "87, 131",
+   "kennung": "",
+   "text": "Das Verhalten bei Pool-Erschoepfung wird als 'definiert (deterministisch)' und Fail-Closed bezeichnet, die konkrete Definition steht aber nicht in D003 (kein Verweis auf einen Block an dieser Stelle)."
+  },
+  {
+   "zeilen": "93",
+   "kennung": "",
+   "text": "DNS-Zwang/Redirect steht unter dem Vorbehalt '(wenn aktiv)'; ob und wann er aktiv ist, legt D003 nicht fest."
+  },
+  {
+   "zeilen": "44, 107",
+   "kennung": "",
+   "text": "'wo zutreffend zusaetzlich ueber Role=ADMIN' bzw. 'zusaetzliche AuthZ wo passend' - fuer welche Admin-only Tools die zusaetzliche Rollenpruefung gilt, bleibt unbestimmt."
+  }
+ ],
+ "innere_widersprueche": [
+  {
+   "zeilen": "55, 58",
+   "text": "SERVICE_NET_v4: 10.77.0.0/28 steht doppelt (Zeile 55 unter den Service-Ankern und Zeile 58 in der Netzuebersicht); inhaltlich gleich, aber redundante Angabe."
+  },
+  {
+   "zeilen": "66-74",
+   "text": "Redaktioneller Bruch im IPv6-Abschnitt: Zeile 68 beginnt ohne Listenzeichen und enthaelt den verrutschten Satzbau 'Prefixe:, gleiche Regeln/Enforcement wie v4 ...', die Praefixliste folgt erst in den Zeilen 69-70; zwischen Zeile 73 und der Ueberschrift D003-DEC-05 (Zeile 74) fehlt die Leerzeile. Der IPv6-Block gehoert formal zu D003-DEC-04, ist aber als eigener, unnummerierter Abschnitt gesetzt. Die Aussage von Zeile 68 wird in Zeile 73 sinngleich wiederholt."
+  },
+  {
+   "zeilen": "83 gegen 82",
+   "text": "Zeile 82 sagt, ADMIN ignoriere die USER-Gates, Zeile 83 nimmt manual_restricted ausdruecklich als Not-Aus fuer alle conn_groups inkl. ADMIN aus. Kein Widerspruch, aber die Ausnahme ist nur als eingerueckte Fortsetzungszeile ohne eigenes NORM-Etikett formuliert."
+  },
+  {
+   "zeilen": "5-6, 151 gegen Inhalt",
+   "text": "Kopf/Changelog weisen v1.0 / 2026-01-23 / 'initial' aus; der Inhalt ist der ausgereifte Stand, den die XPN-Fassung als v2.4 (nach fuenf Ueberarbeitungen v2.0-v2.4) fuehrt."
+  },
+  {
+   "zeilen": "122-123 gegen 68",
+   "text": "Die DoD-Pruefungen nennen nur IPv4-Netze (LEGACY_VPN_NET_v4, ADMIN_VPN_NET_v4), obwohl fuer ADMIN/MODERN Dualstack mit identischem Enforcement gefordert ist; ein v6-Pruefkriterium fehlt in der DoD."
+  }
+ ],
+ "relevanz": {
+  "stufe": "HOCH",
+  "begruendung": "Normativer Kern des XPN-Netz- und Oberflaechenmodells: Segmente/conn_group, genau ein Webpanel, Orthogonalitaet von Netz-Scope und Panel-Rolle, Service-Anker und Adressplan (v4/v6), Pflicht-Fix-IP, getrennte Pools mit Fail-Closed, Resolver server-only, DNS-Zwang, manual_restricted als Not-Aus, DoD mit Negativtests. Beruehrt Firewall, Adressvergabe, DNS, Webstack, Panel und Policy-Vertraege.",
+  "rt_module": [
+   "BASE-050",
+   "BASE-070",
+   "BASE-110",
+   "BASE-060",
+   "BASE-010",
+   "BASE-100",
+   "BASE-020",
+   "BASE-005",
+   "BASE-080",
+   "MOD-006",
+   "MOD-001",
+   "MOD-002",
+   "MOD-007",
+   "BASE-030",
+   "BASE-040",
+   "QUERSCHNITT"
+  ]
+ },
+ "auffaelligkeiten": [
+  "Zeile 1 traegt den Pfad 'xp-vpn-stack/decisions/D003_SEGMENTATION_SINGLE_WEBPANEL.txt' - die Datei stammt aus dem XPN-Repository.",
+  "Kopf (Zeilen 5-6) und Changelog (Zeile 151) sind auf v1.0 / 2026-01-23 / initial zurueckgesetzt, waehrend die XPN-Fassung denselben Text als v2.4 / 2026-01-21 fuehrt - groesster Versionssprung der Gruppe.",
+  "Das Dokument kennt nur die Panel-Rollen USER und ADMIN (Zeilen 36, 80); VIP und MODERATOR kommen nicht vor.",
+  "Der Dateiname lautet 'SINGLE_WEBPANEL', der Titel wurde laut XPN-Changelog v2.0 fuer das conn_group-Modell neu formuliert; die XPN-Historie vor v2.0 ist in keiner der beiden Fassungen enthalten.",
+  "Redaktionelle Maengel im IPv6-Abschnitt (Zeilen 66-74) sind in beiden Fassungen identisch vorhanden.",
+  "Keine Zugangsdaten in der Datei."
+ ],
+ "abweichungen_zu_xpn": [
+  {
+   "zeilen_nachlieferung": "5",
+   "zeilen_xpn": "5",
+   "text_nachlieferung": "VERSION: v1.0",
+   "text_xpn": "VERSION: v2.4",
+   "bedeutung": "nur Kopf/Historie"
+  },
+  {
+   "zeilen_nachlieferung": "6",
+   "zeilen_xpn": "6",
+   "text_nachlieferung": "DATUM: 2026-01-23",
+   "text_xpn": "DATUM: 2026-01-21",
+   "bedeutung": "nur Kopf/Historie"
+  },
+  {
+   "zeilen_nachlieferung": "151",
+   "zeilen_xpn": "151-155",
+   "text_nachlieferung": "- v1.0 (2026-01-23): initial",
+   "text_xpn": "- v2.4 (2026-01-21): IPv6 Abschnitt präzisiert: conn_group Parity (LEGACY v4-only, ADMIN/MODERN dualstack) + B060-SoT Prefixe + SERVICE_NET_v6 explizit genannt; keine Semantikänderung, nur Kanon-Klarheit. / - v2.3 (2026-01-21): Drift-Fix: SERVICE_NET_v4 in Netzübersicht korrigiert auf /28 (kein /24 Duplicate); MODERN_VPN_NET_v6 korrigiert auf fd77:0:0:32::/64 (SoT: B060). / - v2.2 (2026-01-21): SERVICE_NET + Zone-0-Services auf Dualstack aktualisiert (inkl. SERVICE_SSH); Dualstack-Regel (ADMIN/MODERN) vs LEGACY (v4-only) klargestellt; fixed_ip/fixed_ipv6 als Pflicht markiert. / - v2.1 (2026-01-21): Referenz auf B058 ergänzt (conn_group deterministische Ableitungen + Verify-vs-AAA Trennung). / - v2.0 (2026-01-20): D003 neu formuliert für aktuelles Modell: conn_group LEGACY/MODERN/ADMIN, Single Webpanel (SERVICE_WEB 10.77.0.3), Admin-only Tools/UIs statt “Admin Panel”, Enforcement-Punkte + DoD.",
+   "bedeutung": "nur Kopf/Historie (CHANGELOG); die XPN-Fassung belegt aber die Entstehung des Inhalts: Neuformulierung v2.0, B058-Verweis v2.1, Dualstack und Pflicht-Fix-IP v2.2, Korrektur SERVICE_NET_v4 auf /28 und MODERN_VPN_NET_v6 auf fd77:0:0:32::/64 in v2.3, IPv6-Praezisierung v2.4 - alle diese Inhalte sind in der Nachlieferung bereits enthalten"
+  }
+ ],
+ "verhaeltnis_zu_xpn": "Der Textkoerper (Zeilen 1-4 und 7-150) ist zeichengleich mit der XPN-Fassung v2.4 (abgesehen von CRLF dort). Abweichungen bestehen nur in VERSION, DATUM und CHANGELOG. Die Nachlieferung enthaelt saemtliche Inhalte, die der XPN-Changelog den Versionen v2.0 bis v2.4 zuschreibt (conn_group-Modell, B058-Verweis in Zeile 31, Dualstack-Anker mit SERVICE_SSH, Pflicht-Fix-IP in Zeile 79, SERVICE_NET_v4 /28, MODERN_VPN_NET_v6 fd77:0:0:32::/64, praezisierter IPv6-Abschnitt). Sie ist dem Inhalt nach also der Stand v2.4 und keine fruehe Urfassung; der Kopf v1.0 / 2026-01-23 / 'initial' ist eine zurueckgesetzte Baseline, deren Datum zwei Tage nach dem XPN-Datum 2026-01-21 liegt. Vollstaendiger ist die XPN-Fassung, weil nur sie die Aenderungshistorie traegt. Welche Datei zuletzt geschrieben wurde, laesst sich aus dem Inhalt nicht entscheiden; inhaltlich sind beide gleichwertig."
+}

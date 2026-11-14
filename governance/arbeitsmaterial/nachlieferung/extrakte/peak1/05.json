@@ -1,0 +1,821 @@
+{
+ "datei": "nachlieferung/entwuerfe/peak_mode_v2/PEAK MODE v2 — BR-03.txt",
+ "abschnitt": "1-153",
+ "zeilen_gesamt": 153,
+ "gelesen_bereiche": "1-153",
+ "vollstaendig_gelesen": true,
+ "dokument": {
+  "titel": "PEAK MODE v2 — BR-03 CPU/SoftIRQ% — exakte Definition (procstat), Aggregation, total_ticks, Glättung",
+  "doc_id": "BR-03",
+  "status_laut_datei": "ENTWURF (Phase 3)",
+  "version_laut_datei": "v2 (Entwurf; Änderungsprotokoll CHG-01, CHG-02)",
+  "datum_laut_datei": "kein Datum angegeben",
+  "projekt": "XPN",
+  "art": "NORM",
+  "normativitaet_laut_datei": "Abschnitte durchgehend als MUST gekennzeichnet; laut BR-00 Teil des normativen Kanons. Enthält ausdrücklich offene Owner-Fixpunkte (FP-BR03-05..07), ohne die BR-03 nach eigener Aussage nicht \"geschlossen\" ist."
+ },
+ "zusammenfassung": "BR-03 definiert ausschließlich die Berechnung der Messgröße softirq_pct aus /proc/stat, ohne Trigger-Entscheidung und ohne Schwellenwerte. Fixiert sind die Quelle /proc/stat (procstat, PM-06), die Aggregation über alle CPUs anhand der aggregierten cpu-Zeile (nicht max- oder avg-per-CPU), die Standard-Abtastkadenz von 10 s (PM-09, nur als Kontext; gerechnet wird mit dem gemessenen Δt) und die Formel softirq_pct = (Δsoftirq / Δtotal) * 100 zwischen zwei Samples. Ausdrücklich offen sind die genaue Definition von Δtotal (idle, iowait, guest, guest_nice), die Glättung (roh oder z. B. Median über N Samples) und die Korrekturregel bei negativen oder ungültigen Deltas. Der Contract nennt Inputs, Outputs (softirq_pct im Bereich 0..100 sowie die Flags PROCSTAT_RESET und PROCSTAT_INVALID) und vier Fehlerklassen ERR-BR03-*. Die Messung ist read-only und braucht keine Sperre; externe Werkzeuge wie sysstat sind ausgeschlossen. Sechs Tests T-01..T-06 decken Normalfall, Multi-Core-Konsistenz, unlesbares /proc/stat, Δt <= 0, negative Deltas und Glättung ab. Reifegrad: Entwurf (Phase 3); wegen dreier offener Owner-Fixpunkte nach eigener Aussage nicht geschlossen. Das Dokument hat keinen PPP-Bezug.",
+ "aussagen": [
+  {
+   "nr": 1,
+   "zeilen": "2-6",
+   "zitat": "PEAK MODE v2 — BR-03 CPU/SoftIRQ% — exakte Definition (procstat), Aggregation, total_ticks, Glättung",
+   "aussage": "BR-03 (Status ENTWURF, Phase 3) ist die self-contained Spezifikation der CPU-/SoftIRQ%-Messung mit Definition über procstat, Aggregation, total_ticks und Glättung; ohne Patch, Copy-Code oder Snippets.",
+   "art": "DEFINITION",
+   "kennung": "BR-03",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 2,
+   "zeilen": "9-10",
+   "zitat": "- Dieses BR definiert ausschließlich: Wie softirq_pct aus /proc/stat berechnet wird",
+   "aussage": "Scope: BR-03 definiert ausschließlich, wie softirq_pct aus /proc/stat berechnet wird (Aggregation, Δtotal, Randfälle, Glättung).",
+   "art": "DEFINITION",
+   "kennung": "softirq_pct",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 3,
+   "zeilen": "11",
+   "zitat": "- Anti-Scope: Keine Trigger-Entscheidung (overload yes/no), keine Threshold-Werte, keine Täter-Selektion,",
+   "aussage": "Anti-Scope: keine Trigger-Entscheidung (overload ja/nein), keine Threshold-Werte, keine Täter-Selektion, keine Batch-Apply-Mechanik, keine DB-Tabellen.",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 4,
+   "zeilen": "17-18",
+   "zitat": "softirq_pct = (Δsoftirq/Δtotal)*100; Hinweis “multi-core sauber behandeln”.",
+   "aussage": "Kanon-Import K-IMP-01 aus \"Peak-Mode_Was es ist, wie es funktioniert.txt\", Abschnitt 4.1 SoftIRQ% aus /proc/stat: Quelle /proc/stat, Feld \"softirq\", Delta-Formel softirq_pct = (Δsoftirq/Δtotal)*100, Hinweis auf saubere Multi-Core-Behandlung.",
+   "art": "HISTORIE",
+   "kennung": "K-IMP-01",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 5,
+   "zeilen": "19-20",
+   "zitat": "- Importiert: offene Muss-Fakten A) Aggregation, B) total ticks Definition, C) Glättung/Stabilität.",
+   "aussage": "Kanon-Import K-IMP-02 aus Peak-Mode_CHECKLISTE.txt (BR-03): die offenen Muss-Fakten A) Aggregation, B) Definition der total ticks, C) Glättung/Stabilität.",
+   "art": "HISTORIE",
+   "kennung": "K-IMP-02",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 6,
+   "zeilen": "21-22",
+   "zitat": "PM-06 “CPU-Quelle = procstat (/proc/stat)” + PM-09 “Sampling = 10 Sekunden”",
+   "aussage": "Kanon-Import K-IMP-03 aus Peak-Mode_entscheidung.txt: PM-06 \"CPU-Quelle = procstat (/proc/stat)\" und PM-09 \"Sampling = 10 Sekunden\"; die Quelle ist fix, die Sampling-Kadenz von 10 s gilt als Default und Kontext, nicht als Berechnungszwang.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K-IMP-03 / PM-06 / PM-09",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 7,
+   "zeilen": "25",
+   "zitat": "- “procstat”: /proc/stat (kumulierte CPU-Ticks pro CPU-State).",
+   "aussage": "Begriff procstat: /proc/stat mit kumulierten CPU-Ticks je CPU-State.",
+   "art": "DEFINITION",
+   "kennung": "procstat",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 8,
+   "zeilen": "26",
+   "zitat": "- “softirq_pct”: Anteil SoftIRQ-Ticks am gesamten Tick-Delta im Sampling-Fenster.",
+   "aussage": "Begriff softirq_pct: Anteil der SoftIRQ-Ticks am gesamten Tick-Delta im Sampling-Fenster.",
+   "art": "DEFINITION",
+   "kennung": "softirq_pct",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 9,
+   "zeilen": "29-30",
+   "zitat": "- K-CONF-01: Aggregation über alle CPUs vs per-CPU max/avg → Status: NONE",
+   "aussage": "Konfliktcheck K-CONF-01 (Status NONE): Aggregation über alle CPUs gegenüber per-CPU max/avg ist durch den Owner-Entscheid \"aggregated\" aufgelöst.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K-CONF-01",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 10,
+   "zeilen": "31-32",
+   "zitat": "- K-CONF-02: total ticks Definition (inkl. idle/iowait/guest) im Kanon nicht festgenagelt → Status: RISK",
+   "aussage": "Konfliktcheck K-CONF-02 (Status RISK): Die Definition der total ticks (inkl. idle/iowait/guest) ist im Kanon nicht festgelegt; ohne Owner-Fix kann ein Implementierer Δtotal anders berechnen (Drift-Risiko).",
+   "art": "OFFEN",
+   "kennung": "K-CONF-02",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 11,
+   "zeilen": "33-34",
+   "zitat": "- K-CONF-03: Glättung (raw vs median/rolling) im Kanon offen → Status: RISK",
+   "aussage": "Konfliktcheck K-CONF-03 (Status RISK): Die Glättung (raw gegenüber median/rolling) ist im Kanon offen; ohne Owner-Fix kann die Implementierung zu nervös oder zu träge werden.",
+   "art": "OFFEN",
+   "kennung": "K-CONF-03",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 12,
+   "zeilen": "38",
+   "zitat": "- FP-BR03-01 (SOURCE): CPU/SoftIRQ Quelle = /proc/stat (procstat) (PM-06).",
+   "aussage": "Owner-Fixpunkt FP-BR03-01 (SOURCE): Quelle für CPU/SoftIRQ ist /proc/stat (procstat), gemäß PM-06.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "FP-BR03-01",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 13,
+   "zeilen": "39-40",
+   "zitat": "- FP-BR03-02 (AGGREGATION): Aggregation = aggregated über alle CPUs (nicht max-per-CPU, nicht avg-per-CPU).",
+   "aussage": "Owner-Fixpunkt FP-BR03-02 (AGGREGATION): Aggregation über alle CPUs, nicht max-per-CPU und nicht avg-per-CPU; Norm ist bevorzugt die aggregierte cpu-Zeile (erste Zeile \"cpu …\"), semantisch die Summe aller Kerne.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "FP-BR03-02",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 14,
+   "zeilen": "41",
+   "zitat": "- FP-BR03-03 (SAMPLING_DEFAULT): Default Sampling-Cadence = 10s (PM-09)",
+   "aussage": "Owner-Fixpunkt FP-BR03-03 (SAMPLING_DEFAULT): Die Default-Sampling-Kadenz beträgt 10 s (PM-09); sie ist nur Kontext, die Berechnung nutzt das gemessene Δt.",
+   "art": "PARAMETER",
+   "kennung": "FP-BR03-03",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 15,
+   "zeilen": "42",
+   "zitat": "- FP-BR03-04 (FORMULA): softirq_pct = (Δsoftirq / Δtotal) * 100, Δ berechnet zwischen zwei Samples.",
+   "aussage": "Owner-Fixpunkt FP-BR03-04 (FORMULA): softirq_pct = (Δsoftirq / Δtotal) * 100, wobei Δ zwischen zwei Samples berechnet wird.",
+   "art": "IMPL_DETAIL",
+   "kennung": "FP-BR03-04",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 16,
+   "zeilen": "44-45",
+   "zitat": "- FP-BR03-05 (TOTAL_TICKS_DEF): Exakte Definition, welche CPU-States in Δtotal enthalten sind",
+   "aussage": "Offener Owner-Fixpunkt FP-BR03-05 (TOTAL_TICKS_DEF): Es fehlt die exakte Definition, welche CPU-States in Δtotal eingehen (inkl. idle und iowait? Umgang mit guest/guest_nice?).",
+   "art": "OFFEN",
+   "kennung": "FP-BR03-05",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 17,
+   "zeilen": "46",
+   "zitat": "- FP-BR03-06 (SMOOTHING): Glättung ja/nein; falls ja: welche Regel (z.B. Median über N Samples)",
+   "aussage": "Offener Owner-Fixpunkt FP-BR03-06 (SMOOTHING): Glättung ja oder nein; falls ja, welche Regel (z. B. Median über N Samples), falls nein, gilt das rohe 10-s-Sample.",
+   "art": "OFFEN",
+   "kennung": "FP-BR03-06",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 18,
+   "zeilen": "47",
+   "zitat": "- FP-BR03-07 (NEG_DELTA_RULE): Handling, falls Δsoftirq<0 oder Δtotal<=0 (reset/clock/overflow)",
+   "aussage": "Offener Owner-Fixpunkt FP-BR03-07 (NEG_DELTA_RULE): Das Verhalten bei Δsoftirq<0 oder Δtotal<=0 (Reset, Uhr, Überlauf) muss als Fakt fixiert werden.",
+   "art": "OFFEN",
+   "kennung": "FP-BR03-07",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 19,
+   "zeilen": "53-55",
+   "zitat": "- Input-03: total_now, total_prev (aus TOTAL_TICKS_DEF; siehe FP-BR03-05).",
+   "aussage": "Inputs 01-03: /proc/stat-Snapshots zu t_prev und t_now; softirq_now und softirq_prev aus dem procstat-Feld \"softirq\"; total_now und total_prev gemäß TOTAL_TICKS_DEF (FP-BR03-05).",
+   "art": "IMPL_DETAIL",
+   "kennung": "Input-01..03",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 20,
+   "zeilen": "56",
+   "zitat": "- Input-04: Δt_seconds = t_now - t_prev (gemessen; Sampling-Default 10s ist nur Erwartung",
+   "aussage": "Input-04: Δt_seconds = t_now - t_prev wird gemessen; der Sampling-Default von 10 s ist nur Erwartung, keine Berechnungsannahme.",
+   "art": "IMPL_DETAIL",
+   "kennung": "Input-04",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-060"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 21,
+   "zeilen": "58-59",
+   "zitat": "- Keine externen Tools/Dependencies (kein sysstat), nur procstat (PM-06).",
+   "aussage": "Constraint: keine externen Tools oder Abhängigkeiten (kein sysstat), nur procstat (PM-06).",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "PM-06",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-005"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 22,
+   "zeilen": "60",
+   "zitat": "- Aggregation ist fix “aggregated” (FP-BR03-02); keine per-CPU max/avg Triggerbasis.",
+   "aussage": "Constraint: Die Aggregation ist fest \"aggregated\" (FP-BR03-02); per-CPU max/avg ist als Triggerbasis ausgeschlossen.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "FP-BR03-02",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 23,
+   "zeilen": "63",
+   "zitat": "- Output-01: softirq_pct (0..100, ggf. >100 nur bei Fehler → dann anomaly",
+   "aussage": "Output-01: softirq_pct im Bereich 0..100; Werte über 100 treten nur bei Fehlern auf, gelten dann als Anomalie und sollen durch Regeln verhindert werden.",
+   "art": "FUNKTION",
+   "kennung": "Output-01",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 24,
+   "zeilen": "64-66",
+   "zitat": "- PROCSTAT_INVALID (wenn Δtotal<=0 oder Δt_seconds<=0)",
+   "aussage": "Output-02: Mindestens die Anomalie-Flags PROCSTAT_RESET (bei negativen Δ) und PROCSTAT_INVALID (bei Δtotal<=0 oder Δt_seconds<=0) werden geliefert.",
+   "art": "FUNKTION",
+   "kennung": "PROCSTAT_RESET / PROCSTAT_INVALID",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 25,
+   "zeilen": "68-69",
+   "zitat": "- BR-03 hat keine eigenen States; es liefert Messwerte + Anomalie-Flags.",
+   "aussage": "BR-03 hat keine eigenen States; es liefert nur Messwerte und Anomalie-Flags.",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 26,
+   "zeilen": "72",
+   "zitat": "- E-01: Aggregation ist normativ: Implementierung MUSS aggregated Messung liefern (sonst Drift).",
+   "aussage": "Enforcement E-01: Die Aggregation ist normativ; die Implementierung muss die aggregierte Messung liefern.",
+   "art": "FUNKTION",
+   "kennung": "E-01",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 27,
+   "zeilen": "73",
+   "zitat": "- E-02: TOTAL_TICKS_DEF ist normativ: Implementierung MUSS exakt diese total-Definition nutzen (sonst Drift).",
+   "aussage": "Enforcement E-02: TOTAL_TICKS_DEF ist normativ; die Implementierung muss exakt diese total-Definition nutzen (die Definition selbst ist noch OPEN).",
+   "art": "FUNKTION",
+   "kennung": "E-02",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 28,
+   "zeilen": "74",
+   "zitat": "- E-03: Glättungsregel ist normativ (wenn aktiviert): gleiche Eingänge → gleiche outputs.",
+   "aussage": "Enforcement E-03: Die Glättungsregel ist, wenn aktiviert, normativ: gleiche Eingänge ergeben gleiche Ausgaben.",
+   "art": "FUNKTION",
+   "kennung": "E-03",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 29,
+   "zeilen": "77",
+   "zitat": "- ERR-BR03-PROCSTAT_UNREADABLE: /proc/stat nicht lesbar → Messung ungültig",
+   "aussage": "Fehlerklasse ERR-BR03-PROCSTAT_UNREADABLE: /proc/stat ist nicht lesbar, die Messung ist ungültig; ob DEGRADED oder FAILED, wird in BR-10 normiert.",
+   "art": "IMPL_DETAIL",
+   "kennung": "ERR-BR03-PROCSTAT_UNREADABLE",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 30,
+   "zeilen": "78",
+   "zitat": "- ERR-BR03-DELTA_T_ZERO: Δt_seconds <= 0 → Messung ungültig (kein Divide/Crash).",
+   "aussage": "Fehlerklasse ERR-BR03-DELTA_T_ZERO: Δt_seconds <= 0 macht die Messung ungültig; keine Division, kein Absturz.",
+   "art": "IMPL_DETAIL",
+   "kennung": "ERR-BR03-DELTA_T_ZERO",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007",
+    "BASE-060"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 31,
+   "zeilen": "79",
+   "zitat": "- ERR-BR03-DELTA_TOTAL_INVALID: Δtotal <= 0 → Messung ungültig; setze Flag PROCSTAT_INVALID.",
+   "aussage": "Fehlerklasse ERR-BR03-DELTA_TOTAL_INVALID: Δtotal <= 0 macht die Messung ungültig; das Flag PROCSTAT_INVALID wird gesetzt.",
+   "art": "IMPL_DETAIL",
+   "kennung": "ERR-BR03-DELTA_TOTAL_INVALID",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 32,
+   "zeilen": "80",
+   "zitat": "- ERR-BR03-NEGATIVE_DELTA: Δsoftirq<0 oder total_now<total_prev → Flag PROCSTAT_RESET",
+   "aussage": "Fehlerklasse ERR-BR03-NEGATIVE_DELTA: Bei Δsoftirq<0 oder total_now<total_prev wird das Flag PROCSTAT_RESET gesetzt und eine definierte Korrektur angewandt, die noch OPEN ist (FP-BR03-07).",
+   "art": "IMPL_DETAIL",
+   "kennung": "ERR-BR03-NEGATIVE_DELTA",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 33,
+   "zeilen": "82-84",
+   "zitat": "- Read-only; keine Locks nötig (Lock nur für tc-write in BR-09/BR-01).",
+   "aussage": "Die Messung ist read-only und braucht keine Locks (ein Lock ist nur für tc-Schreibzugriffe in BR-09/BR-01 nötig); idempotent: gleiche procstat-Werte und gleiches Δt ergeben dieselbe softirq_pct.",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 34,
+   "zeilen": "86-87",
+   "zitat": "- BR-03 definiert keine Retention; Speicherung/Audit gehört BR-08/BR-10.",
+   "aussage": "BR-03 definiert keine Retention; Speicherung und Audit gehören zu BR-08/BR-10.",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-007"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 35,
+   "zeilen": "90-91",
+   "zitat": "- Ziel: Jeder Außenstehende misst softirq_pct exakt so wie du",
+   "aussage": "Fix-Intention: Jeder Außenstehende soll softirq_pct exakt gleich messen – ohne Multi-Core-Drift, ohne Drift bei \"total\" und ohne Glättungsunterschiede.",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 36,
+   "zeilen": "92-95",
+   "zitat": "- Negative/invalid deltas sauber definieren (Flags + Korrektur), damit keine Phantom-Spikes entstehen.",
+   "aussage": "Delta: Aggregation ist fest \"aggregated\" (cpu-Zeile, bereits owner-gefixt); TOTAL_TICKS_DEF und SMOOTHING sind als Owner-Fixpunkte festzuzurren (sonst bleibt BR-03 offen); negative/ungültige Deltas sind mit Flags und Korrektur zu definieren, damit keine Phantom-Spikes entstehen.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 37,
+   "zeilen": "96-98",
+   "zitat": "- Kein “Raten” bei total/Glättung; Missing-Fix bleibt OPEN.",
+   "aussage": "Grenzen: keine externen Abhängigkeiten; kein Raten bei total/Glättung, fehlende Fixierung bleibt OPEN.",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 38,
+   "zeilen": "104-108",
+   "zitat": "- Erwartung: softirq_pct plausibel (0..100), keine Flags.",
+   "aussage": "Test T-01 Normalfall: /proc/stat lesbar, Δt_seconds>0, total und softirq steigen; nach zwei Samples ist softirq_pct plausibel (0..100) ohne Flags; Nachweis über Messlog/Audit mit softirq_pct und Rohdeltas.",
+   "art": "TEST",
+   "kennung": "T-01",
+   "rt_bezug": [
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 39,
+   "zeilen": "110-114",
+   "zitat": "- Erwartung: Ergebnis entspricht “Summe aller Kerne” (nicht max-per-CPU).",
+   "aussage": "Test T-02 Multi-Core-Konsistenz: Auf einem Multi-Core-System mit verteiltem per-Core-SoftIRQ entspricht das aggregierte Ergebnis der Summe aller Kerne (nicht max-per-CPU); Nachweis durch Vergleich gegen kontrollierte Lastverteilung.",
+   "art": "TEST",
+   "kennung": "T-02",
+   "rt_bezug": [
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 40,
+   "zeilen": "116-120",
+   "zitat": "- Erwartung: ERR-BR03-PROCSTAT_UNREADABLE, Sample ungültig, System bleibt stabil.",
+   "aussage": "Test T-03 /proc/stat unlesbar: Bei simuliertem Lesefehler entsteht ERR-BR03-PROCSTAT_UNREADABLE, das Sample ist ungültig, das System bleibt stabil; Failure-Reason sichtbar, kein Crash.",
+   "art": "TEST",
+   "kennung": "T-03",
+   "rt_bezug": [
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 41,
+   "zeilen": "122-126",
+   "zitat": "- Erwartung: PROCSTAT_INVALID / ERR-BR03-DELTA_T_ZERO; keine Division.",
+   "aussage": "Test T-04 Δt_seconds <= 0: Bei Zeitbasisfehler entsteht PROCSTAT_INVALID bzw. ERR-BR03-DELTA_T_ZERO ohne Division; Nachweis: Flag und stabile Schleife.",
+   "art": "TEST",
+   "kennung": "T-04",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-060",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 42,
+   "zeilen": "128-132",
+   "zitat": "- Erwartung: PROCSTAT_RESET Flag + definierte Korrektur (OPEN bis Owner-Fix).",
+   "aussage": "Test T-05 negative Δ (Reset/Wrap/Reboot): Bei total_now<total_prev oder softirq_now<softirq_prev wird PROCSTAT_RESET gesetzt und die (noch offene) Korrektur angewandt; keine negativen Prozentwerte, kein Spike.",
+   "art": "TEST",
+   "kennung": "T-05",
+   "rt_bezug": [
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 43,
+   "zeilen": "134-138",
+   "zitat": "- Erwartung: Output folgt exakt definierter Glättungsregel (Median/rolling/raw).",
+   "aussage": "Test T-06 Glättung (falls aktiviert): Bei sprunghaftem SoftIRQ folgt der Output über N Samples exakt der definierten Glättungsregel (Median/rolling/raw); reproduzierbar und deterministisch.",
+   "art": "TEST",
+   "kennung": "T-06",
+   "rt_bezug": [
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 44,
+   "zeilen": "142-144",
+   "zitat": "- Muss klar sagen: sind idle+iowait drin (meist ja), und wie mit guest/guest_nice umgegangen wird.",
+   "aussage": "Offen O-01 (TOTAL_TICKS_DEF): Es ist exakt festzulegen, was \"total\" ist – ob idle und iowait enthalten sind (\"meist ja\") und wie mit guest/guest_nice umgegangen wird; ohne diese Festlegung ist BR-03 nicht geschlossen.",
+   "art": "OFFEN",
+   "kennung": "O-01 / FP-BR03-05",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 45,
+   "zeilen": "145-146",
+   "zitat": "- Ohne Festlegung ist Verhalten bei “flatternder SoftIRQ%” implementierungsabhängig.",
+   "aussage": "Offen O-02 (SMOOTHING): Glättung ja/nein; ohne Festlegung ist das Verhalten bei flatternder SoftIRQ% implementierungsabhängig.",
+   "art": "OFFEN",
+   "kennung": "O-02 / FP-BR03-06",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 46,
+   "zeilen": "147-148",
+   "zitat": "konkrete Korrekturregel bei Δsoftirq<0 / Δtotal<=0 (setze Δ=0? verwirf Sample?).",
+   "aussage": "Offen O-03 (NEG/INVALID DELTA RULE): Die konkrete Korrekturregel bei Δsoftirq<0 bzw. Δtotal<=0 (Δ=0 setzen oder Sample verwerfen?) muss fixiert werden, damit kein Phantom-Impact entsteht.",
+   "art": "OFFEN",
+   "kennung": "O-03 / FP-BR03-07",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 47,
+   "zeilen": "152",
+   "zitat": "- CHG-01: BR-03 v2 zieht die drei fehlenden Muss-Fakten (Aggregation/total/glättung)",
+   "aussage": "Änderungsprotokoll CHG-01: BR-03 v2 zieht die drei fehlenden Muss-Fakten (Aggregation, total, Glättung) ausdrücklich als Owner-Fixpunkte hoch.",
+   "art": "HISTORIE",
+   "kennung": "CHG-01",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 48,
+   "zeilen": "153",
+   "zitat": "- CHG-02: Aggregation = aggregated ist als FIX eingetragen (auf deinen Entscheid).",
+   "aussage": "Änderungsprotokoll CHG-02: Aggregation = aggregated ist auf Entscheid des Owners als FIX eingetragen.",
+   "art": "HISTORIE",
+   "kennung": "CHG-02",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  }
+ ],
+ "werte": [
+  {
+   "zeilen": "38",
+   "name": "FP-BR03-01 SOURCE",
+   "wert": "/proc/stat (procstat)",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- FP-BR03-01 (SOURCE): CPU/SoftIRQ Quelle = /proc/stat (procstat) (PM-06)."
+  },
+  {
+   "zeilen": "39-40",
+   "name": "FP-BR03-02 AGGREGATION",
+   "wert": "aggregated über alle CPUs (aggregierte cpu-Zeile); nicht max-per-CPU, nicht avg-per-CPU",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- Norm: bevorzugt “aggregated cpu-line” (erste Zeile “cpu …”), semantisch Summe aller Kerne."
+  },
+  {
+   "zeilen": "21-22, 41, 56",
+   "name": "FP-BR03-03 SAMPLING_DEFAULT (PM-09)",
+   "wert": "10",
+   "einheit": "Sekunden",
+   "status": "FIX",
+   "zitat": "- FP-BR03-03 (SAMPLING_DEFAULT): Default Sampling-Cadence = 10s (PM-09)"
+  },
+  {
+   "zeilen": "42",
+   "name": "FP-BR03-04 FORMULA",
+   "wert": "softirq_pct = (Δsoftirq / Δtotal) * 100",
+   "einheit": "%",
+   "status": "FIX",
+   "zitat": "- FP-BR03-04 (FORMULA): softirq_pct = (Δsoftirq / Δtotal) * 100, Δ berechnet zwischen zwei Samples."
+  },
+  {
+   "zeilen": "45, 142-144",
+   "name": "FP-BR03-05 TOTAL_TICKS_DEF",
+   "wert": "nicht festgelegt (idle+iowait? guest/guest_nice?)",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- FP-BR03-05 (TOTAL_TICKS_DEF): Exakte Definition, welche CPU-States in Δtotal enthalten sind"
+  },
+  {
+   "zeilen": "46, 145-146",
+   "name": "FP-BR03-06 SMOOTHING",
+   "wert": "nicht festgelegt (ja/nein; z. B. Median über N Samples oder raw 10s Sample)",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- FP-BR03-06 (SMOOTHING): Glättung ja/nein; falls ja: welche Regel (z.B. Median über N Samples)"
+  },
+  {
+   "zeilen": "47, 147-148",
+   "name": "FP-BR03-07 NEG_DELTA_RULE",
+   "wert": "nicht festgelegt (Δ=0 setzen oder Sample verwerfen)",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- FP-BR03-07 (NEG_DELTA_RULE): Handling, falls Δsoftirq<0 oder Δtotal<=0 (reset/clock/overflow)"
+  },
+  {
+   "zeilen": "63, 107",
+   "name": "softirq_pct Wertebereich",
+   "wert": "0..100 (über 100 nur im Fehlerfall, dann Anomalie)",
+   "einheit": "%",
+   "status": "FIX",
+   "zitat": "- Output-01: softirq_pct (0..100, ggf. >100 nur bei Fehler → dann anomaly"
+  },
+  {
+   "zeilen": "65",
+   "name": "Flag PROCSTAT_RESET",
+   "wert": "bei negativen Δ",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- PROCSTAT_RESET (wenn negative Δ auftreten)"
+  },
+  {
+   "zeilen": "66",
+   "name": "Flag PROCSTAT_INVALID",
+   "wert": "bei Δtotal<=0 oder Δt_seconds<=0",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- PROCSTAT_INVALID (wenn Δtotal<=0 oder Δt_seconds<=0)"
+  },
+  {
+   "zeilen": "77",
+   "name": "ERR-BR03-PROCSTAT_UNREADABLE",
+   "wert": "Messung ungültig; DEGRADED/FAILED in BR-10",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- ERR-BR03-PROCSTAT_UNREADABLE: /proc/stat nicht lesbar → Messung ungültig"
+  },
+  {
+   "zeilen": "78",
+   "name": "ERR-BR03-DELTA_T_ZERO",
+   "wert": "Δt_seconds <= 0 -> Messung ungültig",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- ERR-BR03-DELTA_T_ZERO: Δt_seconds <= 0 → Messung ungültig (kein Divide/Crash)."
+  },
+  {
+   "zeilen": "79",
+   "name": "ERR-BR03-DELTA_TOTAL_INVALID",
+   "wert": "Δtotal <= 0 -> Messung ungültig, Flag PROCSTAT_INVALID",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- ERR-BR03-DELTA_TOTAL_INVALID: Δtotal <= 0 → Messung ungültig; setze Flag PROCSTAT_INVALID."
+  },
+  {
+   "zeilen": "80",
+   "name": "ERR-BR03-NEGATIVE_DELTA",
+   "wert": "Flag PROCSTAT_RESET + Korrektur (Korrektur OPEN)",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- ERR-BR03-NEGATIVE_DELTA: Δsoftirq<0 oder total_now<total_prev → Flag PROCSTAT_RESET"
+  },
+  {
+   "zeilen": "106",
+   "name": "Mindestzahl Samples je Messwert",
+   "wert": "2",
+   "einheit": "Samples",
+   "status": "FIX",
+   "zitat": "- Aktion: 2 Samples, compute."
+  }
+ ],
+ "verweise_auf_dokumente": [
+  {
+   "zeilen": "17",
+   "name": "Peak-Mode_Was es ist, wie es funktioniert.txt (Abschnitt 4.1)",
+   "zitat": "- K-IMP-01: Peak-Mode_Was es ist, wie es funktioniert.txt → Abschnitt “4.1 SoftIRQ% aus /proc/stat (procstat)”"
+  },
+  {
+   "zeilen": "19",
+   "name": "Peak-Mode_CHECKLISTE.txt",
+   "zitat": "- K-IMP-02: Peak-Mode_CHECKLISTE.txt → BR-03"
+  },
+  {
+   "zeilen": "21, 38, 41, 59",
+   "name": "Peak-Mode_entscheidung.txt (PM-06, PM-09)",
+   "zitat": "PM-06 “CPU-Quelle = procstat (/proc/stat)” + PM-09 “Sampling = 10 Sekunden”"
+  },
+  {
+   "zeilen": "77, 87",
+   "name": "BR-10",
+   "zitat": "- BR-03 definiert keine Retention; Speicherung/Audit gehört BR-08/BR-10."
+  },
+  {
+   "zeilen": "83",
+   "name": "BR-09 / BR-01 (tc-write Lock)",
+   "zitat": "- Read-only; keine Locks nötig (Lock nur für tc-write in BR-09/BR-01)."
+  }
+ ],
+ "offene_punkte": [
+  {
+   "zeilen": "45, 142-144",
+   "kennung": "FP-BR03-05 / O-01",
+   "text": "TOTAL_TICKS_DEF: welche CPU-States in Δtotal eingehen (idle, iowait, guest, guest_nice)."
+  },
+  {
+   "zeilen": "46, 145-146",
+   "kennung": "FP-BR03-06 / O-02",
+   "text": "SMOOTHING: Glättung ja/nein und ggf. Regel (Median über N Samples, rolling) oder rohes 10-s-Sample."
+  },
+  {
+   "zeilen": "47, 147-148",
+   "kennung": "FP-BR03-07 / O-03",
+   "text": "NEG_DELTA_RULE: Korrektur bei Δsoftirq<0 oder Δtotal<=0 (Δ=0 setzen oder Sample verwerfen)."
+  },
+  {
+   "zeilen": "77",
+   "kennung": "ERR-BR03-PROCSTAT_UNREADABLE",
+   "text": "Ob eine unlesbare Quelle als DEGRADED oder FAILED gilt, wird erst in BR-10 normiert."
+  }
+ ],
+ "innere_widersprueche": [
+  {
+   "zeilen": "9-11, 69",
+   "text": "BR-01 (Zeile 65) und BR-02 (Zeile 63) nennen BR-03 als Ort der Peak-State-Machine; BR-03 selbst hat keine States und schließt Trigger-Entscheidungen aus. BR-00 (Zeile 128) ordnet BR-03 zutreffend als Messdefinition ein."
+  },
+  {
+   "zeilen": "73, 45",
+   "text": "E-02 verlangt, die Implementierung müsse \"exakt diese total-Definition\" nutzen, während die Definition selbst (FP-BR03-05) noch OPEN ist; ebenso setzt Fehlerklasse ERR-BR03-NEGATIVE_DELTA (Zeile 80) eine \"definierte Korrektur\" voraus, die noch nicht definiert ist."
+  }
+ ],
+ "relevanz": {
+  "stufe": "HOCH",
+  "begruendung": "Definiert das Primärsignal des Peak Mode vollständig: Quelle, Aggregation, Formel, Abtastkadenz 10 s, Wertebereich, Anomalie-Flags, Fehlerklassen und Tests. Unabhängig von der Tunneltechnik (kein PPP-Bezug). Die drei offenen Punkte (total-Definition, Glättung, negative Deltas) müssten für einen geschlossenen Vertrag entschieden werden.",
+  "rt_module": [
+   "MOD-009",
+   "MOD-007",
+   "BASE-090",
+   "BASE-060"
+  ]
+ },
+ "auffaelligkeiten": [
+  "Das Dokument spricht den Owner direkt an (Zeile 30 \"Du hast Owner-Entscheid ... getroffen\", Zeile 91 \"exakt so wie du\", Zeile 153 \"auf deinen Entscheid\").",
+  "Verweist auf drei v1-Dokumente (Peak-Mode_Was es ist, wie es funktioniert.txt; Peak-Mode_CHECKLISTE.txt; Peak-Mode_entscheidung.txt mit PM-06 und PM-09), die nicht in dieser Liste liegen.",
+  "Keine PPP-gebundene Festlegung; die Messung ist systemweit.",
+  "Kein Datum; die Datei endet ohne abschließenden Zeilenumbruch (wc -l meldet 152, Read zeigt 153 Zeilen)."
+ ]
+}

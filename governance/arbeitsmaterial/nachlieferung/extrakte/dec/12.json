@@ -1,0 +1,867 @@
+{
+ "datei": "nachlieferung/decisions/D012_SESSION_CONTROL_A_B.txt",
+ "abschnitt": "1-106",
+ "zeilen_gesamt": 106,
+ "gelesen_bereiche": "1-106 (Nachlieferung); zusaetzlich XPN-Fassung XPN:decisions/D012_SESSION_CONTROL_A_B.txt 1-107 und vollstaendiger diff beider Fassungen",
+ "vollstaendig_gelesen": true,
+ "dokument": {
+  "titel": "Session Control (SimUse=1) — Model A (Truth) + Model B (Guard) + Janitor Repair",
+  "doc_id": "D012",
+  "status_laut_datei": "ACCEPTED",
+  "version_laut_datei": "v1.0",
+  "datum_laut_datei": "2026-01-23",
+  "projekt": "XPN",
+  "art": "ENTSCHEIDUNG",
+  "normativitaet_laut_datei": "Abschnitt 1 'Entscheidung (KANONISCH)'; Abschnitt 2 'Invarianten / Hierarchie (MUST)'; Abschnitt 3 'Zeilenfeste Parameter & Wiring (O1–O5 FINAL)'; O3/O4 als 'KANONISCH', O5 als 'Tests (Acceptance, MUST)'"
+ },
+ "zusammenfassung": "D012 ist ein angenommener, als kanonisch und final bezeichneter Entscheidungs-Record des XPN-Projekts zur Sitzungskontrolle bei SimUse=1 (hoechstens eine gleichzeitige Sitzung). Ausgangsproblem sind asynchrone Komponenten (RADIUS-Auth, PPP/L2TP mit xl2tpd/pppd und Kernel-Runtime, RADIUS-Accounting nach radacct, PHP-Panel), die Races (zwei fast gleichzeitige Access-Requests vor Accounting-Start) und Ghosts (radacct offen, Runtime tot oder umgekehrt) erzeugen. Entschieden wird: Model A - radacct ist die einzige Wahrheit fuer 'Session aktiv' (stop_time IS NULL); Model B - active_session_locks ist ausschliesslich ein kurzlebiger Mutex, der das Race-Fenster im Login-Moment schliesst; Reparatur - der Janitor ist der einzige Mechanismus, der Ghosts erkennt und repariert. Ein Model C (zweite Session-State-Machine mit PENDING/ACTIVE) wird verworfen. Fuenf Invarianten (I1-I5) legen Truth-Hierarchie, Definition 'Session aktiv', Fail-Closed-Abweisung ohne Takeover, Guard-Charakter und 'Admin-Hardcut-first' (erst technischer Kill, dann Reconcile) fest. Fuenf Festlegungen (O1-O5) regeln Lock-TTL ueber den Key active_session_lock_ttl_seconds (B057), Acquire am Ende von FreeRADIUS authorize und Release bei Acct-Start, die Ghost-Definition (B168), das Tool /usr/local/bin/vpn-session-kill mit Privilegientrennung ueber sudoers und Auditpflicht sowie vier Pflicht-Akzeptanztests fuer B310. Abschnitt 4 verteilt die Zustaendigkeiten auf B169, B056, B168, B310, B280, B285, B167, B166. Der Record ist reif und in sich stimmig; eine Testzeile (77) ist durch Auslassungspunkte verstuemmelt. Der Textkoerper ist identisch mit der XPN-Fassung v1.1, die den frueheren Literalwert der Lock-TTL (20 s) nur noch im Changelog nennt.",
+ "aussagen": [
+  {
+   "nr": 1,
+   "zeilen": "3-8",
+   "zitat": "TITLE: Session Control (SimUse=1) — Model A (Truth) + Model B (Guard) + Janitor Repair",
+   "aussage": "Kopf des Records: DECISION-ID D012, VERSION v1.0, DATUM 2026-01-23, STATUS ACCEPTED, OWNER Marco (Owner) + ChatGPT (Co-Architect). Titel: Session Control bei SimUse=1 mit Model A (Truth), Model B (Guard) und Janitor Repair.",
+   "art": "HISTORIE",
+   "kennung": "D012",
+   "rt_bezug": [
+    "BASE-070"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 2,
+   "zeilen": "12-16",
+   "zitat": "- PPP/L2TP (xl2tpd/pppd) + Kernel Runtime (pppX, PID, Interface, /run)",
+   "aussage": "Kontext: Das System ist ein 'High-Security VPN-Stack (Legacy Windows XP + Modern)' aus asynchron zusammenwirkenden Komponenten: RADIUS Auth (Access-Request/Accept/Reject), PPP/L2TP (xl2tpd/pppd) mit Kernel-Runtime (pppX, PID, Interface, /run), RADIUS Accounting (Acct-Start/Interim/Stop) nach radacct (SQL) und Panel (PHP) als Admin-Controlplane (SQL-first).",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-020",
+    "BASE-030",
+    "BASE-070",
+    "BASE-110",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 3,
+   "zeilen": "18-19",
+   "zitat": "- Race: zwei nahezu gleichzeitige Access-Requests vor Accounting-Start.",
+   "aussage": "Randfall Race: zwei nahezu gleichzeitige Access-Requests vor dem Accounting-Start.",
+   "art": "DEFINITION",
+   "kennung": "Race",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-020"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 4,
+   "zeilen": "20",
+   "zitat": "- Ghost: radacct sagt „aktiv“ (stop_time NULL), Runtime ist aber tot (PID/Interface weg) oder umgekehrt (Stop fehlt).",
+   "aussage": "Randfall Ghost: radacct meldet 'aktiv' (stop_time NULL), die Runtime ist aber tot (PID/Interface weg) - oder umgekehrt (Stop fehlt).",
+   "art": "DEFINITION",
+   "kennung": "Ghost",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 5,
+   "zeilen": "22",
+   "zitat": "Ziel ist deterministisches, auditierbares Session Control bei SimUse=1, ohne zweite „Wahrheit“",
+   "aussage": "Ziel: deterministische, auditierbare Sitzungskontrolle bei SimUse=1 ohne zweite 'Wahrheit' (keine zusaetzliche State-Machine neben radacct).",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 6,
+   "zeilen": "24-26",
+   "zitat": "- Model A (Truth): radacct ist die einzige Wahrheit für „Session aktiv“.",
+   "aussage": "Entscheidung (kanonisch, final) Model A (Truth): radacct ist die einzige Wahrheit fuer die Frage 'Session aktiv'.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "Model A",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-020",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 7,
+   "zeilen": "27",
+   "zitat": "- Model B (Guard): active_session_locks ist ausschließlich ein kurzlebiger Mutex (Guard)",
+   "aussage": "Entscheidung Model B (Guard): active_session_locks ist ausschliesslich ein kurzlebiger Mutex zur Schliessung des Race-Fensters im Login-Moment.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "Model B",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-020",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 8,
+   "zeilen": "28",
+   "zitat": "- Repair: Janitor ist der einzige Mechanismus, der Ghosts erkennt und radacct/runtime konsistent repariert,",
+   "aussage": "Entscheidung Repair: Der Janitor ist der einzige Mechanismus, der Ghosts erkennt und radacct/Runtime konsistent repariert; Kernel-/run-Informationen dienen nur als Validierungs- und Repair-Signal, nicht als Wahrheit fuer Login-Entscheidungen.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "Janitor",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-080"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 9,
+   "zeilen": "30",
+   "zitat": "Model C (Stateful Lifecycle wie PENDING/ACTIVE als zweite Session-State-Machine) wird verworfen.",
+   "aussage": "Verworfen: Model C, ein zustandsbehafteter Lebenszyklus (z. B. PENDING/ACTIVE) als zweite Session-State-Machine.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "Model C (verworfen)",
+   "rt_bezug": [
+    "BASE-070"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 10,
+   "zeilen": "33-35",
+   "zitat": "- SQL (radacct) führt für die Frage „Session aktiv“.",
+   "aussage": "I1 (MUST, Truth-Hierarchie): SQL (radacct) fuehrt fuer die Frage 'Session aktiv'; Kernel-/run-Informationen dienen nur der Validierung und Reparatur durch den Janitor, nicht als alleinige Gate-Wahrheit.",
+   "art": "SCHUTZZIEL",
+   "kennung": "I1",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 11,
+   "zeilen": "37-39",
+   "zitat": "wenn in radacct eine zugehörige Session existiert mit stop_time IS NULL.",
+   "aussage": "I2 (MUST, Definition): Eine Session gilt genau dann als aktiv, wenn in radacct eine zugehoerige Session mit stop_time IS NULL existiert; Details und Join-Schluessel stehen in den zustaendigen Blocks.",
+   "art": "DEFINITION",
+   "kennung": "I2",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-020"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 12,
+   "zeilen": "41-42",
+   "zitat": "- Wenn „Session aktiv“ (radacct offen) => Login wird fail-closed abgewiesen (No Takeover durch User).",
+   "aussage": "I3 (MUST, SimUse=1): Ist eine Session aktiv (radacct offen), wird der Login fail-closed abgewiesen; der User kann die Sitzung nicht uebernehmen (No Takeover).",
+   "art": "SCHUTZZIEL",
+   "kennung": "I3",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-020"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 13,
+   "zeilen": "44-45",
+   "zitat": "- active_session_locks ist KEIN Session-State. Er darf nicht als „Session lebt“ interpretiert werden.",
+   "aussage": "I4 (MUST, Guard-Charakter): active_session_locks ist KEIN Session-State und darf nicht als 'Session lebt' gedeutet werden.",
+   "art": "SCHUTZZIEL",
+   "kennung": "I4",
+   "rt_bezug": [
+    "BASE-070"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 14,
+   "zeilen": "46",
+   "zitat": "- Guard ist kurzlebig, TTL-bereinigt, und schützt nur das Auth-Race-Fenster.",
+   "aussage": "I4: Der Guard ist kurzlebig, wird per TTL bereinigt und schuetzt nur das Race-Fenster bei der Authentisierung.",
+   "art": "SCHUTZZIEL",
+   "kennung": "I4",
+   "rt_bezug": [
+    "BASE-070"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 15,
+   "zeilen": "48-49",
+   "zitat": "- Admin darf niemals „nur DB bereinigen“ ohne technischen Kill.",
+   "aussage": "I5 (MUST, Admin-Hardcut-first): Ein Admin darf niemals 'nur die DB bereinigen', ohne die Sitzung technisch zu beenden.",
+   "art": "SCHUTZZIEL",
+   "kennung": "I5",
+   "rt_bezug": [
+    "BASE-070",
+    "MOD-006"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 16,
+   "zeilen": "50",
+   "zitat": "- Reihenfolge ist zwingend: Kill/Terminate technisch -> danach Reconcile (DB/Accounting/Policy).",
+   "aussage": "I5: Die Reihenfolge ist zwingend - zuerst technischer Kill/Terminate, danach Reconcile (DB/Accounting/Policy).",
+   "art": "BETRIEB",
+   "kennung": "I5",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-080"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 17,
+   "zeilen": "52-54",
+   "zitat": "- expires_at = NOW() + Lock-TTL wobei Lock-TTL = active_session_lock_ttl_seconds",
+   "aussage": "O1 (FINAL, Lock-TTL des Guards): expires_at = NOW() + Lock-TTL, wobei Lock-TTL dem Key active_session_lock_ttl_seconds entspricht (gemaess B057, einschliesslich Failsafe und Validierung dort). Ein Zahlenwert steht nicht im Text.",
+   "art": "PARAMETER",
+   "kennung": "O1",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-090"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 18,
+   "zeilen": "56-57",
+   "zitat": "- Acquire: FreeRADIUS authorize (ganz am Ende, kurz vor OK/ACCEPT Entscheidung).",
+   "aussage": "O2 (Acquire): Der Guard-Lock wird in FreeRADIUS authorize erworben, ganz am Ende, kurz vor der OK/ACCEPT-Entscheidung.",
+   "art": "IMPL_DETAIL",
+   "kennung": "O2",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-020"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 19,
+   "zeilen": "58",
+   "zitat": "sofort REJECT (oder definierter deny/restrict Pfad gemäß B169/B342).",
+   "aussage": "O2: Kann der Guard-Lock nicht erlangt werden (bestehender, nicht abgelaufener Lock), erfolgt sofort REJECT - oder ein definierter deny/restrict-Pfad gemaess B169/B342.",
+   "art": "IMPL_DETAIL",
+   "kennung": "O2",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-020",
+    "BASE-010"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 20,
+   "zeilen": "59-60",
+   "zitat": "  - Sobald Acct-Start da ist, existiert Truth (radacct) -> Guard muss weg.",
+   "aussage": "O2 (Release): Der Guard-Lock wird in FreeRADIUS accounting bei Acct-Start freigegeben; sobald Acct-Start vorliegt, existiert die Wahrheit in radacct und der Guard muss entfernt werden.",
+   "art": "IMPL_DETAIL",
+   "kennung": "O2",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-020"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 21,
+   "zeilen": "61",
+   "zitat": "- Safety: Wenn Acct-Start nie kommt, greift TTL (Lock läuft ab).",
+   "aussage": "O2 (Safety): Kommt Acct-Start nie, greift die TTL und der Lock laeuft ab.",
+   "art": "SCHUTZZIEL",
+   "kennung": "O2",
+   "rt_bezug": [
+    "BASE-070"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 22,
+   "zeilen": "63-65",
+   "zitat": "- Ghost = radacct Session offen (stop_time IS NULL) UND kein valides Runtime-Mapping gemäß B168",
+   "aussage": "O3 (kanonisch, referenziert): Ghost = radacct-Session offen (stop_time IS NULL) UND kein valides Runtime-Mapping gemaess B168 (Validierung von PID+StartTS/Interface negativ); Details der Runtime-Validierung sind ausschliesslich in B168 kanonisch.",
+   "art": "DEFINITION",
+   "kennung": "O3",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 23,
+   "zeilen": "67-68",
+   "zitat": "- System-Tool: /usr/local/bin/vpn-session-kill <vpn_connection_id>",
+   "aussage": "O4 (kanonisch, privilege separated): Das System-Tool fuer den Admin-Hardcut ist /usr/local/bin/vpn-session-kill mit dem Argument <vpn_connection_id>.",
+   "art": "IMPL_DETAIL",
+   "kennung": "O4",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-005",
+    "MOD-006"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 24,
+   "zeilen": "69",
+   "zitat": "- Panel (PHP/www-data) darf NICHT direkt killen.",
+   "aussage": "O4: Das Panel (PHP/www-data) darf Sitzungen NICHT direkt beenden.",
+   "art": "SCHUTZZIEL",
+   "kennung": "O4",
+   "rt_bezug": [
+    "BASE-110",
+    "MOD-006",
+    "BASE-070"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 25,
+   "zeilen": "70",
+   "zitat": "- Privilege Separation: www-data darf via sudoers ausschließlich dieses Skript aufrufen.",
+   "aussage": "O4 (Privilegientrennung): www-data darf ueber sudoers ausschliesslich dieses Skript aufrufen.",
+   "art": "SCHUTZZIEL",
+   "kennung": "O4",
+   "rt_bezug": [
+    "BASE-005",
+    "BASE-110",
+    "MOD-006"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 26,
+   "zeilen": "71",
+   "zitat": "- Wrapper muss Input strikt validieren (Integer ID), Lookup/Validation durchführen und danach Kill+Reconcile ausführen.",
+   "aussage": "O4: Der Wrapper muss die Eingabe strikt validieren (Integer-ID), Lookup/Validation durchfuehren und danach Kill + Reconcile ausfuehren.",
+   "art": "IMPL_DETAIL",
+   "kennung": "O4",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-005"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 27,
+   "zeilen": "72",
+   "zitat": "- Alle Hardcut-Aktionen sind auditpflichtig (Wer/Wann/Warum/Ergebnis).",
+   "aussage": "O4: Alle Hardcut-Aktionen sind auditpflichtig (Wer/Wann/Warum/Ergebnis).",
+   "art": "SCHUTZZIEL",
+   "kennung": "O4",
+   "rt_bezug": [
+    "MOD-007",
+    "MOD-006",
+    "BASE-070"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 28,
+   "zeilen": "74-76",
+   "zitat": "- Parallel-Login Race: zwei parallele Access-Requests -> genau ein ACCEPT; zweiter wird abgewiesen (Guard wirkt).",
+   "aussage": "O5 (Acceptance, MUST; in B310 zu fuehren), Test 1 Parallel-Login-Race: Zwei parallele Access-Requests ergeben genau ein ACCEPT; der zweite wird abgewiesen (Guard wirkt).",
+   "art": "TEST",
+   "kennung": "O5",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-020",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 29,
+   "zeilen": "77",
+   "zitat": "nach Ablauf von active_session_lock_ttl_seconds (gemäß B057) darf erneuter Login nicht dauerhaft blockiert sein.",
+   "aussage": "O5, Test 2 ACCEPT ohne Acct-Start: Erfolgt ein Access-Accept ohne nachfolgenden Acct-Start, darf nach Ablauf von active_session_lock_ttl_seconds (gemaess B057) ein erneuter Login nicht dauerhaft blockiert sein. (Die Quellzeile ist in der Mitte durch '...' verkuerzt.)",
+   "art": "TEST",
+   "kennung": "O5",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-090",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 30,
+   "zeilen": "78",
+   "zitat": "- Ghost: radacct offen, Runtime tot -> Janitor erkennt Ghost (gemäß B168), reconciled -> danach Login möglich.",
+   "aussage": "O5, Test 3 Ghost: radacct offen, Runtime tot - der Janitor erkennt den Ghost (gemaess B168) und gleicht ab; danach ist der Login moeglich.",
+   "art": "TEST",
+   "kennung": "O5",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-080",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 31,
+   "zeilen": "79",
+   "zitat": "- Admin Hardcut: Hardcut-first (Kill -> Reconcile) erzeugt keine Zombie-Traffic/Unaccounted Session",
+   "aussage": "O5, Test 4 Admin Hardcut: Hardcut-first (Kill -> Reconcile) erzeugt keinen Zombie-Traffic und keine nicht abgerechnete Session und hinterlaesst einen auditierbaren Zustand.",
+   "art": "TEST",
+   "kennung": "O5",
+   "rt_bezug": [
+    "BASE-070",
+    "MOD-006",
+    "MOD-007",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 32,
+   "zeilen": "81-82",
+   "zitat": "- B169: Login/On-Demand Janitor Flow + Gate-Entscheidungen (Truth via radacct, No Takeover)",
+   "aussage": "Zustaendigkeit B169: Login-/On-Demand-Janitor-Ablauf und Gate-Entscheidungen (Truth via radacct, No Takeover) sowie Referenzen auf Guard/Janitor.",
+   "art": "DEFINITION",
+   "kennung": "B169",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-020"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 33,
+   "zeilen": "83",
+   "zitat": "- B056: DB Schema/Mapping für Guard (active_session_locks), TTL, Acquire/Release Semantik (ohne Lifecycle).",
+   "aussage": "Zustaendigkeit B056: DB-Schema/Mapping fuer den Guard (active_session_locks), TTL sowie Acquire/Release-Semantik (ohne Lifecycle).",
+   "art": "DEFINITION",
+   "kennung": "B056",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 34,
+   "zeilen": "84",
+   "zitat": "- B168: Ghost-Kriterien + Runtime-Validierung + Repair/Janitor-Mechanik (kanonisch).",
+   "aussage": "Zustaendigkeit B168: Ghost-Kriterien, Runtime-Validierung und Repair/Janitor-Mechanik (kanonisch).",
+   "art": "DEFINITION",
+   "kennung": "B168",
+   "rt_bezug": [
+    "BASE-070"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 35,
+   "zeilen": "85",
+   "zitat": "- B310: Akzeptanztests / DoD Nachweise.",
+   "aussage": "Zustaendigkeit B310: Akzeptanztests und DoD-Nachweise.",
+   "art": "DEFINITION",
+   "kennung": "B310",
+   "rt_bezug": [
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 36,
+   "zeilen": "86",
+   "zitat": "- B280: Panel Feature „Admin kann Sessions beenden (Hardcut)“ (funktional).",
+   "aussage": "Zustaendigkeit B280: Panel-Funktion 'Admin kann Sessions beenden (Hardcut)' (funktional).",
+   "art": "DEFINITION",
+   "kennung": "B280",
+   "rt_bezug": [
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 37,
+   "zeilen": "87",
+   "zitat": "- B285: Panel Security Model: Privilege Separation + Audit + „Panel killt nie direkt“ (Security Enforcement).",
+   "aussage": "Zustaendigkeit B285: Panel-Sicherheitsmodell - Privilegientrennung, Audit und 'Panel killt nie direkt' (Security Enforcement).",
+   "art": "DEFINITION",
+   "kennung": "B285",
+   "rt_bezug": [
+    "MOD-006",
+    "BASE-110"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 38,
+   "zeilen": "88",
+   "zitat": "- B167: System Wiring/Toolpfade (KANONISCH: /usr/local/bin/vpn-session-kill) und Integration.",
+   "aussage": "Zustaendigkeit B167: System-Wiring/Toolpfade (kanonisch: /usr/local/bin/vpn-session-kill) und Integration.",
+   "art": "DEFINITION",
+   "kennung": "B167",
+   "rt_bezug": [
+    "BASE-005",
+    "BASE-070"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 39,
+   "zeilen": "89",
+   "zitat": "- B166: Technische Kill-/Reconcile-Details (PPP/Kernel), sofern dort geführt.",
+   "aussage": "Zustaendigkeit B166: technische Kill-/Reconcile-Details (PPP/Kernel), 'sofern dort gefuehrt'.",
+   "art": "DEFINITION",
+   "kennung": "B166",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-030",
+    "BASE-080"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 40,
+   "zeilen": "91-92",
+   "zitat": "- Verhindert Split-Brain durch zweite Wahrheit (keine Lock-State-Machine neben radacct).",
+   "aussage": "Sicherheitsbegruendung: verhindert Split-Brain durch eine zweite Wahrheit (keine Lock-State-Machine neben radacct).",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "Security Rationale",
+   "rt_bezug": [
+    "BASE-070"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 41,
+   "zeilen": "93",
+   "zitat": "- Fail-Closed vermeidet Session-Hijacking/Takeover-Angriffe.",
+   "aussage": "Sicherheitsbegruendung: Fail-Closed vermeidet Session-Hijacking- und Takeover-Angriffe.",
+   "art": "SCHUTZZIEL",
+   "kennung": "Security Rationale",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-020"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 42,
+   "zeilen": "94",
+   "zitat": "- Guard schließt Race-Fenster deterministisch.",
+   "aussage": "Sicherheitsbegruendung: Der Guard schliesst das Race-Fenster deterministisch.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "Security Rationale",
+   "rt_bezug": [
+    "BASE-070"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 43,
+   "zeilen": "95",
+   "zitat": "ohne Login-Gates auf volatile Runtime-Artefakte zu stützen.",
+   "aussage": "Sicherheitsbegruendung: Der Janitor repariert unvermeidbare Ghosts kontrolliert, ohne Login-Gates auf fluechtige Runtime-Artefakte zu stuetzen.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "Security Rationale",
+   "rt_bezug": [
+    "BASE-070"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 44,
+   "zeilen": "96",
+   "zitat": "- Admin Hardcut-first vermeidet Zombie-Traffic und unaccounted/unpoliced Sessions.",
+   "aussage": "Sicherheitsbegruendung: Admin-Hardcut-first vermeidet Zombie-Traffic sowie nicht abgerechnete bzw. nicht regulierte Sitzungen.",
+   "art": "SCHUTZZIEL",
+   "kennung": "Security Rationale",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-080"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 45,
+   "zeilen": "98-99",
+   "zitat": "- Keine User-getriebene Session-Übernahme („Takeover“).",
+   "aussage": "Nicht-Ziel: keine vom User ausgeloeste Sitzungsuebernahme ('Takeover').",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "Non-Goal",
+   "rt_bezug": [
+    "BASE-070"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 46,
+   "zeilen": "100",
+   "zitat": "- Keine vollständige Replikation des RADIUS/PPP-Zustands in eine zweite DB-State-Machine.",
+   "aussage": "Nicht-Ziel: keine vollstaendige Replikation des RADIUS/PPP-Zustands in eine zweite DB-State-Machine.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "Non-Goal",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 47,
+   "zeilen": "103-105",
+   "zitat": "- v1.0 (2026-01-23): initial",
+   "aussage": "Changelog der Nachlieferung: einziger Eintrag v1.0 (2026-01-23) 'initial'. Die XPN-Fassung fuehrt v1.0 (2026-01-14, angenommenes Entscheidungsset mit Guard-Mutex 'TTL 20s') und v1.1 (2026-01-23, Lock-TTL-Literale '20 seconds/20s' entfernt, TTL nur noch ueber active_session_lock_ttl_seconds gemaess B057).",
+   "art": "HISTORIE",
+   "kennung": "v1.0",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  }
+ ],
+ "werte": [
+  {
+   "zeilen": "4, 22, 41",
+   "name": "SimUse",
+   "wert": "1 (hoechstens eine gleichzeitige Sitzung)",
+   "einheit": "Sitzungen",
+   "status": "FIX",
+   "zitat": "TITLE: Session Control (SimUse=1) — Model A (Truth) + Model B (Guard) + Janitor Repair"
+  },
+  {
+   "zeilen": "54, 77",
+   "name": "active_session_lock_ttl_seconds",
+   "wert": "kein Zahlenwert im Text; Wert, Failsafe und Validierung laut B057 (XPN-Changelog nennt den frueheren Literalwert 20 s)",
+   "einheit": "Sekunden",
+   "status": "OPEN",
+   "zitat": "- expires_at = NOW() + Lock-TTL wobei Lock-TTL = active_session_lock_ttl_seconds"
+  },
+  {
+   "zeilen": "27, 45, 83",
+   "name": "active_session_locks",
+   "wert": "Tabelle/Mutex fuer den Guard; Spalte expires_at (Zeile 54)",
+   "einheit": "DB-Tabelle",
+   "status": "FIX",
+   "zitat": "- active_session_locks ist KEIN Session-State. Er darf nicht als „Session lebt“ interpretiert werden."
+  },
+  {
+   "zeilen": "38, 64",
+   "name": "Kriterium 'Session aktiv'",
+   "wert": "radacct-Zeile mit stop_time IS NULL",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "wenn in radacct eine zugehörige Session existiert mit stop_time IS NULL."
+  },
+  {
+   "zeilen": "68, 88",
+   "name": "Admin-Hardcut-Tool",
+   "wert": "/usr/local/bin/vpn-session-kill <vpn_connection_id> (Integer-ID)",
+   "einheit": "Pfad",
+   "status": "FIX",
+   "zitat": "- System-Tool: /usr/local/bin/vpn-session-kill <vpn_connection_id>"
+  },
+  {
+   "zeilen": "57",
+   "name": "Lock-Acquire-Punkt",
+   "wert": "FreeRADIUS authorize, ganz am Ende, kurz vor OK/ACCEPT",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- Acquire: FreeRADIUS authorize (ganz am Ende, kurz vor OK/ACCEPT Entscheidung)."
+  },
+  {
+   "zeilen": "59",
+   "name": "Lock-Release-Punkt",
+   "wert": "FreeRADIUS accounting, Acct-Start",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- Release: FreeRADIUS accounting (Acct-Start)."
+  },
+  {
+   "zeilen": "70",
+   "name": "Panel-Systembenutzer",
+   "wert": "www-data (darf per sudoers nur das Kill-Skript aufrufen)",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- Privilege Separation: www-data darf via sudoers ausschließlich dieses Skript aufrufen."
+  },
+  {
+   "zeilen": "72",
+   "name": "Audit-Pflichtfelder Hardcut",
+   "wert": "Wer, Wann, Warum, Ergebnis",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- Alle Hardcut-Aktionen sind auditpflichtig (Wer/Wann/Warum/Ergebnis)."
+  },
+  {
+   "zeilen": "64",
+   "name": "Runtime-Validierung (Ghost)",
+   "wert": "PID+StartTS/Interface, Details in B168",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- Ghost = radacct Session offen (stop_time IS NULL) UND kein valides Runtime-Mapping gemäß B168"
+  }
+ ],
+ "verweise_auf_dokumente": [
+  {
+   "zeilen": "54, 77",
+   "name": "B057 (Key active_session_lock_ttl_seconds)",
+   "zitat": "(gemäß B057; inkl. failsafe/validierung dort)"
+  },
+  {
+   "zeilen": "58, 82",
+   "name": "B169",
+   "zitat": "sofort REJECT (oder definierter deny/restrict Pfad gemäß B169/B342)."
+  },
+  {
+   "zeilen": "58",
+   "name": "B342",
+   "zitat": "sofort REJECT (oder definierter deny/restrict Pfad gemäß B169/B342)."
+  },
+  {
+   "zeilen": "64, 65, 78, 84",
+   "name": "B168",
+   "zitat": "- Details der Runtime-Validierung sind ausschließlich in B168 kanonisch."
+  },
+  {
+   "zeilen": "75, 85",
+   "name": "B310",
+   "zitat": "Mindestens folgende Tests müssen in B310 als Akzeptanzfälle stehen:"
+  },
+  {
+   "zeilen": "83",
+   "name": "B056",
+   "zitat": "- B056: DB Schema/Mapping für Guard (active_session_locks), TTL, Acquire/Release Semantik (ohne Lifecycle)."
+  },
+  {
+   "zeilen": "86",
+   "name": "B280",
+   "zitat": "- B280: Panel Feature „Admin kann Sessions beenden (Hardcut)“ (funktional)."
+  },
+  {
+   "zeilen": "87",
+   "name": "B285",
+   "zitat": "- B285: Panel Security Model: Privilege Separation + Audit + „Panel killt nie direkt“ (Security Enforcement)."
+  },
+  {
+   "zeilen": "88",
+   "name": "B167",
+   "zitat": "- B167: System Wiring/Toolpfade (KANONISCH: /usr/local/bin/vpn-session-kill) und Integration."
+  },
+  {
+   "zeilen": "89",
+   "name": "B166",
+   "zitat": "- B166: Technische Kill-/Reconcile-Details (PPP/Kernel), sofern dort geführt."
+  }
+ ],
+ "offene_punkte": [
+  {
+   "zeilen": "54",
+   "kennung": "O1",
+   "text": "Der Zahlenwert der Lock-TTL steht nicht in D012, sondern nur als Key active_session_lock_ttl_seconds mit Verweis auf B057 (Default, Grenzen, Failsafe dort)."
+  },
+  {
+   "zeilen": "58",
+   "kennung": "O2",
+   "text": "Bei nicht erlangtem Guard-Lock: 'sofort REJECT (oder definierter deny/restrict Pfad gemaess B169/B342)' - welche der beiden Reaktionen gilt und welcher Reason-Code verwendet wird, ist an B169/B342 delegiert."
+  },
+  {
+   "zeilen": "39",
+   "kennung": "I2",
+   "text": "Join-Schluessel und Details der Zuordnung radacct-Session zu Verbindung sind 'in den zustaendigen Blocks definiert', ohne Nennung des Blocks."
+  },
+  {
+   "zeilen": "89",
+   "kennung": "",
+   "text": "B166 fuehrt die Kill-/Reconcile-Details nur 'sofern dort gefuehrt' - Zustaendigkeit nicht abschliessend geklaert."
+  },
+  {
+   "zeilen": "20, 64",
+   "kennung": "",
+   "text": "Der Kontext nennt zwei Ghost-Richtungen (radacct offen/Runtime tot und umgekehrt 'Stop fehlt'); die kanonische Definition O3 und der Test decken nur die Richtung 'radacct offen, Runtime tot' ab."
+  },
+  {
+   "zeilen": "77",
+   "kennung": "O5",
+   "text": "Die Testbeschreibung 'ACCEPT ohne Acct-Start' ist in der Quelle durch '...' verkuerzt ('Accounting...nach Ablauf'); der vollstaendige Wortlaut fehlt in beiden Fassungen."
+  }
+ ],
+ "innere_widersprueche": [
+  {
+   "zeilen": "42 gegen 58",
+   "text": "I3 verlangt bei aktiver Session, dass der Login 'fail-closed abgewiesen' wird; O2 laesst beim nicht erlangten Guard-Lock neben 'sofort REJECT' auch einen 'definierten deny/restrict Pfad' zu. Beide Stellen betreffen unterschiedliche Ausloeser (offene radacct-Session gegenueber bestehendem Lock), die Alternative 'restrict' bei einem Lock-Konflikt passt aber nicht ohne Weiteres zu 'fail-closed abgewiesen'."
+  },
+  {
+   "zeilen": "77",
+   "text": "Zeile 77 enthaelt mitten im Satz Auslassungspunkte ('Access-Accept erfolgt, Accounting...nach Ablauf von'); der Text wurde offenbar bei der Entfernung des TTL-Literals (XPN v1.1) verstuemmelt."
+  },
+  {
+   "zeilen": "30 gegen D008 Zeilen 22-23",
+   "text": "D012 verwirft 'PENDING/ACTIVE' als zweite Session-State-Machine; D008 (Datei 08 dieser Liste) verwendet PENDING/ACTIVE als Customer-Zustaende der E-Mail-Verifikation. Unterschiedliche Achsen, gleiche Bezeichner."
+  },
+  {
+   "zeilen": "14",
+   "text": "Der Record nennt als PPP/L2TP-Komponenten 'xl2tpd/pppd'; D010 (Datei 10) spricht ebenfalls von pppd als NAS. Innerhalb der Gruppe stimmig; als Sachverhalt vermerkt, da die Kill-/Runtime-Mechanik (PID, pppX, /run) daran haengt."
+  },
+  {
+   "zeilen": "5, 105 gegen Inhalt",
+   "text": "Kopf/Changelog v1.0 / 'initial'; der Text enthaelt jedoch keine TTL-Literale mehr und verweist nur auf active_session_lock_ttl_seconds/B057 - das ist laut XPN-Changelog der Stand v1.1."
+  }
+ ],
+ "relevanz": {
+  "stufe": "HOCH",
+  "begruendung": "Kanonische Festlegung der Sitzungskontrolle: radacct als einzige Wahrheit, kurzlebiger Mutex active_session_locks mit TTL-Key, Acquire/Release-Punkte in FreeRADIUS, kein Takeover, Ghost-Definition und Janitor als einziger Reparaturweg, Admin-Hardcut-first mit /usr/local/bin/vpn-session-kill, Privilegientrennung, Auditpflicht und vier Pflicht-Akzeptanztests. Beruehrt unmittelbar den Sitzungs-Vertrag sowie AAA, Settings, Panel und Plattform.",
+  "rt_module": [
+   "BASE-070",
+   "BASE-020",
+   "BASE-090",
+   "BASE-080",
+   "MOD-006",
+   "BASE-110",
+   "BASE-005",
+   "MOD-007",
+   "BASE-030",
+   "BASE-000",
+   "BASE-010",
+   "QUERSCHNITT"
+  ]
+ },
+ "auffaelligkeiten": [
+  "Zeile 1 traegt den Pfad 'xp-vpn-stack/decisions/D012_SESSION_CONTROL_A_B.txt'.",
+  "Bei D012 ist das Kopfdatum in BEIDEN Fassungen 2026-01-23; nur VERSION (v1.0 statt v1.1) und der Changelog unterscheiden sich. D012 ist damit die einzige Datei, bei der das Datum der Nachlieferung dem echten XPN-Datum entspricht - das Datum 2026-01-23 der uebrigen Nachlieferungskoepfe faellt auf denselben Tag wie die juengste XPN-Aenderung dieser Gruppe.",
+  "Der fruehere Literalwert der Lock-TTL (20 Sekunden) ist nur im Changelog der XPN-Fassung ueberliefert; im Text beider Fassungen steht kein Zahlenwert.",
+  "Zeile 77 ist durch '...' verstuemmelt (in beiden Fassungen gleich).",
+  "Abweichendes Format: Markdown-Ueberschriften mit Nummern ('## 0) Kontext / Problem' bis '## 6) Nicht-Ziele'), kein Abschnitt ALTERNATIVES/LINKED BLOCKS; die Verweise stehen in Abschnitt 4.",
+  "Der Record nennt als L2TP-Stack xl2tpd/pppd (Zeile 14).",
+  "Keine Zugangsdaten in der Datei; sudoers wird nur als Mechanismus genannt."
+ ],
+ "abweichungen_zu_xpn": [
+  {
+   "zeilen_nachlieferung": "5",
+   "zeilen_xpn": "5",
+   "text_nachlieferung": "VERSION: v1.0",
+   "text_xpn": "VERSION: v1.1",
+   "bedeutung": "nur Kopf/Historie"
+  },
+  {
+   "zeilen_nachlieferung": "105",
+   "zeilen_xpn": "105-106",
+   "text_nachlieferung": "- v1.0 (2026-01-23): initial",
+   "text_xpn": "- v1.1 (2026-01-23): Entfernt kanonische Lock-TTL-Literale (20 seconds/20s) aus D012; Lock-TTL wird jetzt ausschließlich über active_session_lock_ttl_seconds gemäß B057 referenziert. / - v1.0 (2026-01-14): Accepted decision set for Session Control: Model A Truth (radacct) + Model B Guard (active_session_locks mutex, TTL 20s), No Takeover, Janitor ghost repair via B168, Admin Hardcut-first with privilege separation and canonical tooling contract.",
+   "bedeutung": "nur Kopf/Historie (CHANGELOG), aber mit Sachgehalt: Nur die XPN-Fassung ueberliefert den urspruenglichen Literalwert der Lock-TTL (20 s) und das tatsaechliche Annahmedatum der Entscheidung (2026-01-14). Das Kopfdatum (Zeile 6, 2026-01-23) ist in beiden Fassungen gleich."
+  }
+ ],
+ "verhaeltnis_zu_xpn": "Der Textkoerper (Zeilen 1-4 und 6-104) ist zeichengleich mit der XPN-Fassung v1.1 (abgesehen von CRLF dort); auch das Kopfdatum 2026-01-23 ist identisch. Abweichungen bestehen nur in VERSION (v1.0 statt v1.1) und im CHANGELOG. Dem Inhalt nach ist die Nachlieferung der Stand v1.1: O1 (Zeile 54) und der Test in Zeile 77 enthalten keine TTL-Literale mehr und verweisen ausschliesslich auf active_session_lock_ttl_seconds gemaess B057 - genau die Aenderung, die der XPN-Changelog der Version v1.1 vom 2026-01-23 zuschreibt. Die Nachlieferung ist also keine Urfassung v1.0 (die laut XPN 'TTL 20s' enthielt), sondern der v1.1-Text mit zurueckgesetzter Versionsangabe. Vollstaendiger ist die XPN-Fassung, weil nur sie den frueheren TTL-Wert und das Annahmedatum 2026-01-14 ueberliefert. Welche Datei zuletzt geschrieben wurde, ist nicht entscheidbar (gleiches Datum, gleicher Inhalt)."
+}

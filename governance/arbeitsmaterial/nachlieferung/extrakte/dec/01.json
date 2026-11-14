@@ -1,0 +1,384 @@
+{
+ "datei": "nachlieferung/decisions/D001_OPENRESTY_OVER_APACHE.txt",
+ "abschnitt": "1-66",
+ "zeilen_gesamt": 66,
+ "gelesen_bereiche": "1-66 (Nachlieferung); zusaetzlich XPN-Fassung XPN:decisions/D001_OPENRESTY_OVER_APACHE.txt 1-68 und vollstaendiger diff beider Fassungen",
+ "vollstaendig_gelesen": true,
+ "dokument": {
+  "titel": "OpenResty (Nginx+Lua) statt Apache als Web-Frontend",
+  "doc_id": "D001",
+  "status_laut_datei": "ACCEPTED",
+  "version_laut_datei": "v1.0",
+  "datum_laut_datei": "2026-01-23",
+  "projekt": "XPN",
+  "art": "ENTSCHEIDUNG",
+  "normativitaet_laut_datei": "Decision Record mit STATUS: ACCEPTED; Anforderungen im Kontext mit MUST/SHOULD markiert; kein eigener Normativitaetsvermerk"
+ },
+ "zusammenfassung": "D001 ist ein angenommener Entscheidungs-Record des XPN-Projekts (Owner: Marco + ChatGPT als Co-Architect). Er legt fest, dass OpenResty (Nginx+Lua) der einzige Frontend-Webserver ist und das PHP8-Panel ueber PHP-FPM dahinter laeuft; eine Doppel-Webserver-Kette (Apache hinter Nginx) wird ausgeschlossen. Begruendet wird das mit der HTTPS-Blockpage (MITM) mit On-the-fly-Zertifikaten je SNI-Host, die mit Apache unhandlich und weniger performant waere und als zentrales Alleinstellungsmerkmal stabil sein muss. Als Muss-Anforderungen nennt der Record: On-the-fly-Zertifikate, PHP8-Panel, Bindung ausschliesslich intern an SERVICE_WEB 10.77.0.3 (niemals WAN); als Soll einen geringen RAM-Bedarf (VM). Drei Alternativen (Apache+PHP-Modul, reines Nginx, OpenResty+Apache) werden mit Vor- und Nachteilen verworfen. Folgen: ein Web-Frontend fuer Panel, Blockpage und /diag, Lua fuer RateLimit/Cache; Nachteil ist das etwas komplexere PHP-FPM-Setup, gemildert durch getrennte vHosts, PHP-FPM per Socket und im Projekt gepflegte Konfigurations-Templates. Verknuepft sind die Bloecke B220, B230, B270, B280. Das Dokument ist kurz, in sich stimmig und reif (ACCEPTED); der Textkoerper ist identisch mit der XPN-Fassung v1.2, nur Kopf und Changelog sind auf v1.0/2026-01-23/initial zurueckgesetzt.",
+ "aussagen": [
+  {
+   "nr": 1,
+   "zeilen": "3-8",
+   "zitat": "TITLE: OpenResty (Nginx+Lua) statt Apache als Web-Frontend",
+   "aussage": "Kopf des Records: DECISION-ID D001, Titel 'OpenResty (Nginx+Lua) statt Apache als Web-Frontend', VERSION v1.0, DATUM 2026-01-23, STATUS ACCEPTED, OWNER Marco (Owner) + ChatGPT (Co-Architect).",
+   "art": "HISTORIE",
+   "kennung": "D001",
+   "rt_bezug": [
+    "BASE-110"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 2,
+   "zeilen": "12-14",
+   "zitat": "  - Es existiert ein interner Webstack für Panel/Status/Portal und zusätzlich eine",
+   "aussage": "Ausgangslage: Es gibt einen internen Webstack fuer Panel/Status/Portal und zusaetzlich eine HTTPS-Blockpage (MITM) mit On-the-fly-Zertifikaten.",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-110",
+    "MOD-004"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 3,
+   "zeilen": "15-17",
+   "zitat": "  - Apache ist für dynamische TLS-Handshake-Logik (Zertifikat je SNI Host zur Laufzeit)",
+   "aussage": "Problem: Apache ist fuer dynamische TLS-Handshake-Logik (Zertifikat je SNI-Host zur Laufzeit) in der Praxis deutlich unhandlicher und weniger performant.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-110",
+    "MOD-004"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 4,
+   "zeilen": "18",
+   "zitat": "  - Der MITM-Teil ist ein zentrales Alleinstellungsmerkmal und muss stabil sein.",
+   "aussage": "Der MITM-Teil (HTTPS-Blockpage) gilt als zentrales Alleinstellungsmerkmal des Projekts und muss stabil sein.",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-004"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 5,
+   "zeilen": "20",
+   "zitat": "  - MUST: On-the-fly Cert Handling möglich, performant, wartbar.",
+   "aussage": "Muss-Anforderung an das Web-Frontend: On-the-fly-Zertifikatsbehandlung muss moeglich, performant und wartbar sein.",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-110",
+    "MOD-004"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 6,
+   "zeilen": "21",
+   "zitat": "  - MUST: PHP8 Panel nutzbar.",
+   "aussage": "Muss-Anforderung: Ein PHP8-Panel muss mit dem Web-Frontend nutzbar sein.",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-110",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 7,
+   "zeilen": "22",
+   "zitat": "  - MUST: Nur intern (SERVICE_WEB 10.77.0.3) gebunden, niemals WAN.",
+   "aussage": "Muss-Anforderung: Der Webserver ist ausschliesslich intern an SERVICE_WEB 10.77.0.3 gebunden und niemals am WAN erreichbar.",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-110",
+    "BASE-050",
+    "BASE-005"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 8,
+   "zeilen": "23",
+   "zitat": "  - SHOULD: Geringer RAM-Footprint (VM).",
+   "aussage": "Soll-Anforderung: geringer RAM-Bedarf, da der Server als VM laeuft.",
+   "art": "BETRIEB",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-110",
+    "BASE-005"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 9,
+   "zeilen": "25-27",
+   "zitat": "  - OpenResty als einziger Frontend-Webserver.",
+   "aussage": "Entscheidung: OpenResty ist der einzige Frontend-Webserver.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "D001",
+   "rt_bezug": [
+    "BASE-110"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 10,
+   "zeilen": "28",
+   "zitat": "  - Panel läuft über PHP-FPM hinter OpenResty.",
+   "aussage": "Entscheidung: Das Panel laeuft ueber PHP-FPM hinter OpenResty.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "D001",
+   "rt_bezug": [
+    "BASE-110",
+    "MOD-006"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 11,
+   "zeilen": "29",
+   "zitat": "  - Keine Doppel-Webserver-Kette (kein Apache hinter Nginx).",
+   "aussage": "Entscheidung: Es gibt keine Doppel-Webserver-Kette, also keinen Apache hinter Nginx.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "D001",
+   "rt_bezug": [
+    "BASE-110"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 12,
+   "zeilen": "32-37",
+   "zitat": "    - MITM / dynamische Zertifikate sehr komplex, potenziell fragil.",
+   "aussage": "Verworfene Alternative A (Apache + PHP-Modul): Vorteil einfacher apt-install-Standardweg; Nachteile: MITM/dynamische Zertifikate sehr komplex und potenziell fragil, weniger geeignet fuer Lua-basierte RateLimits/Cache.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "Alternative A",
+   "rt_bezug": [
+    "BASE-110",
+    "MOD-004"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 13,
+   "zeilen": "38-42",
+   "zitat": "    - Ohne Lua-Modul fehlt der flexible dynamische TLS-Teil oder wird schwer.",
+   "aussage": "Verworfene Alternative B (Nginx ohne OpenResty + separate Tools): Vorteil Nginx ist schlank; Nachteil: ohne Lua-Modul fehlt der flexible dynamische TLS-Teil oder er wird schwer umsetzbar.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "Alternative B",
+   "rt_bezug": [
+    "BASE-110",
+    "MOD-004"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 14,
+   "zeilen": "43-47",
+   "zitat": "- Alternative C: OpenResty + Apache (Apache für PHP, OpenResty nur MITM)",
+   "aussage": "Verworfene Alternative C (OpenResty + Apache; Apache fuer PHP, OpenResty nur MITM): Vorteil Trennung nach Funktionen; Nachteil mehr Komponenten, mehr RAM, mehr Fehlerquellen.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "Alternative C",
+   "rt_bezug": [
+    "BASE-110",
+    "MOD-004"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 15,
+   "zeilen": "50-51",
+   "zitat": "  - Ein Web-Frontend für alles: Panel + Blockpage + /diag.",
+   "aussage": "Positive Folge: Ein einziges Web-Frontend bedient Panel, Blockpage und den Diagnosepfad /diag.",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-110",
+    "MOD-004",
+    "MOD-006",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 16,
+   "zeilen": "52",
+   "zitat": "  - Lua ermöglicht RateLimit/Cache in einem Stack.",
+   "aussage": "Positive Folge: Lua ermoeglicht RateLimit und Cache im selben Stack.",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-110"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 17,
+   "zeilen": "53-54",
+   "zitat": "  - PHP-FPM Setup ist etwas komplexer als “Apache+libphp”.",
+   "aussage": "Negative Folge/Risiko: Das PHP-FPM-Setup ist etwas komplexer als die Kombination Apache+libphp.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-110"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 18,
+   "zeilen": "55-56",
+   "zitat": "  - Panel vHosts sauber trennen; PHP-FPM via Socket.",
+   "aussage": "Gegenmassnahme: Panel-vHosts sauber trennen; PHP-FPM wird per Socket angebunden.",
+   "art": "IMPL_DETAIL",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-110"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 19,
+   "zeilen": "57",
+   "zitat": "  - Konfigurations-Templates im Projekt pflegen.",
+   "aussage": "Gegenmassnahme: Konfigurations-Templates (fuer den Webstack) werden im Projekt gepflegt.",
+   "art": "BETRIEB",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-110",
+    "BASE-005"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 20,
+   "zeilen": "59-60",
+   "zitat": "- B220, B230, B270, B280",
+   "aussage": "Verknuepfte XPN-Bloecke der Entscheidung: B220, B230, B270 und B280 (ohne Titelangabe in der Datei).",
+   "art": "DEFINITION",
+   "kennung": "LINKED BLOCKS",
+   "rt_bezug": [
+    "BASE-110",
+    "MOD-004"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 21,
+   "zeilen": "63-65",
+   "zitat": "- v1.0 (2026-01-23): initial",
+   "aussage": "Changelog der Nachlieferung: einziger Eintrag v1.0 (2026-01-23) 'initial'. Die XPN-Fassung nennt dagegen v1.0 initial, v1.1 (2026-01-13) VERSION-Kopffeld ergaenzt und v1.2 (2026-01-20) Korrektur des Bind-Ankers von 10.77.0.1 auf SERVICE_WEB 10.77.0.3.",
+   "art": "HISTORIE",
+   "kennung": "v1.0",
+   "rt_bezug": [],
+   "gewicht": "RANDNOTIZ"
+  }
+ ],
+ "werte": [
+  {
+   "zeilen": "22",
+   "name": "SERVICE_WEB (Bind-Adresse Webserver, IPv4)",
+   "wert": "10.77.0.3",
+   "einheit": "IPv4-Adresse",
+   "status": "FIX",
+   "zitat": "  - MUST: Nur intern (SERVICE_WEB 10.77.0.3) gebunden, niemals WAN."
+  },
+  {
+   "zeilen": "21",
+   "name": "PHP-Version des Panels",
+   "wert": "PHP8",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "  - MUST: PHP8 Panel nutzbar."
+  },
+  {
+   "zeilen": "51",
+   "name": "Diagnosepfad im Web-Frontend",
+   "wert": "/diag",
+   "einheit": "URL-Pfad",
+   "status": "FIX",
+   "zitat": "  - Ein Web-Frontend für alles: Panel + Blockpage + /diag."
+  }
+ ],
+ "verweise_auf_dokumente": [
+  {
+   "zeilen": "60",
+   "name": "B220",
+   "zitat": "- B220, B230, B270, B280"
+  },
+  {
+   "zeilen": "60",
+   "name": "B230",
+   "zitat": "- B220, B230, B270, B280"
+  },
+  {
+   "zeilen": "60",
+   "name": "B270",
+   "zitat": "- B220, B230, B270, B280"
+  },
+  {
+   "zeilen": "60",
+   "name": "B280",
+   "zitat": "- B220, B230, B270, B280"
+  }
+ ],
+ "offene_punkte": [],
+ "innere_widersprueche": [
+  {
+   "zeilen": "5-6, 22, 65",
+   "text": "Kopf und Changelog weisen v1.0 / 2026-01-23 / 'initial' aus, der Textkoerper enthaelt aber bereits die Adresse SERVICE_WEB 10.77.0.3, die laut Changelog der XPN-Fassung erst mit v1.2 (2026-01-20) den frueheren Bind-Anker 10.77.0.1 ersetzt hat. Der Kopf der Nachlieferung gibt also nicht den tatsaechlichen Reifestand des Inhalts wieder."
+  }
+ ],
+ "relevanz": {
+  "stufe": "HOCH",
+  "begruendung": "Grundsatzentscheidung zum Webstack (ein Frontend-Webserver OpenResty, PHP-FPM dahinter, nur interne Bindung an SERVICE_WEB 10.77.0.3, niemals WAN) samt Begruendung ueber die MITM-Blockpage mit On-the-fly-Zertifikaten; beruehrt unmittelbar den Webstack-Vertrag und das Blockpage/CA-Modul.",
+  "rt_module": [
+   "BASE-110",
+   "MOD-004",
+   "MOD-006",
+   "BASE-050",
+   "BASE-005",
+   "MOD-007"
+  ]
+ },
+ "auffaelligkeiten": [
+  "Zeile 1 traegt den Pfad 'xp-vpn-stack/decisions/D001_OPENRESTY_OVER_APACHE.txt' - die Datei stammt aus dem XPN-Repository.",
+  "Kopf (Zeilen 5-6) und Changelog (Zeile 65) sind gegenueber der XPN-Fassung auf v1.0 / 2026-01-23 / initial zurueckgesetzt; die Versionshistorie v1.1/v1.2 fehlt in der Nachlieferung.",
+  "OWNER nennt 'ChatGPT (Co-Architect)' (Zeile 8) - der Record ist KI-gestuetzt entstanden.",
+  "Die Nachlieferung hat LF-Zeilenenden und kein abschliessendes Zeilenende (wc -l zaehlt 65, Read zeigt 66 Zeilen); die XPN-Fassung hat CRLF.",
+  "Keine Zugangsdaten in der Datei."
+ ],
+ "abweichungen_zu_xpn": [
+  {
+   "zeilen_nachlieferung": "5",
+   "zeilen_xpn": "5",
+   "text_nachlieferung": "VERSION: v1.0",
+   "text_xpn": "VERSION: v1.2",
+   "bedeutung": "nur Kopf/Historie"
+  },
+  {
+   "zeilen_nachlieferung": "6",
+   "zeilen_xpn": "6",
+   "text_nachlieferung": "DATUM: 2026-01-23",
+   "text_xpn": "DATUM: 2026-01-20",
+   "bedeutung": "nur Kopf/Historie"
+  },
+  {
+   "zeilen_nachlieferung": "65",
+   "zeilen_xpn": "65-67",
+   "text_nachlieferung": "- v1.0 (2026-01-23): initial",
+   "text_xpn": "- v1.2 (2026-01-20): Bind-Anchor von 10.77.0.1 auf SERVICE_WEB 10.77.0.3 (B060-SoT) korrigiert. / - v1.1 (2026-01-13): Added VERSION header field (protocol compliance). / - v1.0: initial",
+   "bedeutung": "nur Kopf/Historie (CHANGELOG); die XPN-Fassung dokumentiert zusaetzlich, dass der Bind-Anker frueher 10.77.0.1 war und B060 die massgebliche Quelle (SoT) fuer die Adresse ist - diese Herkunftsangabe fehlt in der Nachlieferung"
+  }
+ ],
+ "verhaeltnis_zu_xpn": "Der Textkoerper (Zeilen 1-4 und 7-64) ist zeichengleich mit der XPN-Fassung (abgesehen von CRLF dort). Abweichungen bestehen nur in VERSION, DATUM und CHANGELOG. Dem Inhalt nach entspricht die Nachlieferung dem Stand der XPN-Fassung v1.2: Zeile 22 nennt bereits SERVICE_WEB 10.77.0.3, was laut XPN-Changelog erst v1.2 (2026-01-20) eingefuehrt hat. Die Nachlieferung ist also keine aeltere Urfassung, sondern eine Kopie des v1.2-Inhalts mit zurueckgesetztem Kopf (v1.0 / 2026-01-23 / initial); das Kopfdatum 2026-01-23 liegt nach dem XPN-Datum 2026-01-20, was auf eine spaetere Neu-Baseline mit verworfener Historie hindeutet. Vollstaendiger ist die XPN-Fassung, weil sie die Aenderungshistorie (v1.1, v1.2 mit Hinweis auf B060 als SoT) enthaelt. Welche Datei zeitlich zuletzt geschrieben wurde, ist aus dem Inhalt allein nicht sicher entscheidbar; inhaltlich sind beide gleichwertig."
+}

@@ -1,0 +1,1417 @@
+{
+ "datei": "nachlieferung/entwuerfe/peak_mode_v2/PEAK MODE v2 — BR-09.txt",
+ "abschnitt": "1-300",
+ "zeilen_gesamt": 300,
+ "gelesen_bereiche": "1-300",
+ "vollstaendig_gelesen": true,
+ "dokument": {
+  "titel": "PEAK MODE v2 — BR-09 (NEUFASSUNG, ENTWURF / Phase 3): Apply-Orchestrator Contract — Listenquelle /run (VALID) + USER/Admin Filter + Batch-Mechanik + Failure-Reporting",
+  "doc_id": "BR-09",
+  "status_laut_datei": "ENTWURF (Phase 3) — keine Patch-/Copy-Blöcke, keine tc/SQL Snippets",
+  "version_laut_datei": "v2.0-ENTWURF",
+  "datum_laut_datei": "nicht angegeben (Changelog nennt nur \"heute\")",
+  "projekt": "XPN",
+  "art": "ENTWURF",
+  "normativitaet_laut_datei": "Abschnitte mit MUST gekennzeichnet (Scope, Kanon-Abgleich, Owner-Fixpunkte, Contract, Error-Class, DoD, Open Items); drei Fixpunkte FIX, sechs OPEN; DRIFT-Ampel: RISK"
+ },
+ "zusammenfassung": "BR-09 ist der Entwurf des Apply-Orchestrator-Vertrags von Peak Mode v2: Er legt fest, wie Peak Aenderungen an den Schnittstellen anwendet, nicht wann oder auf wen. Normative Listenquelle der Kandidaten ist /run/vpn-sessions/*.env (VALID), gefiltert wird USER gegen ADMIN ueber den DB-Lookup CONNECTION_ID → conn_group; ADMIN wird uebersprungen, ein fehlgeschlagener Lookup ist ein Fehler (nicht raten). Die Ablaufkette hat sieben Schritte: LOCK, SNAPSHOT /run, DB LOOKUP + FILTER, APPLY PLAN (bounded), APPLY EXECUTION (nur CAKE.bandwidth setzen, kein Modellwechsel), RUN RESULT CLASSIFICATION, REPORTING. Fest sind LIST_SOURCE, TARGET_SCOPE = USER-only und NO_FORK_STORM = TRUE; offen sind sechs Begrenzungsparameter (APPLY_BATCH_SIZE, APPLY_MAX_RUNTIME_MS, APPLY_RETRY_POLICY, DEGRADED_THRESHOLD, LOCK_TIMEOUT_MS, VALID_STRICTNESS), die Klassifikation von DB_LOOKUP_FAILED und die Strenge der Regel 'keine tc-Writes bei DB down'. Exit-Codes 0..7 werden B166-kompatibel normiert, dazu result_code und Fehlerklassen mit Zuordnung. Weitere Pflichten: Single-Writer-Lock, Idempotenz (Wiederholung desselben Zielwerts ist NOOP/OK), kein Busy-Loop, Verhalten bei IFACE_GONE, DB down, Disk-full und sehr vielen Sitzungen (CAP_REACHED). Acht Tests T-09-01 bis T-09-08 bilden die DoD. Der Text ist als Vertrag weitgehend vollstaendig, aber wegen der offenen Begrenzungsparameter ausdruecklich RISK; er ist durchgehend an ppp_ifname/pppX und die PPP-Session-Dateien gebunden.",
+ "aussagen": [
+  {
+   "nr": 1,
+   "zeilen": "2-6",
+   "zitat": "ZIEL: Drift-freier, implementierbarer Contract für “Wie Peak Änderungen angewendet werden”, ohne Raten.",
+   "aussage": "Kopf: BR-09 ist eine Neufassung im Entwurf (Phase 3) mit dem Titel 'Apply-Orchestrator Contract'; Ziel ist ein driftfreier, ohne Raten implementierbarer Vertrag dafuer, wie Peak Aenderungen anwendet. Keine Patch-/Copy-Bloecke, keine tc/SQL-Snippets.",
+   "art": "DEFINITION",
+   "kennung": "BR-09",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 2,
+   "zeilen": "11-12",
+   "zitat": "- die normative Listenquelle für “welche Sessions/Interfaces sind Kandidaten”: /run/vpn-sessions/*.env (VALID)",
+   "aussage": "Scope: BR-09 definiert die normative Listenquelle fuer Kandidaten-Sessions/Interfaces: /run/vpn-sessions/*.env (VALID). [PPP-gebunden]",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 3,
+   "zeilen": "13",
+   "zitat": "- Filterlogik USER vs ADMIN über DB-Lookup (CONNECTION_ID → conn_group)",
+   "aussage": "Scope: Filterlogik USER gegen ADMIN ueber DB-Lookup (CONNECTION_ID → conn_group).",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-010",
+    "BASE-100",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 4,
+   "zeilen": "14",
+   "zitat": "- Batch/Apply-Orchestrierung (bounded, kein Fork-Storm, kein Retry-Sturm)",
+   "aussage": "Scope: Batch/Apply-Orchestrierung ist bounded - kein Fork-Storm, kein Retry-Sturm.",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 5,
+   "zeilen": "15-17",
+   "zitat": "- Fehlerklassen/Exit-Codes/Reporting (auditbar ohne Log-Parsen)",
+   "aussage": "Scope: Fehlerklassen/Exit-Codes/Reporting (auditierbar ohne Log-Parsen), Concurrency/Locking-Contract (nur ein Writer) und DoD/Tests einschliesslich Race, Partial States und Recovery.",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 6,
+   "zeilen": "19-24",
+   "zitat": "- Trigger/Detector (SoftIRQ/CPU persist) (BR-03/BR-10)",
+   "aussage": "Anti-Scope: Trigger/Detector (BR-03/BR-10), Taeter-Selektion Top-N/MULTI (BR-07), tc-Topologie CAKE root (BR-01/BR-06), Zielwerte Peak-BW/Profil-BW (BR-02/BR-05) und DB-Schema (BR-08) gehoeren nicht zu BR-09.",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 7,
+   "zeilen": "32-33",
+   "zitat": "-> /run/vpn-sessions/<ppp_if>.env ist VALID-Quelle; Mindest-Keys: PPP_IF, CLIENT_IP, CONNECTION_ID, START_TS, PPPD_PID",
+   "aussage": "K-IMP-01: B165 - /run/vpn-sessions/<ppp_if>.env ist VALID-Quelle mit den Mindest-Keys PPP_IF, CLIENT_IP, CONNECTION_ID, START_TS, PPPD_PID. [PPP-gebunden]",
+   "art": "IMPL_DETAIL",
+   "kennung": "K-IMP-01",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070",
+    "BASE-030"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 8,
+   "zeilen": "34-35",
+   "zitat": "-> vpn_connections existiert; conn_group (USER/ADMIN) ist in DB verfügbar; SQL-first bleibt SoT für Gruppen/Policy.",
+   "aussage": "K-IMP-02: B055 - vpn_connections existiert; conn_group (USER/ADMIN) ist in der DB verfuegbar; SQL-first bleibt Source of Truth fuer Gruppen/Policy.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K-IMP-02",
+   "rt_bezug": [
+    "BASE-000",
+    "BASE-010",
+    "BASE-100",
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 9,
+   "zeilen": "36-37",
+   "zitat": "-> Exit-Codes 0..7 + Apply/Reconcile Denkmodell (bounded, auditbar, kein Chaos bei Partial Fail)",
+   "aussage": "K-IMP-03: B166 - Exit-Codes 0..7 und das Apply/Reconcile-Denkmodell (bounded, auditierbar, kein Chaos bei Partial Fail).",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K-IMP-03",
+   "rt_bezug": [
+    "BASE-080",
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 10,
+   "zeilen": "38-39",
+   "zitat": "-> Single-Writer Locking / No concurrent apply; Wiederholungen dürfen nicht eskalieren",
+   "aussage": "K-IMP-04: B167_LOCKING_AND_IDEMPOTENCY ('falls vorhanden im Kanon') - Single-Writer-Locking, kein gleichzeitiges Apply; Wiederholungen duerfen nicht eskalieren.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K-IMP-04",
+   "rt_bezug": [
+    "BASE-080",
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 11,
+   "zeilen": "40-41",
+   "zitat": "-> peak_apply_run / peak_apply_item Audit-Contract + Exit-Code Semantik kompatibel zu B166",
+   "aussage": "K-IMP-05: Peak-Mode v2 BR-08 (neu) liefert den Audit-Contract peak_apply_run / peak_apply_item und die zu B166 kompatible Exit-Code-Semantik.",
+   "art": "DEFINITION",
+   "kennung": "K-IMP-05",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 12,
+   "zeilen": "42-43",
+   "zitat": "-> CAKE-only / no model switch: Apply darf keine Topologie umbauen.",
+   "aussage": "K-IMP-06: Peak-Mode v2 BR-06 - CAKE-only / kein Modellwechsel: Apply darf keine Topologie umbauen.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K-IMP-06",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 13,
+   "zeilen": "45-49",
+   "zitat": "- “VALID .env”: Datei, die Mindestfelder enthält und syntaktisch/semantisch konsistent ist (B165)",
+   "aussage": "Kanon-Anker (Begriffe): 'VALID .env' = Datei mit Mindestfeldern, syntaktisch/semantisch konsistent (B165); 'Sessionliste SoT' = /run, nicht DB 'active_sessions'; 'conn_group' = USER/ADMIN (DB SoT); 'Apply' = ausfuehren, protokollieren, bounded, bei Failure klar klassifizieren (B166).",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070",
+    "BASE-080",
+    "BASE-010"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 14,
+   "zeilen": "52-53",
+   "zitat": "-> Status: RISK (BR-09 muss VALID-Regeln präzise benennen oder auf B165 verweisen; keine eigene Erfindung)",
+   "aussage": "K-CONF-01 (Status RISK): B165 definiert Mindest-Keys, die Detailvalidierung (Permissions/Owner/Format) kann dort tiefer sein; BR-09 muss VALID-Regeln praezise benennen oder auf B165 verweisen, ohne eigene Erfindung.",
+   "art": "OFFEN",
+   "kennung": "K-CONF-01",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 15,
+   "zeilen": "54-55",
+   "zitat": "-> Status: NONE, wenn Peak Exit-Code Semantik 1:1 auf B166-Klassen abbildet (BR-08 regelt Auditfelder).",
+   "aussage": "K-CONF-02 (Status NONE): B166 ist generisch, Peak spezialisiert (tc/cake); kein Konflikt, wenn Peak die Exit-Code-Semantik 1:1 auf die B166-Klassen abbildet (Auditfelder regelt BR-08).",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K-CONF-02",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 16,
+   "zeilen": "56-57",
+   "zitat": "- K-CONF-03: USER-only vs “alles” — Peak v1/v2 fordert USER-only apply; ADMIN exclude.",
+   "aussage": "K-CONF-03 (Status NONE): Peak v1/v2 fordert USER-only-Apply mit ADMIN-Exclude; der Filter ist in BR-09 normativ.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K-CONF-03",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-100"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 17,
+   "zeilen": "63-64",
+   "zitat": "Wenn du sie nicht fixierst, bleiben sie OPEN (keine impliziten Defaults).",
+   "aussage": "Owner-Fixwerte sind fuer BR-09 erforderlich, um bounded behaviour zu garantieren; nicht fixierte Werte bleiben OPEN - es gibt keine impliziten Defaults.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 18,
+   "zeilen": "66-67",
+   "zitat": "- FP-BR09-01 LIST_SOURCE = /run/vpn-sessions/*.env (VALID)",
+   "aussage": "FP-BR09-01 (FIX): LIST_SOURCE = /run/vpn-sessions/*.env (VALID). [PPP-gebunden]",
+   "art": "PARAMETER",
+   "kennung": "FP-BR09-01",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 19,
+   "zeilen": "68",
+   "zitat": "- FP-BR09-02 TARGET_SCOPE = USER-only (ADMIN excluded)",
+   "aussage": "FP-BR09-02 (FIX): TARGET_SCOPE = USER-only (ADMIN excluded).",
+   "art": "PARAMETER",
+   "kennung": "FP-BR09-02",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-100"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 20,
+   "zeilen": "69",
+   "zitat": "- FP-BR09-03 NO_FORK_STORM = TRUE (Apply ist bounded; kein unendliches Retry)",
+   "aussage": "FP-BR09-03 (FIX): NO_FORK_STORM = TRUE - Apply ist bounded, kein unendliches Retry.",
+   "art": "PARAMETER",
+   "kennung": "FP-BR09-03",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 21,
+   "zeilen": "72-74",
+   "zitat": "- Optionen: “ALL (single batch)”, oder “chunked N=25/50/100”.",
+   "aussage": "FP-BR09-04 (OPEN) APPLY_BATCH_SIZE: maximale Zahl der USER-Interfaces je Apply-Run; Optionen 'ALL (single batch)' oder 'chunked N=25/50/100'.",
+   "art": "OFFEN",
+   "kennung": "FP-BR09-04",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 22,
+   "zeilen": "75-76",
+   "zitat": "- Harte Obergrenze pro Apply-Run (wall clock), danach ABORT/DEGRADED.",
+   "aussage": "FP-BR09-05 (OPEN) APPLY_MAX_RUNTIME_MS: harte Obergrenze (wall clock) je Apply-Run, danach ABORT/DEGRADED.",
+   "art": "OFFEN",
+   "kennung": "FP-BR09-05",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 23,
+   "zeilen": "77-79",
+   "zitat": "- Keine Retries (strict) vs wenige Retries mit Backoff (bounded).",
+   "aussage": "FP-BR09-06 (OPEN) APPLY_RETRY_POLICY: keine Retries (strict) oder wenige Retries mit Backoff (bounded); falls ja: max_attempts + Backoff-Schedule.",
+   "art": "OFFEN",
+   "kennung": "FP-BR09-06",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 24,
+   "zeilen": "80-81",
+   "zitat": "- Ab welcher Fehlerquote wird Run als DEGRADED klassifiziert? (z.B. items_fail/items_total > X)",
+   "aussage": "FP-BR09-07 (OPEN) DEGRADED_THRESHOLD: Fehlerquote, ab der ein Run als DEGRADED gilt (z. B. items_fail/items_total > X).",
+   "art": "OFFEN",
+   "kennung": "FP-BR09-07",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 25,
+   "zeilen": "82-83",
+   "zitat": "- Wie lange wartet Apply auf den Single-Writer Lock, bevor exit_code=5 (LOCKED)?",
+   "aussage": "FP-BR09-08 (OPEN) LOCK_TIMEOUT_MS: Wartezeit auf den Single-Writer-Lock, bevor exit_code=5 (LOCKED) gemeldet wird.",
+   "art": "OFFEN",
+   "kennung": "FP-BR09-08",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 26,
+   "zeilen": "84-86",
+   "zitat": "- “Strict VALID” (fehlende Keys => exclude + error) vs “Lenient” (unknown handling).",
+   "aussage": "FP-BR09-09 (OPEN) VALID_STRICTNESS: 'Strict VALID' (fehlende Keys → exclude + error) oder 'Lenient' (unknown handling); muss mit BR-07 UNMAPPED_RULE kompatibel sein.",
+   "art": "OFFEN",
+   "kennung": "FP-BR09-09",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 27,
+   "zeilen": "94-95",
+   "zitat": "- ENTER_APPLY | EXTEND_APPLY | EXIT_RESTORE | MANUAL_APPLY | NOOP",
+   "aussage": "Input-01: Action-Intent vom Controller: ENTER_APPLY | EXTEND_APPLY | EXIT_RESTORE | MANUAL_APPLY | NOOP.",
+   "art": "IMPL_DETAIL",
+   "kennung": "Input-01",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 28,
+   "zeilen": "96-98",
+   "zitat": "- intended_bw_bps: Wert aus BR-02 (Peak) oder BR-05 (Profil)",
+   "aussage": "Input-02: Desired Mode + Zielbandbreite je Interface: intended_mode PEAK oder PROFILE; intended_bw_bps aus BR-02 (Peak) oder BR-05 (Profil).",
+   "art": "IMPL_DETAIL",
+   "kennung": "Input-02",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 29,
+   "zeilen": "99-100",
+   "zitat": "- Menge von .env Dateien; Bewertung VALID/INVALID",
+   "aussage": "Input-03: /run-Snapshot als Menge von .env-Dateien mit Bewertung VALID/INVALID.",
+   "art": "IMPL_DETAIL",
+   "kennung": "Input-03",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 30,
+   "zeilen": "101-103",
+   "zitat": "- vpn_connections by vpn_connection_id (= CONNECTION_ID aus env)",
+   "aussage": "Input-04: DB-Lookup vpn_connections ueber vpn_connection_id (= CONNECTION_ID aus env), Aufloesung von conn_group (USER/ADMIN).",
+   "art": "IMPL_DETAIL",
+   "kennung": "Input-04",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "BASE-010"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 31,
+   "zeilen": "104",
+   "zitat": "- Input-05: Single-Writer Lock (globaler Apply-Lock)",
+   "aussage": "Input-05: Single-Writer-Lock (globaler Apply-Lock).",
+   "art": "IMPL_DETAIL",
+   "kennung": "Input-05",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 32,
+   "zeilen": "106-108",
+   "zitat": "- Kein Umbau des tc-Modells (BR-06); nur “set bandwidth” innerhalb CAKE (BR-01).",
+   "aussage": "Constraints: keine Annahmen ueber eine 'active_sessions DB View'; kein Umbau des tc-Modells (BR-06), nur 'set bandwidth' innerhalb CAKE (BR-01).",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003",
+    "BASE-070"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 33,
+   "zeilen": "110-114",
+   "zitat": "- Output-04: Failure-Reason muss ohne Log-Parsen erkennbar sein (audit fields)",
+   "aussage": "Outputs: peak_apply_run-Summary (BR-08), optional peak_apply_item je ppp_ifname, Exit-Code 0..7 (B166-kompatibel) + result_code + error_class; der Failure-Reason muss ohne Log-Parsen aus den Audit-Feldern erkennbar sein. [PPP-gebunden]",
+   "art": "FUNKTION",
+   "kennung": "Output-01..04",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 34,
+   "zeilen": "117-122",
+   "zitat": "- Wenn Lock nicht erhältlich innerhalb LOCK_TIMEOUT_MS:",
+   "aussage": "STEP-0 LOCK: globalen Apply-Lock holen; ist er innerhalb LOCK_TIMEOUT_MS nicht erhaeltlich: exit_code = 5 (TEMPFAIL_LOCKED), result_code = LOCKED, keine Items bearbeitet.",
+   "art": "FUNKTION",
+   "kennung": "STEP-0",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 35,
+   "zeilen": "124-131",
+   "zitat": "- Liste alle /run/vpn-sessions/*.env",
+   "aussage": "STEP-1 SNAPSHOT /run (VALID): alle /run/vpn-sessions/*.env auflisten, je Datei Keys parsen und VALID gemaess B165-Mindest-Keys pruefen; Ergebnis: candidates_valid (ppp_ifname, vpn_connection_id, ...) sowie invalid_count + invalid_reasons (aggregiert, keine PII). [PPP-gebunden]",
+   "art": "FUNKTION",
+   "kennung": "STEP-1",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 36,
+   "zeilen": "133-139",
+   "zitat": "- wenn lookup fails → FAIL (DB_LOOKUP_FAILED) (Policy: nicht raten)",
+   "aussage": "STEP-2 DB LOOKUP + FILTER: je gueltigem Kandidaten vpn_connections WHERE id = vpn_connection_id nachschlagen und conn_group aufloesen; conn_group != USER → SKIP (ADMIN excluded); Lookup fehlgeschlagen → FAIL (DB_LOOKUP_FAILED), Policy: nicht raten.",
+   "art": "FUNKTION",
+   "kennung": "STEP-2",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "BASE-010",
+    "BASE-100"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 37,
+   "zeilen": "141-147",
+   "zitat": "- Retry policy nach APPLY_RETRY_POLICY (wenn OPEN: keine Retries)",
+   "aussage": "STEP-3 APPLY PLAN (bounded): Apply-Plan fuer USER-only-Ziele mit intended_bw_bps und intended_mode je ppp_ifname; Begrenzung durch Chunking nach APPLY_BATCH_SIZE (oder Single Batch), harte Laufzeitgrenze APPLY_MAX_RUNTIME_MS und Retry nach APPLY_RETRY_POLICY - solange OPEN: keine Retries. [PPP-gebunden]",
+   "art": "FUNKTION",
+   "kennung": "STEP-3",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 38,
+   "zeilen": "149-152",
+   "zitat": "- Apply “CAKE.bandwidth = intended_bw_bps” (kein model switch)",
+   "aussage": "STEP-4 APPLY EXECUTION: je Target (oder Chunk) wird 'CAKE.bandwidth = intended_bw_bps' gesetzt (kein Modellwechsel); Ergebnis je Item OK/FAIL/NOOP.",
+   "art": "FUNKTION",
+   "kennung": "STEP-4",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 39,
+   "zeilen": "153-156",
+   "zitat": "TC_APPLY_FAILED, NO_CAKE_BASELINE, PERMISSION, IFACE_GONE (Race), …",
+   "aussage": "STEP-4: Fehlerklassen je Item: TC_APPLY_FAILED, NO_CAKE_BASELINE, PERMISSION, IFACE_GONE (Race), ...; Zaehler items_total, items_ok, items_fail, items_skip werden gesammelt.",
+   "art": "IMPL_DETAIL",
+   "kennung": "STEP-4",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 40,
+   "zeilen": "158-161",
+   "zitat": "- 1 PARTIAL_OK: items_fail > 0 aber unter DEGRADED_THRESHOLD und keine hard-fail class",
+   "aussage": "STEP-5 Run-Klassifikation (normativ, B166-kompatibel): 0 OK = items_fail == 0 und keine Hard-Fail-Klassen; 1 PARTIAL_OK = items_fail > 0, aber unter DEGRADED_THRESHOLD und keine Hard-Fail-Klasse.",
+   "art": "PARAMETER",
+   "kennung": "STEP-5",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 41,
+   "zeilen": "162-163",
+   "zitat": "- 2 TEMPFAIL_SQL: DB down/timeout/transaction fail, sodass Plan nicht zuverlässig erstellt werden konnte",
+   "aussage": "STEP-5: 2 TEMPFAIL_SQL = DB down/Timeout/Transaktionsfehler, sodass der Plan nicht zuverlaessig erstellt werden konnte; 4 RUNTIME_APPLY_ERROR = tc/cake-Apply-Fehler dominieren (oder no-cake-baseline).",
+   "art": "PARAMETER",
+   "kennung": "STEP-5",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080",
+    "BASE-000",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 42,
+   "zeilen": "164-167",
+   "zitat": "- 6 STATE_MAPPING_ERROR: /run snapshot invalid / mapping inkonsistent (VALID_STRICTNESS relevant)",
+   "aussage": "STEP-5: 5 TEMPFAIL_LOCKED = Lock nicht bekommen; 6 STATE_MAPPING_ERROR = /run-Snapshot invalid / Mapping inkonsistent (VALID_STRICTNESS relevant); 7 INTERNAL_ERROR = unerwartete Exceptions / verletzte Invarianten; 3 INVALID_ARGS bleibt optional fuer die CLI-Validierung von MANUAL_APPLY reserviert.",
+   "art": "PARAMETER",
+   "kennung": "STEP-5",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 43,
+   "zeilen": "169-170",
+   "zitat": "OK | PARTIAL_OK | TEMPFAIL_SQL | TEMPFAIL_LOCKED | MAPPING_INVALID | APPLY_ERROR | INTERNAL_ERROR",
+   "aussage": "result_code (peak-intern, normativ minimal): OK | PARTIAL_OK | TEMPFAIL_SQL | TEMPFAIL_LOCKED | MAPPING_INVALID | APPLY_ERROR | INTERNAL_ERROR.",
+   "art": "PARAMETER",
+   "kennung": "STEP-5",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 44,
+   "zeilen": "172-175",
+   "zitat": "- Schreibe peak_apply_run (immer, auch bei Lock fail)",
+   "aussage": "STEP-6 REPORTING: peak_apply_run wird immer geschrieben (auch bei Lock-Fehlschlag); peak_apply_item (wenn aktiviert) fuer jeden Kandidaten inkl. SKIP/FAIL-Gruenden; danach Apply-Lock freigeben.",
+   "art": "FUNKTION",
+   "kennung": "STEP-6",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 45,
+   "zeilen": "177-179",
+   "zitat": "- Wenn /run leer oder invalid: exit_code=6 (STATE_MAPPING_ERROR) oder DEGRADED (Owner über VALID_STRICTNESS)",
+   "aussage": "3.4 Hard Check: Peak-Apply darf nicht ohne '/run VALID' arbeiten; ist /run leer oder invalid: exit_code=6 (STATE_MAPPING_ERROR) oder DEGRADED (Owner entscheidet ueber VALID_STRICTNESS).",
+   "art": "SCHUTZZIEL",
+   "kennung": "3.4",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 46,
+   "zeilen": "180-181",
+   "zitat": "- Peak-Apply darf nicht “ADMIN” anfassen (enforced via DB conn_group).",
+   "aussage": "3.4: Peak-Apply darf ADMIN nicht anfassen (durchgesetzt ueber DB conn_group) und darf nicht parallel laufen (Lock).",
+   "art": "SCHUTZZIEL",
+   "kennung": "3.4",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-100",
+    "BASE-080"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 47,
+   "zeilen": "183-186",
+   "zitat": "- Re-run desselben intended_bw_bps ist NOOP/OK; darf nicht eskalieren.",
+   "aussage": "3.5 Idempotenz: Ein Re-Run mit demselben intended_bw_bps ist NOOP/OK und darf nicht eskalieren; bei Fehlschlag ohne fixierte Retries entscheidet spaeter der Controller (BR-10), BR-09 macht keinen 'busy loop'.",
+   "art": "SCHUTZZIEL",
+   "kennung": "3.5",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 48,
+   "zeilen": "188-191",
+   "zitat": "- IFACE_GONE (Race: disconnect während apply):",
+   "aussage": "3.6 Recovery IFACE_GONE (Race: Disconnect waehrend Apply): item_result=FAIL oder NOOP (Owner ueber VALID_STRICTNESS); der Run bleibt bounded, kein Retry-Sturm. [PPP-gebunden]",
+   "art": "FUNKTION",
+   "kennung": "3.6",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 49,
+   "zeilen": "192-193",
+   "zitat": "- exit_code=2; keine “half policy”",
+   "aussage": "3.6 DB down: exit_code=2; keine 'half policy'.",
+   "art": "SCHUTZZIEL",
+   "kennung": "3.6",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 50,
+   "zeilen": "195-197",
+   "zitat": "- Falls DB inserts failen: exit_code=2 oder 7 je nach failure class; aber Apply darf nicht in endlosen Loop gehen.",
+   "aussage": "3.7 Disk-full (Audit): schlagen DB-Inserts fehl, exit_code=2 oder 7 je nach Fehlerklasse; Apply darf aber nicht in eine Endlosschleife gehen.",
+   "art": "BETRIEB",
+   "kennung": "3.7",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 51,
+   "zeilen": "198-199",
+   "zitat": "- Apply bounded durch batch_size/runtime; kann PARTIAL_OK liefern, aber muss reason “CAP_REACHED” auditen.",
+   "aussage": "3.7 Sehr hohes active_ppp: Apply ist durch batch_size/runtime begrenzt, kann PARTIAL_OK liefern, muss dann aber den Grund 'CAP_REACHED' auditieren. [PPP-gebunden]",
+   "art": "BETRIEB",
+   "kennung": "3.7",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 52,
+   "zeilen": "206-209",
+   "zitat": "- DB_DOWN / DB_TIMEOUT / DB_TX_FAIL        -> TEMPFAIL_SQL (2)",
+   "aussage": "Fehlerklassen-Zuordnung (normativ minimal): DB_DOWN / DB_TIMEOUT / DB_TX_FAIL → TEMPFAIL_SQL (2); LOCK_TIMEOUT → TEMPFAIL_LOCKED (5); RUN_SNAPSHOT_MISSING / ENV_INVALID → STATE_MAPPING_ERROR (6).",
+   "art": "PARAMETER",
+   "kennung": "4",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 53,
+   "zeilen": "210",
+   "zitat": "- DB_LOOKUP_FAILED (connection not found)   -> STATE_MAPPING_ERROR (6) oder APPLY_ERROR (4) (OPEN: Owner muss fixen)",
+   "aussage": "DB_LOOKUP_FAILED (connection not found) → STATE_MAPPING_ERROR (6) oder APPLY_ERROR (4): OPEN, Owner muss fixen.",
+   "art": "OFFEN",
+   "kennung": "O-09-07",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 54,
+   "zeilen": "211-212",
+   "zitat": "- NO_CAKE_BASELINE / TC_APPLY_FAILED        -> RUNTIME_APPLY_ERROR (4)",
+   "aussage": "NO_CAKE_BASELINE / TC_APPLY_FAILED → RUNTIME_APPLY_ERROR (4); INTERNAL_EXCEPTION → INTERNAL_ERROR (7).",
+   "art": "PARAMETER",
+   "kennung": "4",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003",
+    "BASE-080"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 55,
+   "zeilen": "214-217",
+   "zitat": "- Option A: mapping error (6) weil state inkonsistent",
+   "aussage": "OPEN Klassifikation DB_LOOKUP_FAILED: Option A Mapping-Fehler (6), weil der State inkonsistent ist; Option B Apply-Fehler (4), weil nur einzelne Items betroffen sind; ohne Owner-Entscheid droht Drift.",
+   "art": "OFFEN",
+   "kennung": "O-09-07",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 56,
+   "zeilen": "219-223",
+   "zitat": "- counts: valid_env_count, invalid_env_count, user_count, admin_skipped_count",
+   "aussage": "Reporting-Minimum ohne PII: Zaehler valid_env_count, invalid_env_count, user_count, admin_skipped_count; items_ok/items_fail/items_skip; haeufigste Failure-Reasons (aggregiert); exit_code + result_code + error_class.",
+   "art": "FUNKTION",
+   "kennung": "4",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 57,
+   "zeilen": "230-233",
+   "zitat": "- 1 gewinnt Lock, 2 bekommt exit_code=5 innerhalb LOCK_TIMEOUT_MS.",
+   "aussage": "T-09-01 Lock-Exklusivitaet: zwei parallele Apply-Requests - einer gewinnt den Lock, der zweite erhaelt exit_code=5 innerhalb LOCK_TIMEOUT_MS; Nachweis ueber peak_apply_run-Records.",
+   "art": "TEST",
+   "kennung": "T-09-01",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 58,
+   "zeilen": "235-238",
+   "zitat": "- Strict: candidate excluded, invalid_env_count++, exit_code=6 wenn keine valid candidates.",
+   "aussage": "T-09-02 /run-VALID-Strenge: bei fehlenden Keys in der env wird (Strict) der Kandidat ausgeschlossen, invalid_env_count erhoeht und exit_code=6 gemeldet, wenn keine gueltigen Kandidaten bleiben; Nachweis: Run-Summary + Invalid-Reason-Klasse.",
+   "art": "TEST",
+   "kennung": "T-09-02",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 59,
+   "zeilen": "240-243",
+   "zitat": "- Nachweis: item audit zeigt SKIP_NONUSER.",
+   "aussage": "T-09-03 USER-only-Filter: 1 ADMIN-env + 1 USER-env → ADMIN = SKIP, USER = applied; Nachweis: Item-Audit zeigt SKIP_NONUSER.",
+   "art": "TEST",
+   "kennung": "T-09-03",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-100"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 60,
+   "zeilen": "245-249",
+   "zitat": "- run bleibt bounded (duration <= APPLY_MAX_RUNTIME_MS).",
+   "aussage": "T-09-04 Race IFACE_GONE: pppX waehrend Apply entfernen → item_result=FAIL/NOOP mit IFACE_GONE; der Run bleibt bounded (duration <= APPLY_MAX_RUNTIME_MS); Nachweis: kein Retry-Sturm. [PPP-gebunden]",
+   "art": "TEST",
+   "kennung": "T-09-04",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 61,
+   "zeilen": "251-255",
+   "zitat": "- keine tc writes (wenn Plan nicht sauber erstellt werden kann)",
+   "aussage": "T-09-05 DB down: exit_code=2 TEMPFAIL_SQL und keine tc-Writes (wenn der Plan nicht sauber erstellt werden kann); Nachweis: Audit-Run zeigt DB_DOWN.",
+   "art": "TEST",
+   "kennung": "T-09-05",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 62,
+   "zeilen": "257-261",
+   "zitat": "- Ein pppX tc apply failt, andere ok:",
+   "aussage": "T-09-06 Teilweise tc-Fehler: schlaegt das tc-Apply eines pppX fehl und andere sind ok → exit_code=1 PARTIAL_OK (unter Threshold) oder exit_code=4, wenn Apply-Fehler dominieren (Owner ueber DEGRADED_THRESHOLD). [PPP-gebunden]",
+   "art": "TEST",
+   "kennung": "T-09-06",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 63,
+   "zeilen": "263-267",
+   "zitat": "- Apply darf nicht unbounded dauern (APPLY_MAX_RUNTIME_MS)",
+   "aussage": "T-09-07 Boundedness unter Ueberlast: CPU am Limit + viele Sessions → Apply darf nicht unbounded dauern (APPLY_MAX_RUNTIME_MS), kein Fork-Storm, keine unbounded Retries; Nachweis: Laufzeit-Cap + CAP_REACHED-Reason.",
+   "art": "TEST",
+   "kennung": "T-09-07",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 64,
+   "zeilen": "269-271",
+   "zitat": "- Stelle sicher: peak_apply_run wird auch bei Lock fail geschrieben.",
+   "aussage": "T-09-08 Audit-Zuverlaessigkeit: peak_apply_run wird auch bei Lock-Fehlschlag geschrieben; Nachweis: Run-Records existieren.",
+   "art": "TEST",
+   "kennung": "T-09-08",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 65,
+   "zeilen": "277-282",
+   "zitat": "O-09-01 APPLY_BATCH_SIZE (FP-BR09-04)",
+   "aussage": "Open Items O-09-01 bis O-09-06 spiegeln die offenen Fixpunkte FP-BR09-04 bis FP-BR09-09 (APPLY_BATCH_SIZE, APPLY_MAX_RUNTIME_MS, APPLY_RETRY_POLICY, DEGRADED_THRESHOLD, LOCK_TIMEOUT_MS, VALID_STRICTNESS).",
+   "art": "OFFEN",
+   "kennung": "O-09-01..06",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 66,
+   "zeilen": "283",
+   "zitat": "O-09-07 Classification DB_LOOKUP_FAILED (mapping error vs apply error)",
+   "aussage": "O-09-07: Klassifikation von DB_LOOKUP_FAILED (Mapping-Fehler oder Apply-Fehler) ist offen.",
+   "art": "OFFEN",
+   "kennung": "O-09-07",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 67,
+   "zeilen": "284",
+   "zitat": "O-09-08 “No tc writes if DB down” rule: strikt vs best-effort (hier strikt; Owner kann anders fixen)",
+   "aussage": "O-09-08: Regel 'No tc writes if DB down' - strikt oder best-effort; in BR-09 strikt, der Owner kann anders fixen.",
+   "art": "OFFEN",
+   "kennung": "O-09-08",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 68,
+   "zeilen": "288-293",
+   "zitat": "- Grund: Mehrere boundedness-Parameter sind Owner-Fix nötig (batch_size/runtime/retry/threshold/lock_timeout/valid_strictness).",
+   "aussage": "Drift-Ampel: RISK, weil mehrere Boundedness-Parameter einen Owner-Fix brauchen (batch_size/runtime/retry/threshold/lock_timeout/valid_strictness); die kanonischen Kernaussagen (Listenquelle /run VALID nach B165, USER-only-Filter ueber DB conn_group nach B055, Exit-Code-Semantik kompatibel zu B166, kein Fork-Storm) seien sauber.",
+   "art": "OFFEN",
+   "kennung": "DRIFT",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 69,
+   "zeilen": "298-300",
+   "zitat": "- v2.0-ENTWURF (heute): BR-09 neu gefasst im neuen Standard; normiert /run als Listen-SoT (VALID),",
+   "aussage": "Changelog v2.0-ENTWURF: BR-09 neu gefasst; normiert /run als Listen-SoT (VALID), DB-conn_group-Filter USER-only, Single-Writer-Lock, bounded Apply-Mechanik, Fehlerklassen + Exit-Codes B166-kompatibel, DoD-Tests inkl. Race/DB down/Overload.",
+   "art": "HISTORIE",
+   "kennung": "v2.0-ENTWURF",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  }
+ ],
+ "werte": [
+  {
+   "zeilen": "67",
+   "name": "FP-BR09-01 LIST_SOURCE",
+   "wert": "/run/vpn-sessions/*.env (VALID)",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- FP-BR09-01 LIST_SOURCE = /run/vpn-sessions/*.env (VALID)"
+  },
+  {
+   "zeilen": "68",
+   "name": "FP-BR09-02 TARGET_SCOPE",
+   "wert": "USER-only (ADMIN excluded)",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- FP-BR09-02 TARGET_SCOPE = USER-only (ADMIN excluded)"
+  },
+  {
+   "zeilen": "69",
+   "name": "FP-BR09-03 NO_FORK_STORM",
+   "wert": "TRUE",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- FP-BR09-03 NO_FORK_STORM = TRUE (Apply ist bounded; kein unendliches Retry)"
+  },
+  {
+   "zeilen": "72-74",
+   "name": "FP-BR09-04 APPLY_BATCH_SIZE",
+   "wert": "OPEN; Optionen: ALL (single batch) oder chunked N=25/50/100",
+   "einheit": "Interfaces",
+   "status": "OPEN",
+   "zitat": "- Optionen: “ALL (single batch)”, oder “chunked N=25/50/100”."
+  },
+  {
+   "zeilen": "75-76",
+   "name": "FP-BR09-05 APPLY_MAX_RUNTIME_MS",
+   "wert": "OPEN (harte Obergrenze je Apply-Run, danach ABORT/DEGRADED)",
+   "einheit": "ms",
+   "status": "OPEN",
+   "zitat": "- FP-BR09-05 APPLY_MAX_RUNTIME_MS:"
+  },
+  {
+   "zeilen": "77-79",
+   "name": "FP-BR09-06 APPLY_RETRY_POLICY",
+   "wert": "OPEN; keine Retries (strict) oder wenige mit Backoff (max_attempts + backoff schedule); solange OPEN: keine Retries",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- FP-BR09-06 APPLY_RETRY_POLICY:"
+  },
+  {
+   "zeilen": "80-81",
+   "name": "FP-BR09-07 DEGRADED_THRESHOLD",
+   "wert": "OPEN; Form z. B. items_fail/items_total > X",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- Ab welcher Fehlerquote wird Run als DEGRADED klassifiziert? (z.B. items_fail/items_total > X)"
+  },
+  {
+   "zeilen": "82-83",
+   "name": "FP-BR09-08 LOCK_TIMEOUT_MS",
+   "wert": "OPEN",
+   "einheit": "ms",
+   "status": "OPEN",
+   "zitat": "- FP-BR09-08 LOCK_TIMEOUT_MS:"
+  },
+  {
+   "zeilen": "84-86",
+   "name": "FP-BR09-09 VALID_STRICTNESS",
+   "wert": "OPEN; Strict (fehlende Keys → exclude + error) oder Lenient",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- FP-BR09-09 VALID_STRICTNESS:"
+  },
+  {
+   "zeilen": "33",
+   "name": "Mindest-Keys der Session-.env (B165)",
+   "wert": "PPP_IF, CLIENT_IP, CONNECTION_ID, START_TS, PPPD_PID",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "-> /run/vpn-sessions/<ppp_if>.env ist VALID-Quelle; Mindest-Keys: PPP_IF, CLIENT_IP, CONNECTION_ID, START_TS, PPPD_PID"
+  },
+  {
+   "zeilen": "37",
+   "name": "Exit-Codes Apply/Reconcile (B166)",
+   "wert": "0..7",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "-> Exit-Codes 0..7 + Apply/Reconcile Denkmodell (bounded, auditbar, kein Chaos bei Partial Fail)"
+  },
+  {
+   "zeilen": "95",
+   "name": "Action-Intent (Enumeration)",
+   "wert": "ENTER_APPLY | EXTEND_APPLY | EXIT_RESTORE | MANUAL_APPLY | NOOP",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- ENTER_APPLY | EXTEND_APPLY | EXIT_RESTORE | MANUAL_APPLY | NOOP"
+  },
+  {
+   "zeilen": "97",
+   "name": "intended_mode",
+   "wert": "PEAK oder PROFILE",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- intended_mode: PEAK oder PROFILE"
+  },
+  {
+   "zeilen": "98",
+   "name": "intended_bw_bps",
+   "wert": "Wert aus BR-02 (Peak) oder BR-05 (Profil)",
+   "einheit": "bps",
+   "status": "KANDIDAT",
+   "zitat": "- intended_bw_bps: Wert aus BR-02 (Peak) oder BR-05 (Profil)"
+  },
+  {
+   "zeilen": "120",
+   "name": "Exit-Code bei Lock-Timeout",
+   "wert": "5 (TEMPFAIL_LOCKED), result_code = LOCKED",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- exit_code = 5 (TEMPFAIL_LOCKED)"
+  },
+  {
+   "zeilen": "121",
+   "name": "result_code bei Lock-Timeout",
+   "wert": "LOCKED",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- result_code = LOCKED"
+  },
+  {
+   "zeilen": "154",
+   "name": "Item-Fehlerklassen (Apply)",
+   "wert": "TC_APPLY_FAILED, NO_CAKE_BASELINE, PERMISSION, IFACE_GONE (Race), ... (nicht abschliessend)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "TC_APPLY_FAILED, NO_CAKE_BASELINE, PERMISSION, IFACE_GONE (Race), …"
+  },
+  {
+   "zeilen": "156",
+   "name": "Run-Zaehler",
+   "wert": "items_total, items_ok, items_fail, items_skip",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "items_total, items_ok, items_fail, items_skip"
+  },
+  {
+   "zeilen": "160",
+   "name": "Exit-Code 0 OK",
+   "wert": "items_fail == 0 AND keine hard-fail classes",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- 0 OK: items_fail == 0 AND keine hard-fail classes"
+  },
+  {
+   "zeilen": "161",
+   "name": "Exit-Code 1 PARTIAL_OK",
+   "wert": "items_fail > 0, unter DEGRADED_THRESHOLD, keine hard-fail class",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- 1 PARTIAL_OK: items_fail > 0 aber unter DEGRADED_THRESHOLD und keine hard-fail class"
+  },
+  {
+   "zeilen": "162",
+   "name": "Exit-Code 2 TEMPFAIL_SQL",
+   "wert": "DB down/timeout/transaction fail; Plan nicht zuverlaessig erstellbar",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- 2 TEMPFAIL_SQL: DB down/timeout/transaction fail, sodass Plan nicht zuverlässig erstellt werden konnte"
+  },
+  {
+   "zeilen": "163",
+   "name": "Exit-Code 4 RUNTIME_APPLY_ERROR",
+   "wert": "tc/cake apply errors dominieren (oder no-cake-baseline)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- 4 RUNTIME_APPLY_ERROR: tc/cake apply errors dominieren (oder no-cake-baseline)"
+  },
+  {
+   "zeilen": "164",
+   "name": "Exit-Code 5 TEMPFAIL_LOCKED",
+   "wert": "Lock nicht bekommen",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- 5 TEMPFAIL_LOCKED: Lock nicht bekommen"
+  },
+  {
+   "zeilen": "165",
+   "name": "Exit-Code 6 STATE_MAPPING_ERROR",
+   "wert": "/run snapshot invalid / mapping inkonsistent",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- 6 STATE_MAPPING_ERROR: /run snapshot invalid / mapping inkonsistent (VALID_STRICTNESS relevant)"
+  },
+  {
+   "zeilen": "166",
+   "name": "Exit-Code 7 INTERNAL_ERROR",
+   "wert": "unerwartete exceptions / invariants broken",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- 7 INTERNAL_ERROR: unerwartete exceptions / invariants broken"
+  },
+  {
+   "zeilen": "167",
+   "name": "Exit-Code 3 INVALID_ARGS",
+   "wert": "reserviert fuer MANUAL_APPLY CLI-Validierung, optional",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "(3 INVALID_ARGS bleibt für MANUAL_APPLY CLI-Validierung reserviert, optional.)"
+  },
+  {
+   "zeilen": "170",
+   "name": "result_code (Enumeration, normativ minimal)",
+   "wert": "OK | PARTIAL_OK | TEMPFAIL_SQL | TEMPFAIL_LOCKED | MAPPING_INVALID | APPLY_ERROR | INTERNAL_ERROR",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "OK | PARTIAL_OK | TEMPFAIL_SQL | TEMPFAIL_LOCKED | MAPPING_INVALID | APPLY_ERROR | INTERNAL_ERROR"
+  },
+  {
+   "zeilen": "199",
+   "name": "Audit-Reason bei Begrenzung",
+   "wert": "CAP_REACHED",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- Apply bounded durch batch_size/runtime; kann PARTIAL_OK liefern, aber muss reason “CAP_REACHED” auditen."
+  },
+  {
+   "zeilen": "207",
+   "name": "Fehlerklassen DB_DOWN / DB_TIMEOUT / DB_TX_FAIL",
+   "wert": "→ TEMPFAIL_SQL (2)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- DB_DOWN / DB_TIMEOUT / DB_TX_FAIL        -> TEMPFAIL_SQL (2)"
+  },
+  {
+   "zeilen": "208",
+   "name": "Fehlerklasse LOCK_TIMEOUT",
+   "wert": "→ TEMPFAIL_LOCKED (5)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- LOCK_TIMEOUT                             -> TEMPFAIL_LOCKED (5)"
+  },
+  {
+   "zeilen": "209",
+   "name": "Fehlerklassen RUN_SNAPSHOT_MISSING / ENV_INVALID",
+   "wert": "→ STATE_MAPPING_ERROR (6)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- RUN_SNAPSHOT_MISSING / ENV_INVALID        -> STATE_MAPPING_ERROR (6)"
+  },
+  {
+   "zeilen": "210",
+   "name": "Fehlerklasse DB_LOOKUP_FAILED",
+   "wert": "→ STATE_MAPPING_ERROR (6) oder APPLY_ERROR (4)",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- DB_LOOKUP_FAILED (connection not found)   -> STATE_MAPPING_ERROR (6) oder APPLY_ERROR (4) (OPEN: Owner muss fixen)"
+  },
+  {
+   "zeilen": "211",
+   "name": "Fehlerklassen NO_CAKE_BASELINE / TC_APPLY_FAILED",
+   "wert": "→ RUNTIME_APPLY_ERROR (4)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- NO_CAKE_BASELINE / TC_APPLY_FAILED        -> RUNTIME_APPLY_ERROR (4)"
+  },
+  {
+   "zeilen": "212",
+   "name": "Fehlerklasse INTERNAL_EXCEPTION",
+   "wert": "→ INTERNAL_ERROR (7)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- INTERNAL_EXCEPTION                        -> INTERNAL_ERROR (7)"
+  },
+  {
+   "zeilen": "220",
+   "name": "Reporting-Zaehler",
+   "wert": "valid_env_count, invalid_env_count, user_count, admin_skipped_count",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- counts: valid_env_count, invalid_env_count, user_count, admin_skipped_count"
+  },
+  {
+   "zeilen": "243",
+   "name": "Skip-Code im Item-Audit",
+   "wert": "SKIP_NONUSER",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- Nachweis: item audit zeigt SKIP_NONUSER."
+  },
+  {
+   "zeilen": "284",
+   "name": "O-09-08 Regel 'No tc writes if DB down'",
+   "wert": "hier strikt; Owner kann anders fixen",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "O-09-08 “No tc writes if DB down” rule: strikt vs best-effort (hier strikt; Owner kann anders fixen)"
+  },
+  {
+   "zeilen": "290-291",
+   "name": "DRIFT-Ampel BR-09",
+   "wert": "RISK",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- Grund: Mehrere boundedness-Parameter sind Owner-Fix nötig (batch_size/runtime/retry/threshold/lock_timeout/valid_strictness)."
+  },
+  {
+   "zeilen": "53",
+   "name": "K-CONF-01 Status",
+   "wert": "RISK",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "-> Status: RISK (BR-09 muss VALID-Regeln präzise benennen oder auf B165 verweisen; keine eigene Erfindung)"
+  },
+  {
+   "zeilen": "55",
+   "name": "K-CONF-02 Status",
+   "wert": "NONE (unter Bedingung 1:1-Abbildung auf B166-Klassen)",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "-> Status: NONE, wenn Peak Exit-Code Semantik 1:1 auf B166-Klassen abbildet (BR-08 regelt Auditfelder)."
+  },
+  {
+   "zeilen": "57",
+   "name": "K-CONF-03 Status",
+   "wert": "NONE",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "-> Status: NONE (Filter ist hier normativ)"
+  }
+ ],
+ "verweise_auf_dokumente": [
+  {
+   "zeilen": "32",
+   "name": "blocks/B165_ACCOUNTING_COLLECTOR_SESSION_MAPPING.txt",
+   "zitat": "- K-IMP-01: blocks/B165_ACCOUNTING_COLLECTOR_SESSION_MAPPING.txt"
+  },
+  {
+   "zeilen": "34",
+   "name": "blocks/B055_DB_SCHEMA_CORE.txt",
+   "zitat": "- K-IMP-02: blocks/B055_DB_SCHEMA_CORE.txt"
+  },
+  {
+   "zeilen": "36",
+   "name": "blocks/B166_POLICY_APPLY_RECONCILE.txt",
+   "zitat": "- K-IMP-03: blocks/B166_POLICY_APPLY_RECONCILE.txt"
+  },
+  {
+   "zeilen": "38",
+   "name": "blocks/B167_LOCKING_AND_IDEMPOTENCY.txt (falls vorhanden im Kanon)",
+   "zitat": "- K-IMP-04: blocks/B167_LOCKING_AND_IDEMPOTENCY.txt (falls vorhanden im Kanon)"
+  },
+  {
+   "zeilen": "40",
+   "name": "Peak-Mode v2 BR-08",
+   "zitat": "- K-IMP-05: Peak-Mode v2 BR-08 (neu)"
+  },
+  {
+   "zeilen": "42",
+   "name": "Peak-Mode v2 BR-06",
+   "zitat": "- K-IMP-06: Peak-Mode v2 BR-06"
+  },
+  {
+   "zeilen": "20",
+   "name": "BR-03 / BR-10 (Trigger/Detector)",
+   "zitat": "- Trigger/Detector (SoftIRQ/CPU persist) (BR-03/BR-10)"
+  },
+  {
+   "zeilen": "21",
+   "name": "BR-07 (Taeter-Selektion Top-N/MULTI)",
+   "zitat": "- Täter-Selektion (Top-N/MULTI) (BR-07)"
+  },
+  {
+   "zeilen": "22",
+   "name": "BR-01 / BR-06 (tc-Topologie, CAKE root)",
+   "zitat": "- tc-Topologie (CAKE root) (BR-01/BR-06)"
+  },
+  {
+   "zeilen": "23",
+   "name": "BR-02 / BR-05 (Zielwerte Peak-BW / Profil-BW)",
+   "zitat": "- Zielwerte (Peak-BW / Profil-BW) (BR-02/BR-05)"
+  },
+  {
+   "zeilen": "86",
+   "name": "BR-07 UNMAPPED_RULE",
+   "zitat": "- Muss mit BR-07 UNMAPPED_RULE kompatibel sein."
+  }
+ ],
+ "offene_punkte": [
+  {
+   "zeilen": "72-74",
+   "kennung": "O-09-01 / FP-BR09-04",
+   "text": "APPLY_BATCH_SIZE: ALL (single batch) oder chunked N=25/50/100."
+  },
+  {
+   "zeilen": "75-76",
+   "kennung": "O-09-02 / FP-BR09-05",
+   "text": "APPLY_MAX_RUNTIME_MS: harte Laufzeitgrenze je Apply-Run."
+  },
+  {
+   "zeilen": "77-79",
+   "kennung": "O-09-03 / FP-BR09-06",
+   "text": "APPLY_RETRY_POLICY: keine Retries oder begrenzte Retries mit Backoff (max_attempts, Schedule)."
+  },
+  {
+   "zeilen": "80-81",
+   "kennung": "O-09-04 / FP-BR09-07",
+   "text": "DEGRADED_THRESHOLD: Fehlerquote fuer die Klassifikation DEGRADED."
+  },
+  {
+   "zeilen": "82-83",
+   "kennung": "O-09-05 / FP-BR09-08",
+   "text": "LOCK_TIMEOUT_MS: Wartezeit auf den Single-Writer-Lock."
+  },
+  {
+   "zeilen": "84-86",
+   "kennung": "O-09-06 / FP-BR09-09",
+   "text": "VALID_STRICTNESS: Strict oder Lenient; muss zu BR-07 UNMAPPED_RULE passen."
+  },
+  {
+   "zeilen": "210, 214-217, 283",
+   "kennung": "O-09-07",
+   "text": "Klassifikation DB_LOOKUP_FAILED: Mapping-Fehler (6) oder Apply-Fehler (4)."
+  },
+  {
+   "zeilen": "284",
+   "kennung": "O-09-08",
+   "text": "'No tc writes if DB down': strikt (Stand BR-09) oder best-effort."
+  },
+  {
+   "zeilen": "52-53",
+   "kennung": "K-CONF-01",
+   "text": "VALID-Detailregeln (Permissions/Owner/Format) sind in BR-09 nicht selbst ausformuliert; Verweis auf B165 noetig."
+  },
+  {
+   "zeilen": "38",
+   "kennung": "K-IMP-04",
+   "text": "Existenz von B167_LOCKING_AND_IDEMPOTENCY im Kanon ist laut Text ungewiss ('falls vorhanden')."
+  }
+ ],
+ "innere_widersprueche": [
+  {
+   "zeilen": "138 / 243 (und BR-08 Zeile 392)",
+   "text": "Nicht-USER wird in STEP-2 als 'SKIP (ADMIN excluded)' gefuehrt, T-09-03 verlangt im Item-Audit den Code SKIP_NONUSER; BR-08 laesst ADMIN_EXCLUDED oder SKIP_NONUSER offen. Benennung uneinheitlich."
+  },
+  {
+   "zeilen": "139 / 210 / 283",
+   "text": "STEP-2 verbucht einen fehlgeschlagenen Lookup als Item-FAIL (DB_LOOKUP_FAILED); auf Run-Ebene ist die Zuordnung (6 oder 4) ausdruecklich offen."
+  },
+  {
+   "zeilen": "76 / 81 / 179 / 161",
+   "text": "DEGRADED wird als Klassifikation/Zustand genannt (Zeilen 76, 81, 179), kommt aber weder in der Exit-Code-Liste noch in der result_code-Enumeration (Zeile 170) vor."
+  },
+  {
+   "zeilen": "170 (gegen BR-08 Zeile 221)",
+   "text": "result_code enthaelt hier zusaetzlich APPLY_ERROR; die Beispielliste in BR-08 nennt diesen Wert nicht. Zeile 121 nennt ausserdem result_code = LOCKED statt TEMPFAIL_LOCKED."
+  },
+  {
+   "zeilen": "156 (gegen BR-08 Zeile 230)",
+   "text": "Zaehler heisst hier items_skip bzw. admin_skipped_count (Zeile 220); BR-08 fuehrt items_skipped_admin."
+  },
+  {
+   "zeilen": "189-190",
+   "text": "Die Behandlung von IFACE_GONE (FAIL oder NOOP) wird an VALID_STRICTNESS gehaengt, obwohl dieser Parameter laut Zeile 84-85 die Strenge der env-Validierung regelt."
+  }
+ ],
+ "relevanz": {
+  "stufe": "HOCH",
+  "begruendung": "Vollstaendiger Ablaufvertrag fuer das Anwenden und Zuruecknehmen der Peak-Drossel (Lock, Snapshot, Filter, Plan, Ausfuehrung, Klassifikation, Reporting) mit Fehlerklassen, Exit-Codes, Idempotenz- und Begrenzungsregeln sowie acht Abnahmetests. Die Kandidatenliste und alle Apply-Ziele sind PPP-Schnittstellen; fuer awg0 enthaelt der Text keine Regel.",
+  "rt_module": [
+   "MOD-009",
+   "BASE-080",
+   "BASE-070",
+   "BASE-030",
+   "MOD-003",
+   "BASE-000",
+   "BASE-010",
+   "BASE-100",
+   "MOD-007"
+  ]
+ },
+ "auffaelligkeiten": [
+  "Keine Zugangsdaten enthalten.",
+  "Sechs der neun Fixpunkte sind OPEN; der Text sagt ausdruecklich, dass es keine impliziten Defaults gibt (Zeile 64).",
+  "Die Existenz von B167 wird vom Dokument selbst bezweifelt ('falls vorhanden im Kanon', Zeile 38).",
+  "Kein Datum; Changelog nennt 'heute'. Datei ohne abschliessende Zeilenschaltung (wc -l 299, Read 300 Zeilen).",
+  "Alle Ziele sind ppp_ifname/pppX; WireGuard kommt nicht vor."
+ ]
+}

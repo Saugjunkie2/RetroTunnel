@@ -1,0 +1,791 @@
+{
+ "datei": "nachlieferung/entwuerfe/peak_mode_v2/PEAK MODE v2 — BR-04.txt",
+ "abschnitt": "1-144",
+ "zeilen_gesamt": 144,
+ "gelesen_bereiche": "1-144",
+ "vollstaendig_gelesen": true,
+ "dokument": {
+  "titel": "PEAK MODE v2 — BR-04 VPN_bps (Global Throughput) — exakte Definition + Counter-Randfälle",
+  "doc_id": "BR-04",
+  "status_laut_datei": "ENTWURF (Phase 3)",
+  "version_laut_datei": "v2 (Entwurf; Änderungsprotokoll CHG-01, CHG-02)",
+  "datum_laut_datei": "kein Datum angegeben",
+  "projekt": "XPN",
+  "art": "NORM",
+  "normativitaet_laut_datei": "Abschnitte durchgehend als MUST gekennzeichnet; laut BR-00 Teil des normativen Kanons. Regeln: kein Patch, kein Copy-Code, kein tc/SQL-Snippet."
+ },
+ "zusammenfassung": "BR-04 definiert ausschließlich die Messgröße vpn_bps, den globalen VPN-Durchsatz, samt Interface-Menge, Formel und Randfallbehandlung. Gezählt wird über alle in /sys/class/net/ vorhandenen ppp*-Interfaces (ppp0..pppN), ausdrücklich nicht nur über gemappte aktive USER/ADMIN-Sessions; je pppX werden rx_bytes und tx_bytes addiert, global summiert und als vpn_bps = (Δbytes * 8) / Δt_seconds ausgewertet. Ein negatives Delta (Counter-Reset/Wrap) wird auf 0 gesetzt und mit dem Flag COUNTER_RESET markiert. Pro Zyklus ist ein Rescan der Interface-Liste Pflicht; die Messung hängt bewusst nicht von DB- oder /run-Mapping ab und ist read-only ohne Lock. Wird vpn_bps als Schwelle oder Referenz genutzt, ist der Bezug global, nicht je ppp. Zwei Fehlerklassen (sysfs unlesbar, Δt <= 0) und fünf Tests T-01..T-05 sind beschrieben. Offen sind die Behandlung von Δt_seconds <= 0 (Sample verwerfen oder vpn_bps=0) und ein optionales Flag IFACE_CHURN. Reifegrad: Entwurf (Phase 3), inhaltlich fast geschlossen; die gesamte Definition ist an ppp*-Schnittstellen gebunden.",
+ "aussagen": [
+  {
+   "nr": 1,
+   "zeilen": "2-6",
+   "zitat": "PEAK MODE v2 — BR-04 VPN_bps (Global Throughput) — exakte Definition + Counter-Randfälle",
+   "aussage": "BR-04 (Status ENTWURF, Phase 3) ist die self-contained Spezifikation der Messgröße VPN_bps (globaler Durchsatz) mit exakter Definition und Counter-Randfällen; ohne Patch, Copy-Code oder Snippets.",
+   "art": "DEFINITION",
+   "kennung": "BR-04",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 2,
+   "zeilen": "9-10",
+   "zitat": "- Dieses BR definiert ausschließlich die Messgröße “vpn_bps” (globaler VPN-Throughput)",
+   "aussage": "Scope: BR-04 definiert ausschließlich die Messgröße vpn_bps (globaler VPN-Throughput) einschließlich Interface-Set, Formel und Randfallbehandlung (Counter, Resets, Interface churn).",
+   "art": "DEFINITION",
+   "kennung": "vpn_bps",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 3,
+   "zeilen": "11",
+   "zitat": "- Anti-Scope: Keine Peak-Triggerlogik (SoftIRQ/CPU), keine Täter-Selektion, keine tc-Apply/Batches,",
+   "aussage": "Anti-Scope: keine Peak-Triggerlogik (SoftIRQ/CPU), keine Täter-Selektion, keine tc-Apply/Batches, keine DB-Tabellen; nur Flag-/Result-Contract.",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 4,
+   "zeilen": "17-18",
+   "zitat": "- K-IMP-01: Peak-Mode_Was es ist, wie es funktioniert.txt → Abschnitt “4.2 VPN_bps aus sysfs ppp*”",
+   "aussage": "[PPP-gebunden] Kanon-Import K-IMP-01 aus \"Peak-Mode_Was es ist, wie es funktioniert.txt\", Abschnitt 4.2 VPN_bps aus sysfs ppp*: Interface-Scan über /sys/class/net/ (ppp0..pppN), Summe rx_bytes+tx_bytes, Delta-Formel, Counter-Reset-Behandlung.",
+   "art": "HISTORIE",
+   "kennung": "K-IMP-01",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-030",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 5,
+   "zeilen": "19-20",
+   "zitat": "- Importiert: die 3 MUST-Fragen A/B/C und Output-Erwartung (Berechnung + Reset-Regel).",
+   "aussage": "Kanon-Import K-IMP-02 aus Peak-Mode_CHECKLISTE.txt (BR-04 \"VPN_bps — exakte Definition + Counter-Randfälle\"): die drei MUST-Fragen A/B/C und die Output-Erwartung (Berechnung und Reset-Regel).",
+   "art": "HISTORIE",
+   "kennung": "K-IMP-02",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 6,
+   "zeilen": "21-22",
+   "zitat": "“Δt_seconds ist messbar (Zeitdifferenz zwischen Samples), nicht hardcoded im Messcontract”.",
+   "aussage": "Kanon-Import K-IMP-03 (indirekt) aus blocks/B167_WIRING_HOOKS_SYSTEMD.txt: Sampler-/Timer-basierter Rhythmus statt Cron; Δt_seconds ist als Zeitdifferenz zwischen Samples messbar und nicht im Messcontract hartkodiert.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K-IMP-03 / B167",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-005"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 7,
+   "zeilen": "23",
+   "zitat": "liefert die Sampler-Cadence/Window-Definition (nur als Bezug, BR-04 bleibt cadence-agnostisch).",
+   "aussage": "Import K-IMP-04: PEAK MODE v2 BR-03 (\"später\") liefert die Sampler-Kadenz/Window-Definition; BR-04 bleibt kadenzunabhängig.",
+   "art": "DEFINITION",
+   "kennung": "K-IMP-04 / BR-03",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 8,
+   "zeilen": "26",
+   "zitat": "deren Name mit “ppp” beginnt und ein aktives Netz-Interface repräsentiert (ppp0..pppN).",
+   "aussage": "[PPP-gebunden] Begriff ppp*-Interfaces: alle Interfaces in /sys/class/net/, deren Name mit \"ppp\" beginnt und die ein aktives Netz-Interface repräsentieren (ppp0..pppN).",
+   "art": "DEFINITION",
+   "kennung": "ppp* Interfaces",
+   "rt_bezug": [
+    "BASE-030",
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 9,
+   "zeilen": "27",
+   "zitat": "- “vpn_bps”: globaler Throughput über alle aktuellen ppp* Interfaces (Summe rx+tx), in Bit pro Sekunde.",
+   "aussage": "[PPP-gebunden] Begriff vpn_bps: globaler Throughput über alle aktuellen ppp*-Interfaces (Summe rx+tx) in Bit pro Sekunde.",
+   "art": "DEFINITION",
+   "kennung": "vpn_bps",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 10,
+   "zeilen": "30-31",
+   "zitat": "- Kanon (Was es ist) definiert explizit: Scan “alle Interfaces, die ppp heißen” (nicht mapping-basiert).",
+   "aussage": "[PPP-gebunden] Konfliktcheck K-CONF-01 (Status NONE): Die Frage \"Nur USER/ADMIN gemappte active Sessions zählen?\" (BR-04A) ist entschieden – der Kanon definiert den Scan über alle Interfaces, die ppp heißen, nicht mapping-basiert.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K-CONF-01",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-030"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 11,
+   "zeilen": "32-33",
+   "zitat": "- Kanon benennt churn als Randfall und fordert Rescan genau deswegen.",
+   "aussage": "Konfliktcheck K-CONF-02 (Status NONE): Interface churn zwischen Samples ist im Kanon als Randfall benannt; genau deshalb wird der Rescan gefordert.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K-CONF-02",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 12,
+   "zeilen": "34-35",
+   "zitat": "- Kanon fordert: Δbytes<0 ⇒ setze Δbytes=0 + markiere counter_reset im Snapshot.",
+   "aussage": "Konfliktcheck K-CONF-03 (Status NONE): Bei negativem Delta (Wrap/Reset) fordert der Kanon, Δbytes auf 0 zu setzen und counter_reset im Snapshot zu markieren.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K-CONF-03",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 13,
+   "zeilen": "39",
+   "zitat": "vpn_bps zählt über ALLE existierenden ppp* Interfaces (ppp0..pppN) via /sys/class/net/",
+   "aussage": "[PPP-gebunden] Owner-Fixpunkt FP-BR04-01 (IFACE_SET): vpn_bps zählt über alle existierenden ppp*-Interfaces (ppp0..pppN) via /sys/class/net/, nicht nur über gemappte aktive USER/ADMIN-Sessions.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "FP-BR04-01",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-030",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 14,
+   "zeilen": "40",
+   "zitat": "- FP-BR04-02 (BYTES_SUM): pro pppX wird rx_bytes + tx_bytes verwendet.",
+   "aussage": "[PPP-gebunden] Owner-Fixpunkt FP-BR04-02 (BYTES_SUM): Je pppX wird rx_bytes + tx_bytes verwendet.",
+   "art": "IMPL_DETAIL",
+   "kennung": "FP-BR04-02",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 15,
+   "zeilen": "41",
+   "zitat": "- FP-BR04-03 (GLOBAL_SUM): sum_bytes_now = Σ_over_all_pppX (rx_bytes + tx_bytes).",
+   "aussage": "[PPP-gebunden] Owner-Fixpunkt FP-BR04-03 (GLOBAL_SUM): sum_bytes_now ist die Summe von rx_bytes + tx_bytes über alle pppX.",
+   "art": "IMPL_DETAIL",
+   "kennung": "FP-BR04-03",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-030"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 16,
+   "zeilen": "42",
+   "zitat": "- FP-BR04-04 (DELTA): Δbytes = sum_bytes_now - sum_bytes_prev.",
+   "aussage": "Owner-Fixpunkt FP-BR04-04 (DELTA): Δbytes = sum_bytes_now - sum_bytes_prev.",
+   "art": "IMPL_DETAIL",
+   "kennung": "FP-BR04-04",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 17,
+   "zeilen": "43",
+   "zitat": "- FP-BR04-05 (FORMULA): vpn_bps = (Δbytes * 8) / Δt_seconds.",
+   "aussage": "Owner-Fixpunkt FP-BR04-05 (FORMULA): vpn_bps = (Δbytes * 8) / Δt_seconds.",
+   "art": "IMPL_DETAIL",
+   "kennung": "FP-BR04-05",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 18,
+   "zeilen": "44",
+   "zitat": "Wenn Δbytes < 0 ⇒ setze Δbytes = 0 und setze snapshot_flag = COUNTER_RESET",
+   "aussage": "Owner-Fixpunkt FP-BR04-06 (NEG_DELTA_RULE): Bei Δbytes < 0 wird Δbytes = 0 gesetzt und snapshot_flag = COUNTER_RESET (oder ein äquivalentes Flag); die genaue Feldablage wird in BR-08/BR-08A gemappt.",
+   "art": "FUNKTION",
+   "kennung": "FP-BR04-06",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 19,
+   "zeilen": "45",
+   "zitat": "ist der Bezug GLOBAL (gesamter VPN-Throughput), nicht per-ppp.",
+   "aussage": "[PPP-gebunden] Owner-Fixpunkt FP-BR04-07 (THRESHOLD_REFERENCE): Wird vpn_bps als Threshold/Referenz genutzt, ist der Bezug GLOBAL (gesamter VPN-Throughput), nicht je ppp.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "FP-BR04-07",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 20,
+   "zeilen": "51-52",
+   "zitat": "- Input-02: Für jedes pppX: sysfs Counter rx_bytes und tx_bytes (kumuliert).",
+   "aussage": "[PPP-gebunden] Inputs 01-02: die Laufzeit-Liste der Interfaces unter /sys/class/net/ und je pppX die kumulierten sysfs-Counter rx_bytes und tx_bytes.",
+   "art": "IMPL_DETAIL",
+   "kennung": "Input-01 / Input-02",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-030"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 21,
+   "zeilen": "53",
+   "zitat": "- Input-03: sum_bytes_prev (vorheriger Sample-Stand; rein runtime, kein SoT-Shift).",
+   "aussage": "Input-03: sum_bytes_prev ist der vorherige Sample-Stand, rein zur Laufzeit gehalten, ohne Verschiebung der SoT.",
+   "art": "IMPL_DETAIL",
+   "kennung": "Input-03",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 22,
+   "zeilen": "54",
+   "zitat": "- Input-04: Δt_seconds (Zeitdifferenz zwischen zwei Samples; gemessen, nicht geraten).",
+   "aussage": "Input-04: Δt_seconds ist die gemessene (nicht geratene) Zeitdifferenz zwischen zwei Samples.",
+   "art": "IMPL_DETAIL",
+   "kennung": "Input-04",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-060"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 23,
+   "zeilen": "56-57",
+   "zitat": "- Rescan ist Pflicht pro Zyklus (keine Annahme, dass pppX Set konstant bleibt).",
+   "aussage": "[PPP-gebunden] Constraint: Pro Zyklus ist ein Rescan Pflicht; es darf nicht angenommen werden, dass die pppX-Menge konstant bleibt.",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 24,
+   "zeilen": "58",
+   "zitat": "- Keine Abhängigkeit von DB-/run-Mapping für die Definition von vpn_bps",
+   "aussage": "Constraint: Die Definition von vpn_bps hängt nicht von DB- oder /run-Mapping ab; die Messung soll robust sein, auch wenn das Mapping kurzfristig fehlt.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 25,
+   "zeilen": "61-62",
+   "zitat": "- Output-01: vpn_bps (float/int, aber semantisch “bps”) als globaler Throughput.",
+   "aussage": "Outputs 01-02: vpn_bps (float oder int, semantisch bps) als globaler Throughput sowie delta_bytes, bereits nach NEG_DELTA_RULE korrigiert.",
+   "art": "FUNKTION",
+   "kennung": "Output-01 / Output-02",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 26,
+   "zeilen": "63-66",
+   "zitat": "- COUNTER_RESET (wenn Δbytes < 0 korrigiert wurde)",
+   "aussage": "Output-03 snapshot_flag: NONE (Normalfall), COUNTER_RESET (wenn Δbytes < 0 korrigiert wurde), optional IFACE_CHURN (wenn sich das Interface-Set geändert hat; nur falls ausdrücklich gewünscht, sonst weglassen).",
+   "art": "FUNKTION",
+   "kennung": "snapshot_flag",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 27,
+   "zeilen": "68-69",
+   "zitat": "- BR-04 hat keine eigenen States; es liefert nur Messwerte/Flags.",
+   "aussage": "BR-04 hat keine eigenen States; es liefert nur Messwerte und Flags.",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 28,
+   "zeilen": "72",
+   "zitat": "- E-01: Rescan-Pflicht: vpn_bps wird nur aus aktueller sysfs Interface-Liste berechnet.",
+   "aussage": "Enforcement E-01 (Rescan-Pflicht): vpn_bps wird nur aus der aktuellen sysfs-Interface-Liste berechnet.",
+   "art": "FUNKTION",
+   "kennung": "E-01",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 29,
+   "zeilen": "73",
+   "zitat": "- E-02: NEG_DELTA_RULE ist zwingend (keine negative Rate, kein “riesiger Spike” durch Wrap).",
+   "aussage": "Enforcement E-02: Die NEG_DELTA_RULE ist zwingend – keine negative Rate und kein riesiger Spike durch Wrap.",
+   "art": "SCHUTZZIEL",
+   "kennung": "E-02",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 30,
+   "zeilen": "76",
+   "zitat": "- ERR-BR04-SYSFS_UNREADABLE: /sys/class/net oder rx/tx Counter nicht lesbar → Messung FAIL/DEGRADED",
+   "aussage": "Fehlerklasse ERR-BR04-SYSFS_UNREADABLE: /sys/class/net oder rx/tx-Counter nicht lesbar führt zu Messung FAIL/DEGRADED; die genaue Klassifikation wird im Run-Result von BR-10/BR-09 definiert.",
+   "art": "IMPL_DETAIL",
+   "kennung": "ERR-BR04-SYSFS_UNREADABLE",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 31,
+   "zeilen": "77",
+   "zitat": "- ERR-BR04-DELTA_T_ZERO: Δt_seconds <= 0 → Sample ungültig; vpn_bps wird nicht berechnet (oder als 0)",
+   "aussage": "Fehlerklasse ERR-BR04-DELTA_T_ZERO: Bei Δt_seconds <= 0 ist das Sample ungültig; vpn_bps wird nicht berechnet (oder als 0 gesetzt) plus anomaly-flag – v2 muss das festlegen, sonst OPEN.",
+   "art": "OFFEN",
+   "kennung": "ERR-BR04-DELTA_T_ZERO",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007",
+    "BASE-060"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 32,
+   "zeilen": "79-81",
+   "zitat": "- Concurrency: Messung ist read-only; kein Lock wie tc-write nötig (Lock nur für Apply in BR-09/BR-01).",
+   "aussage": "Idempotenz: wiederholte Samples bei identischer sysfs-Lage sind konsistent (nur Δt/Δbytes bestimmen vpn_bps). Concurrency: die Messung ist read-only und braucht keinen Lock; ein Lock ist nur für das Apply (BR-09/BR-01) nötig.",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 33,
+   "zeilen": "83-85",
+   "zitat": "- Disk-Full Schutz wird in BR-10 geregelt (bounded logging).",
+   "aussage": "BR-04 definiert keine Retention; die Speicherung von Snapshots gehört zu BR-08/BR-10, der Disk-Full-Schutz (bounded logging) wird in BR-10 geregelt.",
+   "art": "BETRIEB",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-007",
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 34,
+   "zeilen": "88-89",
+   "zitat": "die auch bei Interface churn und Counter resets keine falschen Peaks erzeugt.",
+   "aussage": "[PPP-gebunden] Fix-Intention: vpn_bps ist eine eindeutig definierte, robuste, global gültige Messgröße (Σ ppp rx+tx), die auch bei Interface churn und Counter-Resets keine falschen Peaks erzeugt.",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 35,
+   "zeilen": "90-93",
+   "zitat": "- Klarstellung: vpn_bps ist global (K1 global), wenn als Threshold/Referenz genutzt.",
+   "aussage": "[PPP-gebunden] Delta: Interface-Set \"alle ppp* in sysfs\" festgeschrieben; NEG_DELTA_RULE festgeschrieben (negatives Delta wird 0 plus Flag COUNTER_RESET); Klarstellung, dass vpn_bps bei Nutzung als Threshold/Referenz global ist (\"K1 global\").",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K1",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 36,
+   "zeilen": "94-96",
+   "zitat": "- Keine Magic-Defaults bei Δt<=0; Fehler wird als anomaly behandelt (siehe OPEN).",
+   "aussage": "Grenzen: keine Abhängigkeit von /run-Mapping oder DB für die Messdefinition; keine Magic-Defaults bei Δt<=0, der Fehler wird als Anomalie behandelt (siehe OPEN).",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 37,
+   "zeilen": "102-106",
+   "zitat": "- Erwartung: vpn_bps = (Δbytes*8)/Δt; snapshot_flag=NONE.",
+   "aussage": "[PPP-gebunden] Test T-01 Normalfall: ppp0..pppN existieren, Counter steigen; nach zwei Samples mit Δt_seconds > 0 gilt vpn_bps = (Δbytes*8)/Δt und snapshot_flag=NONE; Messwerte reproduzierbar, keine negativen Raten.",
+   "art": "TEST",
+   "kennung": "T-01",
+   "rt_bezug": [
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 38,
+   "zeilen": "108-112",
+   "zitat": "- Erwartung: Messung funktioniert weiterhin; keine Annahme über konstante N; vpn_bps bleibt definiert.",
+   "aussage": "[PPP-gebunden] Test T-02 Interface churn: Kommt zwischen Sample A und B ein pppX hinzu oder verschwindet, funktioniert die Messung dank Rescan weiter; das Delta wird gegen die neue Summe gebildet, keine Exceptions.",
+   "art": "TEST",
+   "kennung": "T-02",
+   "rt_bezug": [
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 39,
+   "zeilen": "114-118",
+   "zitat": "- Erwartung: Δbytes wird zu 0 gesetzt; vpn_bps wird 0 (oder entsprechend) und snapshot_flag=COUNTER_RESET.",
+   "aussage": "Test T-03 Counter reset/wrap: Bei sum_bytes_now < sum_bytes_prev wird Δbytes zu 0, vpn_bps wird 0 (oder entsprechend) und snapshot_flag=COUNTER_RESET; kein negativer bps-Wert, Anomalie sichtbar.",
+   "art": "TEST",
+   "kennung": "T-03",
+   "rt_bezug": [
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 40,
+   "zeilen": "120-124",
+   "zitat": "- Erwartung: Fehlerklasse ERR-BR04-SYSFS_UNREADABLE; Messung wird als ungültig markiert",
+   "aussage": "Test T-04 unlesbarer Counter: Ist eine Counter-Datei kurzfristig nicht lesbar, entsteht ERR-BR04-SYSFS_UNREADABLE und die Messung wird als ungültig markiert (kein Zufallswert); Audit/Diag zeigt den Fehlergrund.",
+   "art": "TEST",
+   "kennung": "T-04",
+   "rt_bezug": [
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 41,
+   "zeilen": "126-130",
+   "zitat": "- Erwartung: definierte Behandlung (OPEN, muss in v2 entschieden werden)",
+   "aussage": "Test T-05 Δt_seconds <= 0 (Uhrenproblem oder doppelter Zeitstempel): definierte Behandlung, die noch OPEN ist; jedenfalls keine Division durch null und kein Crash; Anomalie sichtbar, System stabil.",
+   "art": "TEST",
+   "kennung": "T-05",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-060",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 42,
+   "zeilen": "134-137",
+   "zitat": "- Option A: Sample verwerfen (kein vpn_bps update) + anomaly-flag",
+   "aussage": "Offen O-01: Behandlung von Δt_seconds <= 0 (ERR-BR04-DELTA_T_ZERO) – Option A: Sample verwerfen (kein Update von vpn_bps) plus anomaly-flag; Option B: vpn_bps=0 plus anomaly-flag; der Owner muss entscheiden.",
+   "art": "OFFEN",
+   "kennung": "O-01",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 43,
+   "zeilen": "138-139",
+   "zitat": "- O-02: Optionales Flag IFACE_CHURN:",
+   "aussage": "Offen O-02: Optionales Flag IFACE_CHURN – der Kanon fordert den Rescan, aber kein explizites Flag; v2 kann entscheiden, ob churn als Flag persistiert wird (nur bei Nutzen für Debug/DoD).",
+   "art": "OFFEN",
+   "kennung": "O-02",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 44,
+   "zeilen": "143",
+   "zitat": "- CHG-01: BR-04 v2 macht Interface-Set + Formel + NEG_DELTA_RULE self-contained (ohne Mapping-Abhängigkeit).",
+   "aussage": "Änderungsprotokoll CHG-01: BR-04 v2 macht Interface-Set, Formel und NEG_DELTA_RULE self-contained, ohne Mapping-Abhängigkeit.",
+   "art": "HISTORIE",
+   "kennung": "CHG-01",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 45,
+   "zeilen": "144",
+   "zitat": "- CHG-02: Offener Punkt Δt<=0 wird explizit als OPEN markiert (keine Annahme).",
+   "aussage": "Änderungsprotokoll CHG-02: Der offene Punkt Δt<=0 wird ausdrücklich als OPEN markiert, ohne Annahme.",
+   "art": "HISTORIE",
+   "kennung": "CHG-02",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  }
+ ],
+ "werte": [
+  {
+   "zeilen": "39",
+   "name": "FP-BR04-01 IFACE_SET",
+   "wert": "alle ppp*-Interfaces (ppp0..pppN) in /sys/class/net/",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "vpn_bps zählt über ALLE existierenden ppp* Interfaces (ppp0..pppN) via /sys/class/net/"
+  },
+  {
+   "zeilen": "40",
+   "name": "FP-BR04-02 BYTES_SUM",
+   "wert": "rx_bytes + tx_bytes je pppX",
+   "einheit": "Bytes",
+   "status": "FIX",
+   "zitat": "- FP-BR04-02 (BYTES_SUM): pro pppX wird rx_bytes + tx_bytes verwendet."
+  },
+  {
+   "zeilen": "41",
+   "name": "FP-BR04-03 GLOBAL_SUM",
+   "wert": "sum_bytes_now = Summe über alle pppX (rx_bytes + tx_bytes)",
+   "einheit": "Bytes",
+   "status": "FIX",
+   "zitat": "- FP-BR04-03 (GLOBAL_SUM): sum_bytes_now = Σ_over_all_pppX (rx_bytes + tx_bytes)."
+  },
+  {
+   "zeilen": "42",
+   "name": "FP-BR04-04 DELTA",
+   "wert": "Δbytes = sum_bytes_now - sum_bytes_prev",
+   "einheit": "Bytes",
+   "status": "FIX",
+   "zitat": "- FP-BR04-04 (DELTA): Δbytes = sum_bytes_now - sum_bytes_prev."
+  },
+  {
+   "zeilen": "43",
+   "name": "FP-BR04-05 FORMULA",
+   "wert": "vpn_bps = (Δbytes * 8) / Δt_seconds",
+   "einheit": "bps",
+   "status": "FIX",
+   "zitat": "- FP-BR04-05 (FORMULA): vpn_bps = (Δbytes * 8) / Δt_seconds."
+  },
+  {
+   "zeilen": "44",
+   "name": "FP-BR04-06 NEG_DELTA_RULE",
+   "wert": "Δbytes < 0 -> Δbytes = 0, snapshot_flag = COUNTER_RESET",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "Wenn Δbytes < 0 ⇒ setze Δbytes = 0 und setze snapshot_flag = COUNTER_RESET"
+  },
+  {
+   "zeilen": "45",
+   "name": "FP-BR04-07 THRESHOLD_REFERENCE",
+   "wert": "GLOBAL (gesamter VPN-Throughput), nicht per-ppp",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "ist der Bezug GLOBAL (gesamter VPN-Throughput), nicht per-ppp."
+  },
+  {
+   "zeilen": "63-66",
+   "name": "snapshot_flag",
+   "wert": "NONE | COUNTER_RESET | (optional) IFACE_CHURN",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- COUNTER_RESET (wenn Δbytes < 0 korrigiert wurde)"
+  },
+  {
+   "zeilen": "66, 138-139",
+   "name": "Flag IFACE_CHURN",
+   "wert": "optional, nicht entschieden",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- O-02: Optionales Flag IFACE_CHURN:"
+  },
+  {
+   "zeilen": "76",
+   "name": "ERR-BR04-SYSFS_UNREADABLE",
+   "wert": "Messung FAIL/DEGRADED (Klassifikation in BR-10/BR-09)",
+   "einheit": "",
+   "status": "UNKLAR",
+   "zitat": "- ERR-BR04-SYSFS_UNREADABLE: /sys/class/net oder rx/tx Counter nicht lesbar → Messung FAIL/DEGRADED"
+  },
+  {
+   "zeilen": "77, 134-137",
+   "name": "ERR-BR04-DELTA_T_ZERO (Behandlung Δt_seconds <= 0)",
+   "wert": "Option A: Sample verwerfen + anomaly-flag; Option B: vpn_bps=0 + anomaly-flag",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- ERR-BR04-DELTA_T_ZERO: Δt_seconds <= 0 → Sample ungültig; vpn_bps wird nicht berechnet (oder als 0)"
+  },
+  {
+   "zeilen": "51",
+   "name": "Pfad der Interface-Liste",
+   "wert": "/sys/class/net/",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- Input-01: Liste der Interfaces unter /sys/class/net/ (Runtime)."
+  }
+ ],
+ "verweise_auf_dokumente": [
+  {
+   "zeilen": "17, 31",
+   "name": "Peak-Mode_Was es ist, wie es funktioniert.txt (Abschnitt 4.2)",
+   "zitat": "- K-IMP-01: Peak-Mode_Was es ist, wie es funktioniert.txt → Abschnitt “4.2 VPN_bps aus sysfs ppp*”"
+  },
+  {
+   "zeilen": "19",
+   "name": "Peak-Mode_CHECKLISTE.txt",
+   "zitat": "- K-IMP-02: Peak-Mode_CHECKLISTE.txt → BR-04 “VPN_bps — exakte Definition + Counter-Randfälle”"
+  },
+  {
+   "zeilen": "21",
+   "name": "B167 (blocks/B167_WIRING_HOOKS_SYSTEMD.txt)",
+   "zitat": "- K-IMP-03: blocks/B167_WIRING_HOOKS_SYSTEMD.txt (indirekt) → “Sampler/Timer-basierter Rhythmus; kein Cron-Flick”"
+  },
+  {
+   "zeilen": "23",
+   "name": "PEAK MODE v2 BR-03",
+   "zitat": "- K-IMP-04: PEAK MODE v2 BR-03 (später)"
+  },
+  {
+   "zeilen": "30",
+   "name": "BR-04A (Frage)",
+   "zitat": "- K-CONF-01: “Nur USER/ADMIN gemappte active Sessions zählen?” (BR-04A Frage) → Status: NONE"
+  },
+  {
+   "zeilen": "44",
+   "name": "BR-08 / BR-08A (Feldablage des Flags)",
+   "zitat": "(oder äquivalentes Flag; genaue Feldablage wird in BR-08/BR-08A gemappt)."
+  },
+  {
+   "zeilen": "76, 81, 84-85",
+   "name": "BR-09 / BR-10 / BR-01",
+   "zitat": "- BR-04 selbst definiert keine Retention; die Speicherung (Snapshots) ist BR-08/BR-10."
+  }
+ ],
+ "offene_punkte": [
+  {
+   "zeilen": "77, 129, 134-137",
+   "kennung": "O-01 / ERR-BR04-DELTA_T_ZERO",
+   "text": "Behandlung von Δt_seconds <= 0: Sample verwerfen (Option A) oder vpn_bps=0 (Option B), jeweils mit anomaly-flag; Owner-Entscheid nötig."
+  },
+  {
+   "zeilen": "66, 138-139",
+   "kennung": "O-02",
+   "text": "Ob Interface-Churn als Flag IFACE_CHURN persistiert wird."
+  },
+  {
+   "zeilen": "44",
+   "kennung": "FP-BR04-06",
+   "text": "Genaue Feldablage des Flags COUNTER_RESET wird erst in BR-08/BR-08A gemappt."
+  },
+  {
+   "zeilen": "76",
+   "kennung": "ERR-BR04-SYSFS_UNREADABLE",
+   "text": "Klassifikation FAIL oder DEGRADED wird erst im Run-Result von BR-10/BR-09 definiert."
+  }
+ ],
+ "innere_widersprueche": [
+  {
+   "zeilen": "2, 9-11",
+   "text": "BR-00 (Zeilen 79, 129) und BR-00A (Zeilen 24, 52) beschreiben BR-04 als Teil von \"Gates, Trigger, Scoring\" bzw. als Definition von Triggerbedingungen; BR-04 selbst definiert nur die Messgröße vpn_bps und schließt Triggerlogik ausdrücklich aus."
+  },
+  {
+   "zeilen": "23",
+   "text": "K-IMP-04 erwartet von BR-03 die \"Sampler-Cadence/Window-Definition\"; BR-03 nennt 10 s nur als Kontext-Default (FP-BR03-03) und definiert kein Fenster – Fenster und Persistenz stehen in BR-05 (FP-BR05-03 bis -05)."
+  },
+  {
+   "zeilen": "30, 39",
+   "text": "FP-BR04-01 zählt bewusst alle ppp*-Interfaces unabhängig von Rolle und Mapping, während die Täterauswahl (BR-00 Zeile 26, BR-07) USER-only ist; das ist in BR-04 als gewollt dargestellt (Messung global, Auswahl rollenbezogen), sollte aber beim Lesen nicht verwechselt werden."
+  },
+  {
+   "zeilen": "61, 117",
+   "text": "Typ von vpn_bps bleibt unbestimmt (\"float/int\"); T-03 formuliert das Ergebnis mit \"vpn_bps wird 0 (oder entsprechend)\" ebenfalls unscharf."
+  }
+ ],
+ "relevanz": {
+  "stufe": "HOCH",
+  "begruendung": "Definiert das zweite Messsignal (globaler VPN-Durchsatz), das BR-06 als Gate A in die AND-Triggerlogik einbindet, mit Formel, Reset-Regel, Flags und Tests. Die Definition ist vollständig an ppp*-Schnittstellen in sysfs gebunden; ein Dual-Tunnel-System müsste die Interface-Menge neu bestimmen.",
+  "rt_module": [
+   "MOD-009",
+   "MOD-007",
+   "BASE-030",
+   "BASE-060"
+  ]
+ },
+ "auffaelligkeiten": [
+  "Die gesamte Messgröße ist über den Namenspräfix \"ppp\" definiert (Zeilen 26, 39); Verkehr über andere Schnittstellen geht nicht in vpn_bps ein.",
+  "\"K1 global\" (Zeile 93) wird nicht erklärt; vermutlich eine v1-Kennung für die Durchsatzschwelle (BR-06 Zeile 30 spricht von \"K1/Pre-Gate\").",
+  "Verweise auf nicht vorliegende Dokumente BR-04A und BR-08A sowie auf die v1-Dateien Peak-Mode_Was es ist, wie es funktioniert.txt und Peak-Mode_CHECKLISTE.txt.",
+  "Direkte Ansprache des Owners in Zeile 66 (\"nur wenn du das explizit willst\").",
+  "Kein Datum; die Datei endet ohne abschließenden Zeilenumbruch (wc -l meldet 143, Read zeigt 144 Zeilen)."
+ ]
+}

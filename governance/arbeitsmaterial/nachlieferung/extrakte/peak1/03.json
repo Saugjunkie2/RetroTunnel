@@ -1,0 +1,973 @@
+{
+ "datei": "nachlieferung/entwuerfe/peak_mode_v2/PEAK MODE v2 — BR-01.txt",
+ "abschnitt": "1-136",
+ "zeilen_gesamt": 136,
+ "gelesen_bereiche": "1-136",
+ "vollstaendig_gelesen": true,
+ "dokument": {
+  "titel": "PEAK MODE v2 — BR-01 tc STANDARD-TOPOLOGIE (Connect-Pre-Init) — CAKE Edition",
+  "doc_id": "BR-01",
+  "status_laut_datei": "ENTWURF (Phase 3)",
+  "version_laut_datei": "v2 (Entwurf; Änderungsprotokoll CHG-01, CHG-02)",
+  "datum_laut_datei": "kein Datum angegeben",
+  "projekt": "XPN",
+  "art": "NORM",
+  "normativitaet_laut_datei": "Abschnitte durchgehend als MUST gekennzeichnet (Scope, Kanon-Abgleich, Owner-Fixpunkte, Contract, DoD, OPEN Items); laut BR-00 gehört BR-01 zum normativen Kanon. Regeln: kein Patch, kein Copy-Code, kein tc/SQL-Snippet; nur Contract + Delta-Intention + Validierung."
+ },
+ "zusammenfassung": "BR-01 legt die verbindliche tc-Topologie je pppX-Schnittstelle (Baseline) fest und begrenzt, was Peak Mode daran ändern darf. Sieben Owner-Fixpunkte FP-BR01-01..07 schreiben vor: CAKE als root-qdisc je pppX, Peak ändert ausschließlich den CAKE-Parameter bandwidth, per \"change, not replace\" ohne Strukturumbau, ohne Klassen/rate/ceil/handles, Ziel immer \"root auf dev pppX\", nur Egress (kein IFB/Ingress), alle Werte aus DB/Policy-Keys ohne Magic Numbers. Der Contract nennt Inputs, drei Outputs (Baseline, Peak Enter, Peak Exit/Restore auf den Profilwert aus SQL), Enforcement-Punkte (CAKE-Voraussetzung, Single-Writer nach B166, keine blinden Schreibzugriffe) und drei Fehlerklassen ERR-BR01-*. Idempotenz und Race-Fälle (Disconnect während Apply, gedriftete qdisc) sind geregelt: best-effort, kein Retry, keine Topologie-Reparatur. Fünf Tests T-01..T-05 dienen der Validierung. Als Kanonbezug werden die Blöcke B160, B166, B167, B168 und B057 importiert; der Konflikt, dass B160 \"CAKE oder fq_codel\" zulässt, ist als RISK markiert und als O-01 offen. Die Key-Namen für Profil- und Peak-Bandbreite sind offen (O-02). Reifegrad: Entwurf (Phase 3), inhaltlich weitgehend geschlossen, vollständig an PPP-Schnittstellen gebunden.",
+ "aussagen": [
+  {
+   "nr": 1,
+   "zeilen": "2-6",
+   "zitat": "Regeln: kein Patch, kein Copy-Code, kein tc/SQL Snippet; nur Contract + Delta-Intention + Validierung.",
+   "aussage": "BR-01 ist im Status ENTWURF (Phase 3) eine self-contained Spezifikation (Alt-Peak-Dateien sind nicht Pflicht) und enthält keinen Patch, keinen Copy-Code und keine tc/SQL-Snippets, nur Contract, Delta-Intention und Validierung.",
+   "art": "DEFINITION",
+   "kennung": "BR-01",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 2,
+   "zeilen": "9-10",
+   "zitat": "- Dieses BR definiert die verbindliche tc-Topologie pro pppX (Baseline) und präzisiert",
+   "aussage": "[PPP-gebunden] Scope: BR-01 definiert die verbindliche tc-Topologie je pppX (Baseline) und präzisiert, was Peak Mode daran ändern darf und was nicht.",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-003",
+    "MOD-009",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 3,
+   "zeilen": "11",
+   "zitat": "keine DB-Tabellen/History, keine Batch-Mechanik; nur tc-Struktur + Apply-Zielnorm.",
+   "aussage": "Anti-Scope: BR-01 definiert keine Peak-Trigger (CPU/SoftIRQ), keine DB-Tabellen/History und keine Batch-Mechanik, sondern nur tc-Struktur und Apply-Zielnorm.",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 4,
+   "zeilen": "17",
+   "zitat": "“QoS/Rate-Limits pro pppX; qdisc auf pppX; bandwidth kommt aus Profil (RADIUS/SQL)”",
+   "aussage": "[PPP-gebunden] Kanon-Import K-IMP-01 aus blocks/B160_TC_QOS_PER_PPP.txt: QoS/Rate-Limits je pppX, qdisc auf pppX, die Bandbreite kommt aus dem Profil (RADIUS/SQL).",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K-IMP-01 / B160",
+   "rt_bezug": [
+    "MOD-003",
+    "BASE-030",
+    "BASE-020",
+    "BASE-100"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 5,
+   "zeilen": "18",
+   "zitat": "vor jeder Apply/Reconcile-Ausführung muss serialisiert werden (kein Parallel-Write)”",
+   "aussage": "Kanon-Import K-IMP-02 aus blocks/B166_POLICY_APPLY_RECONCILE.txt: Single-Writer/Concurrency – vor jeder Apply-/Reconcile-Ausführung muss serialisiert werden, kein paralleles Schreiben.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K-IMP-02 / B166",
+   "rt_bezug": [
+    "BASE-080",
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 6,
+   "zeilen": "19",
+   "zitat": "“Wiring: Hooks/Services/Timer als kanonische Integrationspunkte (keine Cron-Flicks)”",
+   "aussage": "Kanon-Import K-IMP-03 aus blocks/B167_WIRING_HOOKS_SYSTEMD.txt: Hooks, Services und Timer sind die kanonischen Integrationspunkte; keine Cron-Behelfe.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K-IMP-03 / B167",
+   "rt_bezug": [
+    "BASE-005",
+    "BASE-030",
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 7,
+   "zeilen": "20",
+   "zitat": "wenn mind. ein VALID /run/vpn-sessions/*.env existiert; bloße Dateiexistenz reicht nicht”",
+   "aussage": "Kanon-Import K-IMP-04 aus B167 und blocks/B168_STALE_SESSION_JANITOR.txt: Eine vpn_connection_id gilt zur Laufzeit nur dann als aktiv, wenn mindestens eine gültige (VALID) Datei /run/vpn-sessions/*.env existiert; die bloße Dateiexistenz reicht nicht.",
+   "art": "DEFINITION",
+   "kennung": "K-IMP-04 / B167 / B168",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-030",
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 8,
+   "zeilen": "21",
+   "zitat": "“SQL-first / keine Magic Numbers in Skripten: Parameter/Policy-Keys sind kanonisch in DB”",
+   "aussage": "Kanon-Import K-IMP-05 (indirekt) aus blocks/B057_SETTINGS_PARAMETER_CANON_SQLFIRST_MAGIC_GUARD.txt: SQL-first, keine Magic Numbers in Skripten; Parameter und Policy-Keys liegen kanonisch in der DB.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K-IMP-05 / B057",
+   "rt_bezug": [
+    "BASE-000",
+    "BASE-090"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 9,
+   "zeilen": "24",
+   "zitat": "- Begriff “pppX”: per Verbindung/Subaccount entstehendes Interface (aus B160 Inputs abgeleitet).",
+   "aussage": "[PPP-gebunden] Begriff pppX: das je Verbindung/Subaccount entstehende Interface (aus den B160-Inputs abgeleitet).",
+   "art": "DEFINITION",
+   "kennung": "pppX",
+   "rt_bezug": [
+    "BASE-030",
+    "MOD-003"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 10,
+   "zeilen": "25",
+   "zitat": "- Begriff “Profil-Bandbreite”: policy-/profilbasierter Bandwidth-Wert aus RADIUS/SQL (B160 Input).",
+   "aussage": "Begriff Profil-Bandbreite: der policy-/profilbasierte Bandbreitenwert aus RADIUS/SQL (B160-Input).",
+   "art": "DEFINITION",
+   "kennung": "Profil-Bandbreite",
+   "rt_bezug": [
+    "MOD-003",
+    "BASE-100",
+    "BASE-020"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 11,
+   "zeilen": "26",
+   "zitat": "- Begriff “Single-Writer”: Apply-Reihenfolge muss serialisiert sein (B166).",
+   "aussage": "Begriff Single-Writer: Die Apply-Reihenfolge muss serialisiert sein (B166).",
+   "art": "DEFINITION",
+   "kennung": "Single-Writer",
+   "rt_bezug": [
+    "BASE-080"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 12,
+   "zeilen": "28-30",
+   "zitat": "- K-CONF-01: B160 nennt “CAKE oder fq_codel” als mögliche qdisc-Option → Status: RISK",
+   "aussage": "Konfliktcheck K-CONF-01 (Status RISK): B160 nennt \"CAKE oder fq_codel\" als mögliche qdisc; Peak Mode v2 (CAKE Edition) setzt CAKE voraus und darf nicht blind ändern, wenn die root-qdisc nicht CAKE ist (dieselbe Regel in Zeile 30).",
+   "art": "OFFEN",
+   "kennung": "K-CONF-01",
+   "rt_bezug": [
+    "MOD-003",
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 13,
+   "zeilen": "31-32",
+   "zitat": "- K-CONF-02: Ingress/IFB: B160 erwähnt keine Peak-Ingress-Regel → Status: NONE",
+   "aussage": "Konfliktcheck K-CONF-02 (Status NONE): B160 erwähnt keine Peak-Ingress-Regel; Peak definiert sich ausdrücklich als egress-only, was B160 nicht widerspricht, sondern den Peak-Scope präzisiert.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K-CONF-02",
+   "rt_bezug": [
+    "MOD-003",
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 14,
+   "zeilen": "36",
+   "zitat": "- FP-BR01-01 (QDISC_ROOT): pro pppX MUSS CAKE als root-qdisc liegen",
+   "aussage": "[PPP-gebunden] Owner-Fixpunkt FP-BR01-01 (QDISC_ROOT): Je pppX muss CAKE als root-qdisc liegen; das ist Feature-Voraussetzung der CAKE Edition des Peak Mode.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "FP-BR01-01",
+   "rt_bezug": [
+    "MOD-003",
+    "MOD-009",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 15,
+   "zeilen": "37",
+   "zitat": "- FP-BR01-02 (PEAK_DELTA_ONLY_BW): Peak-Mode darf an CAKE ausschließlich den Parameter “bandwidth” ändern.",
+   "aussage": "Owner-Fixpunkt FP-BR01-02 (PEAK_DELTA_ONLY_BW): Peak Mode darf an CAKE ausschließlich den Parameter bandwidth ändern.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "FP-BR01-02",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 16,
+   "zeilen": "38",
+   "zitat": "- FP-BR01-03 (NO_TOPOLOGY_CHANGE): Peak-Mode arbeitet “change, not replace”",
+   "aussage": "Owner-Fixpunkt FP-BR01-03 (NO_TOPOLOGY_CHANGE): Peak Mode arbeitet nach \"change, not replace\" – keine Neu-Initialisierung und kein Umbau der tc-Struktur im Peak-Moment.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "FP-BR01-03",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 17,
+   "zeilen": "39",
+   "zitat": "- FP-BR01-04 (NO_CLASSES_HANDLES): Peak-Mode benutzt keine rate/ceil, keine Klassen, keine classid/handle-Normen.",
+   "aussage": "Owner-Fixpunkt FP-BR01-04 (NO_CLASSES_HANDLES): Peak Mode nutzt keine rate/ceil, keine Klassen und keine classid/handle-Normen.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "FP-BR01-04",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 18,
+   "zeilen": "40",
+   "zitat": "- FP-BR01-05 (TARGET_NORM): Apply-Ziel ist immer “root auf dev pppX” (keine ID-Discovery/Parsing als Norm).",
+   "aussage": "[PPP-gebunden] Owner-Fixpunkt FP-BR01-05 (TARGET_NORM): Apply-Ziel ist immer \"root auf dev pppX\"; ID-Discovery oder Parsing sind nicht Norm.",
+   "art": "IMPL_DETAIL",
+   "kennung": "FP-BR01-05",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 19,
+   "zeilen": "41",
+   "zitat": "- FP-BR01-06 (EGRESS_ONLY): Peak-Mode ist egress-only; kein IFB/Ingress-Shaping im Peak-Modul.",
+   "aussage": "Owner-Fixpunkt FP-BR01-06 (EGRESS_ONLY): Peak Mode wirkt nur auf Egress; kein IFB-/Ingress-Shaping im Peak-Modul.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "FP-BR01-06",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 20,
+   "zeilen": "42",
+   "zitat": "Peak-Bandwidth-Werte und Profilwerte stammen aus DB/Policy-Keys; keine Magic Numbers im Hook/Sampler.",
+   "aussage": "Owner-Fixpunkt FP-BR01-07 (SQLFIRST_NO_MAGIC): Peak-Bandbreitenwerte und Profilwerte stammen aus DB/Policy-Keys; keine Magic Numbers in Hook oder Sampler.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "FP-BR01-07",
+   "rt_bezug": [
+    "BASE-000",
+    "BASE-090",
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 21,
+   "zeilen": "48",
+   "zitat": "- Input-01: pppX Interface existiert (per aktiver Session).",
+   "aussage": "[PPP-gebunden] Input-01: Das pppX-Interface existiert (je aktiver Session).",
+   "art": "IMPL_DETAIL",
+   "kennung": "Input-01",
+   "rt_bezug": [
+    "BASE-030",
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 22,
+   "zeilen": "49",
+   "zitat": "- Input-02: Profil-Bandbreite (Standardzustand) ist über SQL/RADIUS/Policy-Keys bestimmt (B160).",
+   "aussage": "Input-02: Die Profil-Bandbreite (Standardzustand) ist über SQL/RADIUS/Policy-Keys bestimmt (B160).",
+   "art": "IMPL_DETAIL",
+   "kennung": "Input-02",
+   "rt_bezug": [
+    "MOD-003",
+    "BASE-100",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 23,
+   "zeilen": "50",
+   "zitat": "- Input-03: Peak-Bandbreite (Notbetrieb) ist über SQL/Policy-Keys bestimmt (kein Hardcode).",
+   "aussage": "Input-03: Die Peak-Bandbreite (Notbetrieb) ist über SQL/Policy-Keys bestimmt; kein Hardcode.",
+   "art": "PARAMETER",
+   "kennung": "Input-03",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 24,
+   "zeilen": "51",
+   "zitat": "Möglichkeit zur Feststellung “root-qdisc auf pppX ist CAKE?” (nur als Check, nicht als Umbau).",
+   "aussage": "[PPP-gebunden] Input-04 (Robustheit): Es muss feststellbar sein, ob die root-qdisc auf pppX CAKE ist – nur als Prüfung, nicht als Umbau.",
+   "art": "IMPL_DETAIL",
+   "kennung": "Input-04",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 25,
+   "zeilen": "53-54",
+   "zitat": "- Legacy: keine Änderungen, die XP-Flow/pppd/ip-up Stabilität voraussetzen, die nicht kanonisch sind.",
+   "aussage": "[PPP-gebunden] Constraint Legacy: keine Änderungen, die eine nicht kanonische Stabilität von XP-Flow/pppd/ip-up voraussetzen.",
+   "art": "BETRIEB",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-030",
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 26,
+   "zeilen": "55",
+   "zitat": "- Ops: Peak darf unter Last keine komplexe tc-Rekonfiguration triggern.",
+   "aussage": "Constraint Ops: Peak darf unter Last keine komplexe tc-Rekonfiguration auslösen.",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 27,
+   "zeilen": "56",
+   "zitat": "- SQL-first: keine Parameter-Dopplung/Hardcode außerhalb DB/Policy-Keys.",
+   "aussage": "Constraint SQL-first: keine Parameter-Dopplung und kein Hardcode außerhalb von DB/Policy-Keys.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-000",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 28,
+   "zeilen": "59",
+   "zitat": "pro pppX existiert eine stabile root-qdisc Struktur mit CAKE; bandwidth entspricht Profil (Normalbetrieb).",
+   "aussage": "[PPP-gebunden] Output-01 (Baseline): Je pppX existiert eine stabile root-qdisc-Struktur mit CAKE; bandwidth entspricht im Normalbetrieb dem Profil.",
+   "art": "FUNKTION",
+   "kennung": "Output-01",
+   "rt_bezug": [
+    "MOD-003",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 29,
+   "zeilen": "60",
+   "zitat": "pro betroffenen USER-pppX wird CAKE.bandwidth auf Peak-Wert gesetzt (ohne Strukturumbau).",
+   "aussage": "[PPP-gebunden] Output-02 (Peak Enter): Je betroffenem USER-pppX wird CAKE.bandwidth auf den Peak-Wert gesetzt, ohne Strukturumbau.",
+   "art": "FUNKTION",
+   "kennung": "Output-02",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 30,
+   "zeilen": "61",
+   "zitat": "pro betroffenen USER-pppX wird CAKE.bandwidth deterministisch auf Profilwert zurückgesetzt",
+   "aussage": "[PPP-gebunden] Output-03 (Peak Exit/Restore): Je betroffenem USER-pppX wird CAKE.bandwidth deterministisch auf den Profilwert zurückgesetzt; Quelle ist die SQL-first-Profil-SoT.",
+   "art": "FUNKTION",
+   "kennung": "Output-03",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003",
+    "BASE-030",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 31,
+   "zeilen": "63-65",
+   "zitat": "- Peak-States (ENTER/HOLD/EXIT) sind in anderen BRs (BR-03/BR-09/BR-10) zu definieren.",
+   "aussage": "BR-01 hat keine eigenen Peak-States; es definiert nur tc-Struktur und erlaubte Deltas. Die Peak-States ENTER/HOLD/EXIT sind in anderen BRs (genannt: BR-03/BR-09/BR-10) zu definieren.",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 32,
+   "zeilen": "68",
+   "zitat": "- E-01: tc-Strukturvoraussetzung “CAKE root auf pppX” ist Voraussetzung für Peak-Apply.",
+   "aussage": "[PPP-gebunden] Enforcement E-01: Die tc-Strukturvoraussetzung \"CAKE root auf pppX\" ist Voraussetzung für jedes Peak-Apply.",
+   "art": "FUNKTION",
+   "kennung": "E-01",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 33,
+   "zeilen": "69",
+   "zitat": "- E-02: Apply-Serialisierung: Peak-Apply gilt als tc-write und MUSS unter Single-Writer (B166) laufen.",
+   "aussage": "Enforcement E-02: Peak-Apply gilt als tc-Schreibzugriff und muss unter dem Single-Writer (B166) laufen.",
+   "art": "FUNKTION",
+   "kennung": "E-02",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 34,
+   "zeilen": "70",
+   "zitat": "wenn pppX nicht existiert oder root nicht CAKE → keine Änderung; stattdessen Anomalie/Failure-Record",
+   "aussage": "[PPP-gebunden] Enforcement E-03 \"No blind writes\": Existiert pppX nicht oder ist root nicht CAKE, erfolgt keine Änderung, sondern ein Anomalie-/Failure-Record; die Error-Klasse wird in BR-09/BR-10 normiert.",
+   "art": "SCHUTZZIEL",
+   "kennung": "E-03",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 35,
+   "zeilen": "73",
+   "zitat": "- ERR-BR01-IF_MISSING: pppX existiert nicht im Apply-Moment → SKIP/FAIL (best-effort, kein Retry).",
+   "aussage": "[PPP-gebunden] Fehlerklasse ERR-BR01-IF_MISSING: pppX existiert im Apply-Moment nicht; Ergebnis SKIP/FAIL, best-effort, kein Retry.",
+   "art": "IMPL_DETAIL",
+   "kennung": "ERR-BR01-IF_MISSING",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 36,
+   "zeilen": "74",
+   "zitat": "- ERR-BR01-NO_CAKE_ROOT: root-qdisc ist nicht CAKE → FAIL (keine Topologie-Reparatur in Peak).",
+   "aussage": "Fehlerklasse ERR-BR01-NO_CAKE_ROOT: Die root-qdisc ist nicht CAKE; Ergebnis FAIL, keine Topologie-Reparatur im Peak.",
+   "art": "IMPL_DETAIL",
+   "kennung": "ERR-BR01-NO_CAKE_ROOT",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 37,
+   "zeilen": "75",
+   "zitat": "- ERR-BR01-NO_PROFILE_VALUE: Profilwert nicht resolvable (SQL/Policy-Key) → FAIL (kein Default/Magic Number).",
+   "aussage": "Fehlerklasse ERR-BR01-NO_PROFILE_VALUE: Der Profilwert ist über SQL/Policy-Key nicht auflösbar; Ergebnis FAIL, kein Default und keine Magic Number.",
+   "art": "IMPL_DETAIL",
+   "kennung": "ERR-BR01-NO_PROFILE_VALUE",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 38,
+   "zeilen": "78",
+   "zitat": "- Idempotenz: Wiederholtes Setzen der gleichen CAKE.bandwidth auf pppX ist zulässig",
+   "aussage": "[PPP-gebunden] Idempotenz: Wiederholtes Setzen derselben CAKE.bandwidth auf pppX ist zulässig und erzeugt keinen Strukturdrift.",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 39,
+   "zeilen": "79",
+   "zitat": "- Concurrency: Peak-Apply darf nie parallel zu einem anderen tc-Apply laufen (Single-Writer Lock; B166).",
+   "aussage": "Concurrency: Peak-Apply darf nie parallel zu einem anderen tc-Apply laufen (Single-Writer-Lock nach B166).",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 40,
+   "zeilen": "80-81",
+   "zitat": "- Disconnect während Apply: pppX verschwindet → ERR-BR01-IF_MISSING, best-effort weiter, kein Retry.",
+   "aussage": "[PPP-gebunden] Race-Fall Disconnect während Apply: pppX verschwindet, es wird ERR-BR01-IF_MISSING vermerkt und best-effort ohne Retry fortgefahren.",
+   "art": "FUNKTION",
+   "kennung": "ERR-BR01-IF_MISSING",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 41,
+   "zeilen": "82",
+   "zitat": "- qdisc drifted (kein CAKE): Peak ändert nichts (NO_CAKE_ROOT), weil “no topology change”.",
+   "aussage": "Race-Fall gedriftete qdisc (kein CAKE): Peak ändert nichts (NO_CAKE_ROOT), wegen \"no topology change\".",
+   "art": "FUNKTION",
+   "kennung": "ERR-BR01-NO_CAKE_ROOT",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 42,
+   "zeilen": "84-85",
+   "zitat": "- BR-01 definiert keine Retention; Logging/Audit/Retention ist BR-08/BR-09/BR-10.",
+   "aussage": "BR-01 definiert keine Retention; Logging, Audit und Retention liegen in BR-08/BR-09/BR-10.",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-007",
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 43,
+   "zeilen": "88-89",
+   "zitat": "- Ziel: Peak-Mode muss CPU-Notbetrieb ermöglichen, ohne tc-Struktur in einem kritischen Moment umzubauen.",
+   "aussage": "Fix-Intention: Peak Mode muss einen CPU-Notbetrieb ermöglichen, ohne die tc-Struktur in einem kritischen Moment umzubauen.",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 44,
+   "zeilen": "90",
+   "zitat": "per “change” (nicht replace) auf root dev pppX ändert; keine Klassen/handles; egress-only.",
+   "aussage": "[PPP-gebunden] Delta v2: Festgeschrieben wird, dass Peak ausschließlich CAKE.bandwidth per \"change\" (nicht replace) auf root dev pppX ändert; keine Klassen/handles; egress-only.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 45,
+   "zeilen": "91-92",
+   "zitat": "CAKE-root ist Voraussetzung; wenn nicht erfüllt → keine auto-repair; SQL-first Parameterquellen; Single-Writer.",
+   "aussage": "Grenzen: CAKE-root ist Voraussetzung, bei Nichterfüllung keine Auto-Reparatur; Parameterquellen SQL-first; Single-Writer. Validierung über die DoD-Tests.",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003",
+    "BASE-080"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 46,
+   "zeilen": "96-100",
+   "zitat": "- Erwartung: root-qdisc ist CAKE; bandwidth entspricht Profilwert; keine Klassen/handles als Norm.",
+   "aussage": "[PPP-gebunden] Test T-01 Baseline-Topologie: Bei aktiver USER-Session (pppX existiert, Profilwert bekannt) ergibt die Statusprüfung: root-qdisc ist CAKE, bandwidth entspricht dem Profilwert, keine Klassen/handles; Nachweis über inspizierte Daten und Audit-Markierung \"baseline ok\".",
+   "art": "TEST",
+   "kennung": "T-01",
+   "rt_bezug": [
+    "MOD-003",
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 47,
+   "zeilen": "102-106",
+   "zitat": "- Aktion: Peak Enter/Exit mehrfach wiederholen (nur bandwidth ändern).",
+   "aussage": "Test T-02 Peak-Delta \"change vs replace\": Bei laufenden TCP-Streams und interaktiver Latenzprobe wird Peak Enter/Exit mehrfach wiederholt (nur bandwidth); erwartet werden nur tolerierbare kurze Effekte ohne signifikante Drops/RTT-Spitzen durch Qdisc-Neuaufbau; Nachweis über Statistik/Counter und Audit (apply_source=HOOK/SAMPLER) mit Vermerk \"change-only\".",
+   "art": "TEST",
+   "kennung": "T-02",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 48,
+   "zeilen": "108-112",
+   "zitat": "- Erwartung: keine Strukturänderung; sauberer FAIL/Anomalie-Eintrag; kein Loop/Retry.",
+   "aussage": "[PPP-gebunden] Test T-03 Negativfall root nicht CAKE: pppX hat absichtlich eine Nicht-CAKE-root; Peak-Apply führt zu keiner Strukturänderung, sauberem FAIL/Anomalie-Eintrag, keinem Loop/Retry; Audit zeigt ERR-BR01-NO_CAKE_ROOT.",
+   "art": "TEST",
+   "kennung": "T-03",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 49,
+   "zeilen": "114-118",
+   "zitat": "- Erwartung: best-effort; einzelne Targets FAIL/SKIP; gesamtes System bleibt stabil; kein Retry-Sturm.",
+   "aussage": "[PPP-gebunden] Test T-04 Race pppX verschwindet während Apply: best-effort, einzelne Targets FAIL/SKIP, Gesamtsystem stabil, kein Retry-Sturm; Nachweis: apply_item zeigt IF_MISSING, apply_run bleibt konsistent.",
+   "art": "TEST",
+   "kennung": "T-04",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 50,
+   "zeilen": "120-124",
+   "zitat": "- Erwartung: kein Hardcoded fallback; bei fehlendem Key → FAIL statt Default.",
+   "aussage": "Test T-05 SQL-first ohne Magic Numbers: Profil- und Peak-Werte kommen ausschließlich über Policy-Keys; bei Peak Enter/Exit gibt es keinen hartkodierten Fallback, bei fehlendem Key FAIL statt Default; der Konfig-/Auditpfad verweist auf die Key-Quelle, kein \"silent default\".",
+   "art": "TEST",
+   "kennung": "T-05",
+   "rt_bezug": [
+    "BASE-090",
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 51,
+   "zeilen": "128-130",
+   "zitat": "- O-01: B160 erlaubt “CAKE oder fq_codel”; Peak fordert CAKE. v2 muss festlegen:",
+   "aussage": "Offen O-01: B160 erlaubt \"CAKE oder fq_codel\", Peak fordert CAKE. v2 muss festlegen: entweder ist Peak bei fq_codel deaktiviert (FAIL/Anomalie), oder B160 wird kanonisch auf CAKE festgelegt (Kanon-Änderung außerhalb BR-01, hier nur markiert).",
+   "art": "OFFEN",
+   "kennung": "O-01",
+   "rt_bezug": [
+    "MOD-003",
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 52,
+   "zeilen": "131",
+   "zitat": "(Policy-Key-IDs) sind in BR-05/BR-12 o.ä. zu verankern; BR-01 verlangt nur “SQL-first Quelle existiert”.",
+   "aussage": "Offen O-02: Die exakten SoT-Key-Namen und die Herleitung für Profil- und Peak-Bandbreite (Policy-Key-IDs) sind in BR-05/BR-12 o. ä. zu verankern; BR-01 verlangt nur, dass eine SQL-first-Quelle existiert.",
+   "art": "OFFEN",
+   "kennung": "O-02",
+   "rt_bezug": [
+    "BASE-090",
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 53,
+   "zeilen": "135",
+   "zitat": "- CHG-01: BR-01 v2 macht “CAKE-only + change-not-replace + egress-only + target-norm root dev pppX”",
+   "aussage": "Änderungsprotokoll CHG-01: BR-01 v2 macht \"CAKE-only + change-not-replace + egress-only + target-norm root dev pppX\" explizit und self-contained.",
+   "art": "HISTORIE",
+   "kennung": "CHG-01",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 54,
+   "zeilen": "136",
+   "zitat": "- CHG-02: Konflikt B160 (“CAKE oder fq_codel”) wird als RISK markiert, nicht stillschweigend übergangen.",
+   "aussage": "Änderungsprotokoll CHG-02: Der Konflikt mit B160 (\"CAKE oder fq_codel\") wird als RISK markiert und nicht stillschweigend übergangen.",
+   "art": "HISTORIE",
+   "kennung": "CHG-02",
+   "rt_bezug": [
+    "MOD-003",
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  }
+ ],
+ "werte": [
+  {
+   "zeilen": "36",
+   "name": "FP-BR01-01 QDISC_ROOT",
+   "wert": "CAKE als root-qdisc je pppX (MUSS)",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- FP-BR01-01 (QDISC_ROOT): pro pppX MUSS CAKE als root-qdisc liegen"
+  },
+  {
+   "zeilen": "37",
+   "name": "FP-BR01-02 PEAK_DELTA_ONLY_BW",
+   "wert": "nur CAKE-Parameter bandwidth änderbar",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- FP-BR01-02 (PEAK_DELTA_ONLY_BW): Peak-Mode darf an CAKE ausschließlich den Parameter “bandwidth” ändern."
+  },
+  {
+   "zeilen": "38",
+   "name": "FP-BR01-03 NO_TOPOLOGY_CHANGE",
+   "wert": "change, not replace",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- FP-BR01-03 (NO_TOPOLOGY_CHANGE): Peak-Mode arbeitet “change, not replace”"
+  },
+  {
+   "zeilen": "39",
+   "name": "FP-BR01-04 NO_CLASSES_HANDLES",
+   "wert": "keine rate/ceil, keine Klassen, keine classid/handle",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- FP-BR01-04 (NO_CLASSES_HANDLES): Peak-Mode benutzt keine rate/ceil, keine Klassen, keine classid/handle-Normen."
+  },
+  {
+   "zeilen": "40",
+   "name": "FP-BR01-05 TARGET_NORM",
+   "wert": "root auf dev pppX",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- FP-BR01-05 (TARGET_NORM): Apply-Ziel ist immer “root auf dev pppX” (keine ID-Discovery/Parsing als Norm)."
+  },
+  {
+   "zeilen": "41",
+   "name": "FP-BR01-06 EGRESS_ONLY",
+   "wert": "egress-only, kein IFB/Ingress",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- FP-BR01-06 (EGRESS_ONLY): Peak-Mode ist egress-only; kein IFB/Ingress-Shaping im Peak-Modul."
+  },
+  {
+   "zeilen": "42",
+   "name": "FP-BR01-07 SQLFIRST_NO_MAGIC",
+   "wert": "Peak- und Profilwerte nur aus DB/Policy-Keys",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "Peak-Bandwidth-Werte und Profilwerte stammen aus DB/Policy-Keys; keine Magic Numbers im Hook/Sampler."
+  },
+  {
+   "zeilen": "73",
+   "name": "ERR-BR01-IF_MISSING",
+   "wert": "SKIP/FAIL, best-effort, kein Retry",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- ERR-BR01-IF_MISSING: pppX existiert nicht im Apply-Moment → SKIP/FAIL (best-effort, kein Retry)."
+  },
+  {
+   "zeilen": "74",
+   "name": "ERR-BR01-NO_CAKE_ROOT",
+   "wert": "FAIL, keine Topologie-Reparatur",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- ERR-BR01-NO_CAKE_ROOT: root-qdisc ist nicht CAKE → FAIL (keine Topologie-Reparatur in Peak)."
+  },
+  {
+   "zeilen": "75",
+   "name": "ERR-BR01-NO_PROFILE_VALUE",
+   "wert": "FAIL, kein Default",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- ERR-BR01-NO_PROFILE_VALUE: Profilwert nicht resolvable (SQL/Policy-Key) → FAIL (kein Default/Magic Number)."
+  },
+  {
+   "zeilen": "20",
+   "name": "Pfad der Session-Laufzeitdateien",
+   "wert": "/run/vpn-sessions/*.env (mindestens eine VALID-Datei nötig)",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "wenn mind. ein VALID /run/vpn-sessions/*.env existiert; bloße Dateiexistenz reicht nicht”"
+  },
+  {
+   "zeilen": "50",
+   "name": "Peak-Bandbreite (Notbetrieb)",
+   "wert": "aus SQL/Policy-Keys; Key-Name und Wert nicht genannt",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- Input-03: Peak-Bandbreite (Notbetrieb) ist über SQL/Policy-Keys bestimmt (kein Hardcode)."
+  },
+  {
+   "zeilen": "49",
+   "name": "Profil-Bandbreite (Standardzustand)",
+   "wert": "aus SQL/RADIUS/Policy-Keys; Key-Name nicht genannt",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- Input-02: Profil-Bandbreite (Standardzustand) ist über SQL/RADIUS/Policy-Keys bestimmt (B160)."
+  },
+  {
+   "zeilen": "29",
+   "name": "K-CONF-01 qdisc-Option in B160",
+   "wert": "CAKE oder fq_codel; Status RISK",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- K-CONF-01: B160 nennt “CAKE oder fq_codel” als mögliche qdisc-Option → Status: RISK"
+  },
+  {
+   "zeilen": "106",
+   "name": "apply_source (Audit-Wert in T-02)",
+   "wert": "HOOK / SAMPLER",
+   "einheit": "",
+   "status": "BEISPIEL",
+   "zitat": "- Nachweis: Statistik/Counter + Audit (apply_source=HOOK/SAMPLER) dokumentiert “change-only”."
+  },
+  {
+   "zeilen": "65",
+   "name": "Peak-States (Nennung)",
+   "wert": "ENTER / HOLD / EXIT",
+   "einheit": "",
+   "status": "UNKLAR",
+   "zitat": "- Peak-States (ENTER/HOLD/EXIT) sind in anderen BRs (BR-03/BR-09/BR-10) zu definieren."
+  }
+ ],
+ "verweise_auf_dokumente": [
+  {
+   "zeilen": "17, 24-25, 29, 31-32, 49, 128-130, 136",
+   "name": "B160 (blocks/B160_TC_QOS_PER_PPP.txt)",
+   "zitat": "- K-CONF-01: B160 nennt “CAKE oder fq_codel” als mögliche qdisc-Option → Status: RISK"
+  },
+  {
+   "zeilen": "18, 26, 69, 79",
+   "name": "B166 (blocks/B166_POLICY_APPLY_RECONCILE.txt)",
+   "zitat": "- Begriff “Single-Writer”: Apply-Reihenfolge muss serialisiert sein (B166)."
+  },
+  {
+   "zeilen": "19-20",
+   "name": "B167 (blocks/B167_WIRING_HOOKS_SYSTEMD.txt)",
+   "zitat": "“Wiring: Hooks/Services/Timer als kanonische Integrationspunkte (keine Cron-Flicks)”"
+  },
+  {
+   "zeilen": "20",
+   "name": "B168 (blocks/B168_STALE_SESSION_JANITOR.txt)",
+   "zitat": "- K-IMP-04: blocks/B167_WIRING_HOOKS_SYSTEMD.txt + blocks/B168_STALE_SESSION_JANITOR.txt"
+  },
+  {
+   "zeilen": "21",
+   "name": "B057 (blocks/B057_SETTINGS_PARAMETER_CANON_SQLFIRST_MAGIC_GUARD.txt)",
+   "zitat": "- K-IMP-05: blocks/B057_SETTINGS_PARAMETER_CANON_SQLFIRST_MAGIC_GUARD.txt (indirekt)"
+  },
+  {
+   "zeilen": "65",
+   "name": "BR-03 / BR-09 / BR-10 (Peak-States)",
+   "zitat": "- Peak-States (ENTER/HOLD/EXIT) sind in anderen BRs (BR-03/BR-09/BR-10) zu definieren."
+  },
+  {
+   "zeilen": "70, 85",
+   "name": "BR-08 / BR-09 / BR-10 (Logging/Audit/Retention, Error-Klassen)",
+   "zitat": "- BR-01 definiert keine Retention; Logging/Audit/Retention ist BR-08/BR-09/BR-10."
+  },
+  {
+   "zeilen": "131",
+   "name": "BR-05 / BR-12 (Key-Namen für Bandbreiten)",
+   "zitat": "(Policy-Key-IDs) sind in BR-05/BR-12 o.ä. zu verankern; BR-01 verlangt nur “SQL-first Quelle existiert”."
+  }
+ ],
+ "offene_punkte": [
+  {
+   "zeilen": "128-130",
+   "kennung": "O-01",
+   "text": "B160 erlaubt \"CAKE oder fq_codel\", Peak fordert CAKE: entweder Peak bei fq_codel deaktiviert (FAIL/Anomalie) oder B160 kanonisch auf CAKE festlegen (Kanon-Änderung außerhalb BR-01)."
+  },
+  {
+   "zeilen": "131",
+   "kennung": "O-02",
+   "text": "Exakte SoT-Key-Namen/Herleitung für Profil- und Peak-Bandbreite (Policy-Key-IDs) sind in BR-05/BR-12 o. ä. zu verankern."
+  },
+  {
+   "zeilen": "29-30",
+   "kennung": "K-CONF-01",
+   "text": "Konflikt mit B160 zur qdisc-Wahl ist als RISK markiert."
+  },
+  {
+   "zeilen": "70",
+   "kennung": "E-03",
+   "text": "Die Error-Klasse für den Anomalie-/Failure-Record wird erst in BR-09/BR-10 normiert."
+  }
+ ],
+ "innere_widersprueche": [
+  {
+   "zeilen": "65",
+   "text": "BR-01 nennt BR-03 als einen der Orte, an denen die Peak-States ENTER/HOLD/EXIT zu definieren sind. Das BR-03 dieser Lieferung definiert nur die SoftIRQ%-Messung (Sampler) und schließt eine State-Machine ausdrücklich aus (BR-03 Zeile 12); BR-00 und BR-00A nennen dafür BR-10."
+  },
+  {
+   "zeilen": "106",
+   "text": "T-02 nennt als Audit-Wert apply_source=HOOK/SAMPLER. BR-00A (Zeile 106) führt apply_source als v1-Feld und bildet es auf trigger_source mit den Werten DETECTOR|TIMER|MANUAL|RECOVER ab; die Wertemengen HOOK/SAMPLER und DETECTOR/TIMER/MANUAL/RECOVER stimmen nicht überein."
+  },
+  {
+   "zeilen": "131",
+   "text": "O-02 verweist für die Key-Namen der Profil- und Peak-Bandbreite auf \"BR-05/BR-12 o.ä.\". Das BR-05 dieser Lieferung (Gate B) definiert nur den Schwellen-Key gate_b_softirq_pct_threshold und keine Bandbreiten-Keys; in BR-00..BR-07 findet sich kein Key für die Peak-Bandbreite."
+  }
+ ],
+ "relevanz": {
+  "stufe": "HOCH",
+  "begruendung": "Legt die technische Form der Drosselung und ihrer Rücknahme fest (CAKE root je Schnittstelle, nur bandwidth, change statt replace, egress-only, Restore auf den SQL-Profilwert), die Sicherheitsgrenzen (keine blinden Schreibzugriffe, keine Reparatur im Peak, Single-Writer, kein Default bei fehlendem Key) und die zugehörigen Fehlerklassen und Tests. Alle Festlegungen sind an pppX gebunden; für eine gemeinsame WireGuard-Schnittstelle enthält das Dokument nichts.",
+  "rt_module": [
+   "MOD-009",
+   "MOD-003",
+   "BASE-030",
+   "BASE-080",
+   "BASE-090",
+   "BASE-000",
+   "BASE-070",
+   "MOD-007"
+  ]
+ },
+ "auffaelligkeiten": [
+  "Das gesamte Dokument ist an pppX gebunden (Zielnorm \"root auf dev pppX\", Zeile 40); eine einzelne gemeinsame Schnittstelle für viele Teilnehmer kommt nicht vor.",
+  "Der Titelzusatz \"Connect-Pre-Init\" wird im Text nicht erläutert; wann und durch wen die Baseline-Topologie beim Verbindungsaufbau angelegt wird, legt BR-01 nicht fest (nur Verweis auf B160/B167).",
+  "Importierte Kanon-Blöcke B160, B166, B167, B168, B057 werden nur sinngemäß in Anführungszeichen wiedergegeben; ob es Wortlautzitate sind, ist aus BR-01 nicht erkennbar.",
+  "Kein Datum im Dokument; Änderungsprotokoll nur mit CHG-01/CHG-02 ohne Zeitangabe.",
+  "Die Datei endet ohne abschließenden Zeilenumbruch (wc -l meldet 135, Read zeigt 136 Zeilen)."
+ ]
+}

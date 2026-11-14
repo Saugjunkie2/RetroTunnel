@@ -1,0 +1,861 @@
+{
+ "datei": "nachlieferung/entwuerfe/peak_mode_v2/PEAK MODE v2 — BR-00.txt",
+ "abschnitt": "1-149",
+ "zeilen_gesamt": 149,
+ "gelesen_bereiche": "1-149",
+ "vollstaendig_gelesen": true,
+ "dokument": {
+  "titel": "PEAK MODE v2 — BR-00 (OVERVIEW) (NON-NORMATIVE): Was Peak Mode v2 ist, warum es existiert, wie es grob funktioniert (Orientierung)",
+  "doc_id": "BR-00",
+  "status_laut_datei": "ENTWURF (Phase 3) — NON-NORMATIVE (nur Erklärung + Verweise)",
+  "version_laut_datei": "v2.0-ENTWURF",
+  "datum_laut_datei": "kein Kalenderdatum; Changelog nennt nur \"heute\"",
+  "projekt": "XPN",
+  "art": "UEBERSICHT",
+  "normativitaet_laut_datei": "Ausdrücklich NICHT normativ; setzt keine neuen Zahlen/Policies. Normativ sind laut Datei BR-01..BR-12, DECISION MATRIX und OWNER-FIX VALUE SHEET. Bei Widerspruch zwischen BR-00 und BR-xx gilt BR-xx."
+ },
+ "zusammenfassung": "BR-00 ist die nicht normative Orientierungsseite zum Peak Mode v2 des Vorgängerprojekts. Es definiert Peak Mode als CPU-Overload-Schutzmodus des VPN-Servers (Primärsignal aggregiertes SoftIRQ%), der eine Episode per State-Machine startet, die Top-N-Verursacher unter USER-Sessions bestimmt und deren Bandbreite je PPP-Verbindung mit CAKE reduziert, bis nach Recovery die Baseline wiederhergestellt wird. Es grenzt Peak Mode ausdrücklich von einem Fairness-Shaper ab und nennt als Leitziel, dass Peak die Lage nicht verschlimmern darf. Vier Punkte werden als bereits Owner-fixiert wiederholt: MULTI-Schwelle 30 %, dynamisches Top-N (3/5/10 nach active_ppp, je Episode gelatched), SoftIRQ%-Basis aggregiert über alle CPUs, QoS-Modell bleibt CAKE ohne HTB-Mix. Eine grobe Pipeline in sieben Schritten (Erkennen, Entscheiden, Episode, Täter, Apply, Audit, Hardening) verweist jeweils auf die normativen BRs. Offene Werte (Zeitwerte, Apply-Boundedness, Hardening-Caps, Retention) werden nur benannt und auf das OWNER-FIX VALUE SHEET verwiesen. Eine Referenzkarte ordnet BR-01 bis BR-12, DECISION MATRIX und OWNER-FIX VALUE SHEET Themen zu. Reifegrad: Entwurf (Phase 3); die Themenzuordnung der Referenzkarte weicht teilweise vom tatsächlichen Inhalt der BR-01..BR-07 dieser Lieferung ab.",
+ "aussagen": [
+  {
+   "nr": 1,
+   "zeilen": "2-5",
+   "zitat": "STATUS: ENTWURF (Phase 3) — NON-NORMATIVE (nur Erklärung + Verweise)",
+   "aussage": "BR-00 ist die Übersicht (OVERVIEW) zu Peak Mode v2 im Status ENTWURF (Phase 3) und dient nur der Erklärung und dem Verweis.",
+   "art": "DEFINITION",
+   "kennung": "BR-00",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 2,
+   "zeilen": "6-7",
+   "zitat": "- Dieses BR-00 ist NICHT normativ. Es setzt keine neuen Zahlen/Policies.",
+   "aussage": "BR-00 ist nicht normativ und führt keine neuen Zahlen oder Policies ein.",
+   "art": "DEFINITION",
+   "kennung": "BR-00",
+   "rt_bezug": [
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 3,
+   "zeilen": "8",
+   "zitat": "- Normativ sind: BR-01..BR-12, DECISION MATRIX, OWNER-FIX VALUE SHEET.",
+   "aussage": "Der normative Kanon von Peak Mode v2 besteht aus BR-01 bis BR-12, der DECISION MATRIX und dem OWNER-FIX VALUE SHEET.",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 4,
+   "zeilen": "9",
+   "zitat": "- BR-00 wiederholt nur Owner-FIX-Werte, die bereits im v2-Kanon festgezurrt sind, oder markiert Dinge als OPEN.",
+   "aussage": "BR-00 wiederholt ausschließlich bereits im v2-Kanon festgelegte Owner-FIX-Werte oder kennzeichnet Punkte als OPEN.",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 5,
+   "zeilen": "11-18",
+   "zitat": "- Ein Leser soll in 1–2 Minuten verstehen:",
+   "aussage": "Ziel des Dokuments: Ein Leser soll in 1–2 Minuten verstehen, was Peak Mode ist, welche Probleme er löst, welche grobe Pipeline er hat, wo die Details stehen, welche Werte Owner-FIX sind und welche Entscheidungen noch OPEN sind, ohne dass BR-00 driftet.",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 6,
+   "zeilen": "23-25",
+   "zitat": "Peak Mode v2 ist ein CPU-Overload Schutzmodus für den VPN-Server:",
+   "aussage": "Kurzdefinition: Peak Mode v2 ist ein Schutzmodus gegen CPU-Überlast des VPN-Servers; er erkennt anhaltende (sustained) Überlast mit dem Primärsignal SoftIRQ% (aggregiert) und startet eine Episode über eine State-Machine.",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 7,
+   "zeilen": "24",
+   "zitat": "- Er erkennt sustained Überlast (Primärsignal: SoftIRQ%, aggregated),",
+   "aussage": "Das Primärsignal der Überlasterkennung ist SoftIRQ% in aggregierter Form; erkannt wird nur anhaltende Überlast.",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 8,
+   "zeilen": "26",
+   "zitat": "- ermittelt die Top-N “Täter”-Sessions (USER-only),",
+   "aussage": "Peak Mode ermittelt die Top-N-Verursacher-Sessions (\"Täter\"); in Frage kommen nur Sessions der Rolle USER (USER-only).",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-100"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 9,
+   "zeilen": "27-28",
+   "zitat": "- und reduziert während Peak die Bandbreite pro PPP-Verbindung mit CAKE (kein HTB-Mix),",
+   "aussage": "[PPP-gebunden] Während Peak wird die Bandbreite je PPP-Verbindung mit CAKE (ohne HTB-Mix) reduziert, um CPU-/SoftIRQ-Druck zu senken und Stabilität zu gewinnen.",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 10,
+   "zeilen": "29",
+   "zitat": "Nach Recovery stellt er die Baseline wieder her (Restore).",
+   "aussage": "Nach der Recovery stellt Peak Mode die Baseline wieder her (Restore).",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 11,
+   "zeilen": "31-32",
+   "zitat": "- Peak Mode ist kein “Traffic Shaper für Fairness”, sondern ein “Stabilitätsmodus unter Server-Overload”.",
+   "aussage": "Abgrenzung: Peak Mode ist kein Traffic Shaper für Fairness, sondern ein Stabilitätsmodus unter Server-Overload.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 12,
+   "zeilen": "37-39",
+   "zitat": "- Wenn der Server durch VPN-Last an die CPU-Grenze kommt, kann das System kippen:",
+   "aussage": "Problemstellung: Erreicht der Server durch VPN-Last die CPU-Grenze, kann das System kippen – höhere Latenz, Paketverluste, Dropouts, Timeouts, instabile Verbindungen.",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 13,
+   "zeilen": "41-42",
+   "zitat": "- Peak darf die Situation nicht verschlimmern.",
+   "aussage": "Zielvorgabe: Peak Mode darf die Überlastsituation nicht verschlimmern.",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 14,
+   "zeilen": "43-44",
+   "zitat": "- Peak reduziert kontrolliert den Durchsatz pro Session, um Overload abzufangen,",
+   "aussage": "Peak reduziert den Durchsatz je Session kontrolliert, um Overload abzufangen, und bleibt dabei bounded, auditierbar und operabel.",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 15,
+   "zeilen": "46-47",
+   "zitat": "- Keine “Misch-Implementierung”: CAKE bleibt das Modell (auch im Overload), damit kein Mischmasch entsteht.",
+   "aussage": "Nebenbedingung: keine Misch-Implementierung; CAKE bleibt auch im Overload das QoS-Modell.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 16,
+   "zeilen": "52-54",
+   "zitat": "FIX-01 FP-PEAK-01 MULTI-Schwelle = 30%",
+   "aussage": "Owner-FIX FIX-01 / FP-PEAK-01: Die MULTI-Schwelle beträgt 30 %; ab dieser Multi-Last kann Peak relevant werden (Kontext v2-Triggerlogik). Normative Quelle laut BR-00: DECISION MATRIX und die für Trigger/Score zuständigen BRs.",
+   "art": "PARAMETER",
+   "kennung": "FIX-01 / FP-PEAK-01",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 17,
+   "zeilen": "56-59",
+   "zitat": "FIX-02 FP-PEAK-02 Top-N Täter (dynamisch, gelatched pro Episode)",
+   "aussage": "[PPP-gebunden] Owner-FIX FIX-02 / FP-PEAK-02: Top-N der Täter ist dynamisch nach active_ppp: bei active_ppp <= 20 ist N = 3, bei 21..100 ist N = 5, bei > 100 ist N = 10.",
+   "art": "PARAMETER",
+   "kennung": "FIX-02 / FP-PEAK-02",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 18,
+   "zeilen": "60-61",
+   "zitat": "- “Latch”: N bleibt innerhalb einer Episode fix (wandert nicht live mit active_ppp).",
+   "aussage": "[PPP-gebunden] Latch: N bleibt innerhalb einer Episode fest und wandert nicht live mit active_ppp; normative Quelle laut BR-00: BR-07 und DECISION MATRIX.",
+   "art": "FUNKTION",
+   "kennung": "FIX-02 / FP-PEAK-02",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 19,
+   "zeilen": "63-64",
+   "zitat": "FIX-03 SoftIRQ% Triggerbasis: aggregated über alle CPUs",
+   "aussage": "Owner-FIX FIX-03: Die Triggerbasis SoftIRQ% wird aggregiert über alle CPUs gebildet; normative Quelle laut BR-00: BR-03 und DECISION MATRIX.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "FIX-03",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 20,
+   "zeilen": "66-67",
+   "zitat": "FIX-04 QoS Modell bleibt CAKE (kein HTB-Mix), auch bei CPU-Overload",
+   "aussage": "Owner-FIX FIX-04: Das QoS-Modell bleibt CAKE ohne HTB-Mix, auch bei CPU-Overload; normative Quelle laut BR-00: BR-06 / Grundsatzentscheidung.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "FIX-04",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 21,
+   "zeilen": "73-75",
+   "zitat": "- Peak überwacht CPU/SoftIRQ (aggregated).",
+   "aussage": "Pipeline Step A (Detection): Peak überwacht CPU/SoftIRQ aggregiert; Messlogik und Definitionen laut BR-00 in BR-03.",
+   "art": "FUNKTION",
+   "kennung": "Step A",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 22,
+   "zeilen": "77-79",
+   "zitat": "- Peak aktiviert sich nicht bei kurzen Spikes (Persist), nutzt Hold/Recovery/Cooldown gegen Flapping.",
+   "aussage": "Pipeline Step B (Gates/Trigger): Peak aktiviert sich nicht bei kurzen Spikes (Persist) und nutzt Hold, Recovery und Cooldown gegen Flapping; laut BR-00 normativ in BR-04/BR-05/BR-06 (Trigger/Gates/Score) und BR-10 (Persist/Hold/Recovery/Cooldown).",
+   "art": "FUNKTION",
+   "kennung": "Step B",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 23,
+   "zeilen": "81-83",
+   "zitat": "- Peak startet eine Episode (enter), bleibt aktiv (hold/extend), beendet sie (exit/restore).",
+   "aussage": "Pipeline Step C (State Machine): Peak startet eine Episode (enter), bleibt aktiv (hold/extend) und beendet sie (exit/restore); laut BR-00 normativ in BR-10.",
+   "art": "FUNKTION",
+   "kennung": "Step C",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 24,
+   "zeilen": "85-87",
+   "zitat": "- Peak ermittelt Top-N Täter innerhalb USER-only Sessions und latching.",
+   "aussage": "Pipeline Step D (Top-N): Peak ermittelt die Top-N-Täter innerhalb der USER-only-Sessions mit Latching; laut BR-00 normativ in BR-07.",
+   "art": "FUNKTION",
+   "kennung": "Step D",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-100"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 25,
+   "zeilen": "89-91",
+   "zitat": "- Peak setzt CAKE/Rate-Policies pro PPP-Verbindung (bounded batches, bounded runtime).",
+   "aussage": "[PPP-gebunden] Pipeline Step E (Apply): Peak setzt CAKE-/Rate-Policies je PPP-Verbindung in begrenzten Batches mit begrenzter Laufzeit; laut BR-00 normativ in BR-09.",
+   "art": "FUNKTION",
+   "kennung": "Step E",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 26,
+   "zeilen": "93-95",
+   "zitat": "- Jede Episode/Apply-Run ist auditierbar (keine “Blackbox”).",
+   "aussage": "Pipeline Step F (Audit/Debugbarkeit): Jede Episode und jeder Apply-Run ist auditierbar; laut BR-00 normativ in BR-08 (Schema) und BR-11 (Panel/Observability).",
+   "art": "SCHUTZZIEL",
+   "kennung": "Step F",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007",
+    "BASE-000",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 27,
+   "zeilen": "97-99",
+   "zitat": "- Peak darf nie Apply-Stürme erzeugen; Manual Overrides sind autorisiert und rate-limited.",
+   "aussage": "Pipeline Step G (Hardening): Peak darf nie Apply-Stürme erzeugen; manuelle Overrides sind autorisiert und rate-limitiert; laut BR-00 normativ in BR-12.",
+   "art": "SCHUTZZIEL",
+   "kennung": "Step G",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 28,
+   "zeilen": "104-105",
+   "zitat": "- OWNER-FIX VALUE SHEET (FP-BR09-*, FP-BR10-*, FP-BR11-*, FP-BR12-*).",
+   "aussage": "Die offenen Owner-Fixpunkte stehen zentral im OWNER-FIX VALUE SHEET unter den Kennungsfamilien FP-BR09-*, FP-BR10-*, FP-BR11-* und FP-BR12-*; BR-00 setzt selbst keine Werte.",
+   "art": "OFFEN",
+   "kennung": "FP-BR09-* / FP-BR10-* / FP-BR11-* / FP-BR12-*",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 29,
+   "zeilen": "108",
+   "zitat": "- Zeitwerte: Persist/Hold/Recovery/Cooldown (BR-10)",
+   "aussage": "OPEN-Bereich: die Zeitwerte Persist, Hold, Recovery und Cooldown (zuständig BR-10) sind noch nicht festgelegt.",
+   "art": "OFFEN",
+   "kennung": "FP-BR10-*",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 30,
+   "zeilen": "109",
+   "zitat": "- Apply boundedness: batch_size, max_runtime, degraded_threshold (BR-09)",
+   "aussage": "OPEN-Bereich: Apply-Begrenzungen batch_size, max_runtime und degraded_threshold (zuständig BR-09) sind noch nicht festgelegt.",
+   "art": "OFFEN",
+   "kennung": "FP-BR09-*",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 31,
+   "zeilen": "110",
+   "zitat": "- Hardening Caps: apply_min_gap, window caps, circuit thresholds (BR-12)",
+   "aussage": "OPEN-Bereich: Hardening-Grenzen apply_min_gap, Window-Caps und Circuit-Schwellen (zuständig BR-12) sind noch nicht festgelegt.",
+   "art": "OFFEN",
+   "kennung": "FP-BR12-*",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 32,
+   "zeilen": "111",
+   "zitat": "- Retention/Detail-Level: wie viel Audit-Detail, wie lange halten (BR-11/BR-08)",
+   "aussage": "OPEN-Bereich: Retention und Detail-Level des Audits (wie viel Detail, wie lange aufbewahren; zuständig BR-11/BR-08) sind noch nicht festgelegt.",
+   "art": "OFFEN",
+   "kennung": "FP-BR11-*",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 33,
+   "zeilen": "113-115",
+   "zitat": "- Solange diese OPEN sind, ist v2 implementierbar, aber nicht “vollständig geschlossen”.",
+   "aussage": "Regel: Solange die OPEN-Punkte bestehen, gilt v2 als implementierbar, aber nicht vollständig geschlossen; geschlossen wird per Owner-Entscheid über das Owner-Fix Sheet.",
+   "art": "BETRIEB",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 34,
+   "zeilen": "120",
+   "zitat": "- BR-00 ist nur Orientierung. Wenn BR-00 und BR-xx widersprechen würden, gilt BR-xx (normativ).",
+   "aussage": "Vorrangregel: Bei Widerspruch zwischen BR-00 und einem BR-xx gilt das normative BR-xx.",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 35,
+   "zeilen": "121-122",
+   "zitat": "- Für jede technische Entscheidung gilt: nur BR-xx / Decision Matrix / Owner-Fix Sheet sind “Source of Truth”.",
+   "aussage": "Für jede technische Entscheidung sind ausschließlich BR-xx, Decision Matrix und Owner-Fix Sheet die Source of Truth; BR-00 wiederholt nur die in Abschnitt 3 genannten fixierten Werte.",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 36,
+   "zeilen": "127",
+   "zitat": "- BR-01 / BR-02: (Peak Mode Grundlagen / Begriffe / Zielbild-Details) — normativ",
+   "aussage": "Referenzkarte: BR-01 und BR-02 enthalten laut BR-00 die Peak-Mode-Grundlagen, Begriffe und Zielbild-Details (normativ).",
+   "art": "DEFINITION",
+   "kennung": "BR-01 / BR-02",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 37,
+   "zeilen": "128",
+   "zitat": "- BR-03: SoftIRQ% Messdefinition (aggregated) — normativ",
+   "aussage": "Referenzkarte: BR-03 enthält die SoftIRQ%-Messdefinition (aggregiert), normativ.",
+   "art": "DEFINITION",
+   "kennung": "BR-03",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 38,
+   "zeilen": "129",
+   "zitat": "- BR-04 / BR-05 / BR-06: Gates, Trigger, Scoring, CAKE-Grundsätze — normativ",
+   "aussage": "Referenzkarte: BR-04, BR-05 und BR-06 enthalten laut BR-00 Gates, Trigger, Scoring und CAKE-Grundsätze (normativ).",
+   "art": "DEFINITION",
+   "kennung": "BR-04 / BR-05 / BR-06",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 39,
+   "zeilen": "130",
+   "zitat": "- BR-07: Top-N Täterlogik (dynamisch + latch) — normativ",
+   "aussage": "Referenzkarte: BR-07 enthält die Top-N-Täterlogik (dynamisch mit Latch), normativ.",
+   "art": "DEFINITION",
+   "kennung": "BR-07",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 40,
+   "zeilen": "131",
+   "zitat": "- BR-08: DB Extension Schema (Episodes/Snapshots/Apply-Audit) — normativ",
+   "aussage": "Referenzkarte: BR-08 enthält das DB-Erweiterungsschema für Episodes, Snapshots und Apply-Audit (normativ).",
+   "art": "DEFINITION",
+   "kennung": "BR-08",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 41,
+   "zeilen": "132",
+   "zitat": "- BR-09: Apply-Orchestrator Contract (bounded, exit codes, batch) — normativ",
+   "aussage": "Referenzkarte: BR-09 enthält den Vertrag des Apply-Orchestrators (bounded, Exit-Codes, Batch), normativ.",
+   "art": "DEFINITION",
+   "kennung": "BR-09",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 42,
+   "zeilen": "133",
+   "zitat": "- BR-10: State Machine (enter/hold/exit/recovery/cooldown) — normativ",
+   "aussage": "Referenzkarte: BR-10 enthält die State Machine mit enter, hold, exit, recovery und cooldown (normativ).",
+   "art": "DEFINITION",
+   "kennung": "BR-10",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 43,
+   "zeilen": "134",
+   "zitat": "- BR-11: Operability / Panel / Observability — normativ",
+   "aussage": "Referenzkarte: BR-11 enthält Operability, Panel und Observability (normativ).",
+   "art": "DEFINITION",
+   "kennung": "BR-11",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 44,
+   "zeilen": "135",
+   "zitat": "- BR-12: Hardening / Caps / Circuit / AuthZ — normativ",
+   "aussage": "Referenzkarte: BR-12 enthält Hardening, Caps, Circuit und AuthZ (normativ).",
+   "art": "DEFINITION",
+   "kennung": "BR-12",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 45,
+   "zeilen": "136",
+   "zitat": "- DECISION MATRIX: Owner-FIX vs OPEN Entscheidungen kompakt — normativ",
+   "aussage": "Referenzkarte: Die DECISION MATRIX führt Owner-FIX- und OPEN-Entscheidungen kompakt und ist normativ.",
+   "art": "DEFINITION",
+   "kennung": "DECISION MATRIX",
+   "rt_bezug": [
+    "MOD-009",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 46,
+   "zeilen": "137",
+   "zitat": "- OWNER-FIX VALUE SHEET: alle offenen Zahlen/Policies + Empfehlung/Risiko/DoD — normativ als “Entscheidungsregister”",
+   "aussage": "Referenzkarte: Das OWNER-FIX VALUE SHEET enthält alle offenen Zahlen/Policies samt Empfehlung, Risiko und DoD und ist als Entscheidungsregister normativ.",
+   "art": "DEFINITION",
+   "kennung": "OWNER-FIX VALUE SHEET",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 47,
+   "zeilen": "140-143",
+   "zitat": "- Grund: BR-00 setzt keine neuen Werte, verweist nur auf normativen Kanon und wiederholt Owner-FIX.",
+   "aussage": "Drift-Ampel: DRIFT: NONE, weil BR-00 keine neuen Werte setzt, nur auf den normativen Kanon verweist und Owner-FIX wiederholt.",
+   "art": "BETRIEB",
+   "kennung": "DRIFT",
+   "rt_bezug": [
+    "QUERSCHNITT"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 48,
+   "zeilen": "148-149",
+   "zitat": "- v2.0-ENTWURF (heute): BR-00 (OVERVIEW) angelegt als non-normative Orientierung für Peak v2,",
+   "aussage": "Changelog v2.0-ENTWURF (\"heute\"): BR-00 als nicht normative Orientierung für Peak v2 angelegt, einschließlich Pipeline, FIX-Werten, OPEN-Verweisstruktur und Referenzkarte.",
+   "art": "HISTORIE",
+   "kennung": "v2.0-ENTWURF",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  }
+ ],
+ "werte": [
+  {
+   "zeilen": "52",
+   "name": "FP-PEAK-01 MULTI-Schwelle",
+   "wert": "30",
+   "einheit": "%",
+   "status": "FIX",
+   "zitat": "FIX-01 FP-PEAK-01 MULTI-Schwelle = 30%"
+  },
+  {
+   "zeilen": "57",
+   "name": "FP-PEAK-02 Top-N bei active_ppp <= 20",
+   "wert": "N = 3",
+   "einheit": "Sessions",
+   "status": "FIX",
+   "zitat": "- Wenn active_ppp <= 20  -> N = 3"
+  },
+  {
+   "zeilen": "58",
+   "name": "FP-PEAK-02 Top-N bei active_ppp 21..100",
+   "wert": "N = 5",
+   "einheit": "Sessions",
+   "status": "FIX",
+   "zitat": "- Wenn 21..100          -> N = 5"
+  },
+  {
+   "zeilen": "59",
+   "name": "FP-PEAK-02 Top-N bei active_ppp > 100",
+   "wert": "N = 10",
+   "einheit": "Sessions",
+   "status": "FIX",
+   "zitat": "- Wenn > 100            -> N = 10"
+  },
+  {
+   "zeilen": "60",
+   "name": "Top-N Latch",
+   "wert": "N je Episode fest (kein Live-Nachführen)",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- “Latch”: N bleibt innerhalb einer Episode fix (wandert nicht live mit active_ppp)."
+  },
+  {
+   "zeilen": "63",
+   "name": "FIX-03 SoftIRQ%-Triggerbasis",
+   "wert": "aggregiert über alle CPUs",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "FIX-03 SoftIRQ% Triggerbasis: aggregated über alle CPUs"
+  },
+  {
+   "zeilen": "66",
+   "name": "FIX-04 QoS-Modell",
+   "wert": "CAKE, kein HTB-Mix",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "FIX-04 QoS Modell bleibt CAKE (kein HTB-Mix), auch bei CPU-Overload"
+  },
+  {
+   "zeilen": "108",
+   "name": "Persist / Hold / Recovery / Cooldown (Zeitwerte, BR-10)",
+   "wert": "nicht festgelegt",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- Zeitwerte: Persist/Hold/Recovery/Cooldown (BR-10)"
+  },
+  {
+   "zeilen": "109",
+   "name": "batch_size / max_runtime / degraded_threshold (BR-09)",
+   "wert": "nicht festgelegt",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- Apply boundedness: batch_size, max_runtime, degraded_threshold (BR-09)"
+  },
+  {
+   "zeilen": "110",
+   "name": "apply_min_gap / window caps / circuit thresholds (BR-12)",
+   "wert": "nicht festgelegt",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- Hardening Caps: apply_min_gap, window caps, circuit thresholds (BR-12)"
+  },
+  {
+   "zeilen": "111",
+   "name": "Retention / Detail-Level des Audits (BR-11/BR-08)",
+   "wert": "nicht festgelegt",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- Retention/Detail-Level: wie viel Audit-Detail, wie lange halten (BR-11/BR-08)"
+  },
+  {
+   "zeilen": "105",
+   "name": "Kennungsfamilien offener Owner-Fixpunkte",
+   "wert": "FP-BR09-*, FP-BR10-*, FP-BR11-*, FP-BR12-*",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- OWNER-FIX VALUE SHEET (FP-BR09-*, FP-BR10-*, FP-BR11-*, FP-BR12-*)."
+  },
+  {
+   "zeilen": "12",
+   "name": "Lesezeit-Ziel des Overviews",
+   "wert": "1–2",
+   "einheit": "Minuten",
+   "status": "UNKLAR",
+   "zitat": "- Ein Leser soll in 1–2 Minuten verstehen:"
+  },
+  {
+   "zeilen": "148",
+   "name": "Dokumentversion",
+   "wert": "v2.0-ENTWURF",
+   "einheit": "",
+   "status": "UNKLAR",
+   "zitat": "- v2.0-ENTWURF (heute): BR-00 (OVERVIEW) angelegt als non-normative Orientierung für Peak v2,"
+  }
+ ],
+ "verweise_auf_dokumente": [
+  {
+   "zeilen": "8",
+   "name": "BR-01..BR-12",
+   "zitat": "- Normativ sind: BR-01..BR-12, DECISION MATRIX, OWNER-FIX VALUE SHEET."
+  },
+  {
+   "zeilen": "8, 54, 61, 64, 136",
+   "name": "DECISION MATRIX",
+   "zitat": "- Normative Quelle: DECISION MATRIX + die zuständigen BRs (Trigger/Score)."
+  },
+  {
+   "zeilen": "8, 105, 115, 137",
+   "name": "OWNER-FIX VALUE SHEET",
+   "zitat": "- OWNER-FIX VALUE SHEET (FP-BR09-*, FP-BR10-*, FP-BR11-*, FP-BR12-*)."
+  },
+  {
+   "zeilen": "61, 87, 130",
+   "name": "BR-07",
+   "zitat": "- Normative Quelle: BR-07 + DECISION MATRIX."
+  },
+  {
+   "zeilen": "64, 75, 128",
+   "name": "BR-03",
+   "zitat": "- Normative Quelle: BR-03 + DECISION MATRIX."
+  },
+  {
+   "zeilen": "67, 79, 129",
+   "name": "BR-06",
+   "zitat": "- Normative Quelle: BR-06 / Grundsatzentscheidung."
+  },
+  {
+   "zeilen": "79, 129",
+   "name": "BR-04 / BR-05 / BR-06",
+   "zitat": "- Normativ: BR-04/BR-05/BR-06 (Trigger/Gates/Score), BR-10 (Persist/Hold/Recovery/Cooldown)."
+  },
+  {
+   "zeilen": "79, 83, 108, 133",
+   "name": "BR-10",
+   "zitat": "- BR-10: State Machine (enter/hold/exit/recovery/cooldown) — normativ"
+  },
+  {
+   "zeilen": "91, 109, 132",
+   "name": "BR-09",
+   "zitat": "- BR-09: Apply-Orchestrator Contract (bounded, exit codes, batch) — normativ"
+  },
+  {
+   "zeilen": "95, 111, 131",
+   "name": "BR-08",
+   "zitat": "- Normativ: BR-08 (Schema) + BR-11 (Panel/Observability)."
+  },
+  {
+   "zeilen": "95, 111, 134",
+   "name": "BR-11",
+   "zitat": "- BR-11: Operability / Panel / Observability — normativ"
+  },
+  {
+   "zeilen": "99, 110, 135",
+   "name": "BR-12",
+   "zitat": "- BR-12: Hardening / Caps / Circuit / AuthZ — normativ"
+  },
+  {
+   "zeilen": "127",
+   "name": "BR-01 / BR-02",
+   "zitat": "- BR-01 / BR-02: (Peak Mode Grundlagen / Begriffe / Zielbild-Details) — normativ"
+  }
+ ],
+ "offene_punkte": [
+  {
+   "zeilen": "108",
+   "kennung": "FP-BR10-*",
+   "text": "Zeitwerte Persist/Hold/Recovery/Cooldown sind OPEN (BR-10)."
+  },
+  {
+   "zeilen": "109",
+   "kennung": "FP-BR09-*",
+   "text": "Apply-Boundedness: batch_size, max_runtime, degraded_threshold sind OPEN (BR-09)."
+  },
+  {
+   "zeilen": "110",
+   "kennung": "FP-BR12-*",
+   "text": "Hardening-Caps: apply_min_gap, Window-Caps, Circuit-Schwellen sind OPEN (BR-12)."
+  },
+  {
+   "zeilen": "111",
+   "kennung": "FP-BR11-*",
+   "text": "Retention und Detail-Level des Audits sind OPEN (BR-11/BR-08)."
+  },
+  {
+   "zeilen": "113-115",
+   "kennung": "",
+   "text": "v2 gilt als implementierbar, aber nicht vollständig geschlossen, bis der Owner die offenen Punkte über das Owner-Fix Sheet entscheidet."
+  }
+ ],
+ "innere_widersprueche": [],
+ "relevanz": {
+  "stufe": "HOCH",
+  "begruendung": "Enthält die kompakte Zweckbestimmung und Abgrenzung des Peak Mode, die vier Owner-FIX-Festlegungen (30 %-Schwelle, Top-N 3/5/10 mit Latch, aggregiertes SoftIRQ%, CAKE ohne HTB-Mix), die Pipeline und die Liste der offenen Wertefamilien. Selbst nicht normativ, aber die einzige Gesamtübersicht über den Dokumentensatz BR-01..BR-12.",
+  "rt_module": [
+   "MOD-009",
+   "MOD-003",
+   "MOD-007",
+   "BASE-090",
+   "BASE-030",
+   "BASE-100"
+  ]
+ },
+ "auffaelligkeiten": [
+  "Kein Kalenderdatum; Changelog (Zeile 148) datiert nur mit \"heute\".",
+  "Die Drosselung und die Top-N-Staffel sind ausdrücklich an PPP gebunden (Zeilen 27, 57-60, 90: \"pro PPP-Verbindung\", active_ppp).",
+  "Die Einordnung der MULTI-Schwelle 30 % bleibt in BR-00 vage (Zeile 53: \"Kontext: v2 Triggerlogik\"); eine Definition von \"Multi-Last\" fehlt hier.",
+  "Die Datei endet ohne abschließenden Zeilenumbruch (wc -l meldet 148, Read zeigt 149 Zeilen)."
+ ]
+}

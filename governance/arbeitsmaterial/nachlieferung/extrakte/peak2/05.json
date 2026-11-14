@@ -1,0 +1,1364 @@
+{
+ "datei": "nachlieferung/entwuerfe/peak_mode_v2/PEAK MODE v2 — BR-12.txt",
+ "abschnitt": "1-289",
+ "zeilen_gesamt": 289,
+ "gelesen_bereiche": "1-289",
+ "vollstaendig_gelesen": true,
+ "dokument": {
+  "titel": "PEAK MODE v2 — BR-12 (ENTWURF / Phase 3): Hardening / Caps / Circuit-Breakers — Anti-Thrash, Rate-Limits, Storm-Schutz, Manual-Override AuthZ",
+  "doc_id": "BR-12",
+  "status_laut_datei": "ENTWURF (Phase 3) — keine Patch-/Copy-Blöcke, keine tc/SQL Snippets",
+  "version_laut_datei": "v2.0-ENTWURF",
+  "datum_laut_datei": "nicht angegeben (Changelog nennt nur \"heute\")",
+  "projekt": "XPN",
+  "art": "ENTWURF",
+  "normativitaet_laut_datei": "Abschnitte mit MUST gekennzeichnet; drei Fixpunkte FIX (FP-BR12-01..03), dreizehn OPEN (FP-BR12-04..16); DRIFT-Ampel: RISK"
+ },
+ "zusammenfassung": "BR-12 ist der Entwurf des Haertungsvertrags von Peak Mode v2: Peak darf eine Ueberlast niemals durch Apply-Stuerme, Flapping, DB-Spam oder Admin-Fehlbedienung verschlimmern; alles ist begrenzt und auditierbar. Fest sind nur drei Grundsaetze: HARDENING_ENABLED = true, NO_RETRY_STORM = true und ADMIN_NOT_OUT = true (der Not-Aus bleibt moeglich). Alle dreizehn Zahlen und Policies sind in diesem Dokument OPEN: Mindestabstand und Fenstergrenze fuer Apply-Laeufe, maximale Fehlerfolge, ENTER/EXIT je Stunde, Cooldown-Bypass, Snapshot-Rate, Item-Logging-Policy, Rollen fuer manuelle Aktionen, Rate-Limit fuer manuelle Aktionen, Circuit-Oeffnungsdauer, Circuit bei LOCKED und DB-down-Policy. Der Vertrag definiert vier Guard Rails (GR-12-01..04), drei Apply-Rate-Limits (Mindestabstand, Fenstergrenze, Fehler-Backoff), Transition-Caps mit Audit-Grund FLAP_GUARD, Volumen-Caps fuer Snapshots (z. B. 6/min, Downsampling) und apply_item (ALWAYS/FAIL_ONLY/DEBUG_ONLY) sowie AuthZ und Rate-Limit fuer die manuellen Aktionen FORCE_ENTER, FORCE_EXIT, DISABLE_PEAK, ENABLE_PEAK, CLEAR_EPISODE. Der Circuit Breaker hat drei Zustaende (C0 CLOSED, C1 OPEN, C2 HALF_OPEN): Er oeffnet bei consecutive_fail_count >= APPLY_MAX_CONSEC_FAIL (Exit-Codes 2, 4, 6, 7), optional bei LOCKED-Sturm oder DB down; nach CIRCUIT_OPEN_MIN_SEC ist genau ein Probe-Apply erlaubt. Durchgaengige Invariante: FORCE_EXIT ist Not-Aus und darf weder durch Circuit noch durch Rate-Limit blockiert werden, die AuthZ muss aber erfuellt sein. Randfaelle (Lock-Sturm, Audit-Schreibfehler, 100+ aktive PPP, Panik-Klicken) und acht Tests T-12-01 bis T-12-08 sind beschrieben. Die Drift-Ampel steht auf RISK, weil alle Zahlen fehlen; zwoelf Open Items sind gelistet.",
+ "aussagen": [
+  {
+   "nr": 1,
+   "zeilen": "2-6",
+   "zitat": "ZIEL: Peak verschlimmert Overload niemals durch Apply-Stürme, Flapping, DB-Spam oder Admin-Misuse; alles bounded & auditierbar.",
+   "aussage": "Kopf: BR-12 (Entwurf, Phase 3) 'Hardening / Caps / Circuit-Breakers'; Ziel: Peak verschlimmert Overload niemals durch Apply-Stuerme, Flapping, DB-Spam oder Admin-Misuse; alles bounded und auditierbar.",
+   "art": "SCHUTZZIEL",
+   "kennung": "BR-12",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 2,
+   "zeilen": "11-16",
+   "zitat": "- Hardening Contracts (Caps/Rate-Limits) für:",
+   "aussage": "Scope: Hardening-Contracts (Caps/Rate-Limits) fuer a) Apply-Invocation-Rate (BR-09), b) State-Transition-Rate (BR-10), c) Snapshot/Audit-Volumen (BR-08), d) Manual Overrides (BR-10/Panel).",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 3,
+   "zeilen": "17-19",
+   "zitat": "- Circuit-Breaker Regeln (when to pause/disable) bei wiederholten Fehlern",
+   "aussage": "Scope: Circuit-Breaker-Regeln (wann pausieren/deaktivieren) bei wiederholten Fehlern, Lock-Contention-Policy (Umgang mit wiederholtem LOCKED) und DB-down-Policy (keine Eskalation, kein Spam).",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 4,
+   "zeilen": "20",
+   "zitat": "- AuthZ Contract: wer darf welche Manual Actions ausführen + optional rate-limit pro admin",
+   "aussage": "Scope: AuthZ-Contract - wer welche manuellen Aktionen ausfuehren darf, optional Rate-Limit je Admin.",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006",
+    "BASE-110"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 5,
+   "zeilen": "22-27",
+   "zitat": "- State machine selbst (BR-10), außer “caps über transitions”",
+   "aussage": "Anti-Scope: Trigger-Messlogik (BR-03), State Machine selbst (BR-10; ausser Caps ueber Transitions), Apply intern (BR-09; ausser Caps ueber Invocations), DB-Schema (BR-08; ausser Retention/Volumen), Panel-Views (BR-11; ausser welche Buttons existieren + Permissions).",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 6,
+   "zeilen": "34-35",
+   "zitat": "-> BR-12 ergänzt “wann darf BR-09 aufgerufen werden” und “was tun bei wiederholten fails/locked”.",
+   "aussage": "K-IMP-01 (BR-09): BR-12 ergaenzt, wann BR-09 aufgerufen werden darf und was bei wiederholten Fails/LOCKED zu tun ist.",
+   "art": "DEFINITION",
+   "kennung": "K-IMP-01",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 7,
+   "zeilen": "36-37",
+   "zitat": "-> BR-12 setzt caps: anti-flap, max transitions pro window, manual action rate-limits.",
+   "aussage": "K-IMP-02 (BR-10): BR-12 setzt Caps - Anti-Flap, maximale Transitions je Fenster, Rate-Limits fuer manuelle Aktionen.",
+   "art": "DEFINITION",
+   "kennung": "K-IMP-02",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 8,
+   "zeilen": "38-39",
+   "zitat": "-> BR-12 setzt volume constraints und retention requirement (kein DB spam).",
+   "aussage": "K-IMP-03 (BR-08): BR-12 setzt Volumen-Constraints und Retention-Anforderung (kein DB-Spam).",
+   "art": "DEFINITION",
+   "kennung": "K-IMP-03",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 9,
+   "zeilen": "40-41",
+   "zitat": "-> BR-12 definiert, welche Hardening-Flags sichtbar sind (z.B. CIRCUIT_OPEN).",
+   "aussage": "K-IMP-04 (BR-11): BR-12 definiert, welche Hardening-Flags sichtbar sind (z. B. CIRCUIT_OPEN).",
+   "art": "DEFINITION",
+   "kennung": "K-IMP-04",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 10,
+   "zeilen": "42-43",
+   "zitat": "-> exit_code Klassen; BR-12 bezieht sich auf diese, um Circuit-Regeln deterministisch zu machen.",
+   "aussage": "K-IMP-05 (B166): BR-12 bezieht sich auf die exit_code-Klassen, um die Circuit-Regeln deterministisch zu machen.",
+   "art": "DEFINITION",
+   "kennung": "K-IMP-05",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 11,
+   "zeilen": "44-45",
+   "zitat": "-> Caps/Thresholds sind Owner-Fixwerte oder DB-Policy, nicht in Code versteckt.",
+   "aussage": "K-IMP-06 ('SQL-first / No Magic', globaler Grundsatz): Caps/Thresholds sind Owner-Fixwerte oder DB-Policy und nicht im Code versteckt.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K-IMP-06",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 12,
+   "zeilen": "48-50",
+   "zitat": "-> Wenn SAMPLE_INTERVAL (BR-10) zu klein und apply caps zu streng, kann Peak ineffektiv werden.",
+   "aussage": "K-CONF-01 (Status RISK): Ist SAMPLE_INTERVAL (BR-10) zu klein und sind die Apply-Caps zu streng, kann Peak wirkungslos werden; der Owner muss die Zeitwerte konsistent waehlen.",
+   "art": "OFFEN",
+   "kennung": "K-CONF-01",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 13,
+   "zeilen": "51-53",
+   "zitat": "-> Admin muss disable/force-exit weiterhin können (Not-Aus).",
+   "aussage": "K-CONF-02 (Status NONE): Der Circuit Breaker darf den Admin nicht 'aussperren'; Disable/Force-Exit muessen weiter moeglich sein (Not-Aus) - BR-12 stellt das als Invariante fest.",
+   "art": "SCHUTZZIEL",
+   "kennung": "K-CONF-02",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 14,
+   "zeilen": "59-60",
+   "zitat": "- FP-BR12-01 HARDENING_ENABLED = true",
+   "aussage": "FP-BR12-01 (FIX): HARDENING_ENABLED = true.",
+   "art": "PARAMETER",
+   "kennung": "FP-BR12-01",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 15,
+   "zeilen": "61",
+   "zitat": "- FP-BR12-02 NO_RETRY_STORM = true (bounded; retries nur wenn explizit fixiert)",
+   "aussage": "FP-BR12-02 (FIX): NO_RETRY_STORM = true (bounded; Retries nur, wenn ausdruecklich fixiert).",
+   "art": "PARAMETER",
+   "kennung": "FP-BR12-02",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 16,
+   "zeilen": "62",
+   "zitat": "- FP-BR12-03 ADMIN_NOT_OUT = true (Not-Aus bleibt möglich)",
+   "aussage": "FP-BR12-03 (FIX): ADMIN_NOT_OUT = true (Not-Aus bleibt moeglich).",
+   "art": "PARAMETER",
+   "kennung": "FP-BR12-03",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 17,
+   "zeilen": "66-67",
+   "zitat": "- Minimum Zeit zwischen zwei BR-09 Apply-Runs (global)",
+   "aussage": "FP-BR12-04 (OPEN) APPLY_MIN_GAP_SEC: Mindestzeit zwischen zwei BR-09-Apply-Runs (global).",
+   "art": "OFFEN",
+   "kennung": "FP-BR12-04",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 18,
+   "zeilen": "68-69",
+   "zitat": "- Max Apply-Runs in 10 Minuten (global)",
+   "aussage": "FP-BR12-05 (OPEN) APPLY_MAX_PER_10MIN: maximale Apply-Runs in 10 Minuten (global).",
+   "art": "OFFEN",
+   "kennung": "FP-BR12-05",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 19,
+   "zeilen": "70-71",
+   "zitat": "- Nach wie vielen Apply-Fails (exit_code in {2,4,6,7}) öffnet Circuit?",
+   "aussage": "FP-BR12-06 (OPEN) APPLY_MAX_CONSEC_FAIL: nach wie vielen Apply-Fails (exit_code in {2,4,6,7}) der Circuit oeffnet.",
+   "art": "OFFEN",
+   "kennung": "FP-BR12-06",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 20,
+   "zeilen": "74-77",
+   "zitat": "- Max ENTERs pro Stunde (anti-flap)",
+   "aussage": "FP-BR12-07 / FP-BR12-08 (OPEN): ENTER_MAX_PER_HOUR (maximale ENTERs je Stunde, Anti-Flap) und EXIT_MAX_PER_HOUR (maximale EXITs je Stunde).",
+   "art": "OFFEN",
+   "kennung": "FP-BR12-07/08",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 21,
+   "zeilen": "78-79",
+   "zitat": "- Darf MANUAL_ENTER cooldown bypassen? ja/nein + rate-limit",
+   "aussage": "FP-BR12-09 (OPEN) COOLDOWN_BYPASS_POLICY: darf MANUAL_ENTER den Cooldown umgehen (ja/nein + Rate-Limit).",
+   "art": "OFFEN",
+   "kennung": "FP-BR12-09",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 22,
+   "zeilen": "82-83",
+   "zitat": "- Max snapshots pro Minute (oder “one per tick” bounded) + downsample policy",
+   "aussage": "FP-BR12-10 (OPEN) SNAPSHOT_MAX_RATE: maximale Snapshots je Minute (oder 'one per tick' bounded) + Downsample-Policy.",
+   "art": "OFFEN",
+   "kennung": "FP-BR12-10",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 23,
+   "zeilen": "84-85",
+   "zitat": "- Always per item vs only on failure vs only when debug enabled (privacy/perf)",
+   "aussage": "FP-BR12-11 (OPEN) APPLY_ITEM_LOGGING_POLICY: immer je Item, nur bei Fehler oder nur bei aktiviertem Debug (Privacy/Performance).",
+   "art": "OFFEN",
+   "kennung": "FP-BR12-11",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 24,
+   "zeilen": "88-89",
+   "zitat": "- Which role can: FORCE_ENTER, FORCE_EXIT, DISABLE_PEAK, ENABLE_PEAK, CLEAR_EPISODE",
+   "aussage": "FP-BR12-12 (OPEN) AUTHZ_ROLES_FOR_ACTIONS: welche Rolle FORCE_ENTER, FORCE_EXIT, DISABLE_PEAK, ENABLE_PEAK, CLEAR_EPISODE ausfuehren darf.",
+   "art": "OFFEN",
+   "kennung": "FP-BR12-12",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006",
+    "BASE-110"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 25,
+   "zeilen": "90-91",
+   "zitat": "- Rate limit manual actions per admin identity/session",
+   "aussage": "FP-BR12-13 (OPEN) MANUAL_MAX_ACTIONS_PER_5MIN: Rate-Limit fuer manuelle Aktionen je Admin-Identitaet/-Session.",
+   "art": "OFFEN",
+   "kennung": "FP-BR12-13",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 26,
+   "zeilen": "94-95",
+   "zitat": "- Wie lange bleibt circuit offen (apply suppressed) bevor retry allowed",
+   "aussage": "FP-BR12-14 (OPEN) CIRCUIT_OPEN_MIN_SEC: wie lange der Circuit offen bleibt (Apply unterdrueckt), bevor ein Retry erlaubt ist.",
+   "art": "OFFEN",
+   "kennung": "FP-BR12-14",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 27,
+   "zeilen": "96-97",
+   "zitat": "- wiederholtes LOCKED öffnet circuit? ja/nein + threshold",
+   "aussage": "FP-BR12-15 (OPEN) CIRCUIT_OPEN_ON_LOCKED: oeffnet wiederholtes LOCKED den Circuit (ja/nein + Threshold).",
+   "art": "OFFEN",
+   "kennung": "FP-BR12-15",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 28,
+   "zeilen": "98-99",
+   "zitat": "- Bei TEMPFAIL_SQL: apply suppressed bis DB ok (ja/nein) + recheck interval",
+   "aussage": "FP-BR12-16 (OPEN) DB_DOWN_POLICY: bei TEMPFAIL_SQL Apply unterdruecken, bis die DB ok ist (ja/nein) + Recheck-Intervall.",
+   "art": "OFFEN",
+   "kennung": "FP-BR12-16",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 29,
+   "zeilen": "106",
+   "zitat": "GR-12-01 Single-Writer bleibt Pflicht (BR-09 Lock). BR-12 darf nicht parallel “work around”.",
+   "aussage": "GR-12-01: Single-Writer bleibt Pflicht (BR-09-Lock); BR-12 darf das nicht parallel umgehen.",
+   "art": "SCHUTZZIEL",
+   "kennung": "GR-12-01",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 30,
+   "zeilen": "107",
+   "zitat": "GR-12-02 Apply darf nie schneller laufen als Controller-Tick, aber zusätzlich gilt APPLY_MIN_GAP_SEC.",
+   "aussage": "GR-12-02: Apply darf nie schneller laufen als der Controller-Tick; zusaetzlich gilt APPLY_MIN_GAP_SEC.",
+   "art": "SCHUTZZIEL",
+   "kennung": "GR-12-02",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 31,
+   "zeilen": "108",
+   "zitat": "GR-12-03 Jeder “suppressed” Apply-Versuch wird auditierbar gemacht (reason: RATE_LIMIT/CIRCUIT_OPEN/etc.)",
+   "aussage": "GR-12-03: Jeder unterdrueckte ('suppressed') Apply-Versuch wird auditierbar gemacht (reason: RATE_LIMIT/CIRCUIT_OPEN/etc.).",
+   "art": "SCHUTZZIEL",
+   "kennung": "GR-12-03",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 32,
+   "zeilen": "109",
+   "zitat": "GR-12-04 Circuit Breaker darf niemals Manual FORCE_EXIT blockieren (Not-Aus).",
+   "aussage": "GR-12-04: Der Circuit Breaker darf niemals das manuelle FORCE_EXIT blockieren (Not-Aus).",
+   "art": "SCHUTZZIEL",
+   "kennung": "GR-12-04",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 33,
+   "zeilen": "112-116",
+   "zitat": "- Wenn (now - last_apply_started_at) < APPLY_MIN_GAP_SEC:",
+   "aussage": "RL-APPLY-01 Minimum Gap: Ist (now - last_apply_started_at) < APPLY_MIN_GAP_SEC, darf der Controller BR-09 nicht aufrufen und vermerkt 'APPLY_SUPPRESSED: MIN_GAP' (in Episode oder Run-Meta); die State Machine bleibt stabil - PEAK_ACTIVE bleibt, hold_until kann weiter sliden.",
+   "art": "FUNKTION",
+   "kennung": "RL-APPLY-01",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 34,
+   "zeilen": "118-121",
+   "zitat": "- Wenn apply_count_10min >= APPLY_MAX_PER_10MIN:",
+   "aussage": "RL-APPLY-02 Window Cap: Ist apply_count_10min >= APPLY_MAX_PER_10MIN, wird Apply unterdrueckt (reason WINDOW_CAP) und hardening_flag=RATE_LIMIT_ACTIVE gesetzt, sichtbar in BR-11.",
+   "art": "FUNKTION",
+   "kennung": "RL-APPLY-02",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 35,
+   "zeilen": "123-128",
+   "zitat": "- wenn consecutive_fail_count >= APPLY_MAX_CONSEC_FAIL:",
+   "aussage": "RL-APPLY-03 Failure Backoff (bounded): bei wiederholtem Apply-Fehler consecutive_fail_count erhoehen; ab consecutive_fail_count >= APPLY_MAX_CONSEC_FAIL Circuit oeffnen (CIRCUIT_OPEN) und weitere Applies unterdruecken (ausser manuelles FORCE_EXIT).",
+   "art": "FUNKTION",
+   "kennung": "RL-APPLY-03",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 36,
+   "zeilen": "131-136",
+   "zitat": "- Force COOLDOWN extension oder Force DISABLED (Owner policy) — OPEN",
+   "aussage": "RL-STATE-01 Enter/Exit-Caps: ENTER-Transitions je Stunde <= ENTER_MAX_PER_HOUR, EXIT-Transitions je Stunde <= EXIT_MAX_PER_HOUR; bei Ueberschreitung erzwungene COOLDOWN-Verlaengerung oder erzwungenes DISABLED (Owner-Policy, OPEN) mit Audit-Reason FLAP_GUARD.",
+   "art": "FUNKTION",
+   "kennung": "RL-STATE-01",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 37,
+   "zeilen": "138-140",
+   "zitat": "- MANUAL_ENTER cooldown bypass nur wenn COOLDOWN_BYPASS_POLICY=ALLOW",
+   "aussage": "RL-STATE-02 Cooldown-Bypass: MANUAL_ENTER darf den Cooldown nur umgehen, wenn COOLDOWN_BYPASS_POLICY=ALLOW; zusaetzlich gilt MANUAL_MAX_ACTIONS_PER_5MIN.",
+   "art": "FUNKTION",
+   "kennung": "RL-STATE-02",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 38,
+   "zeilen": "143-146",
+   "zitat": "- snapshots werden maximal SNAPSHOT_MAX_RATE geschrieben (z.B. 6/min).",
+   "aussage": "RL-AUDIT-01 Snapshot-Rate: Snapshots werden hoechstens mit SNAPSHOT_MAX_RATE geschrieben (z. B. 6/min); ist der Tick schneller, wird verdichtet (letzter Wert im Fenster bleibt) und 'SNAPSHOT_DOWNSAMPLED' auditiert.",
+   "art": "FUNKTION",
+   "kennung": "RL-AUDIT-01",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 39,
+   "zeilen": "148-154",
+   "zitat": "- FAIL_ONLY: nur failures + aggregated ok",
+   "aussage": "RL-AUDIT-02 apply_item-Policy: apply_item-Zeilen koennen bei sehr grossen N teuer sein; Policy ALWAYS (jedes Item), FAIL_ONLY (nur Fehler + aggregierte OK) oder DEBUG_ONLY (nur bei Debug-Flag des Admins); muss in BR-11 als 'detail level' sichtbar sein.",
+   "art": "FUNKTION",
+   "kennung": "RL-AUDIT-02",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 40,
+   "zeilen": "157-160",
+   "zitat": "- FORCE_ENTER: allowed roles = AUTHZ_ROLES_FOR_ACTIONS.force_enter",
+   "aussage": "AUTHZ-12-01: FORCE_ENTER erlaubt fuer AUTHZ_ROLES_FOR_ACTIONS.force_enter, FORCE_EXIT fuer ...force_exit, DISABLE_PEAK/ENABLE_PEAK/CLEAR_EPISODE entsprechend je eigener Rollenliste.",
+   "art": "FUNKTION",
+   "kennung": "AUTHZ-12-01",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006",
+    "BASE-110"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 41,
+   "zeilen": "161",
+   "zitat": "- Jede Manual Action erzeugt audit event (who-role, when, action, reason string) ohne PII.",
+   "aussage": "Jede manuelle Aktion erzeugt ein Audit-Event (who-role, when, action, reason string) ohne PII.",
+   "art": "SCHUTZZIEL",
+   "kennung": "AUTHZ-12-01",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 42,
+   "zeilen": "163-165",
+   "zitat": "- bei überschreitung: action rejected (reason MANUAL_RATE_LIMIT) + audit",
+   "aussage": "RL-MAN-01 Manual Rate Limit: je Admin-Identitaet/-Session <= MANUAL_MAX_ACTIONS_PER_5MIN; bei Ueberschreitung wird die Aktion abgelehnt (reason MANUAL_RATE_LIMIT) und auditiert.",
+   "art": "FUNKTION",
+   "kennung": "RL-MAN-01",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 43,
+   "zeilen": "167-169",
+   "zitat": "- FORCE_EXIT ist Not-Aus: darf durch circuit/rate-limit nicht blockiert werden,",
+   "aussage": "Invariante: FORCE_EXIT ist Not-Aus und darf durch Circuit/Rate-Limit nicht blockiert werden, die AuthZ muss aber erfuellt sein.",
+   "art": "SCHUTZZIEL",
+   "kennung": "Invariant",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 44,
+   "zeilen": "175-178",
+   "zitat": "C2 HALF_OPEN (limited trial apply allowed)",
+   "aussage": "4.1 Circuit-Zustaende: C0 CLOSED (normal), C1 OPEN (Apply unterdrueckt), C2 HALF_OPEN (begrenzter Probe-Apply erlaubt).",
+   "art": "DEFINITION",
+   "kennung": "C0/C1/C2",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 45,
+   "zeilen": "180-182",
+   "zitat": "- consecutive_fail_count >= APPLY_MAX_CONSEC_FAIL (exit_code in {2,4,6,7})",
+   "aussage": "4.2 Der Circuit oeffnet bei consecutive_fail_count >= APPLY_MAX_CONSEC_FAIL, gezaehlt werden exit_code in {2,4,6,7}.",
+   "art": "FUNKTION",
+   "kennung": "4.2",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 46,
+   "zeilen": "183-186",
+   "zitat": "- wenn CIRCUIT_OPEN_ON_LOCKED = true und locked_count_window >= threshold",
+   "aussage": "4.2 Optional oeffnet der Circuit bei LOCKED-Sturm (CIRCUIT_OPEN_ON_LOCKED = true und locked_count_window >= threshold) und bei DB down (DB_DOWN_POLICY = 'suppress until ok').",
+   "art": "FUNKTION",
+   "kennung": "4.2",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 47,
+   "zeilen": "188-192",
+   "zitat": "- Controller darf BR-09 nicht aufrufen (außer FORCE_EXIT)",
+   "aussage": "4.3 Waehrend OPEN: Der Controller darf BR-09 nicht aufrufen (ausser FORCE_EXIT); die State Machine kann PEAK_ACTIVE bleiben und hold_until sliden; das Panel zeigt CIRCUIT_OPEN + Restzeit (open_until).",
+   "art": "FUNKTION",
+   "kennung": "4.3",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 48,
+   "zeilen": "194-198",
+   "zitat": "- switch to HALF_OPEN: allow max 1 apply attempt",
+   "aussage": "4.4 Half-Open: nach CIRCUIT_OPEN_MIN_SEC Wechsel auf HALF_OPEN mit hoechstens 1 Apply-Versuch; Erfolg (exit_code 0/1) schliesst den Circuit und setzt die Zaehler zurueck; Fehler oeffnet erneut fuer CIRCUIT_OPEN_MIN_SEC (bounded).",
+   "art": "FUNKTION",
+   "kennung": "4.4",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 49,
+   "zeilen": "204-207",
+   "zitat": "- treat as “system busy”; optional circuit open on locked if configured.",
+   "aussage": "E-12-01 Lock-Contention-Sturm: wiederholtes exit_code=5 gilt als 'system busy'; optional Circuit-Open bei LOCKED, wenn konfiguriert; nicht 'spinnen'.",
+   "art": "BETRIEB",
+   "kennung": "E-12-01",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 50,
+   "zeilen": "209-214",
+   "zitat": "- If cannot write audits, system must avoid infinite attempts.",
+   "aussage": "E-12-02 DB-Audit-Fehler (Disk full / DB down): Koennen Audits nicht geschrieben werden, muss das System Endlosversuche vermeiden; Policy OPEN: Option A Peak nach X Audit-Fehlern deaktivieren (S5), Option B weiterlaufen mit minimalen In-Memory-Zaehlern (Risiko).",
+   "art": "OFFEN",
+   "kennung": "E-12-02 / O-12-12",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 51,
+   "zeilen": "216-218",
+   "zitat": "- enforce APPLY_ITEM_LOGGING_POLICY (FAIL_ONLY or DEBUG_ONLY recommended at scale).",
+   "aussage": "E-12-03 hohes active_ppp (100+): apply_item-Logging kann explodieren; APPLY_ITEM_LOGGING_POLICY durchsetzen (bei Groesse FAIL_ONLY oder DEBUG_ONLY empfohlen). [PPP-gebunden]",
+   "art": "BETRIEB",
+   "kennung": "E-12-03",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 52,
+   "zeilen": "220-222",
+   "zitat": "- manual rate limit protects system",
+   "aussage": "E-12-04 Manuelle Fehlbedienung / Panik-Klicken: Das manuelle Rate-Limit schuetzt das System; das Panel zeigt 'manual rate limited'.",
+   "art": "BETRIEB",
+   "kennung": "E-12-04",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 53,
+   "zeilen": "228-230",
+   "zitat": "- ensure apply calls are suppressed inside gap; audit reason MIN_GAP present.",
+   "aussage": "T-12-01 Apply min gap: bei haeufigen Ticks/Ueberlast werden Apply-Aufrufe innerhalb des Abstands unterdrueckt; Audit-Reason MIN_GAP vorhanden.",
+   "art": "TEST",
+   "kennung": "T-12-01",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 54,
+   "zeilen": "232-234",
+   "zitat": "- ensure cap triggers; circuit not necessarily open; panel shows RATE_LIMIT_ACTIVE.",
+   "aussage": "T-12-02 Window cap: bei mehr als APPLY_MAX_PER_10MIN Versuchen greift der Cap; der Circuit ist nicht zwingend offen; das Panel zeigt RATE_LIMIT_ACTIVE.",
+   "art": "TEST",
+   "kennung": "T-12-02",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 55,
+   "zeilen": "236-238",
+   "zitat": "- after APPLY_MAX_CONSEC_FAIL: circuit opens; no more applies except FORCE_EXIT.",
+   "aussage": "T-12-03 Circuit open on fails: BR-09 exit_code=4 N-mal simulieren; nach APPLY_MAX_CONSEC_FAIL oeffnet der Circuit, keine weiteren Applies ausser FORCE_EXIT.",
+   "art": "TEST",
+   "kennung": "T-12-03",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 56,
+   "zeilen": "240-242",
+   "zitat": "- exactly 1 trial apply; success closes circuit; failure reopens.",
+   "aussage": "T-12-04 Half-open trial: nach der Offen-Dauer genau 1 Probe-Apply; Erfolg schliesst den Circuit, Fehler oeffnet ihn wieder.",
+   "art": "TEST",
+   "kennung": "T-12-04",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 57,
+   "zeilen": "244-246",
+   "zitat": "- ensure no busy loop; optionally circuit opens if configured.",
+   "aussage": "T-12-05 Lock storm: wiederholtes exit_code=5 simulieren; kein Busy-Loop; optional oeffnet der Circuit, wenn konfiguriert.",
+   "art": "TEST",
+   "kennung": "T-12-05",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 58,
+   "zeilen": "248-252",
+   "zitat": "- action rejected + audit.",
+   "aussage": "T-12-06 Manual action authz: nicht berechtigte Rolle → Aktion abgelehnt + Audit; berechtigte Rolle → Aktion ausgefuehrt + Audit.",
+   "art": "TEST",
+   "kennung": "T-12-06",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006",
+    "BASE-110"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 59,
+   "zeilen": "254-256",
+   "zitat": "- rejects after limit; audit reason MANUAL_RATE_LIMIT.",
+   "aussage": "T-12-07 Manual rate limit: Spam manueller Aktionen wird nach dem Limit abgelehnt; Audit-Reason MANUAL_RATE_LIMIT.",
+   "art": "TEST",
+   "kennung": "T-12-07",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 60,
+   "zeilen": "258-260",
+   "zitat": "- apply_item policy prevents DB blow-up (FAIL_ONLY or DEBUG_ONLY), downsample snapshots.",
+   "aussage": "T-12-08 Scale audit volume: bei active_ppp=200 verhindert die apply_item-Policy (FAIL_ONLY oder DEBUG_ONLY) ein Aufblaehen der DB; Snapshots werden verdichtet. [PPP-gebunden]",
+   "art": "TEST",
+   "kennung": "T-12-08",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 61,
+   "zeilen": "265-275",
+   "zitat": "O-12-04 ENTER_MAX_PER_HOUR / EXIT_MAX_PER_HOUR (FP-BR12-07/08)",
+   "aussage": "Open Items O-12-01 bis O-12-11 spiegeln die offenen Fixpunkte: APPLY_MIN_GAP_SEC, APPLY_MAX_PER_10MIN, APPLY_MAX_CONSEC_FAIL, ENTER_MAX_PER_HOUR / EXIT_MAX_PER_HOUR, SNAPSHOT_MAX_RATE, APPLY_ITEM_LOGGING_POLICY, AUTHZ_ROLES_FOR_ACTIONS, MANUAL_MAX_ACTIONS_PER_5MIN, CIRCUIT_OPEN_MIN_SEC, CIRCUIT_OPEN_ON_LOCKED + threshold, DB_DOWN_POLICY.",
+   "art": "OFFEN",
+   "kennung": "O-12-01..11",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 62,
+   "zeilen": "276",
+   "zitat": "O-12-12 Audit-write-fail policy (disable vs degrade)",
+   "aussage": "O-12-12: Audit-write-fail-Policy (disable oder degrade) ist offen.",
+   "art": "OFFEN",
+   "kennung": "O-12-12",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 63,
+   "zeilen": "279-283",
+   "zitat": "- Grund: Hardening braucht Owner-Zahlen/Policies (Caps, windows, thresholds, authz).",
+   "aussage": "Drift-Ampel: RISK, weil das Hardening Owner-Zahlen/Policies braucht (Caps, Fenster, Thresholds, AuthZ); der Kern-Contract (bounded apply, no storm, circuit breaker, manueller Not-Aus, Auditierbarkeit) sei dennoch konsistent.",
+   "art": "OFFEN",
+   "kennung": "DRIFT",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 64,
+   "zeilen": "288-289",
+   "zitat": "- v2.0-ENTWURF (heute): BR-12 erstellt: Hardening/Caps/Circuit-Breaker/Rate-Limits + Manual Override AuthZ,",
+   "aussage": "Changelog v2.0-ENTWURF: BR-12 erstellt - Hardening/Caps/Circuit-Breaker/Rate-Limits + Manual Override AuthZ, inklusive DoD-Tests gegen Apply-Storm, Flapping, DB down, Lock Contention.",
+   "art": "HISTORIE",
+   "kennung": "v2.0-ENTWURF",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  }
+ ],
+ "werte": [
+  {
+   "zeilen": "60",
+   "name": "FP-BR12-01 HARDENING_ENABLED",
+   "wert": "true",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- FP-BR12-01 HARDENING_ENABLED = true"
+  },
+  {
+   "zeilen": "61",
+   "name": "FP-BR12-02 NO_RETRY_STORM",
+   "wert": "true",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- FP-BR12-02 NO_RETRY_STORM = true (bounded; retries nur wenn explizit fixiert)"
+  },
+  {
+   "zeilen": "62",
+   "name": "FP-BR12-03 ADMIN_NOT_OUT",
+   "wert": "true",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- FP-BR12-03 ADMIN_NOT_OUT = true (Not-Aus bleibt möglich)"
+  },
+  {
+   "zeilen": "66-67",
+   "name": "FP-BR12-04 APPLY_MIN_GAP_SEC",
+   "wert": "OPEN",
+   "einheit": "s",
+   "status": "OPEN",
+   "zitat": "- FP-BR12-04 APPLY_MIN_GAP_SEC:"
+  },
+  {
+   "zeilen": "68-69",
+   "name": "FP-BR12-05 APPLY_MAX_PER_10MIN",
+   "wert": "OPEN",
+   "einheit": "Runs/10 min",
+   "status": "OPEN",
+   "zitat": "- FP-BR12-05 APPLY_MAX_PER_10MIN:"
+  },
+  {
+   "zeilen": "70-71",
+   "name": "FP-BR12-06 APPLY_MAX_CONSEC_FAIL",
+   "wert": "OPEN; gezaehlt werden exit_code in {2,4,6,7}",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- Nach wie vielen Apply-Fails (exit_code in {2,4,6,7}) öffnet Circuit?"
+  },
+  {
+   "zeilen": "74-75",
+   "name": "FP-BR12-07 ENTER_MAX_PER_HOUR",
+   "wert": "OPEN",
+   "einheit": "je Stunde",
+   "status": "OPEN",
+   "zitat": "- FP-BR12-07 ENTER_MAX_PER_HOUR:"
+  },
+  {
+   "zeilen": "76-77",
+   "name": "FP-BR12-08 EXIT_MAX_PER_HOUR",
+   "wert": "OPEN",
+   "einheit": "je Stunde",
+   "status": "OPEN",
+   "zitat": "- FP-BR12-08 EXIT_MAX_PER_HOUR:"
+  },
+  {
+   "zeilen": "78-79",
+   "name": "FP-BR12-09 COOLDOWN_BYPASS_POLICY",
+   "wert": "OPEN; ja/nein + rate-limit (Wert ALLOW in Zeile 139 genannt)",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- FP-BR12-09 COOLDOWN_BYPASS_POLICY:"
+  },
+  {
+   "zeilen": "82-83",
+   "name": "FP-BR12-10 SNAPSHOT_MAX_RATE",
+   "wert": "OPEN; Beispiel 6/min (Zeile 144)",
+   "einheit": "je Minute",
+   "status": "OPEN",
+   "zitat": "- FP-BR12-10 SNAPSHOT_MAX_RATE:"
+  },
+  {
+   "zeilen": "144",
+   "name": "SNAPSHOT_MAX_RATE (Beispielwert)",
+   "wert": "6",
+   "einheit": "je Minute",
+   "status": "BEISPIEL",
+   "zitat": "- snapshots werden maximal SNAPSHOT_MAX_RATE geschrieben (z.B. 6/min)."
+  },
+  {
+   "zeilen": "84-85",
+   "name": "FP-BR12-11 APPLY_ITEM_LOGGING_POLICY",
+   "wert": "OPEN; ALWAYS | FAIL_ONLY | DEBUG_ONLY",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- FP-BR12-11 APPLY_ITEM_LOGGING_POLICY:"
+  },
+  {
+   "zeilen": "88-89",
+   "name": "FP-BR12-12 AUTHZ_ROLES_FOR_ACTIONS",
+   "wert": "OPEN; Aktionen FORCE_ENTER, FORCE_EXIT, DISABLE_PEAK, ENABLE_PEAK, CLEAR_EPISODE",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- FP-BR12-12 AUTHZ_ROLES_FOR_ACTIONS:"
+  },
+  {
+   "zeilen": "90-91",
+   "name": "FP-BR12-13 MANUAL_MAX_ACTIONS_PER_5MIN",
+   "wert": "OPEN",
+   "einheit": "Aktionen/5 min",
+   "status": "OPEN",
+   "zitat": "- FP-BR12-13 MANUAL_MAX_ACTIONS_PER_5MIN:"
+  },
+  {
+   "zeilen": "94-95",
+   "name": "FP-BR12-14 CIRCUIT_OPEN_MIN_SEC",
+   "wert": "OPEN",
+   "einheit": "s",
+   "status": "OPEN",
+   "zitat": "- FP-BR12-14 CIRCUIT_OPEN_MIN_SEC:"
+  },
+  {
+   "zeilen": "96-97",
+   "name": "FP-BR12-15 CIRCUIT_OPEN_ON_LOCKED",
+   "wert": "OPEN; ja/nein + threshold",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- FP-BR12-15 CIRCUIT_OPEN_ON_LOCKED:"
+  },
+  {
+   "zeilen": "98-99",
+   "name": "FP-BR12-16 DB_DOWN_POLICY",
+   "wert": "OPEN; apply suppressed bis DB ok (ja/nein) + recheck interval; Wert 'suppress until ok' in Zeile 186",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- FP-BR12-16 DB_DOWN_POLICY:"
+  },
+  {
+   "zeilen": "108",
+   "name": "Suppress-Reasons (Audit)",
+   "wert": "RATE_LIMIT / CIRCUIT_OPEN / etc.",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "GR-12-03 Jeder “suppressed” Apply-Versuch wird auditierbar gemacht (reason: RATE_LIMIT/CIRCUIT_OPEN/etc.)"
+  },
+  {
+   "zeilen": "115",
+   "name": "Audit-Vermerk Mindestabstand",
+   "wert": "APPLY_SUPPRESSED: MIN_GAP",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- Stattdessen: record “APPLY_SUPPRESSED: MIN_GAP” (in episode or run meta)."
+  },
+  {
+   "zeilen": "120",
+   "name": "Suppress-Reason Fenstergrenze",
+   "wert": "WINDOW_CAP",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- suppress apply (reason WINDOW_CAP)"
+  },
+  {
+   "zeilen": "121",
+   "name": "hardening_flag",
+   "wert": "RATE_LIMIT_ACTIVE",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- set hardening_flag=RATE_LIMIT_ACTIVE sichtbar in BR-11."
+  },
+  {
+   "zeilen": "125",
+   "name": "Zaehler consecutive_fail_count",
+   "wert": "wird bei wiederholtem Apply-Fehler erhoeht; Reset bei Erfolg im HALF_OPEN",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- increment consecutive_fail_count"
+  },
+  {
+   "zeilen": "136",
+   "name": "Audit-Reason Transition-Cap",
+   "wert": "FLAP_GUARD",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- audit reason: FLAP_GUARD"
+  },
+  {
+   "zeilen": "139",
+   "name": "COOLDOWN_BYPASS_POLICY (Wert fuer Bypass)",
+   "wert": "ALLOW",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- MANUAL_ENTER cooldown bypass nur wenn COOLDOWN_BYPASS_POLICY=ALLOW"
+  },
+  {
+   "zeilen": "146",
+   "name": "Audit-Vermerk Snapshot-Verdichtung",
+   "wert": "SNAPSHOT_DOWNSAMPLED",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- audit: “SNAPSHOT_DOWNSAMPLED”"
+  },
+  {
+   "zeilen": "151",
+   "name": "APPLY_ITEM_LOGGING_POLICY Wert ALWAYS",
+   "wert": "jedes Item loggen",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- ALWAYS: jedes item loggen"
+  },
+  {
+   "zeilen": "152",
+   "name": "APPLY_ITEM_LOGGING_POLICY Wert FAIL_ONLY",
+   "wert": "nur failures + aggregated ok",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- FAIL_ONLY: nur failures + aggregated ok"
+  },
+  {
+   "zeilen": "153",
+   "name": "APPLY_ITEM_LOGGING_POLICY Wert DEBUG_ONLY",
+   "wert": "nur bei aktiviertem Debug-Flag (admin)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- DEBUG_ONLY: only when debug flag enabled (admin)"
+  },
+  {
+   "zeilen": "158",
+   "name": "AuthZ-Schluessel",
+   "wert": "AUTHZ_ROLES_FOR_ACTIONS.force_enter (analog force_exit usw.)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- FORCE_ENTER: allowed roles = AUTHZ_ROLES_FOR_ACTIONS.force_enter"
+  },
+  {
+   "zeilen": "161",
+   "name": "Felder des Audit-Events manueller Aktionen",
+   "wert": "who-role, when, action, reason string (ohne PII)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- Jede Manual Action erzeugt audit event (who-role, when, action, reason string) ohne PII."
+  },
+  {
+   "zeilen": "165",
+   "name": "Reject-Reason manuelles Rate-Limit",
+   "wert": "MANUAL_RATE_LIMIT",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- bei überschreitung: action rejected (reason MANUAL_RATE_LIMIT) + audit"
+  },
+  {
+   "zeilen": "176",
+   "name": "Circuit-State C0",
+   "wert": "CLOSED (normal)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "C1 OPEN (apply suppressed)"
+  },
+  {
+   "zeilen": "177",
+   "name": "Circuit-State C1",
+   "wert": "OPEN (apply suppressed)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "C1 OPEN (apply suppressed)"
+  },
+  {
+   "zeilen": "178",
+   "name": "Circuit-State C2",
+   "wert": "HALF_OPEN (limited trial apply allowed)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "C2 HALF_OPEN (limited trial apply allowed)"
+  },
+  {
+   "zeilen": "182",
+   "name": "Circuit-Oeffnungsbedingung",
+   "wert": "consecutive_fail_count >= APPLY_MAX_CONSEC_FAIL (exit_code in {2,4,6,7})",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- consecutive_fail_count >= APPLY_MAX_CONSEC_FAIL (exit_code in {2,4,6,7})"
+  },
+  {
+   "zeilen": "184",
+   "name": "Circuit-Oeffnung bei LOCKED-Sturm",
+   "wert": "CIRCUIT_OPEN_ON_LOCKED = true und locked_count_window >= threshold",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- wenn CIRCUIT_OPEN_ON_LOCKED = true und locked_count_window >= threshold"
+  },
+  {
+   "zeilen": "192",
+   "name": "Panel-Anzeige bei offenem Circuit",
+   "wert": "CIRCUIT_OPEN + remaining time (open_until)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- Panel zeigt CIRCUIT_OPEN + remaining time (open_until)"
+  },
+  {
+   "zeilen": "196",
+   "name": "Probe-Applies im HALF_OPEN",
+   "wert": "max 1",
+   "einheit": "Versuch",
+   "status": "KANDIDAT",
+   "zitat": "- switch to HALF_OPEN: allow max 1 apply attempt"
+  },
+  {
+   "zeilen": "197",
+   "name": "Erfolgskriterium Probe-Apply",
+   "wert": "exit_code 0/1",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- if success (exit_code 0/1): close circuit, reset counters"
+  },
+  {
+   "zeilen": "212",
+   "name": "Audit-Fehler bis Disable (Option A)",
+   "wert": "X (unbestimmt)",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- Option A: disable peak (S5) after X audit failures"
+  },
+  {
+   "zeilen": "216",
+   "name": "Schwelle 'High active_ppp'",
+   "wert": "100+",
+   "einheit": "PPP-Sitzungen",
+   "status": "BEISPIEL",
+   "zitat": "E-12-03 High active_ppp (100+)"
+  },
+  {
+   "zeilen": "259",
+   "name": "Testgroesse T-12-08",
+   "wert": "active_ppp=200",
+   "einheit": "PPP-Sitzungen",
+   "status": "BEISPIEL",
+   "zitat": "- active_ppp=200:"
+  },
+  {
+   "zeilen": "237",
+   "name": "Testwert T-12-03",
+   "wert": "BR-09 exit_code=4, N-mal",
+   "einheit": "",
+   "status": "BEISPIEL",
+   "zitat": "- Simulate BR-09 exit_code=4 for N times:"
+  },
+  {
+   "zeilen": "281-282",
+   "name": "DRIFT-Ampel BR-12",
+   "wert": "RISK",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- Grund: Hardening braucht Owner-Zahlen/Policies (Caps, windows, thresholds, authz)."
+  },
+  {
+   "zeilen": "50",
+   "name": "K-CONF-01 Status",
+   "wert": "RISK",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "-> Status: RISK (Owner muss Zeitwerte konsistent wählen)."
+  },
+  {
+   "zeilen": "53",
+   "name": "K-CONF-02 Status",
+   "wert": "NONE",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "-> Status: NONE (BR-12 stellt das als invariant fest)."
+  }
+ ],
+ "verweise_auf_dokumente": [
+  {
+   "zeilen": "34",
+   "name": "PEAK MODE v2 BR-09",
+   "zitat": "- K-IMP-01: PEAK MODE v2 BR-09 (bounded apply + lock + exit codes)"
+  },
+  {
+   "zeilen": "36",
+   "name": "PEAK MODE v2 BR-10",
+   "zitat": "- K-IMP-02: PEAK MODE v2 BR-10 (state machine, cooldown, manual actions)"
+  },
+  {
+   "zeilen": "38",
+   "name": "PEAK MODE v2 BR-08",
+   "zitat": "- K-IMP-03: PEAK MODE v2 BR-08 (audit tables)"
+  },
+  {
+   "zeilen": "40",
+   "name": "PEAK MODE v2 BR-11",
+   "zitat": "- K-IMP-04: PEAK MODE v2 BR-11 (operability)"
+  },
+  {
+   "zeilen": "42",
+   "name": "blocks/B166_POLICY_APPLY_RECONCILE.txt",
+   "zitat": "- K-IMP-05: blocks/B166_POLICY_APPLY_RECONCILE.txt"
+  },
+  {
+   "zeilen": "44",
+   "name": "'SQL-first / No Magic' Grundsatz (global)",
+   "zitat": "- K-IMP-06: “SQL-first / No Magic” Grundsatz (global)"
+  },
+  {
+   "zeilen": "23",
+   "name": "BR-03 (Trigger Messlogik)",
+   "zitat": "- Trigger Messlogik (BR-03)"
+  }
+ ],
+ "offene_punkte": [
+  {
+   "zeilen": "66-67, 265",
+   "kennung": "O-12-01 / FP-BR12-04",
+   "text": "APPLY_MIN_GAP_SEC"
+  },
+  {
+   "zeilen": "68-69, 266",
+   "kennung": "O-12-02 / FP-BR12-05",
+   "text": "APPLY_MAX_PER_10MIN"
+  },
+  {
+   "zeilen": "70-71, 267",
+   "kennung": "O-12-03 / FP-BR12-06",
+   "text": "APPLY_MAX_CONSEC_FAIL"
+  },
+  {
+   "zeilen": "74-77, 268",
+   "kennung": "O-12-04 / FP-BR12-07/08",
+   "text": "ENTER_MAX_PER_HOUR / EXIT_MAX_PER_HOUR; dazu offen die Folge bei Ueberschreitung (Cooldown-Verlaengerung oder DISABLED, Zeile 135)."
+  },
+  {
+   "zeilen": "82-83, 269",
+   "kennung": "O-12-05 / FP-BR12-10",
+   "text": "SNAPSHOT_MAX_RATE + Downsample-Policy"
+  },
+  {
+   "zeilen": "84-85, 270",
+   "kennung": "O-12-06 / FP-BR12-11",
+   "text": "APPLY_ITEM_LOGGING_POLICY (ALWAYS / FAIL_ONLY / DEBUG_ONLY)"
+  },
+  {
+   "zeilen": "88-89, 271",
+   "kennung": "O-12-07 / FP-BR12-12",
+   "text": "AUTHZ_ROLES_FOR_ACTIONS"
+  },
+  {
+   "zeilen": "90-91, 272",
+   "kennung": "O-12-08 / FP-BR12-13",
+   "text": "MANUAL_MAX_ACTIONS_PER_5MIN"
+  },
+  {
+   "zeilen": "94-95, 273",
+   "kennung": "O-12-09 / FP-BR12-14",
+   "text": "CIRCUIT_OPEN_MIN_SEC"
+  },
+  {
+   "zeilen": "96-97, 274",
+   "kennung": "O-12-10 / FP-BR12-15",
+   "text": "CIRCUIT_OPEN_ON_LOCKED + threshold"
+  },
+  {
+   "zeilen": "98-99, 275",
+   "kennung": "O-12-11 / FP-BR12-16",
+   "text": "DB_DOWN_POLICY + Recheck-Intervall"
+  },
+  {
+   "zeilen": "209-214, 276",
+   "kennung": "O-12-12",
+   "text": "Audit-write-fail-Policy: Peak nach X Audit-Fehlern deaktivieren (A) oder mit In-Memory-Zaehlern weiterlaufen (B)."
+  },
+  {
+   "zeilen": "78-79",
+   "kennung": "FP-BR12-09",
+   "text": "COOLDOWN_BYPASS_POLICY ist als OPEN-Fixpunkt gefuehrt, fehlt aber in der Open-Items-Liste O-12-01..12."
+  }
+ ],
+ "innere_widersprueche": [
+  {
+   "zeilen": "78-79 / 265-276",
+   "text": "FP-BR12-09 COOLDOWN_BYPASS_POLICY ist OPEN, hat aber keinen Eintrag in den Open Items (O-12-xx); die Liste ist damit nicht deckungsgleich mit den Fixpunkten."
+  },
+  {
+   "zeilen": "52 / 109 / 128 / 168 / 190",
+   "text": "K-CONF-02 nennt als Not-Aus 'disable/force-exit'; die Guard Rails und Ausnahmen (GR-12-04, RL-APPLY-03, 4.3, Invariante) nehmen jedoch nur FORCE_EXIT vom Circuit/Rate-Limit aus - DISABLE_PEAK (das laut BR-10 ein Exit-Restore einschliesst) ist nicht ausdruecklich ausgenommen."
+  },
+  {
+   "zeilen": "89 / 160 (gegen BR-10 Zeilen 110-113)",
+   "text": "CLEAR_EPISODE wird als manuelle Aktion gefuehrt, ist in der Ereignisliste und den Transitionen von BR-10 aber nicht definiert."
+  },
+  {
+   "zeilen": "71 / 182 (gegen BR-10 Zeile 115)",
+   "text": "Fuer den Circuit zaehlen Fehler mit exit_code in {2,4,6,7}; BR-10 definiert E-APPLY_FAIL als exit_code nicht in {0,1} - also einschliesslich 5 (LOCKED) und 3. LOCKED wird hier gesondert behandelt."
+  },
+  {
+   "zeilen": "115 / 108 / 230",
+   "text": "Der Suppress-Vermerk heisst einmal 'APPLY_SUPPRESSED: MIN_GAP', einmal reason 'RATE_LIMIT/CIRCUIT_OPEN', im Test 'MIN_GAP' - Benennung der Reason-Codes nicht einheitlich; ein Speicherort ('in episode or run meta') ist im BR-08-Schema nicht vorgesehen."
+  },
+  {
+   "zeilen": "59",
+   "text": "Die Ueberschrift der FIX-Gruppe lautet 'aus Designziel ableitbar, aber Zahlen sind Owner' - die drei FIX-Punkte sind reine Wahr-Werte ohne Zahlen."
+  }
+ ],
+ "relevanz": {
+  "stufe": "HOCH",
+  "begruendung": "Enthaelt die Schutz- und Begrenzungsregeln des Peak Mode (Rate-Limits, Anti-Flap-Caps, Circuit Breaker mit drei Zustaenden, Not-Aus-Invariante, AuthZ und Rate-Limit fuer manuelle Aktionen) samt Tests. Die Regeln sind weitgehend schnittstellenneutral; PPP-gebunden sind nur die Mengenfaelle (active_ppp).",
+  "rt_module": [
+   "MOD-009",
+   "MOD-006",
+   "BASE-110",
+   "BASE-090",
+   "BASE-080",
+   "BASE-000",
+   "MOD-007"
+  ]
+ },
+ "auffaelligkeiten": [
+  "Keine Zugangsdaten enthalten.",
+  "Alle dreizehn Zahlen/Policies sind in diesem Dokument OPEN; ob das OWNER-FIX VALUE SHEET sie schliesst, ist dort zu pruefen.",
+  "Kein Datum; Changelog nennt 'heute'. Datei ohne abschliessende Zeilenschaltung (wc -l 288, Read 289 Zeilen).",
+  "Stark englisch durchsetzter Text in den Regeln und Tests."
+ ]
+}

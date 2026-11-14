@@ -28,6 +28,13 @@ WERKZEUGE
                          mindestens einem Test geprüft, Index, Herkunft).
   trace_zeilen.py        Trägt zu einem wörtlichen Zitat den Zeilenbereich der
                          Quelle ein (nicht gefunden oder mehrdeutig = Fehler).
+  pruefe_extrakte.py     Prüft die Extrakte der Leseläufe über die Nachlieferung
+                         (governance/arbeitsmaterial/nachlieferung/extrakte):
+                         Aufbau, Bindung an die Lieferdatei am Liefer-Commit,
+                         jedes Zitat wörtlich auf einer Zeile der Quelle. Prüft
+                         NICHT, ob ein Extrakt vollständig oder zutreffend
+                         wiedergibt - er ist Arbeitsmaterial, kein Lesebeleg
+                         des Hauptarchitekten.
   tests/test_negativ.py  Negativtests: absichtlich ungültige, harmlose Kopien der
                          Register müssen als Fehler erkannt werden (z. B. veränderte
                          Regelreferenz, falsche Commit-Bindung, gefälschtes Zitat,
@@ -38,6 +45,7 @@ AUFRUF (aus dem Repository-Wurzelverzeichnis)
       (an Checkpoints und vor dem Einfrieren eines Kandidaten zusätzlich mit
        --require-xpn --require-nl)
   python3 qa/pruefe_register.py --root . --xpn <xp-vpn-stack-Checkout>
+  python3 qa/pruefe_extrakte.py --root . [--bericht]
   python3 -m unittest discover -s qa/tests -v
   Voraussetzung: Python 3, PyYAML, git; vollständige Historie (Baseline-Commit).
 

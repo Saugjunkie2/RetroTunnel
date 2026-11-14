@@ -1,0 +1,1583 @@
+{
+ "datei": "nachlieferung/entwuerfe/peak_mode_v2/PEAK MODE v2 — BR-10.txt",
+ "abschnitt": "1-283",
+ "zeilen_gesamt": 283,
+ "gelesen_bereiche": "1-283",
+ "vollstaendig_gelesen": true,
+ "dokument": {
+  "titel": "PEAK MODE v2 — BR-10 (ENTWURF / Phase 3): Episode Controller (State-Machine) — Trigger→ENTER/HOLD/EXIT + Sliding Windows + Manual Overrides + Safety Caps",
+  "doc_id": "BR-10",
+  "status_laut_datei": "ENTWURF (Phase 3) — keine Patch-/Copy-Blöcke, keine tc/SQL Snippets",
+  "version_laut_datei": "v2.0-ENTWURF",
+  "datum_laut_datei": "nicht angegeben (Changelog nennt nur \"heute\")",
+  "projekt": "XPN",
+  "art": "ENTWURF",
+  "normativitaet_laut_datei": "Abschnitte mit MUST gekennzeichnet; fuenf Fixpunkte FIX (FP-BR10-01..05), sieben OPEN (FP-BR10-06..12); Abschnitt 4 APPLY FAILURE POLICY ausdruecklich OPEN; DRIFT-Ampel: RISK"
+ },
+ "zusammenfassung": "BR-10 ist der Entwurf des Episode-Controllers von Peak Mode v2 als geschlossener Zustandsautomat mit sechs Zustaenden (S0 INACTIVE, S1 ENTER_PENDING, S2 PEAK_ACTIVE/HOLD, S3 EXIT_PENDING, S4 COOLDOWN, S5 DISABLED), zehn Ereignissen und vollstaendigen Uebergangsregeln je Zustand. Kernregeln: ENTER erst, wenn die Ueberlast PERSIST_ENTER_SEC anhaelt; in PEAK_ACTIVE wird hold_until bei jeder bestaetigten Ueberlast auf now + HOLD_WINDOW_SEC geschoben (sliding); EXIT erst nach RECOVERY_EXIT_SEC ohne Ueberlast; danach COOLDOWN_SEC ohne neuen Enter (Anti-Flap). Manuelle Eingriffe (Force Enter, Force Exit, Disable, Enable) sind als Ereignisse eingebunden; Force Enter umgeht die Persist-Frist. Fuenf Invarianten sichern den Automaten: hoechstens eine aktive Episode, nur USER, keine tc-Topologieaenderung, kein Takt schneller als SAMPLE_INTERVAL_SEC, jede Transition mit Audit-Grund. Fest sind SoftIRQ-Aggregation, MULTI-Schwelle 30 %, Top-N-Latch, USER-only und CAKE_ONLY; offen sind in diesem Dokument alle Zeitwerte (v1-typisch 180/10/900 s; Recovery 60..180 s, Cooldown 120..600 s als Beispiele), die APPLY_FAILURE_POLICY (Optionen A Strict, B Degraded Enter, C Fail-safe Disable; A empfohlen), die Berechtigung fuer manuelle Eingriffe, die Audit-Fail-Policy und der Cooldown-Bypass. Randfaelle: leerer /run-Snapshot (NOOP, result_code=NO_TARGETS), hoher Churn, Disk-full/Audit-Fehler, Zaehler-Resets in der Attribution. Acht Tests T-10-01 bis T-10-08 bilden die DoD. Die Drift-Ampel steht auf RISK: Ohne die offenen Zeitwerte und die Failure-Policy ist der Automat laut Dokument nicht vollstaendig deterministisch.",
+ "aussagen": [
+  {
+   "nr": 1,
+   "zeilen": "2-6",
+   "zitat": "ZIEL: Peak-Mode als “geschlossenes System”: klare States/Transitions/Windows/Reset/Not-Aus — ohne Raten.",
+   "aussage": "Kopf: BR-10 (Entwurf, Phase 3) 'Episode Controller (State-Machine)'; Ziel ist Peak Mode als 'geschlossenes System' mit klaren States/Transitions/Windows/Reset/Not-Aus, ohne Raten.",
+   "art": "DEFINITION",
+   "kennung": "BR-10",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 2,
+   "zeilen": "11-13",
+   "zitat": "- Gate-Regeln (ENTER nur nach Persist; EXIT nach Recovery; HOLD sliding)",
+   "aussage": "Scope: die Peak-Episode-State-Machine (States + Transitions) und die Gate-Regeln: ENTER nur nach Persist, EXIT nach Recovery, HOLD sliding.",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 3,
+   "zeilen": "14",
+   "zitat": "- Timing/TTL/Grace/Reset: Persist-Window, Hold-Window, Extend-Regeln, Cooldown",
+   "aussage": "Scope: Timing/TTL/Grace/Reset - Persist-Window, Hold-Window, Extend-Regeln, Cooldown.",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 4,
+   "zeilen": "15",
+   "zitat": "- Manual Overrides (Admin): Force Enter / Force Exit / Disable Peak / Clear Episode",
+   "aussage": "Scope: Manual Overrides (Admin): Force Enter / Force Exit / Disable Peak / Clear Episode.",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 5,
+   "zeilen": "16-18",
+   "zitat": "- Safety Caps (bounded behaviour, keine Flapping-Schleife)",
+   "aussage": "Scope: Safety Caps (bounded behaviour, keine Flapping-Schleife), Fehlerverhalten (Degrade/Abort/Fail-safe) und Output-Erwartung, welche BRs wann aufgerufen werden (BR-02/05/07/08/09).",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 6,
+   "zeilen": "20-25",
+   "zitat": "- Messung/Detector Details (SoftIRQ calc, /proc parsing) (BR-03)",
+   "aussage": "Anti-Scope: Mess-/Detector-Details (SoftIRQ-Berechnung, /proc-Parsing; BR-03), Apply-Orchestrator intern (BR-09), DB-Schema/Mapping (BR-08), CAKE-Spezifika (BR-01/BR-06), Attributionsdetails Top-N/MULTI (BR-07).",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 7,
+   "zeilen": "32-33",
+   "zitat": "-> Episode-Idee: Enter nach Persist, Hold sliding, Exit nach Recovery; Täter/MULTI Snapshot; “Peak darf nicht flappen”",
+   "aussage": "K-IMP-01 (v1 'Peak-Mode_Was es ist, wie es funktioniert.txt'): Episodenidee - Enter nach Persist, Hold sliding, Exit nach Recovery; Taeter/MULTI-Snapshot; 'Peak darf nicht flappen'.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K-IMP-01",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 8,
+   "zeilen": "34-35",
+   "zitat": "-> BR-10: Episode lifecycle, timepoints, state machine completeness (Gates geschlossen)",
+   "aussage": "K-IMP-02 (Peak-Mode_TEIL2_BUILD_READY_CHECKLISTE.txt): BR-10 deckt Episode-Lifecycle, Zeitpunkte und Vollstaendigkeit der State Machine (Gates geschlossen) ab.",
+   "art": "DEFINITION",
+   "kennung": "K-IMP-02",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 9,
+   "zeilen": "36-37",
+   "zitat": "-> “Peak-Mode ist CPU-Overload Schutz; Ziel: Bandwidth per session drosseln”",
+   "aussage": "K-IMP-03 (Peak-Mode_Teil1_Fakten.txt): Peak Mode ist CPU-Overload-Schutz mit dem Ziel, die Bandbreite je Session zu drosseln.",
+   "art": "SCHUTZZIEL",
+   "kennung": "K-IMP-03",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 10,
+   "zeilen": "38-39",
+   "zitat": "-> Overload-Persist-Entscheid: CPU/SoftIRQ aggregated; Persist Enter Sec (default 180 im v1)",
+   "aussage": "K-IMP-04 (BR-03 Trigger Gate): Overload-Persist-Entscheid auf Basis CPU/SoftIRQ aggregated; Persist Enter Sec im v1 default 180.",
+   "art": "PARAMETER",
+   "kennung": "K-IMP-04",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 11,
+   "zeilen": "40-41",
+   "zitat": "-> Peak-BW Zielwert und Profil-BW Zielwert (Controller nutzt diese Werte)",
+   "aussage": "K-IMP-05 (BR-02 / BR-05): liefern Peak-BW-Zielwert und Profil-BW-Zielwert, die der Controller nutzt.",
+   "art": "DEFINITION",
+   "kennung": "K-IMP-05",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 12,
+   "zeilen": "42-43",
+   "zitat": "-> Attribution Snapshots: MULTI threshold 30%, TopN dynamic latched per episode, USER-only",
+   "aussage": "K-IMP-06 (BR-07): Attribution-Snapshots mit MULTI-Schwelle 30 %, TopN dynamisch und je Episode gelatcht, USER-only.",
+   "art": "PARAMETER",
+   "kennung": "K-IMP-06",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 13,
+   "zeilen": "44-45",
+   "zitat": "-> episode + snapshot + apply_audit tables (Controller schreibt Episode/State/hold_until)",
+   "aussage": "K-IMP-07 (BR-08): Tabellen episode + snapshot + apply_audit; der Controller schreibt Episode/State/hold_until.",
+   "art": "IMPL_DETAIL",
+   "kennung": "K-IMP-07",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 14,
+   "zeilen": "46-47",
+   "zitat": "-> Apply bounded; exit_code semantics; /run SoT; USER-only; lock.",
+   "aussage": "K-IMP-08 (BR-09): Apply bounded; Exit-Code-Semantik; /run als SoT; USER-only; Lock.",
+   "art": "DEFINITION",
+   "kennung": "K-IMP-08",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 15,
+   "zeilen": "50",
+   "zitat": "- “Persist Enter”: Overload muss X Sekunden anhalten, bevor ENTER erlaubt ist.",
+   "aussage": "Begriff 'Persist Enter': Die Ueberlast muss X Sekunden anhalten, bevor ENTER erlaubt ist.",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 16,
+   "zeilen": "51",
+   "zitat": "- “Hold sliding”: Nach ENTER wird hold_until nach jeder bestätigten Overload-Messung nach vorne geschoben.",
+   "aussage": "Begriff 'Hold sliding': Nach ENTER wird hold_until nach jeder bestaetigten Overload-Messung nach vorne geschoben.",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 17,
+   "zeilen": "52",
+   "zitat": "- “Recovery Exit”: EXIT erst wenn Overload über Y Zeit weg ist (oder hold_window ausläuft).",
+   "aussage": "Begriff 'Recovery Exit': EXIT erst, wenn die Ueberlast ueber Y Zeit weg ist (oder das hold_window auslaeuft).",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 18,
+   "zeilen": "53",
+   "zitat": "- “No Flap”: Kein ENTER/EXIT Pingpong.",
+   "aussage": "Begriff 'No Flap': kein ENTER/EXIT-Pingpong.",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 19,
+   "zeilen": "56-57",
+   "zitat": "- K-CONF-01: Exakte Zeitwerte (persist_enter_sec, hold_window_sec, recovery_exit_sec, cooldown_sec)",
+   "aussage": "K-CONF-01 (Status RISK): Die exakten Zeitwerte persist_enter_sec, hold_window_sec, recovery_exit_sec, cooldown_sec brauchen einen Owner-Fix, sonst Drift.",
+   "art": "OFFEN",
+   "kennung": "K-CONF-01",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 20,
+   "zeilen": "58-59",
+   "zitat": "-> Status: NONE (Overrides dürfen nur Peak-state togglen, nicht Admin shaping)",
+   "aussage": "K-CONF-02 (Status NONE): Admin-Exclude ist beabsichtigt (USER-only); manuelle Overrides duerfen das nicht brechen - sie duerfen nur den Peak-State umschalten, nicht Admin-Shaping ausloesen.",
+   "art": "SCHUTZZIEL",
+   "kennung": "K-CONF-02",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-100",
+    "MOD-006"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 21,
+   "zeilen": "60-61",
+   "zitat": "-> Status: RISK (muss deterministisch: abort vs degraded hold)",
+   "aussage": "K-CONF-03 (Status RISK): Das Verhalten bei Apply-Fehlern muss deterministisch sein (abort oder degraded hold).",
+   "art": "OFFEN",
+   "kennung": "K-CONF-03",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 22,
+   "zeilen": "67-72",
+   "zitat": "- FP-BR10-03 TOPN_DYNAMIC_LATCH (<=20→3; 21..100→5; >100→10; latch pro episode)",
+   "aussage": "FIX-Punkte: FP-BR10-01 SOFTIRQ_AGGREGATION = aggregated; FP-BR10-02 MULTI_THRESHOLD_PCT = 30%; FP-BR10-03 TOPN_DYNAMIC_LATCH (<=20→3; 21..100→5; >100→10; Latch je Episode); FP-BR10-04 TARGET_SCOPE = USER-only apply (ueber BR-09); FP-BR10-05 CAKE_ONLY = true (ueber BR-06).",
+   "art": "PARAMETER",
+   "kennung": "FP-BR10-01..05",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 23,
+   "zeilen": "74-75",
+   "zitat": "- FP-BR10-06 PERSIST_ENTER_SEC (v1 typisch: 180)",
+   "aussage": "FP-BR10-06 (OPEN) PERSIST_ENTER_SEC, v1-typisch 180.",
+   "art": "OFFEN",
+   "kennung": "FP-BR10-06",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 24,
+   "zeilen": "76",
+   "zitat": "- FP-BR10-07 SAMPLE_INTERVAL_SEC (v1 typisch: 10)",
+   "aussage": "FP-BR10-07 (OPEN) SAMPLE_INTERVAL_SEC, v1-typisch 10.",
+   "art": "OFFEN",
+   "kennung": "FP-BR10-07",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 25,
+   "zeilen": "77",
+   "zitat": "- FP-BR10-08 HOLD_WINDOW_SEC (v1 typisch: 900 / 15min)  [oder anderer Wert]",
+   "aussage": "FP-BR10-08 (OPEN) HOLD_WINDOW_SEC, v1-typisch 900 (15 min) oder ein anderer Wert.",
+   "art": "OFFEN",
+   "kennung": "FP-BR10-08",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 26,
+   "zeilen": "78",
+   "zitat": "- FP-BR10-09 RECOVERY_EXIT_SEC (z.B. 60..180)  // “Overload muss weg bleiben”",
+   "aussage": "FP-BR10-09 (OPEN) RECOVERY_EXIT_SEC, z. B. 60..180: so lange muss die Ueberlast weg bleiben.",
+   "art": "OFFEN",
+   "kennung": "FP-BR10-09",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 27,
+   "zeilen": "79",
+   "zitat": "- FP-BR10-10 COOLDOWN_SEC (z.B. 120..600)      // verhindert Flap",
+   "aussage": "FP-BR10-10 (OPEN) COOLDOWN_SEC, z. B. 120..600: verhindert Flapping.",
+   "art": "OFFEN",
+   "kennung": "FP-BR10-10",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 28,
+   "zeilen": "80-84",
+   "zitat": "- Option A: ENTER nur wenn Apply OK; bei Apply fail -> Episode bleibt INACTIVE + audit fail",
+   "aussage": "FP-BR10-11 (OPEN) APPLY_FAILURE_POLICY mit drei Optionen: A - ENTER nur bei Apply OK, sonst bleibt die Episode INACTIVE + Audit-Fail; B - ENTER-State wird gesetzt, aber als DEGRADED markiert (Risiko); C - Fail-safe Exit-Restore bei Apply-Fehler. Muss fixiert werden.",
+   "art": "OFFEN",
+   "kennung": "FP-BR10-11",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 29,
+   "zeilen": "85-86",
+   "zitat": "- Wer darf Force Enter/Exit/Disable? (Admin-role im Panel) — muss zur AuthZ passen.",
+   "aussage": "FP-BR10-12 (OPEN) MANUAL_OVERRIDE_PERMISSIONS: Wer darf Force Enter/Exit/Disable (Admin-Rolle im Panel)? Muss zur AuthZ passen.",
+   "art": "OFFEN",
+   "kennung": "FP-BR10-12",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006",
+    "BASE-110"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 30,
+   "zeilen": "93-94",
+   "zitat": "- Kein Peak aktiv; Profil-BW gilt (oder “current” ist Profil).",
+   "aussage": "State S0 INACTIVE: kein Peak aktiv; es gilt die Profil-BW (bzw. 'current' ist Profil).",
+   "art": "DEFINITION",
+   "kennung": "S0",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 31,
+   "zeilen": "95-96",
+   "zitat": "S1 ENTER_PENDING (Persist-Check läuft)",
+   "aussage": "State S1 ENTER_PENDING: Persist-Check laeuft; Ueberlast erkannt, Persist-Frist aber noch nicht erfuellt.",
+   "art": "DEFINITION",
+   "kennung": "S1",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 32,
+   "zeilen": "97-98",
+   "zitat": "- Peak aktiv; hold_until läuft/slidet.",
+   "aussage": "State S2 PEAK_ACTIVE (HOLD): Peak aktiv; hold_until laeuft bzw. wird geschoben.",
+   "art": "DEFINITION",
+   "kennung": "S2",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 33,
+   "zeilen": "99-100",
+   "zitat": "- Overload weg; Recovery-Zeitfenster prüfen bevor Exit-Restore.",
+   "aussage": "State S3 EXIT_PENDING: Recovery-Check laeuft; Ueberlast weg, das Recovery-Zeitfenster wird vor dem Exit-Restore geprueft.",
+   "art": "DEFINITION",
+   "kennung": "S3",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 34,
+   "zeilen": "101-102",
+   "zitat": "- Nach Exit: für COOLDOWN_SEC kein neuer Enter (anti-flap).",
+   "aussage": "State S4 COOLDOWN: nach Exit fuer COOLDOWN_SEC kein neuer Enter (Anti-Flap).",
+   "art": "DEFINITION",
+   "kennung": "S4",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 35,
+   "zeilen": "103-104",
+   "zitat": "- Peak-Mode global disabled; Controller ignoriert Trigger (aber kann status auditieren).",
+   "aussage": "State S5 DISABLED (Admin Disabled): Peak Mode global deaktiviert; der Controller ignoriert Trigger, kann aber den Status auditieren.",
+   "art": "DEFINITION",
+   "kennung": "S5",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 36,
+   "zeilen": "106-109",
+   "zitat": "E-TICK          (Sample tick; alle SAMPLE_INTERVAL_SEC)",
+   "aussage": "Ereignisse des Detektors: E-OVR_ON (overload_bool=true), E-OVR_OFF (overload_bool=false), E-TICK (Sample-Tick alle SAMPLE_INTERVAL_SEC).",
+   "art": "DEFINITION",
+   "kennung": "E-OVR_ON/E-OVR_OFF/E-TICK",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 37,
+   "zeilen": "110-113",
+   "zitat": "E-MAN_ENTER     (Manual Force Enter)",
+   "aussage": "Manuelle Ereignisse: E-MAN_ENTER (Force Enter), E-MAN_EXIT (Force Exit), E-MAN_DISABLE (Disable Peak), E-MAN_ENABLE (Enable Peak).",
+   "art": "DEFINITION",
+   "kennung": "E-MAN_*",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 38,
+   "zeilen": "114-115",
+   "zitat": "E-APPLY_FAIL    (BR-09 apply exit_code != {0,1} oder policy-defined fail)",
+   "aussage": "Apply-Ereignisse: E-APPLY_OK (BR-09 exit_code 0/1 je nach Policy), E-APPLY_FAIL (BR-09 exit_code nicht in {0,1} oder policy-definierter Fehler).",
+   "art": "DEFINITION",
+   "kennung": "E-APPLY_OK/E-APPLY_FAIL",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 39,
+   "zeilen": "116",
+   "zitat": "E-DB_FAIL/AUDIT_FAIL (optional, wenn BR-08 logging failt; controller muss deterministisch reagieren)",
+   "aussage": "Optionales Ereignis E-DB_FAIL/AUDIT_FAIL, wenn das BR-08-Logging fehlschlaegt; der Controller muss deterministisch reagieren.",
+   "art": "DEFINITION",
+   "kennung": "E-DB_FAIL/AUDIT_FAIL",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 40,
+   "zeilen": "120-126",
+   "zitat": "-> S1 ENTER_PENDING (start persist timer; record enter_candidate_at)",
+   "aussage": "Transitionen aus S0 INACTIVE: E-OVR_ON → S1 ENTER_PENDING (Persist-Timer starten, enter_candidate_at festhalten); E-MAN_ENTER → S2 PEAK_ACTIVE (Persist umgangen, Apply muss aber gemaess APPLY_FAILURE_POLICY gelingen); E-MAN_DISABLE → S5 DISABLED.",
+   "art": "FUNKTION",
+   "kennung": "S0",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 41,
+   "zeilen": "128-130",
+   "zitat": "-> S0 INACTIVE (reset persist timer)",
+   "aussage": "S1 ENTER_PENDING: E-OVR_OFF → S0 INACTIVE (Persist-Timer zuruecksetzen).",
+   "art": "FUNKTION",
+   "kennung": "S1",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 42,
+   "zeilen": "131-134",
+   "zitat": "-> attempt ENTER_APPLY via BR-09 with intended_mode=PEAK and target_bw=BR-02",
+   "aussage": "S1: bei E-TICK mit weiter anliegender Ueberlast und overload_on_duration >= PERSIST_ENTER_SEC wird ENTER_APPLY ueber BR-09 versucht (intended_mode=PEAK, target_bw aus BR-02) und zum Enter-Zeitpunkt ein Attribution-Snapshot (BR-07) gezogen.",
+   "art": "FUNKTION",
+   "kennung": "S1",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 43,
+   "zeilen": "135-138",
+   "zitat": "-> S2 PEAK_ACTIVE (set hold_until = now + HOLD_WINDOW_SEC; latch topN)",
+   "aussage": "S1: Erfuellt das Apply-Ergebnis die APPLY_FAILURE_POLICY → S2 PEAK_ACTIVE (hold_until = now + HOLD_WINDOW_SEC; topN latchen); sonst → S0 INACTIVE oder S5 DISABLED (je nach Policy) mit Audit-Grund.",
+   "art": "FUNKTION",
+   "kennung": "S1",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 44,
+   "zeilen": "139-142",
+   "zitat": "-> S0 INACTIVE (noop; nothing active)",
+   "aussage": "S1: E-MAN_EXIT → S0 INACTIVE (noop, nichts aktiv); E-MAN_DISABLE → S5 DISABLED.",
+   "art": "FUNKTION",
+   "kennung": "S1",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 45,
+   "zeilen": "144-146",
+   "zitat": "- Write episode_snapshot (BR-08) each tick (softirq/vpn_bps/active_ppp/hold_until)",
+   "aussage": "S2 PEAK_ACTIVE: bei jedem E-TICK wird ein episode_snapshot (BR-08) geschrieben (softirq/vpn_bps/active_ppp/hold_until). [PPP-gebunden]",
+   "art": "FUNKTION",
+   "kennung": "S2",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 46,
+   "zeilen": "147-149",
+   "zitat": "- extend hold_until = now + HOLD_WINDOW_SEC (sliding)",
+   "aussage": "S2: liegt bei Tick Ueberlast an (E-OVR_ON), wird hold_until = now + HOLD_WINDOW_SEC gesetzt (sliding); optional kein erneutes tc-Apply, wenn bereits peak_bw gilt (idempotent).",
+   "art": "FUNKTION",
+   "kennung": "S2",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 47,
+   "zeilen": "150-151",
+   "zitat": "-> S3 EXIT_PENDING (start recovery timer)",
+   "aussage": "S2: bei E-OVR_OFF → S3 EXIT_PENDING (Recovery-Timer starten).",
+   "art": "FUNKTION",
+   "kennung": "S2",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 48,
+   "zeilen": "152-155",
+   "zitat": "-> attempt EXIT_RESTORE via BR-09 (intended_mode=PROFILE, target_bw=BR-05)",
+   "aussage": "S2: E-MAN_EXIT → EXIT_RESTORE ueber BR-09 (intended_mode=PROFILE, target_bw aus BR-05); bei Erfolg → S4 COOLDOWN; bei Fehler greift die Apply-Failure-Policy (in S2 DEGRADED bleiben oder Force-Disable usw.) [OPEN FP-BR10-11].",
+   "art": "FUNKTION",
+   "kennung": "S2",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 49,
+   "zeilen": "156-157",
+   "zitat": "-> same as MAN_EXIT then DISABLED (best-effort restore) [OPEN policy; must be fixed]",
+   "aussage": "S2: E-MAN_DISABLE → wie MAN_EXIT, danach DISABLED (best-effort restore); Policy OPEN, muss fixiert werden.",
+   "art": "OFFEN",
+   "kennung": "S2",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 50,
+   "zeilen": "159-161",
+   "zitat": "-> S2 PEAK_ACTIVE (cancel recovery, extend hold)",
+   "aussage": "S3 EXIT_PENDING: E-OVR_ON → zurueck nach S2 PEAK_ACTIVE (Recovery abbrechen, Hold verlaengern).",
+   "art": "FUNKTION",
+   "kennung": "S3",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 51,
+   "zeilen": "162-166",
+   "zitat": "- if overload_off_duration >= RECOVERY_EXIT_SEC:",
+   "aussage": "S3: bei E-TICK mit weiter fehlender Ueberlast und overload_off_duration >= RECOVERY_EXIT_SEC wird EXIT_RESTORE ueber BR-09 versucht; bei Apply ok → S4 COOLDOWN, sonst Apply-Failure-Policy [OPEN FP-BR10-11].",
+   "art": "FUNKTION",
+   "kennung": "S3",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 52,
+   "zeilen": "167-170",
+   "zitat": "-> S2 PEAK_ACTIVE (force re-enter; may re-apply peak)",
+   "aussage": "S3: E-MAN_ENTER → S2 PEAK_ACTIVE (erzwungener Wiedereintritt, Peak darf erneut angewendet werden); E-MAN_DISABLE → wie Exit, danach Disabled (Policy).",
+   "art": "FUNKTION",
+   "kennung": "S3",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 53,
+   "zeilen": "172-175",
+   "zitat": "- if cooldown_elapsed >= COOLDOWN_SEC:",
+   "aussage": "S4 COOLDOWN: bei E-TICK mit cooldown_elapsed >= COOLDOWN_SEC → S0 INACTIVE.",
+   "art": "FUNKTION",
+   "kennung": "S4",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 54,
+   "zeilen": "176-177",
+   "zitat": "- ignore enters until cooldown over (anti-flap), but optionally record “overload during cooldown” metric",
+   "aussage": "S4: E-OVR_ON wird bis zum Ende des Cooldowns als Enter ignoriert (Anti-Flap); optional wird eine Metrik 'overload during cooldown' festgehalten.",
+   "art": "FUNKTION",
+   "kennung": "S4",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 55,
+   "zeilen": "178-181",
+   "zitat": "- optional override to bypass cooldown (Owner decision; default: allow only if explicit)",
+   "aussage": "S4: E-MAN_ENTER darf optional den Cooldown umgehen (Owner-Entscheidung; Default: nur wenn ausdruecklich erlaubt); E-MAN_DISABLE → S5 DISABLED.",
+   "art": "OFFEN",
+   "kennung": "O-10-05",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 56,
+   "zeilen": "183-187",
+   "zitat": "-> S0 INACTIVE (fresh start; persist timer reset)",
+   "aussage": "S5 DISABLED: E-MAN_ENABLE → S0 INACTIVE (Neustart, Persist-Timer zurueckgesetzt); E-OVR_ON/OFF loesen keine Transition aus, Metriken koennen optional als 'disabled_observed_overload' erfasst werden.",
+   "art": "FUNKTION",
+   "kennung": "S5",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 57,
+   "zeilen": "190",
+   "zitat": "- INV-01: Max 1 active episode at a time (DB or logic enforced).",
+   "aussage": "INV-01: hoechstens eine aktive Episode gleichzeitig (per DB oder Logik durchgesetzt).",
+   "art": "SCHUTZZIEL",
+   "kennung": "INV-01",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 58,
+   "zeilen": "191",
+   "zitat": "- INV-02: Peak apply targets USER-only (via BR-09 filter).",
+   "aussage": "INV-02: Peak-Apply zielt nur auf USER (ueber den BR-09-Filter).",
+   "art": "SCHUTZZIEL",
+   "kennung": "INV-02",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-100"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 59,
+   "zeilen": "192",
+   "zitat": "- INV-03: No tc topology changes (CAKE-only; BR-06).",
+   "aussage": "INV-03: keine Aenderung der tc-Topologie (CAKE-only; BR-06).",
+   "art": "SCHUTZZIEL",
+   "kennung": "INV-03",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 60,
+   "zeilen": "193",
+   "zitat": "- INV-04: Controller never loops faster als SAMPLE_INTERVAL_SEC; no busy-loop.",
+   "aussage": "INV-04: Der Controller laeuft nie schneller als SAMPLE_INTERVAL_SEC; kein Busy-Loop.",
+   "art": "SCHUTZZIEL",
+   "kennung": "INV-04",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 61,
+   "zeilen": "194",
+   "zitat": "- INV-05: All transitions write audit reasons (episode enter/exit reason codes).",
+   "aussage": "INV-05: Alle Transitionen schreiben Audit-Gruende (Enter-/Exit-Reason-Codes der Episode).",
+   "art": "SCHUTZZIEL",
+   "kennung": "INV-05",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 62,
+   "zeilen": "200-203",
+   "zitat": "- EXIT/RESTORE failures: verbleibe in PEAK_ACTIVE, aber markiere “DEGRADED” und retry nur über Controller tick bounded (oder manual).",
+   "aussage": "APPLY_FAILURE_POLICY Option A (Strict, empfohlen fuer Sicherheit und Kanon-Klarheit): ENTER nur bei Apply OK, sonst zurueck nach INACTIVE; bei EXIT/RESTORE-Fehlern in PEAK_ACTIVE bleiben, als 'DEGRADED' markieren und nur bounded ueber den Controller-Tick (oder manuell) wiederholen.",
+   "art": "OFFEN",
+   "kennung": "FP-BR10-11",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 63,
+   "zeilen": "204-205",
+   "zitat": "- Episode wird PEAK_ACTIVE auch wenn Apply teilweise failt (risk: drift; harder to reason).",
+   "aussage": "Option B (Degraded Enter): Episode wird PEAK_ACTIVE, auch wenn das Apply teilweise fehlschlaegt (Risiko: Drift, schwerer nachvollziehbar).",
+   "art": "OFFEN",
+   "kennung": "FP-BR10-11",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 64,
+   "zeilen": "206-207",
+   "zitat": "- Bei Apply fail: Peak disabled (S5) + alert; admin muss eingreifen.",
+   "aussage": "Option C (Fail-safe disable): bei Apply-Fehler wird Peak deaktiviert (S5) und alarmiert; ein Admin muss eingreifen.",
+   "art": "OFFEN",
+   "kennung": "FP-BR10-11",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 65,
+   "zeilen": "209",
+   "zitat": "Hinweis: Ohne Owner-Fix entsteht Drift, weil Implementation “irgendwie” reagiert.",
+   "aussage": "Hinweis: Ohne Owner-Fix der Failure-Policy entsteht Drift, weil die Implementierung 'irgendwie' reagiert.",
+   "art": "OFFEN",
+   "kennung": "FP-BR10-11",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 66,
+   "zeilen": "215-218",
+   "zitat": "- Wenn keine valid USER sessions: ENTER/EXTEND apply ist NOOP; Episode kann trotzdem als “overload observed” geloggt werden,",
+   "aussage": "E5.1 leerer /run-Snapshot: ohne gueltige USER-Sessions ist ENTER/EXTEND-Apply ein NOOP; die Episode kann als 'overload observed' geloggt werden, eine Drossel ergibt aber keinen Sinn; zu auditieren ist result_code=NO_TARGETS.",
+   "art": "FUNKTION",
+   "kennung": "E5.1",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 67,
+   "zeilen": "220-221",
+   "zitat": "- Controller bleibt robust: apply ist bounded, items_fail kann steigen, aber state machine darf nicht kippen.",
+   "aussage": "E5.2 hoher Churn (pppX kommt/geht): Der Controller bleibt robust; Apply ist bounded, items_fail kann steigen, die State Machine darf aber nicht kippen. [PPP-gebunden]",
+   "art": "BETRIEB",
+   "kennung": "E5.2",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 68,
+   "zeilen": "223-226",
+   "zitat": "- Controller darf nicht “blind” weiterlaufen ohne minimal audit (Policy):",
+   "aussage": "E5.3 Disk-full / DB-Audit-Fehler: Der Controller darf nicht 'blind' ohne Minimal-Audit weiterlaufen; Option: bei wiederholtem Audit-Schreibfehler Peak deaktivieren (S5) - OPEN, muss fixiert werden.",
+   "art": "OFFEN",
+   "kennung": "E5.3 / O-10-04",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 69,
+   "zeilen": "228-229",
+   "zitat": "- Attribution darf Controller nicht blockieren; liefert Flags (BR-07) und Controller speichert sie.",
+   "aussage": "E5.4 Zaehler-Resets / Nenner null in der Attribution: Die Attribution darf den Controller nicht blockieren; sie liefert Flags (BR-07), der Controller speichert sie.",
+   "art": "FUNKTION",
+   "kennung": "E5.4",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 70,
+   "zeilen": "235-237",
+   "zitat": "- Overload ON >= PERSIST_ENTER_SEC: genau 1 ENTER_APPLY, dann PEAK_ACTIVE.",
+   "aussage": "T-10-01 Enter Gate: Overload ON < PERSIST_ENTER_SEC → bleibt ENTER_PENDING, kein Apply; Overload ON >= PERSIST_ENTER_SEC → genau ein ENTER_APPLY, dann PEAK_ACTIVE.",
+   "art": "TEST",
+   "kennung": "T-10-01",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 71,
+   "zeilen": "239-240",
+   "zitat": "- Während PEAK_ACTIVE bei wiederholtem OVR_ON: hold_until wird stets nach vorne geschoben.",
+   "aussage": "T-10-02 Sliding Hold: In PEAK_ACTIVE wird hold_until bei wiederholtem OVR_ON stets nach vorne geschoben.",
+   "art": "TEST",
+   "kennung": "T-10-02",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 72,
+   "zeilen": "242-244",
+   "zitat": "- OVR_OFF kurz: EXIT_PENDING, aber kehrt zurück zu PEAK_ACTIVE wenn OVR_ON wiederkommt.",
+   "aussage": "T-10-03 Exit Gate: kurzes OVR_OFF → EXIT_PENDING, Rueckkehr zu PEAK_ACTIVE bei erneutem OVR_ON; OVR_OFF >= RECOVERY_EXIT_SEC → EXIT_RESTORE wird versucht.",
+   "art": "TEST",
+   "kennung": "T-10-03",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 73,
+   "zeilen": "246-247",
+   "zitat": "- Nach Exit: Enter wird während COOLDOWN ignoriert (außer manual override falls erlaubt).",
+   "aussage": "T-10-04 Cooldown Anti-Flap: Nach Exit wird Enter waehrend COOLDOWN ignoriert (ausser manueller Override, falls erlaubt).",
+   "art": "TEST",
+   "kennung": "T-10-04",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 74,
+   "zeilen": "249-251",
+   "zitat": "- Force Enter: setzt Peak ohne Persist (audit reason MANUAL_ENTER).",
+   "aussage": "T-10-05 Manual Overrides: Force Enter setzt Peak ohne Persist (Audit-Reason MANUAL_ENTER); Force Exit stellt die Profil-BW wieder her (Audit-Reason MANUAL_EXIT).",
+   "art": "TEST",
+   "kennung": "T-10-05",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 75,
+   "zeilen": "253-255",
+   "zitat": "- Verhalten folgt APPLY_FAILURE_POLICY deterministisch (kein loop, kein flap).",
+   "aussage": "T-10-06 Apply-Fehler: BR-09 exit_code=2/4/5 simulieren; das Verhalten folgt deterministisch der APPLY_FAILURE_POLICY (kein Loop, kein Flap).",
+   "art": "TEST",
+   "kennung": "T-10-06",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 76,
+   "zeilen": "257-258",
+   "zitat": "- Admin Session present: niemals shaped; audit shows skipped.",
+   "aussage": "T-10-07 USER-only: Eine vorhandene Admin-Session wird niemals geshaped; das Audit zeigt 'skipped'.",
+   "art": "TEST",
+   "kennung": "T-10-07",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-100"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 77,
+   "zeilen": "260-261",
+   "zitat": "- Unter CPU 100%: controller tick bleibt periodisch; keine busy loops; BR-09 bounded apply.",
+   "aussage": "T-10-08 Boundedness: Unter 100 % CPU bleibt der Controller-Tick periodisch; keine Busy-Loops; BR-09 wendet bounded an.",
+   "art": "TEST",
+   "kennung": "T-10-08",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 78,
+   "zeilen": "266",
+   "zitat": "O-10-01 Zeitwerte: PERSIST_ENTER_SEC / SAMPLE_INTERVAL_SEC / HOLD_WINDOW_SEC / RECOVERY_EXIT_SEC / COOLDOWN_SEC",
+   "aussage": "O-10-01: Zeitwerte PERSIST_ENTER_SEC / SAMPLE_INTERVAL_SEC / HOLD_WINDOW_SEC / RECOVERY_EXIT_SEC / COOLDOWN_SEC sind offen.",
+   "art": "OFFEN",
+   "kennung": "O-10-01",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-090"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 79,
+   "zeilen": "267",
+   "zitat": "O-10-02 APPLY_FAILURE_POLICY (Strict vs Degraded vs Disable)",
+   "aussage": "O-10-02: APPLY_FAILURE_POLICY (Strict vs Degraded vs Disable) ist offen.",
+   "art": "OFFEN",
+   "kennung": "O-10-02",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 80,
+   "zeilen": "268",
+   "zitat": "O-10-03 Manual override permissions (AuthZ)",
+   "aussage": "O-10-03: Berechtigungen fuer manuelle Overrides (AuthZ) sind offen.",
+   "art": "OFFEN",
+   "kennung": "O-10-03",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 81,
+   "zeilen": "269",
+   "zitat": "O-10-04 Audit-fail policy (DB write fail → disable? degrade?)",
+   "aussage": "O-10-04: Audit-Fail-Policy (DB-Schreibfehler → disable oder degrade) ist offen.",
+   "art": "OFFEN",
+   "kennung": "O-10-04",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 82,
+   "zeilen": "270",
+   "zitat": "O-10-05 “Cooldown bypass via manual enter” ja/nein (Owner)",
+   "aussage": "O-10-05: 'Cooldown bypass via manual enter' ja/nein ist Owner-Entscheidung.",
+   "art": "OFFEN",
+   "kennung": "O-10-05",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 83,
+   "zeilen": "273-277",
+   "zitat": "- Grund: Zeitwerte + Apply-Failure-Policy sind noch nicht owner-gefixt; ohne diese ist die State-Machine nicht vollständig deterministisch.",
+   "aussage": "Drift-Ampel: RISK, weil Zeitwerte und Apply-Failure-Policy nicht owner-gefixt sind und die State Machine ohne sie nicht vollstaendig deterministisch ist; die Kernelemente (Persist Gate, Sliding Hold, Recovery Exit, Cooldown Anti-Flap, USER-only-Apply, CAKE-only) seien konsistent.",
+   "art": "OFFEN",
+   "kennung": "DRIFT",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 84,
+   "zeilen": "282-283",
+   "zitat": "- v2.0-ENTWURF (heute): BR-10 definiert geschlossene Peak Episode State Machine (INACTIVE→ENTER_PENDING→PEAK_ACTIVE→EXIT_PENDING→COOLDOWN),",
+   "aussage": "Changelog v2.0-ENTWURF: BR-10 definiert die geschlossene Peak-Episode-State-Machine (INACTIVE→ENTER_PENDING→PEAK_ACTIVE→EXIT_PENDING→COOLDOWN) samt manuellen Overrides, Boundedness-Invarianten, Apply-Orchestrator-Integration ueber BR-09 und Audit-Integration ueber BR-08.",
+   "art": "HISTORIE",
+   "kennung": "v2.0-ENTWURF",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  }
+ ],
+ "werte": [
+  {
+   "zeilen": "68",
+   "name": "FP-BR10-01 SOFTIRQ_AGGREGATION",
+   "wert": "aggregated",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- FP-BR10-01 SOFTIRQ_AGGREGATION = aggregated"
+  },
+  {
+   "zeilen": "69",
+   "name": "FP-BR10-02 MULTI_THRESHOLD_PCT",
+   "wert": "30",
+   "einheit": "%",
+   "status": "FIX",
+   "zitat": "- FP-BR10-02 MULTI_THRESHOLD_PCT = 30%"
+  },
+  {
+   "zeilen": "70",
+   "name": "FP-BR10-03 TOPN_DYNAMIC_LATCH",
+   "wert": "<=20→3; 21..100→5; >100→10; Latch je Episode",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- FP-BR10-03 TOPN_DYNAMIC_LATCH (<=20→3; 21..100→5; >100→10; latch pro episode)"
+  },
+  {
+   "zeilen": "71",
+   "name": "FP-BR10-04 TARGET_SCOPE",
+   "wert": "USER-only apply (Admin excluded), ueber BR-09",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- FP-BR10-04 TARGET_SCOPE = USER-only apply (Admin excluded) (über BR-09)"
+  },
+  {
+   "zeilen": "72",
+   "name": "FP-BR10-05 CAKE_ONLY",
+   "wert": "true (ueber BR-06)",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- FP-BR10-05 CAKE_ONLY = true (über BR-06)"
+  },
+  {
+   "zeilen": "75",
+   "name": "FP-BR10-06 PERSIST_ENTER_SEC",
+   "wert": "OPEN; v1 typisch 180",
+   "einheit": "s",
+   "status": "OPEN",
+   "zitat": "- FP-BR10-06 PERSIST_ENTER_SEC (v1 typisch: 180)"
+  },
+  {
+   "zeilen": "76",
+   "name": "FP-BR10-07 SAMPLE_INTERVAL_SEC",
+   "wert": "OPEN; v1 typisch 10",
+   "einheit": "s",
+   "status": "OPEN",
+   "zitat": "- FP-BR10-07 SAMPLE_INTERVAL_SEC (v1 typisch: 10)"
+  },
+  {
+   "zeilen": "77",
+   "name": "FP-BR10-08 HOLD_WINDOW_SEC",
+   "wert": "OPEN; v1 typisch 900 (15 min) oder anderer Wert",
+   "einheit": "s",
+   "status": "OPEN",
+   "zitat": "- FP-BR10-08 HOLD_WINDOW_SEC (v1 typisch: 900 / 15min)  [oder anderer Wert]"
+  },
+  {
+   "zeilen": "78",
+   "name": "FP-BR10-09 RECOVERY_EXIT_SEC",
+   "wert": "OPEN; z. B. 60..180",
+   "einheit": "s",
+   "status": "OPEN",
+   "zitat": "- FP-BR10-09 RECOVERY_EXIT_SEC (z.B. 60..180)  // “Overload muss weg bleiben”"
+  },
+  {
+   "zeilen": "79",
+   "name": "FP-BR10-10 COOLDOWN_SEC",
+   "wert": "OPEN; z. B. 120..600",
+   "einheit": "s",
+   "status": "OPEN",
+   "zitat": "- FP-BR10-10 COOLDOWN_SEC (z.B. 120..600)      // verhindert Flap"
+  },
+  {
+   "zeilen": "80-84",
+   "name": "FP-BR10-11 APPLY_FAILURE_POLICY",
+   "wert": "OPEN; Optionen A (Strict, empfohlen), B (Degraded Enter), C (Fail-safe)",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- FP-BR10-11 APPLY_FAILURE_POLICY:"
+  },
+  {
+   "zeilen": "85-86",
+   "name": "FP-BR10-12 MANUAL_OVERRIDE_PERMISSIONS",
+   "wert": "OPEN; Admin-Rolle im Panel, muss zur AuthZ passen",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- FP-BR10-12 MANUAL_OVERRIDE_PERMISSIONS:"
+  },
+  {
+   "zeilen": "39",
+   "name": "Persist Enter Sec (v1-Default laut BR-03-Import)",
+   "wert": "180",
+   "einheit": "s",
+   "status": "KANDIDAT",
+   "zitat": "-> Overload-Persist-Entscheid: CPU/SoftIRQ aggregated; Persist Enter Sec (default 180 im v1)"
+  },
+  {
+   "zeilen": "43",
+   "name": "MULTI threshold (BR-07-Import)",
+   "wert": "30",
+   "einheit": "%",
+   "status": "FIX",
+   "zitat": "-> Attribution Snapshots: MULTI threshold 30%, TopN dynamic latched per episode, USER-only"
+  },
+  {
+   "zeilen": "93",
+   "name": "State S0",
+   "wert": "INACTIVE",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- Kein Peak aktiv; Profil-BW gilt (oder “current” ist Profil)."
+  },
+  {
+   "zeilen": "95",
+   "name": "State S1",
+   "wert": "ENTER_PENDING",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "S1 ENTER_PENDING (Persist-Check läuft)"
+  },
+  {
+   "zeilen": "97",
+   "name": "State S2",
+   "wert": "PEAK_ACTIVE (HOLD)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "S2 PEAK_ACTIVE (HOLD)"
+  },
+  {
+   "zeilen": "99",
+   "name": "State S3",
+   "wert": "EXIT_PENDING",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "S3 EXIT_PENDING (Recovery-Check läuft)"
+  },
+  {
+   "zeilen": "101-102",
+   "name": "State S4",
+   "wert": "COOLDOWN",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- Nach Exit: für COOLDOWN_SEC kein neuer Enter (anti-flap)."
+  },
+  {
+   "zeilen": "103",
+   "name": "State S5",
+   "wert": "DISABLED (Admin Disabled)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "S5 DISABLED (Admin Disabled)"
+  },
+  {
+   "zeilen": "107",
+   "name": "Event E-OVR_ON",
+   "wert": "Detector: overload_bool=true",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "E-OVR_ON        (Detector: overload_bool=true)"
+  },
+  {
+   "zeilen": "108",
+   "name": "Event E-OVR_OFF",
+   "wert": "Detector: overload_bool=false",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "E-OVR_OFF       (Detector: overload_bool=false)"
+  },
+  {
+   "zeilen": "109",
+   "name": "Event E-TICK",
+   "wert": "Sample-Tick alle SAMPLE_INTERVAL_SEC",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "E-TICK          (Sample tick; alle SAMPLE_INTERVAL_SEC)"
+  },
+  {
+   "zeilen": "110",
+   "name": "Event E-MAN_ENTER",
+   "wert": "Manual Force Enter",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "E-MAN_ENTER     (Manual Force Enter)"
+  },
+  {
+   "zeilen": "111",
+   "name": "Event E-MAN_EXIT",
+   "wert": "Manual Force Exit",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "E-MAN_EXIT      (Manual Force Exit)"
+  },
+  {
+   "zeilen": "112",
+   "name": "Event E-MAN_DISABLE",
+   "wert": "Manual Disable Peak",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "E-MAN_DISABLE   (Manual Disable Peak)"
+  },
+  {
+   "zeilen": "113",
+   "name": "Event E-MAN_ENABLE",
+   "wert": "Manual Enable Peak",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "E-MAN_ENABLE    (Manual Enable Peak)"
+  },
+  {
+   "zeilen": "114",
+   "name": "Event E-APPLY_OK",
+   "wert": "BR-09 apply exit_code 0/1 je nach Policy",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "E-APPLY_OK      (BR-09 apply exit_code 0/1 je nach policy)"
+  },
+  {
+   "zeilen": "115",
+   "name": "Event E-APPLY_FAIL",
+   "wert": "BR-09 apply exit_code != {0,1} oder policy-definierter Fehler",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "E-APPLY_FAIL    (BR-09 apply exit_code != {0,1} oder policy-defined fail)"
+  },
+  {
+   "zeilen": "116",
+   "name": "Event E-DB_FAIL/AUDIT_FAIL",
+   "wert": "optional",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "E-DB_FAIL/AUDIT_FAIL (optional, wenn BR-08 logging failt; controller muss deterministisch reagieren)"
+  },
+  {
+   "zeilen": "122",
+   "name": "Zeitstempel enter_candidate_at",
+   "wert": "wird beim Uebergang S0→S1 festgehalten",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "-> S1 ENTER_PENDING (start persist timer; record enter_candidate_at)"
+  },
+  {
+   "zeilen": "136",
+   "name": "hold_until beim ENTER",
+   "wert": "now + HOLD_WINDOW_SEC; topN wird gelatcht",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "-> S2 PEAK_ACTIVE (set hold_until = now + HOLD_WINDOW_SEC; latch topN)"
+  },
+  {
+   "zeilen": "148",
+   "name": "hold_until bei bestaetigter Ueberlast",
+   "wert": "now + HOLD_WINDOW_SEC (sliding)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- extend hold_until = now + HOLD_WINDOW_SEC (sliding)"
+  },
+  {
+   "zeilen": "132",
+   "name": "Enter-Bedingung",
+   "wert": "overload_on_duration >= PERSIST_ENTER_SEC",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- if overload_on_duration >= PERSIST_ENTER_SEC:"
+  },
+  {
+   "zeilen": "163",
+   "name": "Exit-Bedingung",
+   "wert": "overload_off_duration >= RECOVERY_EXIT_SEC",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- if overload_off_duration >= RECOVERY_EXIT_SEC:"
+  },
+  {
+   "zeilen": "174",
+   "name": "Cooldown-Ende",
+   "wert": "cooldown_elapsed >= COOLDOWN_SEC",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- if cooldown_elapsed >= COOLDOWN_SEC:"
+  },
+  {
+   "zeilen": "177",
+   "name": "optionale Metrik im Cooldown",
+   "wert": "overload during cooldown",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- ignore enters until cooldown over (anti-flap), but optionally record “overload during cooldown” metric"
+  },
+  {
+   "zeilen": "187",
+   "name": "optionale Metrik im Zustand DISABLED",
+   "wert": "disabled_observed_overload",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- ignore state transitions, but can still record metrics as “disabled_observed_overload” (optional)"
+  },
+  {
+   "zeilen": "218",
+   "name": "result_code bei leerem /run-Snapshot",
+   "wert": "NO_TARGETS",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- Muss auditieren: result_code=NO_TARGETS."
+  },
+  {
+   "zeilen": "250",
+   "name": "Audit-Reason Force Enter",
+   "wert": "MANUAL_ENTER",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- Force Enter: setzt Peak ohne Persist (audit reason MANUAL_ENTER)."
+  },
+  {
+   "zeilen": "251",
+   "name": "Audit-Reason Force Exit",
+   "wert": "MANUAL_EXIT",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- Force Exit: stellt Profil-BW wieder her (audit reason MANUAL_EXIT)."
+  },
+  {
+   "zeilen": "254",
+   "name": "simulierte BR-09 Exit-Codes im Test T-10-06",
+   "wert": "2 / 4 / 5",
+   "einheit": "",
+   "status": "BEISPIEL",
+   "zitat": "- Simuliere BR-09 exit_code=2/4/5:"
+  },
+  {
+   "zeilen": "261",
+   "name": "CPU-Last im Test T-10-08",
+   "wert": "100",
+   "einheit": "%",
+   "status": "BEISPIEL",
+   "zitat": "- Unter CPU 100%: controller tick bleibt periodisch; keine busy loops; BR-09 bounded apply."
+  },
+  {
+   "zeilen": "275-276",
+   "name": "DRIFT-Ampel BR-10",
+   "wert": "RISK",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- Grund: Zeitwerte + Apply-Failure-Policy sind noch nicht owner-gefixt; ohne diese ist die State-Machine nicht vollständig deterministisch."
+  },
+  {
+   "zeilen": "57",
+   "name": "K-CONF-01 Status",
+   "wert": "RISK",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "-> Status: RISK (Owner-Fix nötig; sonst drift)"
+  },
+  {
+   "zeilen": "59",
+   "name": "K-CONF-02 Status",
+   "wert": "NONE",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "-> Status: NONE (Overrides dürfen nur Peak-state togglen, nicht Admin shaping)"
+  },
+  {
+   "zeilen": "61",
+   "name": "K-CONF-03 Status",
+   "wert": "RISK",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "-> Status: RISK (muss deterministisch: abort vs degraded hold)"
+  }
+ ],
+ "verweise_auf_dokumente": [
+  {
+   "zeilen": "32",
+   "name": "Peak-Mode_Was es ist, wie es funktioniert.txt",
+   "zitat": "- K-IMP-01: Peak-Mode_Was es ist, wie es funktioniert.txt"
+  },
+  {
+   "zeilen": "34",
+   "name": "Peak-Mode_TEIL2_BUILD_READY_CHECKLISTE.txt",
+   "zitat": "- K-IMP-02: Peak-Mode_TEIL2_BUILD_READY_CHECKLISTE.txt"
+  },
+  {
+   "zeilen": "36",
+   "name": "Peak-Mode_Teil1_Fakten.txt",
+   "zitat": "- K-IMP-03: Peak-Mode_Teil1_Fakten.txt"
+  },
+  {
+   "zeilen": "38",
+   "name": "PEAK MODE v2 BR-03 (Trigger Gate)",
+   "zitat": "- K-IMP-04: PEAK MODE v2 BR-03 (Trigger Gate)"
+  },
+  {
+   "zeilen": "40",
+   "name": "PEAK MODE v2 BR-02 / BR-05",
+   "zitat": "- K-IMP-05: PEAK MODE v2 BR-02 / BR-05"
+  },
+  {
+   "zeilen": "42",
+   "name": "PEAK MODE v2 BR-07",
+   "zitat": "- K-IMP-06: PEAK MODE v2 BR-07"
+  },
+  {
+   "zeilen": "44",
+   "name": "PEAK MODE v2 BR-08",
+   "zitat": "- K-IMP-07: PEAK MODE v2 BR-08"
+  },
+  {
+   "zeilen": "46",
+   "name": "PEAK MODE v2 BR-09",
+   "zitat": "- K-IMP-08: PEAK MODE v2 BR-09"
+  },
+  {
+   "zeilen": "24",
+   "name": "BR-01 / BR-06 (CAKE specifics)",
+   "zitat": "- CAKE specifics (BR-01/BR-06)"
+  }
+ ],
+ "offene_punkte": [
+  {
+   "zeilen": "75-79, 266",
+   "kennung": "O-10-01 / FP-BR10-06..10",
+   "text": "Zeitwerte PERSIST_ENTER_SEC, SAMPLE_INTERVAL_SEC, HOLD_WINDOW_SEC, RECOVERY_EXIT_SEC, COOLDOWN_SEC sind in BR-10 nicht fixiert."
+  },
+  {
+   "zeilen": "80-84, 200-209, 267",
+   "kennung": "O-10-02 / FP-BR10-11",
+   "text": "APPLY_FAILURE_POLICY: Strict (A, empfohlen), Degraded Enter (B) oder Fail-safe Disable (C)."
+  },
+  {
+   "zeilen": "85-86, 268",
+   "kennung": "O-10-03 / FP-BR10-12",
+   "text": "Berechtigungen fuer manuelle Overrides (Force Enter/Exit/Disable) - muss zur AuthZ passen."
+  },
+  {
+   "zeilen": "223-226, 269",
+   "kennung": "O-10-04",
+   "text": "Audit-Fail-Policy: bei wiederholtem DB-/Audit-Schreibfehler Peak deaktivieren oder degradieren."
+  },
+  {
+   "zeilen": "178-179, 270",
+   "kennung": "O-10-05",
+   "text": "Cooldown-Bypass durch manuellen Enter ja/nein."
+  },
+  {
+   "zeilen": "156-157",
+   "kennung": "",
+   "text": "Verhalten bei E-MAN_DISABLE aus S2 (best-effort restore, dann DISABLED) ist als 'OPEN policy; must be fixed' markiert."
+  },
+  {
+   "zeilen": "15",
+   "kennung": "",
+   "text": "Der im Scope genannte Override 'Clear Episode' wird in Events und Transitionen nicht weiter definiert."
+  }
+ ],
+ "innere_widersprueche": [
+  {
+   "zeilen": "83 / 206-207",
+   "text": "Option C der APPLY_FAILURE_POLICY ist doppelt und unterschiedlich beschrieben: in Abschnitt 2 als 'Fail-safe Exit-Restore bei Apply fail', in Abschnitt 4 als 'Fail-safe disable' (Peak disabled S5 + alert)."
+  },
+  {
+   "zeilen": "15 / 110-113",
+   "text": "Der Scope nennt vier Overrides einschliesslich 'Clear Episode'; die Ereignisliste kennt E-MAN_ENTER, E-MAN_EXIT, E-MAN_DISABLE, E-MAN_ENABLE - 'Clear Episode' fehlt, dafuer kommt Enable hinzu."
+  },
+  {
+   "zeilen": "52 / 148-151",
+   "text": "Die Begriffsbestimmung nennt als Exit-Ausloeser 'oder hold_window auslaeuft'; die Transitionen kennen keinen Uebergang durch Ablauf von hold_until - der Exit laeuft ausschliesslich ueber E-OVR_OFF und RECOVERY_EXIT_SEC. Die Rolle von hold_until im Automaten bleibt damit unklar."
+  },
+  {
+   "zeilen": "155 / 203",
+   "text": "Ein Zustand 'DEGRADED' wird als Markierung von S2 verwendet, ist aber nicht Teil der Zustandsliste S0..S5."
+  },
+  {
+   "zeilen": "218 (gegen BR-09 Zeile 170)",
+   "text": "result_code=NO_TARGETS ist in der 'normativ minimalen' result_code-Enumeration von BR-09 nicht enthalten."
+  },
+  {
+   "zeilen": "75-77 (gegen BR-08 Zeilen 138-140)",
+   "text": "BR-08 fuehrt 10/180/900 s als Spalten-Defaults, BR-10 fuehrt dieselben Zeitwerte als OPEN ('v1 typisch')."
+  },
+  {
+   "zeilen": "282",
+   "text": "Der Changelog zaehlt fuenf Zustaende auf (ohne DISABLED); der Automat hat sechs."
+  }
+ ],
+ "relevanz": {
+  "stufe": "HOCH",
+  "begruendung": "Enthaelt den vollstaendigen Zustandsautomaten des Peak Mode mit Zustaenden, Ereignissen, Uebergaengen, Invarianten, manuellen Eingriffen, Randfaellen und Tests - der Kern eines MOD-009-Vertrags. Der Automat selbst ist schnittstellenneutral; PPP-gebunden sind nur Snapshot-Inhalt (active_ppp) und Churn-Fall.",
+  "rt_module": [
+   "MOD-009",
+   "MOD-003",
+   "BASE-080",
+   "BASE-090",
+   "BASE-000",
+   "MOD-006",
+   "MOD-007",
+   "BASE-100"
+  ]
+ },
+ "auffaelligkeiten": [
+  "Keine Zugangsdaten enthalten.",
+  "Alle Zeitwerte sind hier OPEN mit v1-typischen Angaben; die spaeteren Dokumente der Gruppe (DECISION MATRIX, OWNER-FIX VALUE SHEET) sind fuer die endgueltigen Werte massgeblich zu vergleichen.",
+  "Kein Datum; Changelog nennt 'heute'. Datei ohne abschliessende Zeilenschaltung (wc -l 282, Read 283 Zeilen).",
+  "Englisch-deutscher Mischtext in den Transitionen (z. B. 'same as MAN_EXIT then DISABLED')."
+ ]
+}

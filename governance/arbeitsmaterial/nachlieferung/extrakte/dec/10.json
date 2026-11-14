@@ -1,0 +1,1000 @@
+{
+ "datei": "nachlieferung/decisions/D010_FAIL2BAN_RADIUS_EVENT_CLASSIFICATION_POLICY_DENY.txt",
+ "abschnitt": "1-141",
+ "zeilen_gesamt": 141,
+ "gelesen_bereiche": "1-141 (Nachlieferung); zusaetzlich XPN-Fassung XPN:decisions/D010_FAIL2BAN_RADIUS_EVENT_CLASSIFICATION_POLICY_DENY.txt 1-144 und vollstaendiger diff beider Fassungen",
+ "vollstaendig_gelesen": true,
+ "dokument": {
+  "titel": "Fail2ban (RADIUS) – kanonische Event-Klassifikation + POLICY_DENY (log-only)",
+  "doc_id": "D010",
+  "status_laut_datei": "ACCEPTED",
+  "version_laut_datei": "v1.0",
+  "datum_laut_datei": "2026-01-23",
+  "projekt": "XPN",
+  "art": "ENTSCHEIDUNG",
+  "normativitaet_laut_datei": "Decision Record mit STATUS: ACCEPTED; Anforderungen als MUST/SHOULD/OPTIONAL gegliedert; Teilentscheidungen A.1-A.3 ausdruecklich 'ist MUST'; Abschnitt D als '(Invariant)'; Beispiel-Format als '(kanonisch)' bezeichnet"
+ },
+ "zusammenfassung": "D010 ist ein angenommener, technisch detaillierter Entscheidungs-Record des XPN-Projekts zur Anbindung von Fail2ban an FreeRADIUS. Ziel ist, Fail2ban einzusetzen, ohne NAT-User unnoetig zu sperren, ohne Self-DoS (localhost bannen) und ohne bei SQL-Ausfall massenhaft legitime Clients zu bannen. Entschieden wird eine dedizierte, maschinenlesbare linelog-Zeile 'F2B_EVENT' im key=value-Format (Class, SrcIP, User, Outcome, Reason, Detail) als einzige Parsing-Quelle; sie wird auch bei ACCEPT erzeugt (Class=OK), gegen Doppel-Emission durch das Flag control:F2B_EMITTED geschuetzt, per RFC3986-Percent-Encoding bereinigt (Caps User<=64, Detail<=256) und nimmt die Quell-IP ausschliesslich aus der Calling-Station-Id (sonst NA). Vier kanonische Klassen werden definiert: UNKNOWN_USER, KNOWN_BADPASS, BACKEND_ERROR und POLICY_DENY (log-only); Fail2ban bannt nur die ersten beiden, BACKEND_ERROR und POLICY_DENY werden nur geloggt. Die Klassifikation erfolgt deterministisch ueber Flags in authorize/authenticate/post-auth statt ueber Textvergleich; die Scratchpad-Slots Tmp-String-0 bis -3 werden exklusiv reserviert (IDENTITY_STATE, AUTH_DETAIL, POLICY_OUTCOME, POLICY_REASON). Quota/Expiry/UNCLAIMED_OVERDUE/RateLimit gelten als RESTRICT (ACCEPT) und gehoeren nicht zu POLICY_DENY; Verify/Claim sind PANEL-only. Drei Alternativen (kein POLICY_DENY, Parsing der Standard-Logs, Text-Matching auf mschap) werden verworfen. Der Record ist reif und weitgehend stimmig, mit kleineren Unschaerfen (Alternativen ohne 'A', Risiko nennt nur Slots 0/1, Verweis auf nicht verlinkten B341 und eine 'T-Spec'). Der Textkoerper ist identisch mit der XPN-Fassung v1.3.",
+ "aussagen": [
+  {
+   "nr": 1,
+   "zeilen": "3-8",
+   "zitat": "TITLE: Fail2ban (RADIUS) – kanonische Event-Klassifikation + POLICY_DENY (log-only)",
+   "aussage": "Kopf des Records: DECISION-ID D010, VERSION v1.0, DATUM 2026-01-23, STATUS ACCEPTED, OWNER Marco (Owner) + ChatGPT (Co-Architect).",
+   "art": "HISTORIE",
+   "kennung": "D010",
+   "rt_bezug": [
+    "MOD-005",
+    "BASE-020"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 2,
+   "zeilen": "12-13",
+   "zitat": "Wir wollen Fail2ban einsetzen, ohne NAT-User unnötig zu sperren und ohne Self-DoS (z.B. \"localhost\" bannen).",
+   "aussage": "Ausgangslage: Fail2ban soll eingesetzt werden, ohne NAT-User unnoetig zu sperren und ohne Self-DoS (z. B. 'localhost' bannen).",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-005"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 3,
+   "zeilen": "14",
+   "zitat": "  - Standard-FreeRADIUS-Logs sind nicht stabil genug als Parsing-Quelle",
+   "aussage": "Ausgangslage: Die Standard-Logs von FreeRADIUS sind als Parsing-Quelle nicht stabil genug, weil Text, Format und Module-Failure-Message variieren koennen.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-005",
+    "BASE-020",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 4,
+   "zeilen": "15",
+   "zitat": "  - D1a (SQL-first / Fail-Closed): Wenn SQL down ist, darf keine Session entstehen;",
+   "aussage": "Ausgangslage mit Bezug auf D1a (SQL-first/Fail-Closed): Ist SQL nicht erreichbar, darf keine Sitzung entstehen; zugleich darf Fail2ban bei SQL-Ausfall nicht massenhaft legitim wiederverbindende Clients bannen.",
+   "art": "SCHUTZZIEL",
+   "kennung": "D1a",
+   "rt_bezug": [
+    "MOD-005",
+    "BASE-020",
+    "BASE-000",
+    "BASE-080"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 5,
+   "zeilen": "17-18",
+   "zitat": "  - RADIUS kennt als Client oft \"localhost\" (NAS = pppd auf derselben Maschine).",
+   "aussage": "Problem: RADIUS kennt als Client oft 'localhost', weil der NAS (pppd) auf derselben Maschine laeuft; naives Parsing bannt die falsche Quelle.",
+   "art": "IMPL_DETAIL",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-005",
+    "BASE-020",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 6,
+   "zeilen": "19-22",
+   "zitat": "  - Wir brauchen NAT-sichere Unterscheidung:",
+   "aussage": "Benoetigt wird eine NAT-sichere Unterscheidung zwischen UNKNOWN_USER (Enumeration/Fishing), KNOWN_BADPASS (Bruteforce, aber NAT-sensitiv) und BACKEND_ERROR (SQL down o. ae., NICHT bannen).",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-005",
+    "BASE-020"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 7,
+   "zeilen": "23",
+   "zitat": "echte Kernel-Policy-Blocks (z.B. DISABLED/BANNED/ADMIN_LOCK/ABUSE_HOLD/MAINTENANCE) als generische Rejects verschwinden",
+   "aussage": "Problem: Support und Beobachtbarkeit leiden, wenn echte Kernel-Policy-Blocks (z. B. DISABLED, BANNED, ADMIN_LOCK, ABUSE_HOLD, MAINTENANCE) als generische Rejects untergehen und nicht deterministisch als POLICY_DENY sichtbar sind.",
+   "art": "BETRIEB",
+   "kennung": "POLICY_DENY",
+   "rt_bezug": [
+    "BASE-020",
+    "MOD-007",
+    "BASE-010"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 8,
+   "zeilen": "26-27",
+   "zitat": "  - Fail2ban darf nie loopback/localhost bannen (Self-DoS Schutz).",
+   "aussage": "MUST: Fail2ban darf nie loopback/localhost bannen (Self-DoS-Schutz).",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-005"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 9,
+   "zeilen": "28",
+   "zitat": "  - RADIUS-Jails matchen ausschließlich eine dedizierte, maschinenlesbare Logline",
+   "aussage": "MUST: Die RADIUS-Jails matchen ausschliesslich eine dedizierte, maschinenlesbare Logzeile; die Standard-Logzeilen werden nicht geparst.",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-005",
+    "BASE-020"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 10,
+   "zeilen": "29",
+   "zitat": "  - Klassen müssen NAT-sicher sein (UNKNOWN vs KNOWN_BADPASS getrennt).",
+   "aussage": "MUST: Die Klassen muessen NAT-sicher sein; UNKNOWN und KNOWN_BADPASS werden getrennt behandelt.",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-005"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 11,
+   "zeilen": "30",
+   "zitat": "  - BACKEND_ERROR muss Fail2ban-seitig ignoriert werden (D1a kompatibel).",
+   "aussage": "MUST: BACKEND_ERROR muss von Fail2ban ignoriert werden (D1a-kompatibel).",
+   "art": "SCHUTZZIEL",
+   "kennung": "BACKEND_ERROR",
+   "rt_bezug": [
+    "MOD-005",
+    "BASE-020"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 12,
+   "zeilen": "31",
+   "zitat": "  - KNOWN_BADPASS Klassifikation muss deterministisch sein (keine Regex-Raterei auf Fehltexten).",
+   "aussage": "MUST: Die Klassifikation KNOWN_BADPASS muss deterministisch sein; keine Regex-Raterei auf Fehlertexten.",
+   "art": "SCHUTZZIEL",
+   "kennung": "KNOWN_BADPASS",
+   "rt_bezug": [
+    "MOD-005",
+    "BASE-020"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 13,
+   "zeilen": "32-33",
+   "zitat": "  - Support/Debugging soll sofort zeigen, ob Reject ein Policy-Block war (nicht Fail2ban-relevant).",
+   "aussage": "SHOULD: Support/Debugging soll sofort erkennen lassen, ob ein Reject ein Policy-Block war (nicht Fail2ban-relevant).",
+   "art": "BETRIEB",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-007",
+    "BASE-020"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 14,
+   "zeilen": "34-35",
+   "zitat": "  - Erweiterbarkeit ohne spätere Fragilität (klare Reservierung interner Flags/Slots).",
+   "aussage": "OPTIONAL: Erweiterbarkeit ohne spaetere Fragilitaet durch klare Reservierung interner Flags/Slots.",
+   "art": "BETRIEB",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-020"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 15,
+   "zeilen": "37-39",
+   "zitat": "A) Dedizierte FreeRADIUS linelog “F2B_EVENT” Logline (key=value) als einzige Parsing-Quelle für Fail2ban auf RADIUS-Ebene.",
+   "aussage": "Entscheidung A: Eine dedizierte FreeRADIUS-linelog-Zeile 'F2B_EVENT' im key=value-Format ist die einzige Parsing-Quelle fuer Fail2ban auf RADIUS-Ebene.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "D010-A",
+   "rt_bezug": [
+    "MOD-005",
+    "BASE-020",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 16,
+   "zeilen": "40-41",
+   "zitat": "F2B_EVENT: Class=<CLASS> SrcIP=<IP-or-NA> User=<USER_ENC> Outcome=<DENY|RESTRICT|OK> Reason=<REASON> Detail=<DETAIL_ENC-or-NA>",
+   "aussage": "Kanonisches Format der Logzeile: 'F2B_EVENT: Class=<CLASS> SrcIP=<IP-or-NA> User=<USER_ENC> Outcome=<DENY|RESTRICT|OK> Reason=<REASON> Detail=<DETAIL_ENC-or-NA>'.",
+   "art": "IMPL_DETAIL",
+   "kennung": "F2B_EVENT",
+   "rt_bezug": [
+    "MOD-005",
+    "BASE-020",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 17,
+   "zeilen": "42",
+   "zitat": "(Hinweis: `User`/`Detail` sind RFC3986-percent-encoded; leere Werte => `NA`; Caps: User<=64, Detail<=256 (nach Encoding).)",
+   "aussage": "Hinweis zum Format: User und Detail sind RFC3986-percent-encoded; leere Werte werden zu NA; Laengengrenzen nach Encoding: User hoechstens 64, Detail hoechstens 256 (wiederholt in den Zeilen 55-57).",
+   "art": "PARAMETER",
+   "kennung": "F2B_EVENT",
+   "rt_bezug": [
+    "MOD-005",
+    "BASE-020"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 18,
+   "zeilen": "43",
+   "zitat": "Fail2ban matcht ausschließlich diese Logline und extrahiert SrcIP über <ADDR> (IP-only; SrcIP=NA darf nie matchen).",
+   "aussage": "Fail2ban matcht ausschliesslich diese Logzeile und entnimmt SrcIP ueber <ADDR> (nur IP); SrcIP=NA darf nie matchen.",
+   "art": "IMPL_DETAIL",
+   "kennung": "D010-A",
+   "rt_bezug": [
+    "MOD-005"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 19,
+   "zeilen": "45-46",
+   "zitat": "- Jeder erfolgreiche Login erzeugt ein `F2B_EVENT` mit `Class=OK`, `Outcome=OK`, `Reason=R_OK`.",
+   "aussage": "A.1 (MUST, Audit/Forensik): Auch bei ACCEPT wird emittiert - jeder erfolgreiche Login erzeugt ein F2B_EVENT mit Class=OK, Outcome=OK, Reason=R_OK.",
+   "art": "IMPL_DETAIL",
+   "kennung": "D010-A.1",
+   "rt_bezug": [
+    "BASE-020",
+    "MOD-005",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 20,
+   "zeilen": "47",
+   "zitat": "Fail2ban matcht ausschließlich ban-relevante Klassen (z.B. UNKNOWN_USER/KNOWN_BADPASS); `Class=OK` wird ignoriert.",
+   "aussage": "A.1: Fail2ban matcht ausschliesslich ban-relevante Klassen (z. B. UNKNOWN_USER/KNOWN_BADPASS); Class=OK wird ignoriert.",
+   "art": "IMPL_DETAIL",
+   "kennung": "D010-A.1",
+   "rt_bezug": [
+    "MOD-005"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 21,
+   "zeilen": "49-52",
+   "zitat": "     - request-lokales Flag: `control:F2B_EMITTED`",
+   "aussage": "A.2 (MUST, deterministisch): Guard gegen Doppel-Emission ueber das request-lokale Flag control:F2B_EMITTED - Pre-Check: wenn ==1, ueberspringen; Post-Set: nach Emission auf 1 setzen.",
+   "art": "IMPL_DETAIL",
+   "kennung": "D010-A.2",
+   "rt_bezug": [
+    "BASE-020",
+    "MOD-005"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 22,
+   "zeilen": "54-55",
+   "zitat": "- `User` und `Detail` werden RFC3986-percent-encoded (UTF-8 bytes; unreserved: A–Z a–z 0–9 - . _ ~).",
+   "aussage": "A.3 (MUST, Sanitizing; die unquotierte Struktur bleibt stabil): User und Detail werden RFC3986-percent-encoded (UTF-8-Bytes; unreserviert: A–Z a–z 0–9 - . _ ~).",
+   "art": "IMPL_DETAIL",
+   "kennung": "D010-A.3",
+   "rt_bezug": [
+    "BASE-020",
+    "MOD-005",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 23,
+   "zeilen": "56-57",
+   "zitat": "     - Caps (nach Encoding): User<=64, Detail<=256; safe truncate (kein halbes %HH)",
+   "aussage": "A.3: Leere Werte werden zu NA; Laengengrenzen nach Encoding User<=64 und Detail<=256; beim Kuerzen darf kein halbes %HH-Tripel entstehen (safe truncate).",
+   "art": "PARAMETER",
+   "kennung": "D010-A.3",
+   "rt_bezug": [
+    "BASE-020",
+    "MOD-005"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 24,
+   "zeilen": "58",
+   "zitat": "     - Begründung: verhindert Log-Injection/Whitespace-Bruch ohne B341-Regex zu verändern.",
+   "aussage": "A.3 Begruendung: Das Encoding verhindert Log-Injection und Whitespace-Bruch, ohne die B341-Regex zu veraendern.",
+   "art": "SCHUTZZIEL",
+   "kennung": "D010-A.3",
+   "rt_bezug": [
+    "MOD-005",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 25,
+   "zeilen": "60-61",
+   "zitat": "     - SrcIP ausschließlich aus Calling-Station-Id wenn parsebar, sonst `NA`.",
+   "aussage": "A.4 (SrcIP Hardening): SrcIP wird ausschliesslich aus der Calling-Station-Id genommen, wenn sie parsebar ist, sonst NA.",
+   "art": "IMPL_DETAIL",
+   "kennung": "D010-A.4",
+   "rt_bezug": [
+    "MOD-005",
+    "BASE-020",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 26,
+   "zeilen": "62",
+   "zitat": "     - Verbotene Quellen: Framed-IP, NAS-IP, Packet-Src-IP, DNS/Hostname.",
+   "aussage": "A.4: Verbotene Quellen fuer SrcIP sind Framed-IP, NAS-IP, Packet-Src-IP und DNS/Hostname.",
+   "art": "SCHUTZZIEL",
+   "kennung": "D010-A.4",
+   "rt_bezug": [
+    "MOD-005",
+    "BASE-020"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 27,
+   "zeilen": "64-65",
+   "zitat": "     - UNKNOWN_USER    (User existiert nicht: sql -> NOTFOUND)",
+   "aussage": "B) Kanonische Klasse UNKNOWN_USER: Der User existiert nicht (sql -> NOTFOUND).",
+   "art": "DEFINITION",
+   "kennung": "UNKNOWN_USER",
+   "rt_bezug": [
+    "BASE-020",
+    "MOD-005"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 28,
+   "zeilen": "66",
+   "zitat": "     - KNOWN_BADPASS   (User existiert, Passwort falsch: deterministisch über MSCHAP reject)",
+   "aussage": "B) Kanonische Klasse KNOWN_BADPASS: Der User existiert, das Passwort ist falsch; deterministisch erkannt ueber einen MSCHAP-Reject.",
+   "art": "DEFINITION",
+   "kennung": "KNOWN_BADPASS",
+   "rt_bezug": [
+    "BASE-020",
+    "MOD-005"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 29,
+   "zeilen": "67",
+   "zitat": "     - BACKEND_ERROR   (SQL/Backend Fehler: sql -> FAIL / DB down / timeout etc.)",
+   "aussage": "B) Kanonische Klasse BACKEND_ERROR: SQL-/Backend-Fehler (sql -> FAIL, DB down, Timeout usw.).",
+   "art": "DEFINITION",
+   "kennung": "BACKEND_ERROR",
+   "rt_bezug": [
+    "BASE-020",
+    "MOD-005",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 30,
+   "zeilen": "68",
+   "zitat": "- POLICY_DENY     (log-only) (User bekannt + Auth ok, aber Kernel-Policy blockiert:",
+   "aussage": "B) Kanonische Klasse POLICY_DENY (log-only): User bekannt und Authentisierung ok, aber die Kernel-Policy blockiert (disabled/banned/admin_lock/abuse_hold/maintenance usw.).",
+   "art": "DEFINITION",
+   "kennung": "POLICY_DENY",
+   "rt_bezug": [
+    "BASE-020",
+    "MOD-005",
+    "BASE-010"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 31,
+   "zeilen": "69",
+   "zitat": "Quota/Expiry/UNCLAIMED_OVERDUE/RateLimit sind RESTRICT (ACCEPT/Walled Garden) und gehören nicht in POLICY_DENY (Reject).",
+   "aussage": "Hinweis: Quota, Expiry, UNCLAIMED_OVERDUE und RateLimit sind RESTRICT (ACCEPT/Walled Garden) und gehoeren nicht in POLICY_DENY (Reject). Verify/Claim sind PANEL-only.",
+   "art": "DEFINITION",
+   "kennung": "POLICY_DENY",
+   "rt_bezug": [
+    "BASE-020",
+    "BASE-010",
+    "MOD-002",
+    "MOD-001",
+    "BASE-080"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 32,
+   "zeilen": "70",
+   "zitat": "       -> POLICY_DENY wird geloggt, aber von Fail2ban ignoriert (kein Jail-Match).",
+   "aussage": "POLICY_DENY wird geloggt, aber von Fail2ban ignoriert (kein Jail-Match).",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "POLICY_DENY",
+   "rt_bezug": [
+    "MOD-005",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 33,
+   "zeilen": "72-76",
+   "zitat": "- sql NOTFOUND  => set `&control:Tmp-String-0 = \"UNKNOWN\"`        (IDENTITY_STATE)",
+   "aussage": "C) Deterministische Klassifikation ohne Text-Matching, Abschnitt authorize: sql NOTFOUND setzt &control:Tmp-String-0 = \"UNKNOWN\", sql FAIL setzt \"BACKEND_ERROR\", sql OK setzt \"KNOWN\" (jeweils IDENTITY_STATE).",
+   "art": "IMPL_DETAIL",
+   "kennung": "D010-C",
+   "rt_bezug": [
+    "BASE-020",
+    "MOD-005"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 34,
+   "zeilen": "77-78",
+   "zitat": "- mschap REJECT => set `&control:Tmp-String-1 = \"MSCHAP_FAIL\"`    (AUTH_DETAIL)",
+   "aussage": "C) Abschnitt authenticate (MSCHAP): Ein mschap-REJECT setzt &control:Tmp-String-1 = \"MSCHAP_FAIL\" (AUTH_DETAIL).",
+   "art": "IMPL_DETAIL",
+   "kennung": "D010-C",
+   "rt_bezug": [
+    "BASE-020",
+    "MOD-005"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 35,
+   "zeilen": "79-83",
+   "zitat": "       - KNOWN + !MSCHAP_FAIL => log Class=POLICY_DENY (log-only)",
+   "aussage": "C) Abschnitt post-auth reject: UNKNOWN ergibt Class=UNKNOWN_USER; BACKEND_ERROR ergibt Class=BACKEND_ERROR; KNOWN + MSCHAP_FAIL ergibt Class=KNOWN_BADPASS; KNOWN ohne MSCHAP_FAIL ergibt Class=POLICY_DENY (log-only).",
+   "art": "IMPL_DETAIL",
+   "kennung": "D010-C",
+   "rt_bezug": [
+    "BASE-020",
+    "MOD-005"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 36,
+   "zeilen": "85-86",
+   "zitat": "     - &control:Tmp-String-0 = IDENTITY_STATE (UNKNOWN | KNOWN | BACKEND_ERROR)",
+   "aussage": "D) Invariante: &control:Tmp-String-0 ist exklusiv fuer IDENTITY_STATE reserviert (UNKNOWN | KNOWN | BACKEND_ERROR).",
+   "art": "PARAMETER",
+   "kennung": "Tmp-String-0",
+   "rt_bezug": [
+    "BASE-020"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 37,
+   "zeilen": "87",
+   "zitat": "     - &control:Tmp-String-1 = AUTH_DETAIL    (NONE | MSCHAP_FAIL)",
+   "aussage": "D) Invariante: &control:Tmp-String-1 ist exklusiv fuer AUTH_DETAIL reserviert (NONE | MSCHAP_FAIL).",
+   "art": "PARAMETER",
+   "kennung": "Tmp-String-1",
+   "rt_bezug": [
+    "BASE-020"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 38,
+   "zeilen": "88",
+   "zitat": "     - &control:Tmp-String-2 = POLICY_OUTCOME (OK | RESTRICT | DENY)",
+   "aussage": "D) Invariante: &control:Tmp-String-2 ist exklusiv fuer POLICY_OUTCOME reserviert (OK | RESTRICT | DENY).",
+   "art": "PARAMETER",
+   "kennung": "Tmp-String-2",
+   "rt_bezug": [
+    "BASE-020",
+    "BASE-080"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 39,
+   "zeilen": "89",
+   "zitat": "     - &control:Tmp-String-3 = POLICY_REASON  (R_* | NONE)",
+   "aussage": "D) Invariante: &control:Tmp-String-3 ist exklusiv fuer POLICY_REASON reserviert (R_* | NONE).",
+   "art": "PARAMETER",
+   "kennung": "Tmp-String-3",
+   "rt_bezug": [
+    "BASE-020",
+    "BASE-010"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 40,
+   "zeilen": "90",
+   "zitat": "     - Diese Slots dürfen für keine anderen Zwecke verwendet werden.",
+   "aussage": "D) Invariante: Die Slots Tmp-String-0 bis -3 duerfen fuer keine anderen Zwecke verwendet werden.",
+   "art": "SCHUTZZIEL",
+   "kennung": "D010-D",
+   "rt_bezug": [
+    "BASE-020"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 41,
+   "zeilen": "92-98",
+   "zitat": "-> Verworfen, weil POLICY_DENY log-only ist (keine Fail2ban-Komplexität), aber operativ stark hilft.",
+   "aussage": "Verworfene Alternative B (kein POLICY_DENY): Vorteil weniger Oberflaeche/Log-Varianten; Nachteile schlechtere Beobachtbarkeit und erhoehtes Risiko, dass Policy-Rejects spaeter faelschlich als 'Angriff' gedeutet werden. Verworfen, weil POLICY_DENY log-only ist und operativ stark hilft.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "Alternative B",
+   "rt_bezug": [
+    "MOD-005",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 42,
+   "zeilen": "100-105",
+   "zitat": "- Alternative C (verworfen): Parsing der Standard-FreeRADIUS Logs + Module-Failure-Message Regex",
+   "aussage": "Verworfene Alternative C (Parsing der Standard-FreeRADIUS-Logs + Regex auf Module-Failure-Message): Vorteil kein linelog/unlang-Aufwand; Nachteile fragil, schwer NAT-sicher, hohes Self-DoS-Risiko (localhost-Ban). Verworfen als nicht production-grade.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "Alternative C",
+   "rt_bezug": [
+    "MOD-005",
+    "BASE-020"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 43,
+   "zeilen": "107-112",
+   "zitat": "- Alternative D (verworfen): KNOWN_BADPASS über Text-Matching (Module-Failure-Message =~ /mschap/)",
+   "aussage": "Verworfene Alternative D (KNOWN_BADPASS ueber Text-Matching Module-Failure-Message =~ /mschap/): Vorteil schnell und nur in post-auth; Nachteil nicht deterministisch, bricht bei Textaenderungen oder anderen Reject-Ursachen. Verworfen zugunsten der Flag-Variante.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "Alternative D",
+   "rt_bezug": [
+    "MOD-005",
+    "BASE-020"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 44,
+   "zeilen": "115-116",
+   "zitat": "  - NAT-sichere Klassifikation (UNKNOWN vs KNOWN_BADPASS) ohne Kollateralschäden.",
+   "aussage": "Positive Folge: NAT-sichere Klassifikation (UNKNOWN gegenueber KNOWN_BADPASS) ohne Kollateralschaeden.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-005"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 45,
+   "zeilen": "117",
+   "zitat": "  - D1a-kompatibel: BACKEND_ERROR wird geloggt, aber nicht gebannt",
+   "aussage": "Positive Folge: D1a-kompatibel - BACKEND_ERROR wird geloggt, aber nicht gebannt (keine 'SQL down -> alle bannen'-Katastrophe).",
+   "art": "SCHUTZZIEL",
+   "kennung": "BACKEND_ERROR",
+   "rt_bezug": [
+    "MOD-005",
+    "BASE-020"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 46,
+   "zeilen": "118",
+   "zitat": "Self-DoS Schutz: Fail2ban extrahiert ausschließlich SrcIP aus dedizierter Logline; localhost bleibt außen vor.",
+   "aussage": "Positive Folge: Self-DoS-Schutz - Fail2ban entnimmt SrcIP ausschliesslich der dedizierten Logzeile; localhost bleibt aussen vor.",
+   "art": "SCHUTZZIEL",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-005"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 47,
+   "zeilen": "119",
+   "zitat": "  - Deterministisch: KNOWN_BADPASS kommt nur aus (KNOWN && MSCHAP_FAIL), nicht aus Logtext.",
+   "aussage": "Positive Folge: KNOWN_BADPASS entsteht nur aus (KNOWN && MSCHAP_FAIL), nicht aus Logtext.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "KNOWN_BADPASS",
+   "rt_bezug": [
+    "MOD-005",
+    "BASE-020"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 48,
+   "zeilen": "120",
+   "zitat": "Operativ stark: POLICY_DENY macht Support/Debug sofort verständlich, ohne Fail2ban zu verkomplizieren.",
+   "aussage": "Positive Folge: POLICY_DENY macht Support/Debug sofort verstaendlich, ohne Fail2ban zu verkomplizieren.",
+   "art": "BETRIEB",
+   "kennung": "POLICY_DENY",
+   "rt_bezug": [
+    "MOD-007",
+    "MOD-005"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 49,
+   "zeilen": "122-123",
+   "zitat": "  - Mehr Konfigurationsaufwand in FreeRADIUS (authorize/authenticate/post-auth + linelog).",
+   "aussage": "Risiko: mehr Konfigurationsaufwand in FreeRADIUS (authorize/authenticate/post-auth + linelog).",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-020"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 50,
+   "zeilen": "124",
+   "zitat": "  - Risiko späterer Kollisionen, falls jemand Tmp-String-0/1 anderweitig nutzt.",
+   "aussage": "Risiko: spaetere Kollisionen, falls jemand Tmp-String-0/1 anderweitig nutzt.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-020"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 51,
+   "zeilen": "125",
+   "zitat": "  - Wenn SrcIP nicht als IP formatierbar ist, kann Event nicht gebannt werden.",
+   "aussage": "Risiko: Ist SrcIP nicht als IP formatierbar, kann das Ereignis nicht gebannt werden.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-005"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 52,
+   "zeilen": "127-128",
+   "zitat": "Invariants: Tmp-String-0..3 exklusiv reservieren und als MUST dokumentieren (dieser Decision-Record + T-Spec).",
+   "aussage": "Gegenmassnahme: Tmp-String-0..3 exklusiv reservieren und als MUST dokumentieren (in diesem Decision-Record und in einer 'T-Spec').",
+   "art": "BETRIEB",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-020",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 53,
+   "zeilen": "129",
+   "zitat": "  - SrcIP Safety: Fallback SrcIP=NA; Fail2ban matcht nur echte IPs (<ADDR>), NA wird ignoriert.",
+   "aussage": "Gegenmassnahme: Fallback SrcIP=NA; Fail2ban matcht nur echte IPs (<ADDR>), NA wird ignoriert.",
+   "art": "IMPL_DETAIL",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-005"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 54,
+   "zeilen": "130",
+   "zitat": "Explizite Testfälle für UNKNOWN_USER, KNOWN_BADPASS, BACKEND_ERROR, POLICY_DENY sowie “localhost nie bannen”.",
+   "aussage": "Tests/Akzeptanz: explizite Testfaelle fuer UNKNOWN_USER, KNOWN_BADPASS, BACKEND_ERROR, POLICY_DENY sowie 'localhost nie bannen'.",
+   "art": "TEST",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-005",
+    "BASE-020",
+    "QUERSCHNITT"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 55,
+   "zeilen": "132-135",
+   "zitat": "- B330_LOGGING_MONITORING_RETENTION_ALERTS.txt",
+   "aussage": "Verknuepfte Bloecke: B050_SQL_AAA_RADIUS.txt, B300_SECURITY_STEALTH_GUIDELINES.txt, B330_LOGGING_MONITORING_RETENTION_ALERTS.txt.",
+   "art": "DEFINITION",
+   "kennung": "LINKED BLOCKS",
+   "rt_bezug": [
+    "QUERSCHNITT"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 56,
+   "zeilen": "138-140",
+   "zitat": "- v1.0 (2026-01-23): initial",
+   "aussage": "Changelog der Nachlieferung: einziger Eintrag v1.0 (2026-01-23) 'initial'. Die XPN-Fassung fuehrt v1.0 (POLICY_DENY = YES, log-only; Klassifikation via control flags + linelog), v1.1 (2026-01-13, VERSION-Feld), v1.2 (2026-01-13, Beispiele bereinigt: Verify/Claim PANEL-only, Quota/Expiry/UNCLAIMED_OVERDUE/RateLimit sind RESTRICT) und v1.3 (2026-01-14, Drittpruefung L-1..L-5: ACCEPT-Emission, Flag-Guard, Sanitizing, SrcIP Hardening, Terminologie-Fix).",
+   "art": "HISTORIE",
+   "kennung": "v1.0",
+   "rt_bezug": [],
+   "gewicht": "NORMAL"
+  }
+ ],
+ "werte": [
+  {
+   "zeilen": "41",
+   "name": "F2B_EVENT (Logzeilen-Format)",
+   "wert": "Class, SrcIP, User, Outcome (DENY|RESTRICT|OK), Reason, Detail als key=value",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "F2B_EVENT: Class=<CLASS> SrcIP=<IP-or-NA> User=<USER_ENC> Outcome=<DENY|RESTRICT|OK> Reason=<REASON> Detail=<DETAIL_ENC-or-NA>"
+  },
+  {
+   "zeilen": "42, 57",
+   "name": "Cap User (nach Encoding)",
+   "wert": "<= 64",
+   "einheit": "Zeichen",
+   "status": "FIX",
+   "zitat": "     - Caps (nach Encoding): User<=64, Detail<=256; safe truncate (kein halbes %HH)"
+  },
+  {
+   "zeilen": "42, 57",
+   "name": "Cap Detail (nach Encoding)",
+   "wert": "<= 256",
+   "einheit": "Zeichen",
+   "status": "FIX",
+   "zitat": "     - Caps (nach Encoding): User<=64, Detail<=256; safe truncate (kein halbes %HH)"
+  },
+  {
+   "zeilen": "42, 56",
+   "name": "Leerwert-Marker",
+   "wert": "NA",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "     - leere Werte => `NA`"
+  },
+  {
+   "zeilen": "55",
+   "name": "Encoding fuer User/Detail",
+   "wert": "RFC3986 Percent-Encoding ueber UTF-8-Bytes; unreserviert A–Z a–z 0–9 - . _ ~",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- `User` und `Detail` werden RFC3986-percent-encoded (UTF-8 bytes; unreserved: A–Z a–z 0–9 - . _ ~)."
+  },
+  {
+   "zeilen": "46",
+   "name": "Werte bei erfolgreichem Login",
+   "wert": "Class=OK, Outcome=OK, Reason=R_OK",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- Jeder erfolgreiche Login erzeugt ein `F2B_EVENT` mit `Class=OK`, `Outcome=OK`, `Reason=R_OK`."
+  },
+  {
+   "zeilen": "50-52",
+   "name": "control:F2B_EMITTED",
+   "wert": "request-lokales Flag; 1 = bereits emittiert (skip)",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "     - request-lokales Flag: `control:F2B_EMITTED`"
+  },
+  {
+   "zeilen": "61",
+   "name": "Quelle fuer SrcIP",
+   "wert": "ausschliesslich Calling-Station-Id (wenn parsebar), sonst NA",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "     - SrcIP ausschließlich aus Calling-Station-Id wenn parsebar, sonst `NA`."
+  },
+  {
+   "zeilen": "65-68",
+   "name": "Kanonische Klassen (RADIUS)",
+   "wert": "UNKNOWN_USER, KNOWN_BADPASS, BACKEND_ERROR, POLICY_DENY (log-only); zusaetzlich OK bei ACCEPT",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "  B) Kanonische Klassen (RADIUS):"
+  },
+  {
+   "zeilen": "86",
+   "name": "&control:Tmp-String-0",
+   "wert": "IDENTITY_STATE: UNKNOWN | KNOWN | BACKEND_ERROR",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "     - &control:Tmp-String-0 = IDENTITY_STATE (UNKNOWN | KNOWN | BACKEND_ERROR)"
+  },
+  {
+   "zeilen": "87",
+   "name": "&control:Tmp-String-1",
+   "wert": "AUTH_DETAIL: NONE | MSCHAP_FAIL",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "     - &control:Tmp-String-1 = AUTH_DETAIL    (NONE | MSCHAP_FAIL)"
+  },
+  {
+   "zeilen": "88",
+   "name": "&control:Tmp-String-2",
+   "wert": "POLICY_OUTCOME: OK | RESTRICT | DENY",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "     - &control:Tmp-String-2 = POLICY_OUTCOME (OK | RESTRICT | DENY)"
+  },
+  {
+   "zeilen": "89",
+   "name": "&control:Tmp-String-3",
+   "wert": "POLICY_REASON: R_* | NONE",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "     - &control:Tmp-String-3 = POLICY_REASON  (R_* | NONE)"
+  },
+  {
+   "zeilen": "23, 68",
+   "name": "Beispiele fuer Kernel-Policy-Blocks (POLICY_DENY)",
+   "wert": "DISABLED, BANNED, ADMIN_LOCK, ABUSE_HOLD, MAINTENANCE (Zeile 68 in Kleinschreibung, mit 'etc.')",
+   "einheit": "",
+   "status": "BEISPIEL",
+   "zitat": "echte Kernel-Policy-Blocks (z.B. DISABLED/BANNED/ADMIN_LOCK/ABUSE_HOLD/MAINTENANCE)"
+  }
+ ],
+ "verweise_auf_dokumente": [
+  {
+   "zeilen": "15, 30, 117",
+   "name": "D1a (Connect Gating, D009)",
+   "zitat": "  - BACKEND_ERROR muss Fail2ban-seitig ignoriert werden (D1a kompatibel)."
+  },
+  {
+   "zeilen": "58",
+   "name": "B341 (Regex; nicht unter LINKED BLOCKS)",
+   "zitat": "     - Begründung: verhindert Log-Injection/Whitespace-Bruch ohne B341-Regex zu verändern."
+  },
+  {
+   "zeilen": "133",
+   "name": "B050_SQL_AAA_RADIUS.txt",
+   "zitat": "- B050_SQL_AAA_RADIUS.txt"
+  },
+  {
+   "zeilen": "134",
+   "name": "B300_SECURITY_STEALTH_GUIDELINES.txt",
+   "zitat": "- B300_SECURITY_STEALTH_GUIDELINES.txt"
+  },
+  {
+   "zeilen": "135",
+   "name": "B330_LOGGING_MONITORING_RETENTION_ALERTS.txt",
+   "zitat": "- B330_LOGGING_MONITORING_RETENTION_ALERTS.txt"
+  },
+  {
+   "zeilen": "128",
+   "name": "T-Spec (nicht naeher bezeichnet)",
+   "zitat": "Invariants: Tmp-String-0..3 exklusiv reservieren und als MUST dokumentieren (dieser Decision-Record + T-Spec)."
+  },
+  {
+   "zeilen": "55",
+   "name": "RFC3986",
+   "zitat": "- `User` und `Detail` werden RFC3986-percent-encoded (UTF-8 bytes; unreserved: A–Z a–z 0–9 - . _ ~)."
+  }
+ ],
+ "offene_punkte": [
+  {
+   "zeilen": "41, 46, 69",
+   "kennung": "",
+   "text": "Das Format kennt Outcome=RESTRICT, und Zeile 69 ordnet Quota/Expiry/UNCLAIMED_OVERDUE/RateLimit als RESTRICT (ACCEPT) ein; welche Class ein F2B_EVENT bei einem ACCEPT mit RESTRICT traegt, ist nicht festgelegt (A.1 nennt nur Class=OK/Outcome=OK/Reason=R_OK)."
+  },
+  {
+   "zeilen": "47",
+   "kennung": "",
+   "text": "Die ban-relevanten Klassen sind nur beispielhaft genannt ('z.B. UNKNOWN_USER/KNOWN_BADPASS'); Schwellen (maxretry/findtime/bantime) je Klasse enthaelt D010 nicht."
+  },
+  {
+   "zeilen": "66, 77-78",
+   "kennung": "",
+   "text": "KNOWN_BADPASS ist nur fuer MSCHAP definiert; andere Authentisierungsverfahren sind nicht behandelt."
+  },
+  {
+   "zeilen": "125",
+   "kennung": "",
+   "text": "Ist SrcIP nicht als IP formatierbar, kann nicht gebannt werden - als Risiko akzeptiert, ohne Ersatzmassnahme."
+  },
+  {
+   "zeilen": "128",
+   "kennung": "",
+   "text": "Die genannte 'T-Spec' ist nicht bezeichnet; Tasks (T*) gelten laut D008 als non-canonical und migriert."
+  }
+ ],
+ "innere_widersprueche": [
+  {
+   "zeilen": "92, 100, 107",
+   "text": "Die verworfenen Alternativen heissen B, C und D; eine 'Alternative A' gibt es nicht (A ist offenbar die gewaehlte Loesung), und die Alternativen stehen ohne eigene Ueberschrift ALTERNATIVES unter DECISION. Zudem kollidieren die Buchstaben mit den Teilentscheidungen A)-D) desselben Abschnitts."
+  },
+  {
+   "zeilen": "124 gegen 85-90, 128",
+   "text": "Das Risiko nennt nur 'Tmp-String-0/1' (Zeile 124), reserviert und als Mitigation genannt sind aber Tmp-String-0..3 (Zeilen 86-89, 128)."
+  },
+  {
+   "zeilen": "50 gegen 85-90",
+   "text": "Neben den vier exklusiv reservierten Slots wird mit control:F2B_EMITTED ein weiteres Control-Attribut verwendet, das in der Reservierungsliste D) nicht auftaucht."
+  },
+  {
+   "zeilen": "58 gegen 132-135",
+   "text": "Zeile 58 beruft sich auf eine 'B341-Regex'; B341 steht nicht unter LINKED BLOCKS."
+  },
+  {
+   "zeilen": "61 gegen D007 Zeile 15",
+   "text": "D010 macht die Calling-Station-Id zur einzigen zulaessigen Quelle der SrcIP; D007 (Datei 07 dieser Liste) stellt fest, dass L2TP die Calling-Station-ID 'oft nicht zuverlaessig' liefert. Folge laut D010 selbst: dann SrcIP=NA und kein Ban."
+  },
+  {
+   "zeilen": "42",
+   "text": "Die Hinweiszeile 42 ist nicht eingerueckt und unterbricht die Listenstruktur von A); ihr Inhalt wird in A.3 (Zeilen 55-57) wiederholt."
+  },
+  {
+   "zeilen": "5-6, 140 gegen Inhalt",
+   "text": "Kopf/Changelog v1.0 / 2026-01-23 / 'initial'; der Inhalt (A.1-A.4, Hinweis Zeile 69, Tmp-String-Terminologie in C) entspricht dem Stand, den XPN als v1.3 (2026-01-14) fuehrt."
+  }
+ ],
+ "relevanz": {
+  "stufe": "HOCH",
+  "begruendung": "Vollstaendige technische Festlegung der Fail2ban-Anbindung an RADIUS: eine einzige maschinenlesbare Logzeile F2B_EVENT mit festem Format, Klassen UNKNOWN_USER/KNOWN_BADPASS/BACKEND_ERROR/POLICY_DENY/OK, Regeln welche Klassen bannen, Schutz vor localhost-Ban und vor Massenban bei SQL-Ausfall, SrcIP nur aus Calling-Station-Id, Encoding und Laengengrenzen, reservierte Tmp-String-Slots fuer Outcome und Reason. Beruehrt Fail2ban-, AAA- und Logging-Vertraege.",
+  "rt_module": [
+   "MOD-005",
+   "BASE-020",
+   "MOD-007",
+   "BASE-010",
+   "BASE-080",
+   "BASE-030",
+   "MOD-002",
+   "MOD-001",
+   "BASE-000",
+   "QUERSCHNITT"
+  ]
+ },
+ "auffaelligkeiten": [
+  "Zeile 1 traegt den Pfad 'xp-vpn-stack/decisions/D010_FAIL2BAN_RADIUS_EVENT_CLASSIFICATION_POLICY_DENY.txt'.",
+  "Kopf (Zeilen 5-6) und Changelog (Zeile 140) sind gegenueber der XPN-Fassung (v1.3 / 2026-01-14) auf v1.0 / 2026-01-23 / initial zurueckgesetzt.",
+  "Die XPN-Historie erwaehnt eine 'Drittpruefung L-1..L-5' als Quelle der Abschnitte A.1-A.4; die Pruefunterlage selbst ist nicht Teil dieser Gruppe.",
+  "Mehrere Zeilen sind laenger als 160 Zeichen (15, 18, 23, 39, 43, 47, 68, 69, 118, 120, 128, 130); Zitate daraus sind zusammenhaengende Ausschnitte.",
+  "Die Datei behandelt Passwort-Fehlversuche begrifflich (KNOWN_BADPASS), enthaelt aber keine Zugangsdaten."
+ ],
+ "abweichungen_zu_xpn": [
+  {
+   "zeilen_nachlieferung": "5",
+   "zeilen_xpn": "5",
+   "text_nachlieferung": "VERSION: v1.0",
+   "text_xpn": "VERSION: v1.3",
+   "bedeutung": "nur Kopf/Historie"
+  },
+  {
+   "zeilen_nachlieferung": "6",
+   "zeilen_xpn": "6",
+   "text_nachlieferung": "DATUM: 2026-01-23",
+   "text_xpn": "DATUM: 2026-01-14",
+   "bedeutung": "nur Kopf/Historie"
+  },
+  {
+   "zeilen_nachlieferung": "140",
+   "zeilen_xpn": "140-143",
+   "text_nachlieferung": "- v1.0 (2026-01-23): initial",
+   "text_xpn": "- v1.3 (2026-01-14): Drittprüfung L-1..L-5 gespiegelt: ACCEPT-Emission ist MUST (Class=OK), deterministischer Flag-Guard `control:F2B_EMITTED`, Sanitizing-Contract via RFC3986 Percent-Encoding inkl. NA-Marker + Caps (User<=64, Detail<=256), SrcIP Hardening (Calling-Station-Id only; verbotene Quellen explizit), Terminologie-Fix in C) (F2B_CLASS_STATE/F2B_AUTH_DETAIL -> Tmp-String-0/1). / - v1.2 (2026-01-13): Beispiele bereinigt: Verify/Claim als PANEL-only; Quota/Expiry/UNCLAIMED_OVERDUE/RateLimit sind RESTRICT (ACCEPT) und keine POLICY_DENY Reject-Gründe; POLICY_DENY Beispiele auf echte Kernel-Blocks fokussiert. / - v1.1 (2026-01-13): Normalized VERSION header field (protocol compliance). / - v1.0: initial (Policy: POLICY_DENY = YES, log-only; deterministische RADIUS Event-Klassifikation via control flags + linelog)",
+   "bedeutung": "nur Kopf/Historie (CHANGELOG), aber mit Sachgehalt: Nur die XPN-Fassung belegt, dass A.1-A.4 aus einer Drittpruefung (L-1..L-5) stammen, dass frueher die Namen F2B_CLASS_STATE/F2B_AUTH_DETAIL verwendet wurden und dass die Abgrenzung RESTRICT gegenueber POLICY_DENY erst mit v1.2 eingefuehrt wurde. Alle diese Inhalte sind im Textkoerper der Nachlieferung enthalten."
+  }
+ ],
+ "verhaeltnis_zu_xpn": "Der Textkoerper (Zeilen 1-4 und 7-139) ist zeichengleich mit der XPN-Fassung v1.3 (abgesehen von CRLF dort). Abweichungen bestehen nur in VERSION, DATUM und CHANGELOG. Dem Inhalt nach ist die Nachlieferung der Stand v1.3: Sie enthaelt die laut XPN-Changelog erst mit v1.3 (2026-01-14) aufgenommenen Abschnitte A.1 bis A.4 (ACCEPT-Emission, Flag-Guard control:F2B_EMITTED, Sanitizing mit Caps, SrcIP Hardening), die Tmp-String-Terminologie in C) und den mit v1.2 ergaenzten Hinweis in Zeile 69. Sie ist also keine fruehe Urfassung; Kopf v1.0 / 2026-01-23 / 'initial' ist eine zurueckgesetzte Baseline mit spaeterem Datum. Vollstaendiger ist die XPN-Fassung (Aenderungshistorie mit Herkunft der Abschnitte). Welche Datei zuletzt geschrieben wurde, ist aus dem Inhalt nicht entscheidbar; inhaltlich sind beide gleichwertig."
+}

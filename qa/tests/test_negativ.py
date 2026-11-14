@@ -14,6 +14,8 @@ import yaml
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 PRUEFE = os.path.join(ROOT, "qa", "pruefe_register.py")
 INVENTAR = os.path.join(ROOT, "qa", "quelleninventar.py")
+EXTRAKTE = os.path.join(ROOT, "qa", "pruefe_extrakte.py")
+EXTRAKT_DATEI = "governance/arbeitsmaterial/nachlieferung/extrakte/dec/09.json"
 STATUS = "governance/STATUS.yaml"
 PAKETE = "governance/register/ARBEITSPAKETE.yaml"
 BEFUNDE = "governance/register/BEFUNDE.yaml"
@@ -278,6 +280,47 @@ class Nachlieferung(Basis):
         st["identitaeten"].pop("quellen_commit_nl")
         self.schreibe(STATUS, st)
         self.erwarte_fehler("identitaeten.quellen_commit_nl ist keine 40-stellige Commit-ID")
+
+
+class Leseextrakte(Basis):
+    """Extrakte der Leselaeufe sind nur so viel wert wie ihre Zitate: Jedes muss woertlich in der
+    nachgelieferten Quelle stehen."""
+
+    def lauf_extrakte(self):
+        r = subprocess.run([sys.executable, EXTRAKTE, "--root", self.tmp, "--git", ROOT],
+                           capture_output=True, text=True)
+        return r.returncode, r.stdout + r.stderr
+
+    def aendere_extrakt(self, fn):
+        import json
+        p = os.path.join(self.tmp, EXTRAKT_DATEI)
+        with open(p, encoding="utf-8") as f:
+            j = json.load(f)
+        fn(j)
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(j, f, ensure_ascii=False)
+
+    def test_unveraenderte_extrakte_bestehen(self):
+        rc, out = self.lauf_extrakte()
+        self.assertEqual(rc, 0, out)
+
+    def test_gefaelschtes_zitat_im_extrakt(self):
+        self.aendere_extrakt(lambda j: j["aussagen"][2].__setitem__("zitat", "Dieser Satz steht in keiner Lieferdatei"))
+        rc, out = self.lauf_extrakte()
+        self.assertNotEqual(rc, 0, out)
+        self.assertIn("Zitat nicht in der Quelle", out)
+
+    def test_extrakt_einer_nicht_gelieferten_datei(self):
+        self.aendere_extrakt(lambda j: j.__setitem__("datei", "README.md"))
+        rc, out = self.lauf_extrakte()
+        self.assertNotEqual(rc, 0, out)
+        self.assertIn("liegt nicht unter nachlieferung/", out)
+
+    def test_extrakt_ohne_vollstaendige_lesung(self):
+        self.aendere_extrakt(lambda j: j.__setitem__("vollstaendig_gelesen", False))
+        rc, out = self.lauf_extrakte()
+        self.assertNotEqual(rc, 0, out)
+        self.assertIn("vollstaendig_gelesen ist nicht true", out)
 
 
 class Modulpruefung(Basis):

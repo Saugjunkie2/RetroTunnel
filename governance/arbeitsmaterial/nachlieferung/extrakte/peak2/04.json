@@ -1,0 +1,1067 @@
+{
+ "datei": "nachlieferung/entwuerfe/peak_mode_v2/PEAK MODE v2 — BR-11.txt",
+ "abschnitt": "1-250",
+ "zeilen_gesamt": 250,
+ "gelesen_bereiche": "1-250",
+ "vollstaendig_gelesen": true,
+ "dokument": {
+  "titel": "PEAK MODE v2 — BR-11 (ENTWURF / Phase 3): Operability / Observability Contract — Status, Telemetrie, Panel-Views, Failure-Reasons, Runbook-Minimum",
+  "doc_id": "BR-11",
+  "status_laut_datei": "ENTWURF (Phase 3) — keine Patch-/Copy-Blöcke, keine SQL/HTTP Snippets",
+  "version_laut_datei": "v2.0-ENTWURF",
+  "datum_laut_datei": "nicht angegeben (Changelog nennt nur \"heute\")",
+  "projekt": "XPN",
+  "art": "ENTWURF",
+  "normativitaet_laut_datei": "Abschnitte mit MUST gekennzeichnet (3.3 OPTIONAL); drei Fixpunkte FIX (FP-BR11-01..03), drei OPEN (FP-BR11-04..06); DRIFT-Ampel: RISK"
+ },
+ "zusammenfassung": "BR-11 ist der Entwurf des Betriebs- und Beobachtbarkeitsvertrags von Peak Mode v2: Ein Admin soll Peak ohne Sackgassen, ohne Log-Parsen und ohne PII-Lecks bedienen und debuggen koennen. Fest ist, dass das Panel seine Wahrheit ausschliesslich aus dem DB-Audit (peak_episode, peak_apply_run, peak_apply_item, Snapshots) liest und /run nicht parst, dass keine PII gezeigt werden und dass alle BR-10-Zustaende sichtbar sind. Der Vertrag beschreibt einen Bildschirm 'Peak Status' mit vier Bloecken (Current State, Episode, Last Apply Run, Last N Applies), eine 'Apply Details View' (mit oder ohne Item-Detail) und eine optionale Zeitreihen-Ansicht. Das Failure-Reason-Modell uebersetzt die Exit-Codes 0, 1, 2, 4, 5, 6, 7 in deutschsprachige Klartexte und ordnet den Fehlerklassen Handlungshinweise zu; error_detail darf nie Geheimnisse enthalten, rohe Exceptions werden auf Code + correlation_id gekuerzt. Ein Minimal-Runbook mit fuenf Faellen (RB-11-01 bis RB-11-05) legt fest, was bei haengendem PEAK_ACTIVE, LOCKED, TEMPFAIL_SQL, RUNTIME_APPLY_ERROR und STATE_MAPPING_ERROR zu tun ist. Logging: INFO fuer Zustandswechsel und Apply-Start/Ende, WARN fuer degraded/partial/mapping invalid, ERROR fuer interne und wiederholte Fehler; Rotation muss Disk-Full vermeiden. Mindest-Retention laut BR-11: letzte 24 h Snapshots (oder verdichtet) und die letzten 100 apply_runs. Offen sind SNAPSHOT_RETENTION_DAYS, der Standard-Detailgrad (Item-Liste oder Summary) und Alarmierung ueber das Panel-Banner hinaus; vier Tests T-11-01 bis T-11-04 bilden die DoD.",
+ "aussagen": [
+  {
+   "nr": 1,
+   "zeilen": "2-6",
+   "zitat": "ZIEL: Peak-Mode ist für Admin debugbar & bedienbar, ohne Dead Ends, ohne Log-Parsen, ohne PII-Leaks.",
+   "aussage": "Kopf: BR-11 (Entwurf, Phase 3) 'Operability / Observability Contract'; Ziel: Peak Mode ist fuer den Admin debugbar und bedienbar, ohne Dead Ends, ohne Log-Parsen, ohne PII-Leaks.",
+   "art": "SCHUTZZIEL",
+   "kennung": "BR-11",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 2,
+   "zeilen": "11-13",
+   "zitat": "- Welche Views/Pages im Webpanel existieren (read-only + actions UI nur als Contract)",
+   "aussage": "Scope: welche Observability-Daten Peak liefert (Status/State, Zeitpunkte, Counters, Reasons) und welche Views/Pages im Webpanel existieren (read-only; Actions-UI nur als Contract).",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 3,
+   "zeilen": "14-16",
+   "zitat": "- Welche Failure-Reasons/Fehlerklassen sichtbar sind und wie sie “übersetzt” werden (human readable)",
+   "aussage": "Scope: sichtbare Failure-Reasons/Fehlerklassen samt menschenlesbarer Uebersetzung, ein Minimal-Runbook ('Wenn X passiert, tue Y') und minimales Logging/Retention/Rotation (ohne Implementierung).",
+   "art": "FUNKTION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 4,
+   "zeilen": "17",
+   "zitat": "- Non-Goals: keine “nice dashboards”, keine Export-Features (wenn nicht explizit im Kanon)",
+   "aussage": "Non-Goals: keine 'nice dashboards', keine Export-Features (wenn nicht ausdruecklich im Kanon).",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 5,
+   "zeilen": "19-24",
+   "zitat": "- Apply-Mechanik/Lock/Exit-codes intern (BR-09)",
+   "aussage": "Anti-Scope: Trigger-Detection (BR-03), State-Machine (BR-10), Apply-Mechanik/Lock/Exit-Codes intern (BR-09), DB-Schema (BR-08), tc/cake-Topologie (BR-01/BR-06).",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 6,
+   "zeilen": "31-32",
+   "zitat": "-> States/Transitions müssen 1:1 sichtbar gemacht werden.",
+   "aussage": "K-IMP-01 (BR-10): States/Transitions muessen 1:1 sichtbar gemacht werden.",
+   "art": "FUNKTION",
+   "kennung": "K-IMP-01",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 7,
+   "zeilen": "33-34",
+   "zitat": "-> Failure-Reasons kommen aus peak_apply_run (exit_code/result_code/error_class/error_detail).",
+   "aussage": "K-IMP-02 (BR-09): Failure-Reasons stammen aus peak_apply_run (exit_code/result_code/error_class/error_detail).",
+   "art": "IMPL_DETAIL",
+   "kennung": "K-IMP-02",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 8,
+   "zeilen": "35-36",
+   "zitat": "-> Panel liest Episode/Snapshots/Apply-Runs/Items, kein /run parsing im Panel.",
+   "aussage": "K-IMP-03 (BR-08): Das Panel liest Episode/Snapshots/Apply-Runs/Items aus der DB; kein /run-Parsing im Panel.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K-IMP-03",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 9,
+   "zeilen": "37-38",
+   "zitat": "-> Exit-Codes 0..7 sind semantisch kanonisch.",
+   "aussage": "K-IMP-04 (B166): Die Exit-Codes 0..7 sind semantisch kanonisch.",
+   "art": "DEFINITION",
+   "kennung": "K-IMP-04",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 10,
+   "zeilen": "39-40",
+   "zitat": "-> “Build-ready” erwartet typischerweise: klare Statusanzeige, Diagnose, “was tun bei Fehlern”.",
+   "aussage": "K-IMP-05 (Peak-Mode v1 Build-Ready/Checklist, 'falls vorhanden'): 'Build-ready' erwartet typischerweise klare Statusanzeige, Diagnose und 'was tun bei Fehlern'.",
+   "art": "DEFINITION",
+   "kennung": "K-IMP-05",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 11,
+   "zeilen": "43-44",
+   "zitat": "-> Status: NONE (Panel ist read-only aus DB/Audit; runtime SoT bleibt /run für Apply, nicht fürs Panel).",
+   "aussage": "K-CONF-01 (Status NONE): Das Panel darf keine SoT ersetzen - es ist read-only aus DB/Audit; die Runtime-SoT bleibt /run fuer Apply, nicht fuers Panel.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K-CONF-01",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006",
+    "BASE-070"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 12,
+   "zeilen": "45-47",
+   "zitat": "-> BR-11 setzt hier Contract: keine PII, keine Secrets, kurze error_details.",
+   "aussage": "K-CONF-02 (Status RISK): PII/Secrets-Leck droht, wenn error_detail oder Logs unkontrolliert Inhalte spiegeln; BR-11 setzt den Contract: keine PII, keine Secrets, kurze error_details.",
+   "art": "SCHUTZZIEL",
+   "kennung": "K-CONF-02",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007",
+    "MOD-006"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 13,
+   "zeilen": "53-54",
+   "zitat": "- FP-BR11-01 SOURCE_OF_PANEL_TRUTH = DB Audit (peak_episode, peak_apply_run, peak_apply_item, snapshots)",
+   "aussage": "FP-BR11-01 (FIX): SOURCE_OF_PANEL_TRUTH = DB-Audit (peak_episode, peak_apply_run, peak_apply_item, snapshots).",
+   "art": "PARAMETER",
+   "kennung": "FP-BR11-01",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 14,
+   "zeilen": "55",
+   "zitat": "- FP-BR11-02 NO_PII = true (kein username/email/pass/psk/token; IP default OFF, wenn überhaupt)",
+   "aussage": "FP-BR11-02 (FIX): NO_PII = true - kein username/email/pass/psk/token; IP default OFF, wenn ueberhaupt.",
+   "art": "PARAMETER",
+   "kennung": "FP-BR11-02",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 15,
+   "zeilen": "56",
+   "zitat": "- FP-BR11-03 STATES_VISIBLE = alle BR-10 states müssen sichtbar sein",
+   "aussage": "FP-BR11-03 (FIX): STATES_VISIBLE - alle BR-10-States muessen sichtbar sein.",
+   "art": "PARAMETER",
+   "kennung": "FP-BR11-03",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 16,
+   "zeilen": "58-60",
+   "zitat": "- Wie viele Tage Snapshots/Apply Items werden im Panel sichtbar gehalten?",
+   "aussage": "FP-BR11-04 (OPEN) SNAPSHOT_RETENTION_DAYS: wie viele Tage Snapshots/Apply-Items im Panel sichtbar gehalten werden.",
+   "art": "OFFEN",
+   "kennung": "FP-BR11-04",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 17,
+   "zeilen": "61-63",
+   "zitat": "- Panel zeigt per default apply_item Liste (pro pppX) oder nur apply_run summary?",
+   "aussage": "FP-BR11-05 (OPEN) ITEM_DETAIL_LEVEL: Panel zeigt standardmaessig die apply_item-Liste (je pppX) oder nur die apply_run-Summary (Privacy/Performance-Abwaegung; abhaengig von D-PEAK-DB-01 in BR-08). [PPP-gebunden]",
+   "art": "OFFEN",
+   "kennung": "FP-BR11-05",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 18,
+   "zeilen": "64-66",
+   "zitat": "- Default in diesem BR: Panel Banner only; alles andere OPEN.",
+   "aussage": "FP-BR11-06 (OPEN) ALERTING_STYLE: nur 'Banner im Panel' oder zusaetzlich 'Email/Push' (vermutlich ausserhalb des Scopes); Default in BR-11: Panel-Banner only, alles andere OPEN.",
+   "art": "OFFEN",
+   "kennung": "FP-BR11-06",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 19,
+   "zeilen": "72-78",
+   "zitat": "- state: INACTIVE | ENTER_PENDING | PEAK_ACTIVE | EXIT_PENDING | COOLDOWN | DISABLED",
+   "aussage": "3.1 Das Panel gibt 'Peak Global Status' als einen Screen ('Peak Status') aus; Block A Current State: state (INACTIVE | ENTER_PENDING | PEAK_ACTIVE | EXIT_PENDING | COOLDOWN | DISABLED), since_ts, next_expected_event (informativ, z. B. 'persist remaining', 'hold_until', 'cooldown remaining').",
+   "art": "FUNKTION",
+   "kennung": "3.1 A",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 20,
+   "zeilen": "80-84",
+   "zitat": "- latched params: multi_threshold_pct, topn_latched, active_ppp_enter",
+   "aussage": "Block B Episode (aktiv oder letzte): episode_id (oder episode_uuid), entered_at, exited_at, hold_until, enter_reason_code, exit_reason_code sowie gelatchte Parameter multi_threshold_pct, topn_latched, active_ppp_enter. [PPP-gebunden]",
+   "art": "FUNKTION",
+   "kennung": "3.1 B",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 21,
+   "zeilen": "86-92",
+   "zitat": "- “boundedness info”: CAP_REACHED flag (wenn vorhanden) / lock_waited_ms (optional)",
+   "aussage": "Block C Last Apply Run (MUST): action, started_at, duration_ms, exit_code (0..7) mit Klartext, result_code + error_class + kurzes error_detail, items_total/items_ok/items_fail/items_skipped, 'boundedness info' (CAP_REACHED-Flag, optional lock_waited_ms).",
+   "art": "FUNKTION",
+   "kennung": "3.1 C",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 22,
+   "zeilen": "94-95",
+   "zitat": "- Tabelle: time, action, exit_code, items_fail, error_class, link “details”",
+   "aussage": "Block D Last N Applies (MUST): Tabelle mit time, action, exit_code, items_fail, error_class und Link 'details'.",
+   "art": "FUNKTION",
+   "kennung": "3.1 D",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 23,
+   "zeilen": "97-106",
+   "zitat": "- Keine Anzeige von CLIENT_IP (default OFF), keine PII.",
+   "aussage": "3.2 Apply Details View bei aktiviertem Item-Detail: je apply_run die Liste der apply_items mit ppp_ifname, intended_mode, intended_bw_bps, item_result, item_error_code, conn_group_resolved; keine Anzeige von CLIENT_IP (default OFF), keine PII. [PPP-gebunden]",
+   "art": "FUNKTION",
+   "kennung": "3.2",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 24,
+   "zeilen": "108-110",
+   "zitat": "- z.B. TC_APPLY_FAILED: 3 ; IFACE_GONE: 7 ; DB_LOOKUP_FAILED: 1",
+   "aussage": "3.2 bei deaktiviertem Item-Detail: nur Summary + aggregierte 'Top failure reasons', z. B. TC_APPLY_FAILED: 3 ; IFACE_GONE: 7 ; DB_LOOKUP_FAILED: 1.",
+   "art": "FUNKTION",
+   "kennung": "3.2",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 25,
+   "zeilen": "112-115",
+   "zitat": "- pro Episode: Graph/Tabellenliste (ts, softirq_pct_agg, vpn_bps_total, active_ppp_now, overload_bool, hold_until)",
+   "aussage": "3.3 Timeseries/Snapshot View (OPTIONAL): je Episode Graph/Tabelle (ts, softirq_pct_agg, vpn_bps_total, active_ppp_now, overload_bool, hold_until), wenn Retention/Volumen es zulassen; sonst nur verdichtete Top-Level-Metriken (OPEN).",
+   "art": "FUNKTION",
+   "kennung": "3.3",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 26,
+   "zeilen": "121-125",
+   "zitat": "“Teilweise erfolgreich — einige Interfaces konnten nicht aktualisiert werden. Details anzeigen.”",
+   "aussage": "4.1 Exit-Code-Uebersetzung: 0 OK = 'Anwendung erfolgreich — alle Ziel-Interfaces aktualisiert.'; 1 PARTIAL_OK = 'Teilweise erfolgreich — einige Interfaces konnten nicht aktualisiert werden. Details anzeigen.'",
+   "art": "FUNKTION",
+   "kennung": "4.1",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 27,
+   "zeilen": "126-129",
+   "zitat": "“Datenbankproblem — Peak konnte nicht sicher planen/auditieren. Kein Retry-Sturm; später erneut.”",
+   "aussage": "4.1: 2 TEMPFAIL_SQL = 'Datenbankproblem — Peak konnte nicht sicher planen/auditieren. Kein Retry-Sturm; spaeter erneut.'; 4 RUNTIME_APPLY_ERROR = 'Traffic-Control Fehler — tc/cake konnte auf einigen/allen Interfaces nicht gesetzt werden.'",
+   "art": "FUNKTION",
+   "kennung": "4.1",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 28,
+   "zeilen": "130-135",
+   "zitat": "“Runtime-Mapping ungültig — /run Snapshot oder DB Mapping inkonsistent.”",
+   "aussage": "4.1: 5 TEMPFAIL_LOCKED = 'Peak ist gerade beschaeftigt — Apply-Lock nicht bekommen.'; 6 STATE_MAPPING_ERROR = 'Runtime-Mapping ungueltig — /run Snapshot oder DB Mapping inkonsistent.'; 7 INTERNAL_ERROR = 'Interner Fehler — bitte Log-ID pruefen und manuell eingreifen.'",
+   "art": "FUNKTION",
+   "kennung": "4.1",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 29,
+   "zeilen": "137-140",
+   "zitat": "Hint: “Warte 30s; wenn wiederholt, prüfe ob stuck apply läuft; ggf. manual abort (BR-10 action).”",
+   "aussage": "4.2 Action Hint LOCK_TIMEOUT / TEMPFAIL_LOCKED: 30 s warten; bei Wiederholung pruefen, ob ein haengendes Apply laeuft; ggf. manueller Abbruch (BR-10-Action).",
+   "art": "BETRIEB",
+   "kennung": "4.2",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 30,
+   "zeilen": "141-142",
+   "zitat": "Hint: “DB health prüfen; wenn DB stabil, Peak wiederholen; keine Änderungen am tc notwendig.”",
+   "aussage": "4.2 Action Hint DB_DOWN / DB_TIMEOUT / TEMPFAIL_SQL: DB-Health pruefen; wenn die DB stabil ist, Peak wiederholen; keine Aenderungen am tc noetig.",
+   "art": "BETRIEB",
+   "kennung": "4.2",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 31,
+   "zeilen": "143-144",
+   "zitat": "Hint: “QoS baseline prüfen (PH2/BR-01/BR-06); CAKE root muss existieren.”",
+   "aussage": "4.2 Action Hint NO_CAKE_BASELINE / APPLY_ERROR: QoS-Baseline pruefen (PH2/BR-01/BR-06); die CAKE-Root-Qdisc muss existieren.",
+   "art": "BETRIEB",
+   "kennung": "4.2",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 32,
+   "zeilen": "145-146",
+   "zitat": "Hint: “/run/vpn-sessions validity prüfen (B165).”",
+   "aussage": "4.2 Action Hint ENV_INVALID / MAPPING_INVALID: Gueltigkeit von /run/vpn-sessions pruefen (B165).",
+   "art": "BETRIEB",
+   "kennung": "4.2",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 33,
+   "zeilen": "147-148",
+   "zitat": "Hint: “Hoher churn; normal bei disconnect; wenn massiv: Rate-limit / hardening (BR-12).”",
+   "aussage": "4.2 Action Hint IFACE_GONE: hoher Churn, bei Disconnect normal; wenn massiv: Rate-Limit / Hardening (BR-12).",
+   "art": "BETRIEB",
+   "kennung": "4.2",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 34,
+   "zeilen": "150-152",
+   "zitat": "- error_detail darf niemals Secrets enthalten (PSK/Password/Token/Email/Usernames).",
+   "aussage": "4.3 No PII / No Secrets (MUST): error_detail darf niemals Secrets enthalten (PSK/Password/Token/Email/Usernames); rohe Exception-Strings werden bereinigt/gekuerzt auf Code + correlation_id.",
+   "art": "SCHUTZZIEL",
+   "kennung": "4.3",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007",
+    "MOD-006"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 35,
+   "zeilen": "158-164",
+   "zitat": "- Symptom: State=PEAK_ACTIVE, hold_until sehr weit in Zukunft oder nie sinkend.",
+   "aussage": "RB-11-01 'Peak stuck in PEAK_ACTIVE' (State=PEAK_ACTIVE, hold_until sehr weit in der Zukunft oder nie sinkend): 1) Snapshot pruefen, ob overload_bool immer true; 2) SoftIRQ aggregated plausibel?; 3) bei False Positives Trigger-Schwellen anpassen (BR-03, Owner-Fix); 4) Manual Force Exit (BR-10), falls sicher.",
+   "art": "BETRIEB",
+   "kennung": "RB-11-01",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 36,
+   "zeilen": "166-170",
+   "zitat": "2) Wenn Apply lange läuft: warte; wenn wiederholt: manual abort/disable peak (BR-10 policy)",
+   "aussage": "RB-11-02 'Apply fails with LOCKED': 1) duration_ms des letzten apply_run pruefen; 2) laeuft Apply lange: warten, bei Wiederholung manual abort/disable peak (BR-10-Policy); 3) Lock-Timeout-Parameter pruefen (FP-BR09-08).",
+   "art": "BETRIEB",
+   "kennung": "RB-11-02",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 37,
+   "zeilen": "172-176",
+   "zitat": "2) Wenn DB wieder ok: controller retry via next tick (bounded)",
+   "aussage": "RB-11-03 'Apply fails with TEMPFAIL_SQL': 1) DB-Health pruefen; 2) ist die DB wieder ok, wiederholt der Controller ueber den naechsten Tick (bounded); 3) keine manuellen tc-Aenderungen noetig (Peak ist policy-level).",
+   "art": "BETRIEB",
+   "kennung": "RB-11-03",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 38,
+   "zeilen": "178-183",
+   "zitat": "1) Prüfe ob CAKE baseline existiert (BR-01/BR-06)",
+   "aussage": "RB-11-04 'Apply fails with RUNTIME_APPLY_ERROR': 1) CAKE-Baseline vorhanden (BR-01/BR-06)?; 2) ifnames (pppX) und Permissions pruefen; 3) einzelnes Interface: ok, PARTIAL_OK je Threshold tolerierbar (FP-BR09-07); 4) systematisch: PH2-Fix noetig. [PPP-gebunden]",
+   "art": "BETRIEB",
+   "kennung": "RB-11-04",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 39,
+   "zeilen": "185-189",
+   "zitat": "3) Bei churn: akzeptabel; bei dauerhaft: investigate collector pipeline",
+   "aussage": "RB-11-05 'STATE_MAPPING_ERROR / ENV_INVALID': 1) Gueltigkeit von /run/vpn-sessions pruefen (B165); 2) DB-Mapping pruefen (vpn_connection_id existiert); 3) bei Churn akzeptabel, bei Dauerzustand Collector-Pipeline untersuchen.",
+   "art": "BETRIEB",
+   "kennung": "RB-11-05",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 40,
+   "zeilen": "195-199",
+   "zitat": "- Mindestens last 24h snapshot oder downsampled summary",
+   "aussage": "6.1 DB-Retention (OPEN): Die Retention der Peak-Audit-Tabellen ist in BR-08 OPEN; BR-11 verlangt mindestens die letzten 24 h Snapshots oder eine verdichtete Summary und mindestens die letzten 100 apply_runs; Owner-Fix ueber FP-BR11-04 noetig.",
+   "art": "PARAMETER",
+   "kennung": "6.1",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "MOD-008"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 41,
+   "zeilen": "201-205",
+   "zitat": "- INFO: state transitions, apply start/end, exit_code summary",
+   "aussage": "6.2 System-Logs: INFO = State-Transitions, Apply-Start/Ende, Exit-Code-Summary; WARN = degraded/partial ok, mapping invalid; ERROR = interne Fehler, wiederholte Apply-Fehler.",
+   "art": "BETRIEB",
+   "kennung": "6.2",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 42,
+   "zeilen": "206-207",
+   "zitat": "- Rotation/Retention muss Disk-Full vermeiden (Ops).",
+   "aussage": "6.2: Rotation/Retention der Logs muss Disk-Full vermeiden (Ops); keine PII/Secrets.",
+   "art": "BETRIEB",
+   "kennung": "6.2",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 43,
+   "zeilen": "213-217",
+   "zitat": "- Admin kann aus Peak Status Screen erklären:",
+   "aussage": "T-11-01 'Single Screen Debug': Der Admin kann allein aus dem Peak-Status-Screen erklaeren, warum Peak aktiv ist (enter_reason, letzte Metriken), wie lange noch (hold_until/cooldown) und ob das Apply erfolgreich war (exit_code + Counters).",
+   "art": "TEST",
+   "kennung": "T-11-01",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 44,
+   "zeilen": "219-221",
+   "zitat": "- Für exit_code 2/4/5/6/7 sieht Admin:",
+   "aussage": "T-11-02 'Failure Reason without Logs': Fuer exit_code 2/4/5/6/7 sieht der Admin error_class + Action Hint (Runbook-Mapping).",
+   "art": "TEST",
+   "kennung": "T-11-02",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 45,
+   "zeilen": "223-225",
+   "zitat": "- Audit/Panel zeigt keine Secrets, keine usernames/emails/passwords/psk.",
+   "aussage": "T-11-03 'No PII': Audit/Panel zeigt keine Secrets, keine usernames/emails/passwords/psk; Review-Test: grep auf eine Stichprobe der Panel-Ausgabe.",
+   "art": "TEST",
+   "kennung": "T-11-03",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 46,
+   "zeilen": "227-230",
+   "zitat": "- default list: last N apply runs, last episode, summary only",
+   "aussage": "T-11-04 'Scales under load': Panel-Queries sind bounded - Standardliste: letzte N Apply-Runs, letzte Episode, nur Summary; Details nur auf Klick; schwere Snapshot-Ansicht optional.",
+   "art": "TEST",
+   "kennung": "T-11-04",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 47,
+   "zeilen": "235-237",
+   "zitat": "O-11-02 Default detail level (apply_item vs aggregated reasons) (FP-BR11-05)",
+   "aussage": "Open Items: O-11-01 Snapshot retention days (FP-BR11-04); O-11-02 Default detail level - apply_item vs aggregated reasons (FP-BR11-05); O-11-03 Alerting beyond panel (FP-BR11-06).",
+   "art": "OFFEN",
+   "kennung": "O-11-01..03",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 48,
+   "zeilen": "240-244",
+   "zitat": "- Grund: Retention + Detail-Level + Alerting sind Owner-Fixpunkte; ohne sie ist Operability-Umfang nicht “geschlossen”.",
+   "aussage": "Drift-Ampel: RISK, weil Retention, Detail-Level und Alerting Owner-Fixpunkte sind und der Operability-Umfang ohne sie nicht 'geschlossen' ist; konsistent seien: Panel liest DB-Audit, zeigt BR-10-States, interpretiert B166-Exit-Codes, keine PII.",
+   "art": "OFFEN",
+   "kennung": "DRIFT",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 49,
+   "zeilen": "249-250",
+   "zitat": "- v2.0-ENTWURF (heute): BR-11 erstellt: Operability/Observability Contract (Peak Status View, Apply Views, Failure-Reasons,",
+   "aussage": "Changelog v2.0-ENTWURF: BR-11 erstellt - Operability/Observability Contract (Peak Status View, Apply Views, Failure-Reasons, Minimal Runbook, Logging/Retention-Constraints, DoD).",
+   "art": "HISTORIE",
+   "kennung": "v2.0-ENTWURF",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  }
+ ],
+ "werte": [
+  {
+   "zeilen": "54",
+   "name": "FP-BR11-01 SOURCE_OF_PANEL_TRUTH",
+   "wert": "DB Audit (peak_episode, peak_apply_run, peak_apply_item, snapshots)",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- FP-BR11-01 SOURCE_OF_PANEL_TRUTH = DB Audit (peak_episode, peak_apply_run, peak_apply_item, snapshots)"
+  },
+  {
+   "zeilen": "55",
+   "name": "FP-BR11-02 NO_PII",
+   "wert": "true (IP default OFF)",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- FP-BR11-02 NO_PII = true (kein username/email/pass/psk/token; IP default OFF, wenn überhaupt)"
+  },
+  {
+   "zeilen": "56",
+   "name": "FP-BR11-03 STATES_VISIBLE",
+   "wert": "alle BR-10 States",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- FP-BR11-03 STATES_VISIBLE = alle BR-10 states müssen sichtbar sein"
+  },
+  {
+   "zeilen": "59-60",
+   "name": "FP-BR11-04 SNAPSHOT_RETENTION_DAYS",
+   "wert": "OPEN",
+   "einheit": "Tage",
+   "status": "OPEN",
+   "zitat": "- FP-BR11-04 SNAPSHOT_RETENTION_DAYS:"
+  },
+  {
+   "zeilen": "61-63",
+   "name": "FP-BR11-05 ITEM_DETAIL_LEVEL",
+   "wert": "OPEN; apply_item-Liste je pppX oder nur apply_run-Summary",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- FP-BR11-05 ITEM_DETAIL_LEVEL:"
+  },
+  {
+   "zeilen": "64-66",
+   "name": "FP-BR11-06 ALERTING_STYLE",
+   "wert": "Default in BR-11: Panel Banner only; Email/Push OPEN",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- Default in diesem BR: Panel Banner only; alles andere OPEN."
+  },
+  {
+   "zeilen": "76",
+   "name": "state (Anzeige-Enumeration)",
+   "wert": "INACTIVE | ENTER_PENDING | PEAK_ACTIVE | EXIT_PENDING | COOLDOWN | DISABLED",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- state: INACTIVE | ENTER_PENDING | PEAK_ACTIVE | EXIT_PENDING | COOLDOWN | DISABLED"
+  },
+  {
+   "zeilen": "77",
+   "name": "since_ts",
+   "wert": "Zeitpunkt, seit dem der State gilt",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- since_ts: Zeitpunkt seit wann dieser State gilt"
+  },
+  {
+   "zeilen": "78",
+   "name": "next_expected_event",
+   "wert": "informativ; z. B. persist remaining, hold_until, cooldown remaining",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- next_expected_event: (nur informativ) z.B. “persist remaining”, “hold_until”, “cooldown remaining”"
+  },
+  {
+   "zeilen": "87",
+   "name": "action (Anzeige)",
+   "wert": "ENTER_APPLY / EXTEND_APPLY / EXIT_RESTORE / MANUAL_APPLY / NOOP",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- action: ENTER_APPLY / EXTEND_APPLY / EXIT_RESTORE / MANUAL_APPLY / NOOP"
+  },
+  {
+   "zeilen": "89",
+   "name": "exit_code (Anzeige)",
+   "wert": "0..7 + human explanation",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- exit_code (0..7) + human explanation (siehe 4)"
+  },
+  {
+   "zeilen": "91",
+   "name": "Item-Zaehler (Anzeige)",
+   "wert": "items_total/items_ok/items_fail/items_skipped",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- items_total/items_ok/items_fail/items_skipped"
+  },
+  {
+   "zeilen": "92",
+   "name": "boundedness info",
+   "wert": "CAP_REACHED flag (wenn vorhanden) / lock_waited_ms (optional)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- “boundedness info”: CAP_REACHED flag (wenn vorhanden) / lock_waited_ms (optional)"
+  },
+  {
+   "zeilen": "95",
+   "name": "Spalten 'Last N Applies'",
+   "wert": "time, action, exit_code, items_fail, error_class, link details",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- Tabelle: time, action, exit_code, items_fail, error_class, link “details”"
+  },
+  {
+   "zeilen": "110",
+   "name": "Beispiel aggregierte Top failure reasons",
+   "wert": "TC_APPLY_FAILED: 3 ; IFACE_GONE: 7 ; DB_LOOKUP_FAILED: 1",
+   "einheit": "",
+   "status": "BEISPIEL",
+   "zitat": "- z.B. TC_APPLY_FAILED: 3 ; IFACE_GONE: 7 ; DB_LOOKUP_FAILED: 1"
+  },
+  {
+   "zeilen": "122-123",
+   "name": "Klartext Exit-Code 0 OK",
+   "wert": "Anwendung erfolgreich — alle Ziel-Interfaces aktualisiert.",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "“Anwendung erfolgreich — alle Ziel-Interfaces aktualisiert.”"
+  },
+  {
+   "zeilen": "124-125",
+   "name": "Klartext Exit-Code 1 PARTIAL_OK",
+   "wert": "Teilweise erfolgreich — einige Interfaces konnten nicht aktualisiert werden. Details anzeigen.",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "“Teilweise erfolgreich — einige Interfaces konnten nicht aktualisiert werden. Details anzeigen.”"
+  },
+  {
+   "zeilen": "126-127",
+   "name": "Klartext Exit-Code 2 TEMPFAIL_SQL",
+   "wert": "Datenbankproblem — Peak konnte nicht sicher planen/auditieren. Kein Retry-Sturm; später erneut.",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "“Datenbankproblem — Peak konnte nicht sicher planen/auditieren. Kein Retry-Sturm; später erneut.”"
+  },
+  {
+   "zeilen": "128-129",
+   "name": "Klartext Exit-Code 4 RUNTIME_APPLY_ERROR",
+   "wert": "Traffic-Control Fehler — tc/cake konnte auf einigen/allen Interfaces nicht gesetzt werden.",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "“Traffic-Control Fehler — tc/cake konnte auf einigen/allen Interfaces nicht gesetzt werden.”"
+  },
+  {
+   "zeilen": "130-131",
+   "name": "Klartext Exit-Code 5 TEMPFAIL_LOCKED",
+   "wert": "Peak ist gerade beschäftigt — Apply-Lock nicht bekommen.",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "“Peak ist gerade beschäftigt — Apply-Lock nicht bekommen.”"
+  },
+  {
+   "zeilen": "132-133",
+   "name": "Klartext Exit-Code 6 STATE_MAPPING_ERROR",
+   "wert": "Runtime-Mapping ungültig — /run Snapshot oder DB Mapping inkonsistent.",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "“Runtime-Mapping ungültig — /run Snapshot oder DB Mapping inkonsistent.”"
+  },
+  {
+   "zeilen": "134-135",
+   "name": "Klartext Exit-Code 7 INTERNAL_ERROR",
+   "wert": "Interner Fehler — bitte Log-ID prüfen und manuell eingreifen.",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "“Interner Fehler — bitte Log-ID prüfen und manuell eingreifen.”"
+  },
+  {
+   "zeilen": "140",
+   "name": "Wartezeit im Action Hint LOCK_TIMEOUT",
+   "wert": "30",
+   "einheit": "s",
+   "status": "BEISPIEL",
+   "zitat": "Hint: “Warte 30s; wenn wiederholt, prüfe ob stuck apply läuft; ggf. manual abort (BR-10 action).”"
+  },
+  {
+   "zeilen": "152",
+   "name": "Bereinigung roher Exception-Strings",
+   "wert": "sanitize/shorten to code + correlation_id",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- Wenn raw exception strings existieren: sanitize/shorten to code + correlation_id."
+  },
+  {
+   "zeilen": "197",
+   "name": "Mindest-Retention Snapshots (BR-11-Forderung)",
+   "wert": "last 24h snapshot oder downsampled summary",
+   "einheit": "h",
+   "status": "KANDIDAT",
+   "zitat": "- Mindestens last 24h snapshot oder downsampled summary"
+  },
+  {
+   "zeilen": "198",
+   "name": "Mindest-Retention apply_runs (BR-11-Forderung)",
+   "wert": "last 100 apply_runs",
+   "einheit": "Runs",
+   "status": "KANDIDAT",
+   "zitat": "- Mindestens last 100 apply_runs"
+  },
+  {
+   "zeilen": "203",
+   "name": "Log-Level INFO",
+   "wert": "state transitions, apply start/end, exit_code summary",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- INFO: state transitions, apply start/end, exit_code summary"
+  },
+  {
+   "zeilen": "204",
+   "name": "Log-Level WARN",
+   "wert": "degraded/partial ok, mapping invalid",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- WARN: degraded/partial ok, mapping invalid"
+  },
+  {
+   "zeilen": "205",
+   "name": "Log-Level ERROR",
+   "wert": "internal errors, repeated apply fails",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- ERROR: internal errors, repeated apply fails"
+  },
+  {
+   "zeilen": "220",
+   "name": "Exit-Codes mit Pflicht-Fehlerhinweis (T-11-02)",
+   "wert": "2/4/5/6/7",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- Für exit_code 2/4/5/6/7 sieht Admin:"
+  },
+  {
+   "zeilen": "242-243",
+   "name": "DRIFT-Ampel BR-11",
+   "wert": "RISK",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- Grund: Retention + Detail-Level + Alerting sind Owner-Fixpunkte; ohne sie ist Operability-Umfang nicht “geschlossen”."
+  },
+  {
+   "zeilen": "44",
+   "name": "K-CONF-01 Status",
+   "wert": "NONE",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "-> Status: NONE (Panel ist read-only aus DB/Audit; runtime SoT bleibt /run für Apply, nicht fürs Panel)."
+  },
+  {
+   "zeilen": "46",
+   "name": "K-CONF-02 Status",
+   "wert": "RISK (wenn error_detail oder logs unkontrolliert Inhalte spiegeln)",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "-> Status: RISK wenn error_detail oder logs unkontrolliert Inhalte spiegeln."
+  }
+ ],
+ "verweise_auf_dokumente": [
+  {
+   "zeilen": "31",
+   "name": "PEAK MODE v2 BR-10 (State-Machine)",
+   "zitat": "- K-IMP-01: PEAK MODE v2 BR-10 (State-Machine)"
+  },
+  {
+   "zeilen": "33",
+   "name": "PEAK MODE v2 BR-09",
+   "zitat": "- K-IMP-02: PEAK MODE v2 BR-09 (Apply exit_code + error_class + bounded apply)"
+  },
+  {
+   "zeilen": "35",
+   "name": "PEAK MODE v2 BR-08",
+   "zitat": "- K-IMP-03: PEAK MODE v2 BR-08 (Episode/Snapshot/Apply-Audit tables contract)"
+  },
+  {
+   "zeilen": "37",
+   "name": "blocks/B166_POLICY_APPLY_RECONCILE.txt",
+   "zitat": "- K-IMP-04: blocks/B166_POLICY_APPLY_RECONCILE.txt"
+  },
+  {
+   "zeilen": "39",
+   "name": "Peak-Mode v1 Build-Ready / Checklist (falls vorhanden)",
+   "zitat": "- K-IMP-05: Peak-Mode v1 Build-Ready / Checklist (falls vorhanden)"
+  },
+  {
+   "zeilen": "146",
+   "name": "B165 (Gueltigkeit /run/vpn-sessions)",
+   "zitat": "Hint: “/run/vpn-sessions validity prüfen (B165).”"
+  },
+  {
+   "zeilen": "148",
+   "name": "BR-12 (Rate-limit / hardening)",
+   "zitat": "Hint: “Hoher churn; normal bei disconnect; wenn massiv: Rate-limit / hardening (BR-12).”"
+  },
+  {
+   "zeilen": "144",
+   "name": "PH2 / BR-01 / BR-06 (QoS-Baseline, CAKE root)",
+   "zitat": "Hint: “QoS baseline prüfen (PH2/BR-01/BR-06); CAKE root muss existieren.”"
+  },
+  {
+   "zeilen": "163",
+   "name": "BR-03 (Trigger-Schwellen)",
+   "zitat": "3) Wenn false positives: adjust trigger thresholds (BR-03) (Owner fix)."
+  },
+  {
+   "zeilen": "170",
+   "name": "FP-BR09-08 (Lock timeout param)",
+   "zitat": "3) Prüfe Lock timeout param (FP-BR09-08)"
+  },
+  {
+   "zeilen": "182",
+   "name": "FP-BR09-07 (DEGRADED_THRESHOLD)",
+   "zitat": "3) Wenn einzelnes interface: ok, PARTIAL_OK tolerierbar je threshold (FP-BR09-07)"
+  },
+  {
+   "zeilen": "63",
+   "name": "D-PEAK-DB-01 in BR-08",
+   "zitat": "- (privacy/perf tradeoff; auch abhängig von D-PEAK-DB-01 in BR-08)"
+  }
+ ],
+ "offene_punkte": [
+  {
+   "zeilen": "59-60, 235",
+   "kennung": "O-11-01 / FP-BR11-04",
+   "text": "SNAPSHOT_RETENTION_DAYS: Sichtbarkeitsdauer von Snapshots/Apply-Items im Panel."
+  },
+  {
+   "zeilen": "61-63, 236",
+   "kennung": "O-11-02 / FP-BR11-05",
+   "text": "ITEM_DETAIL_LEVEL: Standardanzeige apply_item-Liste oder nur aggregierte Gruende."
+  },
+  {
+   "zeilen": "64-66, 237",
+   "kennung": "O-11-03 / FP-BR11-06",
+   "text": "ALERTING_STYLE: Alarmierung ueber das Panel-Banner hinaus (Email/Push)."
+  },
+  {
+   "zeilen": "115",
+   "kennung": "",
+   "text": "Verdichtete/Top-Level-Metriken statt voller Zeitreihe, falls zu schwer - OPEN."
+  },
+  {
+   "zeilen": "195-199",
+   "kennung": "6.1",
+   "text": "Retention der Peak-Audit-Tabellen ist in BR-08 OPEN; BR-11 nennt nur Mindestwerte (24 h / 100 Runs)."
+  }
+ ],
+ "innere_widersprueche": [
+  {
+   "zeilen": "91 (gegen BR-08 Zeile 230, BR-09 Zeile 156)",
+   "text": "Der Zaehler heisst hier items_skipped; BR-08 fuehrt items_skipped_admin, BR-09 items_skip."
+  },
+  {
+   "zeilen": "92 (gegen BR-08)",
+   "text": "CAP_REACHED-Flag und lock_waited_ms werden angezeigt, sind aber im Spalten-Contract von peak_apply_run (BR-08) nicht enthalten."
+  },
+  {
+   "zeilen": "140 / 169 (gegen BR-10)",
+   "text": "Als Abhilfe wird ein 'manual abort' als BR-10-Action genannt; BR-10 kennt nur Force Enter/Exit/Disable/Enable, keinen Abbruch eines laufenden Apply."
+  },
+  {
+   "zeilen": "63",
+   "text": "FP-BR11-05 verweist fuer den Detailgrad auf D-PEAK-DB-01 (Retention); die Aktivierung von peak_apply_item ist in BR-08 jedoch D-PEAK-DB-02."
+  },
+  {
+   "zeilen": "152 / 135",
+   "text": "correlation_id bzw. 'Log-ID' werden vorausgesetzt, sind aber in keinem der Tabellen-Contracts (BR-08) definiert (dort nur optional episode_uuid fuer Log-Korrelation)."
+  }
+ ],
+ "relevanz": {
+  "stufe": "HOCH",
+  "begruendung": "Liefert den Betriebs-/Diagnosevertrag fuer Peak Mode: Panel-Ansichten, Klartexte je Exit-Code, Handlungshinweise, Minimal-Runbook, Log-Level, Mindest-Retention und PII-Verbot. Beruehrt neben MOD-009 das Panel (MOD-006) und Logging/Monitoring (MOD-007).",
+  "rt_module": [
+   "MOD-009",
+   "MOD-006",
+   "MOD-007",
+   "BASE-000",
+   "MOD-003",
+   "BASE-070",
+   "MOD-008"
+  ]
+ },
+ "auffaelligkeiten": [
+  "Keine Zugangsdaten enthalten.",
+  "Die Klartexte der Exit-Codes sind bereits deutschsprachig ausformuliert (Zeilen 123-135).",
+  "Kein Datum; Changelog nennt 'heute'. Datei ohne abschliessende Zeilenschaltung (wc -l 249, Read 250 Zeilen).",
+  "Panel-Detailansichten sind je pppX/ppp_ifname definiert; WireGuard kommt nicht vor."
+ ]
+}

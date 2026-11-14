@@ -1,0 +1,2071 @@
+{
+ "datei": "nachlieferung/entwuerfe/peak_mode_v2/PEAK MODE v2 — BR-08.txt",
+ "abschnitt": "1-463",
+ "zeilen_gesamt": 463,
+ "gelesen_bereiche": "1-463",
+ "vollstaendig_gelesen": true,
+ "dokument": {
+  "titel": "PEAK MODE v2 — BR-08 (NEUFASSUNG, ENTWURF / Phase 3): DB-Extension-Schema + Runtime→DB Mapping-Contract",
+  "doc_id": "BR-08",
+  "status_laut_datei": "ENTWURF (keine Patch-/Copy-Blöcke, keine SQL-Snippets)",
+  "version_laut_datei": "v2.0-ENTWURF",
+  "datum_laut_datei": "nicht angegeben (Changelog nennt nur \"heute\")",
+  "projekt": "XPN",
+  "art": "ENTWURF",
+  "normativitaet_laut_datei": "Design-Contract im Entwurfsstatus; Owner-Fixwerte FP-PEAK-01..03 als fest eingebettet bezeichnet, vier Punkte D-PEAK-DB-01..04 ausdruecklich OPEN; DRIFT-Ampel: RISK"
+ },
+ "zusammenfassung": "BR-08 beschreibt als Entwurf (Phase 3) das eigenstaendige Tabellenpaket peak_* (peak_episode, peak_episode_snapshot, peak_apply_run, optional peak_apply_item), das an das SQL-Kernschema B055 andockt, ohne es zu veraendern, und integriert den frueheren BR-08A als Mapping-Contract von /run/vpn-sessions/*.env in die Peak-Tabellen. Die Tabellen dienen ausschliesslich Audit, Debug und reconcile-faehiger Historie; die Laufzeit-Wahrheit 'Session aktiv' bleibt die VALID-Datei /run/vpn-sessions/<ppp_if>.env (B165), die Policy-Wahrheit bleibt SQL-first in settings_* und vpn_connections. Fest eingebettet sind drei Owner-Fixwerte: MULTI-Schwelle 30 %, dynamisches und je Episode gelatchtes Top-N (3/5/10 nach active_ppp, nur USER) und SoftIRQ-Aggregation 'aggregated'. Das Dokument legt Spalten, Indizes, Enumerationswerte (action, trigger_source, result_code, item_result), eine zu B166 kompatible Exit-Code-Semantik (0..7) und die USER-only-Regel (Nicht-USER wird als SKIP auditiert) fest. Datenschutz: keine PII, CLIENT_IP standardmaessig nicht persistiert. Offen bleiben Retention/Downsampling der Snapshots, die Aktivierung der Detailtabelle peak_apply_item, die Persistenz von CLIENT_IP und die Quelle der Profil-Bandbreite fuer EXIT_RESTORE. Sechs Testgruppen (T8.1 bis T8.6) bilden die Definition of Done; die Drift-Ampel steht wegen der offenen Punkte auf RISK. Das gesamte Mapping ist an PPP-Schnittstellen und die PPP-Session-Dateien gebunden.",
+ "aussagen": [
+  {
+   "nr": 1,
+   "zeilen": "1-5",
+   "zitat": "SCOPE: Persistenz/Audit/History für Peak-Episodes + Snapshots + Apply-Audit + Feld-Mapping aus /run/vpn-sessions/*.env",
+   "aussage": "Kopf: BR-08 ist eine Neufassung im Entwurfsstatus (Phase 3) mit dem Titel 'DB-Extension-Schema + Runtime→DB Mapping-Contract'; Scope ist Persistenz/Audit/History fuer Peak-Episodes, Snapshots, Apply-Audit sowie das Feld-Mapping aus /run/vpn-sessions/*.env.",
+   "art": "DEFINITION",
+   "kennung": "BR-08",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 2,
+   "zeilen": "4",
+   "zitat": "STATUS: ENTWURF (keine Patch-/Copy-Blöcke, keine SQL-Snippets)",
+   "aussage": "Der Entwurf enthaelt ausdruecklich keine Patch-/Copy-Bloecke und keine SQL-Snippets; er ist reiner Vertragstext.",
+   "art": "DEFINITION",
+   "kennung": "",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 3,
+   "zeilen": "11-12",
+   "zitat": "K0.1) SQL-Core bleibt klein; neue Features sollen als eigene Tabellenpakete kommen (kein “Core aufblasen”).",
+   "aussage": "K0.1: Der SQL-Core bleibt klein; neue Features kommen als eigene Tabellenpakete und blaehen den Core nicht auf (Quelle B055_DB_SCHEMA_CORE).",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K0.1",
+   "rt_bezug": [
+    "BASE-000",
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 4,
+   "zeilen": "14-15",
+   "zitat": "K0.2) Runtime-SoT für “Session aktiv” ist /run/vpn-sessions/<ppp_if>.env (VALID).",
+   "aussage": "K0.2: Laufzeit-Source-of-Truth fuer 'Session aktiv' ist die VALID-Datei /run/vpn-sessions/<ppp_if>.env (Quelle B165). [PPP-gebunden]",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K0.2",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-030",
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 5,
+   "zeilen": "16-17",
+   "zitat": "PPP_IF, CLIENT_IP, CONNECTION_ID, START_TS, PPPD_PID (SESSION_ID optional)",
+   "aussage": "Mindest-Keys der Session-Datei laut Kanon B165: PPP_IF, CLIENT_IP, CONNECTION_ID, START_TS, PPPD_PID; SESSION_ID ist optional. [PPP-gebunden]",
+   "art": "IMPL_DETAIL",
+   "kennung": "K0.2",
+   "rt_bezug": [
+    "BASE-070",
+    "BASE-030",
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 6,
+   "zeilen": "18",
+   "zitat": "- Konsequenz: DB ist Audit/History/Identity/Policy, nicht “Live-Truth”.",
+   "aussage": "Konsequenz aus K0.2: Die Datenbank ist Audit/History/Identity/Policy, aber nicht die Live-Wahrheit ueber aktive Sitzungen.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K0.2",
+   "rt_bezug": [
+    "BASE-000",
+    "BASE-070",
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 7,
+   "zeilen": "20-21",
+   "zitat": "K0.3) Apply/Reconcile Exit-Codes (STANDARD 0..7) existieren kanonisch und sollen als semantische Referenz dienen.",
+   "aussage": "K0.3: Die kanonischen Apply/Reconcile-Exit-Codes (STANDARD 0..7, Quelle B166) dienen Peak als semantische Referenz.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K0.3",
+   "rt_bezug": [
+    "BASE-080",
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 8,
+   "zeilen": "23-24",
+   "zitat": "- FP-PEAK-01 MULTI-Schwelle = 30%",
+   "aussage": "K0.4 / FP-PEAK-01: Die MULTI-Schwelle ist als Owner-Fixpunkt auf 30 % festgelegt (wiederholt in Zeile 76 als MULTI_THRESHOLD_PCT = 30.00 und Zeile 132).",
+   "art": "PARAMETER",
+   "kennung": "FP-PEAK-01",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 9,
+   "zeilen": "25-28",
+   "zitat": "- FP-PEAK-02 Top-N dynamisch nach active_ppp (USER only), N ist pro Episode “gelatcht”:",
+   "aussage": "FP-PEAK-02: Top-N ist dynamisch nach active_ppp (nur USER) und wird je Episode gelatcht: active_ppp <= 20 → N=3, 21..100 → N=5, > 100 → N=10 (wiederholt in Zeilen 77-78). [PPP-gebunden]",
+   "art": "PARAMETER",
+   "kennung": "FP-PEAK-02",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 10,
+   "zeilen": "29",
+   "zitat": "- SoftIRQ% Triggerbasis = aggregated (nicht max-per-CPU)",
+   "aussage": "Triggerbasis fuer SoftIRQ% ist der aggregierte Wert, nicht das Maximum je CPU (in Zeile 79 als FP-PEAK-03 SOFTIRQ_AGGREGATION = aggregated, 'Sum/gesamt, nicht max-core', benannt).",
+   "art": "PARAMETER",
+   "kennung": "FP-PEAK-03",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 11,
+   "zeilen": "31-33",
+   "zitat": "K0.5) Peak-Mode arbeitet mit CAKE (kein HTB-Mix); Ziel ist CPU-Overload zu entschärfen durch Bandwidth-Drossel",
+   "aussage": "K0.5: Peak Mode arbeitet mit CAKE ohne HTB-Mix; Ziel ist, CPU-Ueberlast durch Bandbreitendrossel je pppX (USER) zu entschaerfen, ohne Mischung im QoS-Stack (Quelle: v1-Material 'Peak-Mode_entscheidung + Owner-Fixpunkte (CAKE Edition)'). [PPP-gebunden]",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K0.5",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 12,
+   "zeilen": "35-37",
+   "zitat": "K0.6) Admin-Exclude (Peak wirkt nur auf USER) ist im Peak-v1 Material als intendiert beschrieben.",
+   "aussage": "K0.6: Admin-Exclude - Peak wirkt nur auf USER; im v1-Material als beabsichtigt beschrieben und kanonisch ueber den DB-Lookup CONNECTION_ID → conn_group durchsetzbar. [PPP-gebunden] (Enforcer: USER-pppX)",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "K0.6",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-010",
+    "BASE-100"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 13,
+   "zeilen": "43-44",
+   "zitat": "A1) “CONNECTION_ID” in /run/vpn-sessions/*.env entspricht dem SQL-PK vpn_connections.id aus B055.",
+   "aussage": "Annahme A1: CONNECTION_ID in /run/vpn-sessions/*.env entspricht dem SQL-Primaerschluessel vpn_connections.id aus B055, weil B165 CONNECTION_ID als Laufzeit-Mapping zur vpn_connection_id verwendet.",
+   "art": "DEFINITION",
+   "kennung": "A1",
+   "rt_bezug": [
+    "BASE-000",
+    "BASE-070",
+    "BASE-010",
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 14,
+   "zeilen": "46-48",
+   "zitat": "A2) Peak benötigt DB-Lookups auf vpn_connections (mindestens: conn_group).",
+   "aussage": "Annahme A2: Peak benoetigt DB-Lookups auf vpn_connections, mindestens conn_group; weitere Spalten (z. B. Profil-Bandwidth) gelten nicht als fix, sondern nur als Option, bis die Kanon-Keys/Spalten feststehen.",
+   "art": "DEFINITION",
+   "kennung": "A2",
+   "rt_bezug": [
+    "BASE-000",
+    "MOD-009",
+    "BASE-100"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 15,
+   "zeilen": "50-52",
+   "zitat": "A3) Peak speichert keine PII (Username/E-Mail/Pass/PSK/Tokens).",
+   "aussage": "Annahme A3: Peak speichert keine PII (Username, E-Mail, Pass, PSK, Tokens); IP-Adressen gelten als technisch sensibel und werden standardmaessig nicht persistiert (nur optional/Debug auf ausdruecklichen Wunsch).",
+   "art": "SCHUTZZIEL",
+   "kennung": "A3",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 16,
+   "zeilen": "58-59",
+   "zitat": "S2.1) BR-08 definiert ein eigenständiges Extension-Tabellenpaket (prefix peak_*),",
+   "aussage": "S2.1: BR-08 definiert ein eigenstaendiges Extension-Tabellenpaket mit Praefix peak_*, das an B055 andockt, ohne den B055-Core zu veraendern.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "S2.1",
+   "rt_bezug": [
+    "BASE-000",
+    "MOD-009"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 17,
+   "zeilen": "61-62",
+   "zitat": "S2.2) BR-08 enthält zusätzlich (integriert) den Mapping-Contract (ehem. BR-08A):",
+   "aussage": "S2.2: BR-08 enthaelt integriert den Mapping-Contract (ehemals BR-08A): wie Daten aus /run/vpn-sessions/*.env in Peak-Audit/Apply-Tabellen einfliessen.",
+   "art": "DEFINITION",
+   "kennung": "S2.2",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 18,
+   "zeilen": "64-67",
+   "zitat": "S2.3) Peak-Tables sind rein:",
+   "aussage": "S2.3: Die Peak-Tabellen dienen ausschliesslich der Auditierbarkeit (was, warum, mit welchen Parametern), der Debugbarkeit (warum gedrosselt, welche Fehlerklasse, welche Batch-Laeufe) und einer reconcile-faehigen Historie (Episode/Snapshot/Apply-Verlauf).",
+   "art": "SCHUTZZIEL",
+   "kennung": "S2.3",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 19,
+   "zeilen": "68-70",
+   "zitat": "- Policy-SoT sein (Policy bleibt SQL-first über settings_catalog/settings_* + vpn_connections)",
+   "aussage": "Die Peak-Tabellen ersetzen nicht die Runtime-Truth (aktiv/inaktiv) und sind nicht Policy-SoT; Policy bleibt SQL-first ueber settings_catalog/settings_* und vpn_connections.",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "S2.3",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "BASE-090",
+    "BASE-100"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 20,
+   "zeilen": "73-79",
+   "zitat": "3) OWNER-FIXWERTE (in diesem BR fest eingebettet, damit es self-contained ist)",
+   "aussage": "Abschnitt 3 bettet die Owner-Fixwerte FP-PEAK-01 (30.00), FP-PEAK-02 (Top-N-Latch 3/5/10) und FP-PEAK-03 (aggregated) fest in das BR ein, damit es in sich geschlossen ist.",
+   "art": "PARAMETER",
+   "kennung": "FP-PEAK-01..03",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 21,
+   "zeilen": "85-88",
+   "zitat": "- Wie lange werden peak_episode_snapshot Reihen gespeichert?",
+   "aussage": "D-PEAK-DB-01 (OPEN): Aufbewahrungsdauer der peak_episode_snapshot-Reihen und Downsampling (z. B. ab 24 h nur 60-s-Mittelwerte) sind offen; das Schema schafft dafuer Platz, die Werte bleiben OPEN.",
+   "art": "OFFEN",
+   "kennung": "D-PEAK-DB-01",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "MOD-008"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 22,
+   "zeilen": "90-93",
+   "zitat": "- peak_apply_item (per pppX) ist OPTIONAL: aktivieren nur wenn du diese Granularität willst.",
+   "aussage": "D-PEAK-DB-02 (OPEN): Die Detailtabelle peak_apply_item (je pppX) ist optional; sonst reicht peak_apply_run als Summary. Empfehlung (nicht Pflicht): peak_apply_item ON mit kurzer Retention, z. B. 7 Tage. [PPP-gebunden]",
+   "art": "OFFEN",
+   "kennung": "D-PEAK-DB-02",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 23,
+   "zeilen": "95-98",
+   "zitat": "- Optional: speichern nur intern (10.77.*) oder gehasht.",
+   "aussage": "D-PEAK-DB-03 (OPEN): Persistenz von CLIENT_IP - Standard ist nicht speichern (privacy-first); optional nur interne Adressen (10.77.*) oder gehasht; offen bis Owner-Fix.",
+   "art": "OFFEN",
+   "kennung": "D-PEAK-DB-03",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 24,
+   "zeilen": "100-103",
+   "zitat": "-> bleibt OPEN: BR-08 definiert nur “profile_bw_bps_resolved” als audit field, Quelle wird später kanonisiert.",
+   "aussage": "D-PEAK-DB-04 (OPEN): EXIT_RESTORE benoetigt die Soll-Bandbreite (Profilwert); ob sie aus Policy-Keys/Settings oder einer Spalte in vpn_connections kommt, ist offen. BR-08 definiert nur 'profile_bw_bps_resolved' als Audit-Feld.",
+   "art": "OFFEN",
+   "kennung": "D-PEAK-DB-04",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003",
+    "BASE-100",
+    "BASE-090"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 25,
+   "zeilen": "109-113",
+   "zitat": "- FK auf vpn_connections.id heißt vpn_connection_id (nicht “connection_id”), um B055 Terminologie zu halten",
+   "aussage": "Namenskonvention des Schemas: snake_case, *_id als PK/FK, created_at/updated_at als Audit-Spalten wo sinnvoll; der FK auf vpn_connections.id heisst vpn_connection_id (nicht 'connection_id'), um die B055-Terminologie zu halten.",
+   "art": "IMPL_DETAIL",
+   "kennung": "",
+   "rt_bezug": [
+    "BASE-000",
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 26,
+   "zeilen": "116-119",
+   "zitat": "- Eine Peak-Episode als “Latch-Container”: ENTER (nach Persist-Window) → HOLD (sliding) → EXIT",
+   "aussage": "Tabelle peak_episode: eine Peak-Episode als 'Latch-Container' mit dem Ablauf ENTER (nach Persist-Window) → HOLD (sliding) → EXIT.",
+   "art": "FUNKTION",
+   "kennung": "T-PEAK_EPISODE",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 27,
+   "zeilen": "121-127",
+   "zitat": "- hold_until                (datetime, not null; sliding window Ende)",
+   "aussage": "Spalten von peak_episode: episode_id (PK, bigint autoinc), episode_uuid (optional, nur Log-Korrelation), entered_at (not null), exited_at (null solange aktiv), hold_until (not null, Ende des Sliding Window), last_extend_at (optional).",
+   "art": "IMPL_DETAIL",
+   "kennung": "T-PEAK_EPISODE",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 28,
+   "zeilen": "128-129",
+   "zitat": "- exit_reason_code          (varchar; z.B. HOLD_TIMEOUT_RECOVERED | MANUAL_ABORT | ERROR_ABORT)",
+   "aussage": "Reason-Codes der Episode: enter_reason_code (z. B. OVERLOAD_PERSISTED_180S) und exit_reason_code (z. B. HOLD_TIMEOUT_RECOVERED | MANUAL_ABORT | ERROR_ABORT).",
+   "art": "IMPL_DETAIL",
+   "kennung": "T-PEAK_EPISODE",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 29,
+   "zeilen": "131-135",
+   "zitat": "Episode-“Parameter-Latch” (damit Audit ohne Drift möglich ist):",
+   "aussage": "Episoden-'Parameter-Latch' fuer driftfreies Audit: multi_threshold_pct (decimal(5,2), = 30.00), active_ppp_enter (USER-only-Snapshot beim ENTER), topn_latched (3/5/10), softirq_aggregation_mode (= aggregated) werden je Episode gespeichert. [PPP-gebunden]",
+   "art": "IMPL_DETAIL",
+   "kennung": "T-PEAK_EPISODE",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 30,
+   "zeilen": "137-142",
+   "zitat": "Detektor-Info (audit, nicht Gate-SoT):",
+   "aussage": "Detektor-Info in peak_episode (Audit, nicht Gate-SoT): sample_interval_sec (default 10), persist_enter_sec (default 180), hold_window_sec (default 900), detector_id und detector_version (optional).",
+   "art": "PARAMETER",
+   "kennung": "T-PEAK_EPISODE",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 31,
+   "zeilen": "144-147",
+   "zitat": "Statistik / Summaries (optional, aber hilfreich fürs Panel):",
+   "aussage": "Optionale Statistikspalten fuers Panel: max_softirq_pct, max_vpn_bps_total, episodes_notes.",
+   "art": "IMPL_DETAIL",
+   "kennung": "T-PEAK_EPISODE",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 32,
+   "zeilen": "149-152",
+   "zitat": "- IDX_peak_episode_active       (exited_at IS NULL)  // wenn DB partial-index kann; sonst via (exited_at)",
+   "aussage": "Indizes von peak_episode: IDX_peak_episode_entered_at (entered_at), IDX_peak_episode_exited_at (exited_at), IDX_peak_episode_active (exited_at IS NULL, falls die DB Partial-Index kann; sonst ueber exited_at).",
+   "art": "IMPL_DETAIL",
+   "kennung": "T-PEAK_EPISODE",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 33,
+   "zeilen": "154-157",
+   "zitat": "- Es darf maximal 1 aktive Episode geben (OPTIONAL HARD CONSTRAINT):",
+   "aussage": "Constraint: Es darf hoechstens eine aktive Episode geben (optionaler harter Constraint); UNIQUE(active_flag) ist DB-spezifisch, alternativ Durchsetzung in der Logik und in der DB nur Index auf exited_at.",
+   "art": "SCHUTZZIEL",
+   "kennung": "T-PEAK_EPISODE",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 34,
+   "zeilen": "160-164",
+   "zitat": "- Zeitreihe während Episode: SoftIRQ aggregated + VPN total + active_ppp_now + “expected mode”",
+   "aussage": "Tabelle peak_episode_snapshot: Zeitreihe waehrend der Episode (SoftIRQ aggregated, VPN total, active_ppp_now, 'expected mode') als Grundlage fuer die Multi-Attribution und forensische Nachvollziehbarkeit. [PPP-gebunden]",
+   "art": "FUNKTION",
+   "kennung": "T-PEAK_EPISODE_SNAPSHOT",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "MOD-007"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 35,
+   "zeilen": "166-174",
+   "zitat": "- softirq_pct_agg           (decimal(5,2), not null)   // aggregated",
+   "aussage": "Spalten von peak_episode_snapshot: snapshot_id (PK), episode_id (FK, not null), ts (not null); Messwerte softirq_pct_agg (decimal(5,2), aggregated), vpn_bps_total (bigint, gemessener gesamter VPN-Durchsatz), overload_bool (Detektor-Entscheidung).",
+   "art": "IMPL_DETAIL",
+   "kennung": "T-PEAK_EPISODE_SNAPSHOT",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 36,
+   "zeilen": "176-179",
+   "zitat": "- topn_used                 (int, not null)            // sollte = peak_episode.topn_latched (sanity check)",
+   "aussage": "Kontextspalten des Snapshots: active_ppp_now (USER-only Live-Zaehler), topn_used (soll = peak_episode.topn_latched, Sanity-Check), hold_until_snapshot (aktuelles hold_until fuer Debug). [PPP-gebunden]",
+   "art": "IMPL_DETAIL",
+   "kennung": "T-PEAK_EPISODE_SNAPSHOT",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 37,
+   "zeilen": "181-185",
+   "zitat": "- apply_expected_bw_bps     (bigint)                   // Sollwert (Peak oder Profil)",
+   "aussage": "Optionale Drift-Check-Spalten des Snapshots: apply_expected_mode (PROFILE | PEAK), apply_expected_bw_bps (Sollwert Peak oder Profil), drift_flag_sysfs_vs_db (Sampler erkennt Drift), diag_notes.",
+   "art": "IMPL_DETAIL",
+   "kennung": "T-PEAK_EPISODE_SNAPSHOT",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "BASE-080"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 38,
+   "zeilen": "187-189",
+   "zitat": "- IDX_peak_snap_episode_ts  (episode_id, ts)",
+   "aussage": "Indizes von peak_episode_snapshot: IDX_peak_snap_episode_ts (episode_id, ts) und IDX_peak_snap_ts (ts).",
+   "art": "IMPL_DETAIL",
+   "kennung": "T-PEAK_EPISODE_SNAPSHOT",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 39,
+   "zeilen": "191-193",
+   "zitat": "- Schema soll Retention ermöglichen (z.B. Partitionierung nach ts) – konkrete Policy D-PEAK-DB-01.",
+   "aussage": "Retention-Hinweis (OPEN): Die Snapshot-Menge kann bei 10-s-Sampling gross werden; das Schema soll Retention ermoeglichen (z. B. Partitionierung nach ts), die konkrete Policy ist D-PEAK-DB-01.",
+   "art": "OFFEN",
+   "kennung": "D-PEAK-DB-01",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "MOD-008"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 40,
+   "zeilen": "196-200",
+   "zitat": "- Ein “Batch Apply” als Run (Episode ENTER/EXTEND/EXIT oder MANUAL), summary-level audit",
+   "aussage": "Tabelle peak_apply_run: ein Batch-Apply als Run (Episode ENTER/EXTEND/EXIT oder MANUAL) auf Summary-Ebene; muss fehlerklassifiziert sein, ohne dass Logs geparst werden muessen.",
+   "art": "FUNKTION",
+   "kennung": "T-PEAK_APPLY_RUN",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 41,
+   "zeilen": "202-205",
+   "zitat": "- episode_id                (FK → peak_episode.episode_id, nullable)",
+   "aussage": "peak_apply_run.run_id ist PK; episode_id ist ein nullable FK auf peak_episode, weil auch ein 'manual test apply' ohne Episode denkbar ist.",
+   "art": "IMPL_DETAIL",
+   "kennung": "T-PEAK_APPLY_RUN",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 42,
+   "zeilen": "207-212",
+   "zitat": "- action                    (enum/varchar: ENTER_APPLY | EXTEND_APPLY | EXIT_RESTORE | MANUAL_APPLY | NOOP)",
+   "aussage": "Run-Meta: action (ENTER_APPLY | EXTEND_APPLY | EXIT_RESTORE | MANUAL_APPLY | NOOP), trigger_source (DETECTOR | TIMER | MANUAL | RECOVER), started_at und ended_at (not null), duration_ms (optional).",
+   "art": "IMPL_DETAIL",
+   "kennung": "T-PEAK_APPLY_RUN",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 43,
+   "zeilen": "214-217",
+   "zitat": "- target_scope              (varchar: USER_ONLY)   // falls später mehr, jetzt fix USER_ONLY (K0.6)",
+   "aussage": "Zielpopulation des Runs (Audit): target_scope ist derzeit fix USER_ONLY (K0.6), active_ppp_snapshot zaehlt die USER-pppX im Snapshot, topn_latched wird zur Selbstgenuegsamkeit wiederholt. [PPP-gebunden]",
+   "art": "IMPL_DETAIL",
+   "kennung": "T-PEAK_APPLY_RUN",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 44,
+   "zeilen": "219-223",
+   "zitat": "- result_code               (varchar, not null)    // peak-intern (z.B. OK | PARTIAL_OK | TEMPFAIL_SQL | TEMPFAIL_LOCKED | MAPPING_INVALID | INTERNAL_ERROR)",
+   "aussage": "Ergebnis-Summary des Runs: exit_code (semantisch kompatibel zu B166, 0..7), result_code peak-intern (z. B. OK | PARTIAL_OK | TEMPFAIL_SQL | TEMPFAIL_LOCKED | MAPPING_INVALID | INTERNAL_ERROR), error_class (z. B. DB_DOWN | LOCKED | TC_ERROR | INVALID_MAPPING), error_detail (kurz, keine PII).",
+   "art": "IMPL_DETAIL",
+   "kennung": "T-PEAK_APPLY_RUN",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "BASE-080",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 45,
+   "zeilen": "224",
+   "zitat": "hardcut_fallback_used     (bool, not null default false) // wenn Restore/Apply per ppp kill etc. (nur falls Peak das überhaupt tut; sonst bleibt false)",
+   "aussage": "hardcut_fallback_used (bool, default false) haelt fest, ob Restore/Apply per 'ppp kill' o. ae. erfolgte - nur falls Peak das ueberhaupt tut, sonst bleibt der Wert false. [PPP-gebunden]",
+   "art": "IMPL_DETAIL",
+   "kennung": "T-PEAK_APPLY_RUN",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "BASE-070"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 46,
+   "zeilen": "226-230",
+   "zitat": "- items_skipped_admin        (int, not null default 0)  // sollte 0 sein, da USER-only; aber für Diagnose",
+   "aussage": "Zaehler des Runs: items_total, items_ok, items_fail (not null) und items_skipped_admin (default 0; sollte 0 sein, da USER-only, dient der Diagnose).",
+   "art": "IMPL_DETAIL",
+   "kennung": "T-PEAK_APPLY_RUN",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 47,
+   "zeilen": "232-235",
+   "zitat": "- IDX_peak_apply_episode_ts (episode_id, started_at)",
+   "aussage": "Indizes von peak_apply_run: IDX_peak_apply_ts (started_at), IDX_peak_apply_episode_ts (episode_id, started_at), IDX_peak_apply_action (action).",
+   "art": "IMPL_DETAIL",
+   "kennung": "T-PEAK_APPLY_RUN",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 48,
+   "zeilen": "238-242",
+   "zitat": "- Pro ppp_if (und optional pro vpn_connection_id) der Apply-Outcome.",
+   "aussage": "Tabelle peak_apply_item (optionale Detailtabelle): Apply-Ergebnis je ppp_if (optional je vpn_connection_id); nur noetig, wenn ohne Log beantwortbar sein soll, welches Interface nicht applied wurde und warum. [PPP-gebunden]",
+   "art": "FUNKTION",
+   "kennung": "T-PEAK_APPLY_ITEM",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "BASE-030"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 49,
+   "zeilen": "244-251",
+   "zitat": "- ppp_ifname                (varchar, not null)        // aus PPP_IF",
+   "aussage": "Spalten von peak_apply_item: item_id (PK), run_id (FK, not null), ppp_ifname (not null, aus PPP_IF); Identitaet optional, weil der DB-Lookup scheitern kann: vpn_connection_id (nullable, aus CONNECTION_ID), conn_group_resolved (USER|ADMIN, aus DB-Lookup). [PPP-gebunden]",
+   "art": "IMPL_DETAIL",
+   "kennung": "T-PEAK_APPLY_ITEM",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "BASE-030",
+    "BASE-010"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 50,
+   "zeilen": "253-260",
+   "zitat": "- item_error_code           (varchar, nullable)        // DB_LOOKUP_FAILED | TC_APPLY_FAILED | MAPPING_INVALID | PERMISSION_DENIED ...",
+   "aussage": "Apply-Target und Outcome je Item: intended_mode (PEAK | PROFILE), intended_bw_bps (Zielwert); item_result (OK | FAIL | SKIP | NOOP), item_error_code (DB_LOOKUP_FAILED | TC_APPLY_FAILED | MAPPING_INVALID | PERMISSION_DENIED ...), item_error_detail (kurz, keine PII).",
+   "art": "IMPL_DETAIL",
+   "kennung": "T-PEAK_APPLY_ITEM",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "MOD-003"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 51,
+   "zeilen": "262-265",
+   "zitat": "OPTIONAL Debug-Felder (default OFF / nur wenn Owner später will):",
+   "aussage": "Optionale Debug-Felder (default OFF, nur auf spaeteren Owner-Wunsch): pppd_pid (aus PPPD_PID), session_start_ts (aus START_TS), client_ip (aus CLIENT_IP, OPEN wegen Privacy). [PPP-gebunden]",
+   "art": "IMPL_DETAIL",
+   "kennung": "T-PEAK_APPLY_ITEM",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 52,
+   "zeilen": "267-270",
+   "zitat": "- IDX_peak_item_vpnconn      (vpn_connection_id)   // nur wenn häufig panel-query",
+   "aussage": "Indizes von peak_apply_item: IDX_peak_item_run_ppp (run_id, ppp_ifname), IDX_peak_item_vpnconn (vpn_connection_id, nur bei haeufiger Panel-Abfrage), IDX_peak_item_result (item_result).",
+   "art": "IMPL_DETAIL",
+   "kennung": "T-PEAK_APPLY_ITEM",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "MOD-006"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 53,
+   "zeilen": "276-278",
+   "zitat": "- “Aktiv” wird NICHT aus DB abgeleitet, sondern aus VALID /run/vpn-sessions/*.env (B165).",
+   "aussage": "Grundsatz des Mapping-Contracts: 'Aktiv' wird nicht aus der DB abgeleitet, sondern aus den VALID-Dateien /run/vpn-sessions/*.env (B165); Peak schreibt sein DB-Audit auf Basis eines Snapshots dieser Dateien. [PPP-gebunden]",
+   "art": "ARCH_ENTSCHEIDUNG",
+   "kennung": "6",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070",
+    "BASE-000"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 54,
+   "zeilen": "281-288",
+   "zitat": "- enthält mindestens: PPP_IF + CONNECTION_ID + START_TS (+ PPPD_PID) (CLIENT_IP vorhanden laut B165-Minimum)",
+   "aussage": "6.1 Snapshot-Quelle (REQUIRED): Dateien /run/vpn-sessions/*.env; VALID heisst: Datei existiert und enthaelt mindestens PPP_IF + CONNECTION_ID + START_TS (+ PPPD_PID), CLIENT_IP laut B165-Minimum vorhanden; weitere Pruefungen (Permissions/Owner) stehen im B165-DoD. [PPP-gebunden]",
+   "art": "IMPL_DETAIL",
+   "kennung": "6.1",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070",
+    "BASE-030"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 55,
+   "zeilen": "293-296",
+   "zitat": "- peak_apply_item.ppp_ifname = PPP_IF",
+   "aussage": "6.2 Pflicht-Mapping: PPP_IF aus der .env wird zu peak_apply_item.ppp_ifname. [PPP-gebunden]",
+   "art": "IMPL_DETAIL",
+   "kennung": "6.2",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "BASE-030"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 56,
+   "zeilen": "298-301",
+   "zitat": "- peak_apply_item.vpn_connection_id = CONNECTION_ID",
+   "aussage": "6.2 Pflicht-Mapping: CONNECTION_ID aus der .env wird zu peak_apply_item.vpn_connection_id.",
+   "art": "IMPL_DETAIL",
+   "kennung": "6.2",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "BASE-010"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 57,
+   "zeilen": "302-306",
+   "zitat": "- item_result=FAIL, item_error_code=DB_LOOKUP_FAILED (Details siehe BR-09 Fehlerklassen; hier nur Contract)",
+   "aussage": "Schlaegt der DB-Lookup CONNECTION_ID → vpn_connections fehl, darf vpn_connection_id trotzdem als Zahl gespeichert werden, conn_group_resolved bleibt NULL, item_result=FAIL und item_error_code=DB_LOOKUP_FAILED (Fehlerklassen im Detail in BR-09).",
+   "art": "IMPL_DETAIL",
+   "kennung": "6.2",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 58,
+   "zeilen": "309-316",
+   "zitat": "- peak_apply_item.pppd_pid = PPPD_PID",
+   "aussage": "6.3 Optionales Debug-Mapping (default OFF): PPPD_PID → peak_apply_item.pppd_pid; rein diagnostisch, niemals Gate/Filter. [PPP-gebunden]",
+   "art": "IMPL_DETAIL",
+   "kennung": "6.3",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 59,
+   "zeilen": "318-323",
+   "zitat": "- peak_apply_item.session_start_ts = START_TS",
+   "aussage": "6.3 Optional: START_TS → peak_apply_item.session_start_ts; rein diagnostisch, niemals Gate/Filter.",
+   "art": "IMPL_DETAIL",
+   "kennung": "6.3",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 60,
+   "zeilen": "325-330",
+   "zitat": "- OPEN (privacy): Default OFF; wenn aktiviert, dann nur kurz retention oder masked/hashed (Owner-Entscheid D-PEAK-DB-03).",
+   "aussage": "6.3 Optional: CLIENT_IP → peak_apply_item.client_ip; OPEN (Privacy), Default OFF; falls aktiviert nur mit kurzer Retention oder maskiert/gehasht (Owner-Entscheid D-PEAK-DB-03).",
+   "art": "OFFEN",
+   "kennung": "D-PEAK-DB-03",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 61,
+   "zeilen": "332-337",
+   "zitat": "- (OPTION) peak_apply_item.session_id = SESSION_ID",
+   "aussage": "6.3 Optional: SESSION_ID (laut B165 optional) → (Option) peak_apply_item.session_id; nur wenn wirklich benoetigt, sonst weglassen (Datenminimierung).",
+   "art": "IMPL_DETAIL",
+   "kennung": "6.3",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "RANDNOTIZ"
+  },
+  {
+   "nr": 62,
+   "zeilen": "340-348",
+   "zitat": "- active_ppp_snapshot (count VALID USER sessions im Snapshot)",
+   "aussage": "6.4 Pflicht-Mapping der Run-Summary aus Peak-Innenzustand/Enforcer nach peak_apply_run: action, trigger_source, started_at, ended_at, active_ppp_snapshot (Anzahl VALID-USER-Sessions im Snapshot), topn_latched (aus Episode-Latch), exit_code, result_code, error_class, error_detail. [PPP-gebunden]",
+   "art": "IMPL_DETAIL",
+   "kennung": "6.4",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 63,
+   "zeilen": "350-359",
+   "zitat": "- exit_code soll kompatibel zu B166 sein (0..7) — Peak nutzt dieselben “Klassen”:",
+   "aussage": "Exit-Code-Semantik, kompatibel zu B166 (0..7): 0 OK, 1 PARTIAL_OK, 2 TEMPFAIL_SQL, 4 RUNTIME_APPLY_ERROR (tc/cake), 5 TEMPFAIL_LOCKED (wenn Peak eigenen Lock nutzt), 6 STATE_MAPPING_ERROR (wenn /run-Mapping invalid), 7 INTERNAL_ERROR; 3 INVALID_ARGS ist eher CLI, kann aber fuer MANUAL_APPLY relevant sein.",
+   "art": "PARAMETER",
+   "kennung": "6.4",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-080",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 64,
+   "zeilen": "362-372",
+   "zitat": "- active_ppp_now (USER only)",
+   "aussage": "6.5 Mapping der Laufzeitmetriken des Detector/Sampler nach peak_episode_snapshot: ts, softirq_pct_agg, vpn_bps_total, overload_bool, active_ppp_now (USER only), hold_until_current. [PPP-gebunden]",
+   "art": "IMPL_DETAIL",
+   "kennung": "6.5",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 65,
+   "zeilen": "374-377",
+   "zitat": "- entered_at/exited_at/hold_until/topn_latched/multi_threshold_pct/aggregation_mode",
+   "aussage": "6.5 Der Episode-Controller liefert entered_at, exited_at, hold_until, topn_latched, multi_threshold_pct und aggregation_mode nach peak_episode.",
+   "art": "IMPL_DETAIL",
+   "kennung": "6.5",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 66,
+   "zeilen": "380-388",
+   "zitat": "- vpn_connections.conn_group  (USER|ADMIN|...)",
+   "aussage": "6.6 DB-Lookup-Contract: Eingabe vpn_connection_id (= CONNECTION_ID aus der .env); Mindest-Lookup vpn_connections.conn_group (USER|ADMIN|...); Mindest-Ausgabe conn_group_resolved.",
+   "art": "IMPL_DETAIL",
+   "kennung": "6.6",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "BASE-010"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 67,
+   "zeilen": "390-393",
+   "zitat": "- wenn conn_group_resolved != USER → item_result=SKIP, item_error_code=ADMIN_EXCLUDED (oder SKIP_NONUSER)",
+   "aussage": "Regel K0.6: Peak-Apply wirkt nur auf USER; ist conn_group_resolved != USER, wird das Item mit item_result=SKIP und item_error_code=ADMIN_EXCLUDED (oder SKIP_NONUSER) verbucht. Das ist Audit, nicht 'Policy-Truth'.",
+   "art": "FUNKTION",
+   "kennung": "K0.6",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-100",
+    "BASE-010"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 68,
+   "zeilen": "395-398",
+   "zitat": "-> wenn nicht eindeutig im DB-Kanon, dann wird der Wert im Enforcer aus Policy-Keys/Settings abgeleitet;",
+   "aussage": "Optionaler Lookup (OPEN): die Profil-Bandbreite als Zielwert fuer EXIT_RESTORE; ist sie im DB-Kanon nicht eindeutig, leitet der Enforcer sie aus Policy-Keys/Settings ab und Peak speichert nur den aufgeloesten Wert als intended_bw_bps (Audit).",
+   "art": "OFFEN",
+   "kennung": "D-PEAK-DB-04",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003",
+    "BASE-090",
+    "BASE-100"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 69,
+   "zeilen": "404-407",
+   "zitat": "- Username/E-Mail/Passwort/PSK/Token/Verify-Codes",
+   "aussage": "P7.1 (MUST): Die Peak-Extension speichert weder Username/E-Mail/Passwort/PSK/Token/Verify-Codes noch Client-Fingerprint im Klartext noch Freitext aus Panel-Kommentaren.",
+   "art": "SCHUTZZIEL",
+   "kennung": "P7.1",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "MOD-007"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 70,
+   "zeilen": "409-412",
+   "zitat": "- technische IDs: vpn_connection_id, ppp_ifname",
+   "aussage": "P7.2: Standardmaessig werden nur technische IDs (vpn_connection_id, ppp_ifname), Episode-/Snapshot-/Apply-Ergebnisstatistiken und Systemmetriken (softirq_pct_agg, vpn_bps_total) gespeichert.",
+   "art": "SCHUTZZIEL",
+   "kennung": "P7.2",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 71,
+   "zeilen": "414-415",
+   "zitat": "P7.3) IP-Adresse (CLIENT_IP) ist default OFF (OPEN D-PEAK-DB-03).",
+   "aussage": "P7.3: Die IP-Adresse (CLIENT_IP) ist standardmaessig OFF (OPEN D-PEAK-DB-03); falls spaeter gewuenscht nur mit kurzer Retention, maskiert oder gehasht.",
+   "art": "SCHUTZZIEL",
+   "kennung": "P7.3",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 72,
+   "zeilen": "421-423",
+   "zitat": "- FK-Test: peak_episode_snapshot.episode_id referenziert existierende episode_id.",
+   "aussage": "T8.1 Schema-Integritaet: FK-Test, dass peak_episode_snapshot.episode_id auf eine existierende episode_id zeigt, und dass peak_apply_item.run_id auf eine existierende run_id zeigt.",
+   "art": "TEST",
+   "kennung": "T8.1",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 73,
+   "zeilen": "425-427",
+   "zitat": "- Peak Snapshot nimmt nur VALID .env auf (invalid wird gezählt + dokumentiert).",
+   "aussage": "T8.2 Runtime→DB-Mapping: Fuer eine aktive USER-Session existiert eine VALID .env mit PPP_IF + CONNECTION_ID + START_TS + PPPD_PID (+ CLIENT_IP); der Peak-Snapshot nimmt nur VALID .env auf, ungueltige werden gezaehlt und dokumentiert. [PPP-gebunden]",
+   "art": "TEST",
+   "kennung": "T8.2",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-070"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 74,
+   "zeilen": "429-432",
+   "zitat": "- Apply-Run items_total zählt beide Snapshot-Kandidaten,",
+   "aussage": "T8.3 Admin-Exclude: Bei je einer aktiven ADMIN- und USER-Session zaehlt items_total beide Snapshot-Kandidaten, ADMIN wird als SKIP auditiert, USER wird applied.",
+   "art": "TEST",
+   "kennung": "T8.3",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-100"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 75,
+   "zeilen": "434-437",
+   "zitat": "- peak_apply_run.exit_code = 2 (TEMPFAIL_SQL)",
+   "aussage": "T8.4 Exit-Code-Konsistenz bei DB down: peak_apply_run.exit_code = 2 (TEMPFAIL_SQL); Items werden nicht 'halb applied' (STRICT fuer den Apply-Run, analog B166 single target).",
+   "art": "TEST",
+   "kennung": "T8.4",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "BASE-080"
+   ],
+   "gewicht": "TRAGEND"
+  },
+  {
+   "nr": 76,
+   "zeilen": "438-440",
+   "zitat": "- exit_code = 4 (RUNTIME_APPLY_ERROR)",
+   "aussage": "T8.4 bei tc/cake-Apply-Fehler: exit_code = 4 (RUNTIME_APPLY_ERROR) und item_error_code = TC_APPLY_FAILED fuer die betroffenen Interfaces.",
+   "art": "TEST",
+   "kennung": "T8.4",
+   "rt_bezug": [
+    "MOD-009",
+    "MOD-003"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 77,
+   "zeilen": "442-444",
+   "zitat": "- 1 Tag Snapshotdaten schreiben ohne Lock-Contention (Index ok) (Lasttest).",
+   "aussage": "T8.5 Performance/Hot-Path: einen Tag Snapshotdaten ohne Lock-Contention schreiben (Lasttest); Insert-Rate von peak_episode_snapshot bei 10-s-Sampling * active_ppp muss realistisch sein. [PPP-gebunden]",
+   "art": "TEST",
+   "kennung": "T8.5",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 78,
+   "zeilen": "446-447",
+   "zitat": "- Sobald Retention fest ist: Test, dass Purge/Partition nicht FK bricht und Panel-Queries weiter funktionieren.",
+   "aussage": "T8.6 Retention (OPEN bis D-PEAK-DB-01 fix): sobald festgelegt, Test, dass Purge/Partition keine FK bricht und Panel-Queries weiter funktionieren.",
+   "art": "TEST",
+   "kennung": "T8.6",
+   "rt_bezug": [
+    "MOD-009",
+    "BASE-000",
+    "MOD-006"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 79,
+   "zeilen": "453-456",
+   "zitat": "- Grund: Einige “optional lookups” (Profilbandwidth Quelle, CLIENT_IP Persistenz, Retention) sind bewusst OPEN,",
+   "aussage": "Drift-Ampel: RISK, weil einige optionale Lookups (Quelle der Profilbandbreite, CLIENT_IP-Persistenz, Retention) bewusst OPEN sind; die Kanon-Kerne (B055/B165/B166 + Owner-Fixwerte) seien konsistent eingebettet.",
+   "art": "OFFEN",
+   "kennung": "DRIFT",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  },
+  {
+   "nr": 80,
+   "zeilen": "461-463",
+   "zitat": "- v2.0-ENTWURF (heute): BR-08 komplett neu gefasst im neuen Standard; integriert Mapping-Contract (ehem. BR-08A Themen),",
+   "aussage": "Changelog v2.0-ENTWURF: BR-08 komplett neu gefasst; Mapping-Contract (ehem. BR-08A) integriert, env-Keys auf B165 kanonisiert (PPP_IF/CLIENT_IP/CONNECTION_ID/START_TS/PPPD_PID), FK als vpn_connection_id benannt, Retention/IP/Profilquelle als OPEN markiert, Owner-Fixwerte (30 % + dynamisches gelatchtes TopN + aggregated SoftIRQ) uebernommen.",
+   "art": "HISTORIE",
+   "kennung": "v2.0-ENTWURF",
+   "rt_bezug": [
+    "MOD-009"
+   ],
+   "gewicht": "NORMAL"
+  }
+ ],
+ "werte": [
+  {
+   "zeilen": "24",
+   "name": "FP-PEAK-01 MULTI-Schwelle",
+   "wert": "30",
+   "einheit": "%",
+   "status": "FIX",
+   "zitat": "- FP-PEAK-01 MULTI-Schwelle = 30%"
+  },
+  {
+   "zeilen": "76",
+   "name": "MULTI_THRESHOLD_PCT",
+   "wert": "30.00",
+   "einheit": "%",
+   "status": "FIX",
+   "zitat": "FP-PEAK-01  MULTI_THRESHOLD_PCT = 30.00"
+  },
+  {
+   "zeilen": "26",
+   "name": "FP-PEAK-02 Top-N bei active_ppp <= 20",
+   "wert": "3",
+   "einheit": "Verbindungen",
+   "status": "FIX",
+   "zitat": "active_ppp <= 20  → N=3"
+  },
+  {
+   "zeilen": "27",
+   "name": "FP-PEAK-02 Top-N bei active_ppp 21..100",
+   "wert": "5",
+   "einheit": "Verbindungen",
+   "status": "FIX",
+   "zitat": "21..100           → N=5"
+  },
+  {
+   "zeilen": "28",
+   "name": "FP-PEAK-02 Top-N bei active_ppp > 100",
+   "wert": "10",
+   "einheit": "Verbindungen",
+   "status": "FIX",
+   "zitat": "> 100             → N=10"
+  },
+  {
+   "zeilen": "77-78",
+   "name": "TOP_N_DYNAMIC_LATCH",
+   "wert": "<=20 → 3 ; 21..100 → 5 ; >100 → 10 (USER only, je Episode fix)",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "<=20 → 3 ; 21..100 → 5 ; >100 → 10"
+  },
+  {
+   "zeilen": "79",
+   "name": "FP-PEAK-03 SOFTIRQ_AGGREGATION",
+   "wert": "aggregated (Summe/gesamt, nicht max-core)",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "FP-PEAK-03  SOFTIRQ_AGGREGATION = aggregated (Sum/gesamt, nicht max-core)"
+  },
+  {
+   "zeilen": "14",
+   "name": "Runtime-SoT Session aktiv (Pfad)",
+   "wert": "/run/vpn-sessions/<ppp_if>.env (VALID)",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "K0.2) Runtime-SoT für “Session aktiv” ist /run/vpn-sessions/<ppp_if>.env (VALID)."
+  },
+  {
+   "zeilen": "17",
+   "name": "Mindest-Keys der Session-.env (B165)",
+   "wert": "PPP_IF, CLIENT_IP, CONNECTION_ID, START_TS, PPPD_PID; SESSION_ID optional",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "PPP_IF, CLIENT_IP, CONNECTION_ID, START_TS, PPPD_PID (SESSION_ID optional)"
+  },
+  {
+   "zeilen": "20",
+   "name": "Apply/Reconcile Exit-Codes (B166)",
+   "wert": "0..7",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "K0.3) Apply/Reconcile Exit-Codes (STANDARD 0..7) existieren kanonisch und sollen als semantische Referenz dienen."
+  },
+  {
+   "zeilen": "58",
+   "name": "Tabellenpraefix Extension-Paket",
+   "wert": "peak_*",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "S2.1) BR-08 definiert ein eigenständiges Extension-Tabellenpaket (prefix peak_*),"
+  },
+  {
+   "zeilen": "87",
+   "name": "Downsampling-Beispiel Snapshots",
+   "wert": "ab 24h nur 60s-Mittelwerte",
+   "einheit": "",
+   "status": "BEISPIEL",
+   "zitat": "- Downsampling (z.B. ab 24h nur 60s-Mittelwerte) ja/nein?"
+  },
+  {
+   "zeilen": "85-88",
+   "name": "D-PEAK-DB-01 Retention/Downsampling peak_episode_snapshot",
+   "wert": "nicht festgelegt",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- Wie lange werden peak_episode_snapshot Reihen gespeichert?"
+  },
+  {
+   "zeilen": "93",
+   "name": "D-PEAK-DB-02 Empfehlung peak_apply_item",
+   "wert": "ON, Retention kurz, z. B. 7 Tage",
+   "einheit": "Tage",
+   "status": "OPEN",
+   "zitat": "-> Default-Empfehlung (nicht Pflicht): peak_apply_item ON, aber retention kurz (z.B. 7 Tage) (OPEN)."
+  },
+  {
+   "zeilen": "95-98",
+   "name": "D-PEAK-DB-03 Persistenz CLIENT_IP",
+   "wert": "Default: nicht speichern; optional nur intern (10.77.*) oder gehasht",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- Optional: speichern nur intern (10.77.*) oder gehasht."
+  },
+  {
+   "zeilen": "97",
+   "name": "internes Adressmuster (Beispiel fuer optionale IP-Speicherung)",
+   "wert": "10.77.*",
+   "einheit": "",
+   "status": "BEISPIEL",
+   "zitat": "- Optional: speichern nur intern (10.77.*) oder gehasht."
+  },
+  {
+   "zeilen": "103",
+   "name": "profile_bw_bps_resolved (Audit-Feld, Quelle offen)",
+   "wert": "Quelle wird spaeter kanonisiert",
+   "einheit": "bps",
+   "status": "OPEN",
+   "zitat": "-> bleibt OPEN: BR-08 definiert nur “profile_bw_bps_resolved” als audit field, Quelle wird später kanonisiert."
+  },
+  {
+   "zeilen": "122",
+   "name": "peak_episode.episode_id",
+   "wert": "PK, bigint autoinc",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- episode_id                (PK, bigint autoinc)"
+  },
+  {
+   "zeilen": "123",
+   "name": "peak_episode.episode_uuid",
+   "wert": "OPTIONAL, uuid/binary16; nur fuer Log-Korrelation",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- episode_uuid              (OPTIONAL, uuid/binary16; nur für Log-Korrelation)"
+  },
+  {
+   "zeilen": "124",
+   "name": "peak_episode.entered_at",
+   "wert": "datetime, not null",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- entered_at                (datetime, not null)"
+  },
+  {
+   "zeilen": "125",
+   "name": "peak_episode.exited_at",
+   "wert": "datetime, null solange aktiv",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- exited_at                 (datetime, null solange aktiv)"
+  },
+  {
+   "zeilen": "126",
+   "name": "peak_episode.hold_until",
+   "wert": "datetime, not null; Ende des Sliding Window",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- hold_until                (datetime, not null; sliding window Ende)"
+  },
+  {
+   "zeilen": "127",
+   "name": "peak_episode.last_extend_at",
+   "wert": "datetime, null/optional",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- last_extend_at            (datetime, null/optional)"
+  },
+  {
+   "zeilen": "128",
+   "name": "peak_episode.enter_reason_code",
+   "wert": "varchar; z. B. OVERLOAD_PERSISTED_180S",
+   "einheit": "",
+   "status": "BEISPIEL",
+   "zitat": "- enter_reason_code         (varchar; z.B. OVERLOAD_PERSISTED_180S)"
+  },
+  {
+   "zeilen": "129",
+   "name": "peak_episode.exit_reason_code",
+   "wert": "varchar; z. B. HOLD_TIMEOUT_RECOVERED | MANUAL_ABORT | ERROR_ABORT",
+   "einheit": "",
+   "status": "BEISPIEL",
+   "zitat": "- exit_reason_code          (varchar; z.B. HOLD_TIMEOUT_RECOVERED | MANUAL_ABORT | ERROR_ABORT)"
+  },
+  {
+   "zeilen": "132",
+   "name": "peak_episode.multi_threshold_pct",
+   "wert": "decimal(5,2), not null; FP-PEAK-01 = 30.00",
+   "einheit": "%",
+   "status": "FIX",
+   "zitat": "- multi_threshold_pct       (decimal(5,2), not null)  // FP-PEAK-01 = 30.00"
+  },
+  {
+   "zeilen": "133",
+   "name": "peak_episode.active_ppp_enter",
+   "wert": "int, not null; USER-only Snapshot beim ENTER",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- active_ppp_enter          (int, not null)           // USER-only Snapshot beim ENTER"
+  },
+  {
+   "zeilen": "134",
+   "name": "peak_episode.topn_latched",
+   "wert": "int, not null; Ergebnis FP-PEAK-02 (3/5/10)",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- topn_latched              (int, not null)           // FP-PEAK-02 Ergebnis (3/5/10)"
+  },
+  {
+   "zeilen": "135",
+   "name": "peak_episode.softirq_aggregation_mode",
+   "wert": "varchar, not null; FP-PEAK-03 = aggregated",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "- softirq_aggregation_mode  (varchar, not null)       // FP-PEAK-03 = aggregated"
+  },
+  {
+   "zeilen": "138",
+   "name": "peak_episode.sample_interval_sec",
+   "wert": "int, not null; default 10",
+   "einheit": "s",
+   "status": "KANDIDAT",
+   "zitat": "- sample_interval_sec       (int, not null; default 10)"
+  },
+  {
+   "zeilen": "139",
+   "name": "peak_episode.persist_enter_sec",
+   "wert": "int, not null; default 180",
+   "einheit": "s",
+   "status": "KANDIDAT",
+   "zitat": "- persist_enter_sec         (int, not null; default 180)"
+  },
+  {
+   "zeilen": "140",
+   "name": "peak_episode.hold_window_sec",
+   "wert": "int, not null; default 900",
+   "einheit": "s",
+   "status": "KANDIDAT",
+   "zitat": "- hold_window_sec           (int, not null; default 900)"
+  },
+  {
+   "zeilen": "141",
+   "name": "peak_episode.detector_id",
+   "wert": "varchar; optional",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- detector_id               (varchar; optional)"
+  },
+  {
+   "zeilen": "142",
+   "name": "peak_episode.detector_version",
+   "wert": "varchar/int; optional",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- detector_version          (varchar/int; optional)"
+  },
+  {
+   "zeilen": "145",
+   "name": "peak_episode.max_softirq_pct",
+   "wert": "decimal(5,2), optional",
+   "einheit": "%",
+   "status": "KANDIDAT",
+   "zitat": "- max_softirq_pct           (decimal(5,2), optional)"
+  },
+  {
+   "zeilen": "146",
+   "name": "peak_episode.max_vpn_bps_total",
+   "wert": "bigint, optional",
+   "einheit": "bps",
+   "status": "KANDIDAT",
+   "zitat": "- max_vpn_bps_total         (bigint, optional)"
+  },
+  {
+   "zeilen": "147",
+   "name": "peak_episode.episodes_notes",
+   "wert": "text/varchar, optional",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- episodes_notes            (text/varchar, optional)"
+  },
+  {
+   "zeilen": "150",
+   "name": "IDX_peak_episode_entered_at",
+   "wert": "(entered_at)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- IDX_peak_episode_entered_at   (entered_at)"
+  },
+  {
+   "zeilen": "151",
+   "name": "IDX_peak_episode_exited_at",
+   "wert": "(exited_at)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- IDX_peak_episode_exited_at    (exited_at)"
+  },
+  {
+   "zeilen": "152",
+   "name": "IDX_peak_episode_active",
+   "wert": "(exited_at IS NULL), falls Partial-Index moeglich; sonst via (exited_at)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- IDX_peak_episode_active       (exited_at IS NULL)  // wenn DB partial-index kann; sonst via (exited_at)"
+  },
+  {
+   "zeilen": "155",
+   "name": "Maximalzahl aktiver Episoden",
+   "wert": "1 (optionaler harter Constraint; alternativ Durchsetzung in der Logik)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- Es darf maximal 1 aktive Episode geben (OPTIONAL HARD CONSTRAINT):"
+  },
+  {
+   "zeilen": "167",
+   "name": "peak_episode_snapshot.snapshot_id",
+   "wert": "PK, bigint autoinc",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- snapshot_id               (PK, bigint autoinc)"
+  },
+  {
+   "zeilen": "168",
+   "name": "peak_episode_snapshot.episode_id",
+   "wert": "FK → peak_episode.episode_id, not null",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- episode_id                (FK → peak_episode.episode_id, not null)"
+  },
+  {
+   "zeilen": "169",
+   "name": "peak_episode_snapshot.ts",
+   "wert": "datetime, not null",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- ts                        (datetime, not null)"
+  },
+  {
+   "zeilen": "172",
+   "name": "peak_episode_snapshot.softirq_pct_agg",
+   "wert": "decimal(5,2), not null; aggregated",
+   "einheit": "%",
+   "status": "KANDIDAT",
+   "zitat": "- softirq_pct_agg           (decimal(5,2), not null)   // aggregated"
+  },
+  {
+   "zeilen": "173",
+   "name": "peak_episode_snapshot.vpn_bps_total",
+   "wert": "bigint, not null; gemessener gesamter VPN-Durchsatz",
+   "einheit": "bps",
+   "status": "KANDIDAT",
+   "zitat": "- vpn_bps_total             (bigint, not null)         // gemessene total VPN throughput"
+  },
+  {
+   "zeilen": "174",
+   "name": "peak_episode_snapshot.overload_bool",
+   "wert": "bool/tinyint, not null; Detektor-Entscheidung",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- overload_bool             (bool/tinyint, not null)   // Detector Entscheidung"
+  },
+  {
+   "zeilen": "177",
+   "name": "peak_episode_snapshot.active_ppp_now",
+   "wert": "int, not null; USER-only Live-Zaehler",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- active_ppp_now            (int, not null)            // USER-only live count"
+  },
+  {
+   "zeilen": "178",
+   "name": "peak_episode_snapshot.topn_used",
+   "wert": "int, not null; sollte = peak_episode.topn_latched",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- topn_used                 (int, not null)            // sollte = peak_episode.topn_latched (sanity check)"
+  },
+  {
+   "zeilen": "179",
+   "name": "peak_episode_snapshot.hold_until_snapshot",
+   "wert": "datetime, not null",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- hold_until_snapshot       (datetime, not null)       // aktuelle hold_until (für Debug)"
+  },
+  {
+   "zeilen": "182",
+   "name": "peak_episode_snapshot.apply_expected_mode",
+   "wert": "varchar; PROFILE | PEAK (optional)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- apply_expected_mode       (varchar)                  // PROFILE | PEAK"
+  },
+  {
+   "zeilen": "183",
+   "name": "peak_episode_snapshot.apply_expected_bw_bps",
+   "wert": "bigint; Sollwert Peak oder Profil (optional)",
+   "einheit": "bps",
+   "status": "KANDIDAT",
+   "zitat": "- apply_expected_bw_bps     (bigint)                   // Sollwert (Peak oder Profil)"
+  },
+  {
+   "zeilen": "184",
+   "name": "peak_episode_snapshot.drift_flag_sysfs_vs_db",
+   "wert": "bool (optional)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- drift_flag_sysfs_vs_db    (bool)                     // wenn Sampler Drift erkennt"
+  },
+  {
+   "zeilen": "185",
+   "name": "peak_episode_snapshot.diag_notes",
+   "wert": "text/varchar (optional)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- diag_notes                (text/varchar)"
+  },
+  {
+   "zeilen": "188",
+   "name": "IDX_peak_snap_episode_ts",
+   "wert": "(episode_id, ts)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- IDX_peak_snap_episode_ts  (episode_id, ts)"
+  },
+  {
+   "zeilen": "189",
+   "name": "IDX_peak_snap_ts",
+   "wert": "(ts)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- IDX_peak_snap_ts          (ts)"
+  },
+  {
+   "zeilen": "192",
+   "name": "Sampling-Intervall (Hinweis Retention)",
+   "wert": "10",
+   "einheit": "s",
+   "status": "KANDIDAT",
+   "zitat": "- Snapshot-Menge kann groß sein (10s sampling)."
+  },
+  {
+   "zeilen": "203",
+   "name": "peak_apply_run.run_id",
+   "wert": "PK, bigint autoinc",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- run_id                    (PK, bigint autoinc)"
+  },
+  {
+   "zeilen": "204",
+   "name": "peak_apply_run.episode_id",
+   "wert": "FK → peak_episode.episode_id, nullable",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- episode_id                (FK → peak_episode.episode_id, nullable)"
+  },
+  {
+   "zeilen": "208",
+   "name": "peak_apply_run.action",
+   "wert": "ENTER_APPLY | EXTEND_APPLY | EXIT_RESTORE | MANUAL_APPLY | NOOP",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- action                    (enum/varchar: ENTER_APPLY | EXTEND_APPLY | EXIT_RESTORE | MANUAL_APPLY | NOOP)"
+  },
+  {
+   "zeilen": "209",
+   "name": "peak_apply_run.trigger_source",
+   "wert": "DETECTOR | TIMER | MANUAL | RECOVER",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- trigger_source            (varchar: DETECTOR | TIMER | MANUAL | RECOVER)  (audit)"
+  },
+  {
+   "zeilen": "210",
+   "name": "peak_apply_run.started_at",
+   "wert": "datetime, not null",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- started_at                (datetime, not null)"
+  },
+  {
+   "zeilen": "211",
+   "name": "peak_apply_run.ended_at",
+   "wert": "datetime, not null",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- ended_at                  (datetime, not null)"
+  },
+  {
+   "zeilen": "212",
+   "name": "peak_apply_run.duration_ms",
+   "wert": "int/bigint, optional",
+   "einheit": "ms",
+   "status": "KANDIDAT",
+   "zitat": "- duration_ms               (int/bigint, optional)"
+  },
+  {
+   "zeilen": "215",
+   "name": "peak_apply_run.target_scope",
+   "wert": "USER_ONLY (jetzt fix)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- target_scope              (varchar: USER_ONLY)   // falls später mehr, jetzt fix USER_ONLY (K0.6)"
+  },
+  {
+   "zeilen": "216",
+   "name": "peak_apply_run.active_ppp_snapshot",
+   "wert": "int, not null; Anzahl USER-pppX im Snapshot",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- active_ppp_snapshot       (int, not null)        // wie viele USER-pppX im Snapshot"
+  },
+  {
+   "zeilen": "217",
+   "name": "peak_apply_run.topn_latched",
+   "wert": "int, not null",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- topn_latched              (int, not null)        // Wiederholung für Self-Containment"
+  },
+  {
+   "zeilen": "220",
+   "name": "peak_apply_run.exit_code",
+   "wert": "int, not null; kompatibel zu B166 (0..7)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- exit_code                 (int, not null)        // semantisch kompatibel zu B166 (0..7)"
+  },
+  {
+   "zeilen": "221",
+   "name": "peak_apply_run.result_code",
+   "wert": "OK | PARTIAL_OK | TEMPFAIL_SQL | TEMPFAIL_LOCKED | MAPPING_INVALID | INTERNAL_ERROR (Beispiele)",
+   "einheit": "",
+   "status": "BEISPIEL",
+   "zitat": "- result_code               (varchar, not null)    // peak-intern (z.B. OK | PARTIAL_OK | TEMPFAIL_SQL | TEMPFAIL_LOCKED | MAPPING_INVALID | INTERNAL_ERROR)"
+  },
+  {
+   "zeilen": "222",
+   "name": "peak_apply_run.error_class",
+   "wert": "DB_DOWN | LOCKED | TC_ERROR | INVALID_MAPPING (Beispiele), nullable",
+   "einheit": "",
+   "status": "BEISPIEL",
+   "zitat": "- error_class               (varchar, nullable)    // z.B. DB_DOWN | LOCKED | TC_ERROR | INVALID_MAPPING"
+  },
+  {
+   "zeilen": "223",
+   "name": "peak_apply_run.error_detail",
+   "wert": "varchar/text, nullable; kurz, keine PII",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- error_detail              (varchar/text, nullable) // kurz; keine PII"
+  },
+  {
+   "zeilen": "224",
+   "name": "peak_apply_run.hardcut_fallback_used",
+   "wert": "bool, not null default false",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "hardcut_fallback_used     (bool, not null default false) // wenn Restore/Apply per ppp kill etc. (nur falls Peak das überhaupt tut; sonst bleibt false)"
+  },
+  {
+   "zeilen": "227",
+   "name": "peak_apply_run.items_total",
+   "wert": "int, not null",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- items_total               (int, not null)"
+  },
+  {
+   "zeilen": "228",
+   "name": "peak_apply_run.items_ok",
+   "wert": "int, not null",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- items_ok                  (int, not null)"
+  },
+  {
+   "zeilen": "229",
+   "name": "peak_apply_run.items_fail",
+   "wert": "int, not null",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- items_fail                (int, not null)"
+  },
+  {
+   "zeilen": "230",
+   "name": "peak_apply_run.items_skipped_admin",
+   "wert": "int, not null default 0",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- items_skipped_admin        (int, not null default 0)  // sollte 0 sein, da USER-only; aber für Diagnose"
+  },
+  {
+   "zeilen": "233",
+   "name": "IDX_peak_apply_ts",
+   "wert": "(started_at)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- IDX_peak_apply_ts         (started_at)"
+  },
+  {
+   "zeilen": "234",
+   "name": "IDX_peak_apply_episode_ts",
+   "wert": "(episode_id, started_at)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- IDX_peak_apply_episode_ts (episode_id, started_at)"
+  },
+  {
+   "zeilen": "235",
+   "name": "IDX_peak_apply_action",
+   "wert": "(action)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- IDX_peak_apply_action     (action)"
+  },
+  {
+   "zeilen": "245",
+   "name": "peak_apply_item.item_id",
+   "wert": "PK, bigint autoinc",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- item_id                   (PK, bigint autoinc)"
+  },
+  {
+   "zeilen": "246",
+   "name": "peak_apply_item.run_id",
+   "wert": "FK → peak_apply_run.run_id, not null",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- run_id                    (FK → peak_apply_run.run_id, not null)"
+  },
+  {
+   "zeilen": "247",
+   "name": "peak_apply_item.ppp_ifname",
+   "wert": "varchar, not null; aus PPP_IF",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- ppp_ifname                (varchar, not null)        // aus PPP_IF"
+  },
+  {
+   "zeilen": "250",
+   "name": "peak_apply_item.vpn_connection_id",
+   "wert": "bigint, nullable; aus CONNECTION_ID",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- vpn_connection_id         (bigint, nullable)         // aus CONNECTION_ID, falls resolvable"
+  },
+  {
+   "zeilen": "251",
+   "name": "peak_apply_item.conn_group_resolved",
+   "wert": "varchar, nullable; USER|ADMIN",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- conn_group_resolved       (varchar, nullable)        // USER|ADMIN (soll USER sein), aus DB lookup"
+  },
+  {
+   "zeilen": "254",
+   "name": "peak_apply_item.intended_mode",
+   "wert": "PEAK | PROFILE; varchar, not null",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- intended_mode             (varchar, not null)        // PEAK | PROFILE"
+  },
+  {
+   "zeilen": "255",
+   "name": "peak_apply_item.intended_bw_bps",
+   "wert": "bigint, not null; Zielwert",
+   "einheit": "bps",
+   "status": "KANDIDAT",
+   "zitat": "- intended_bw_bps           (bigint, not null)         // Zielwert"
+  },
+  {
+   "zeilen": "258",
+   "name": "peak_apply_item.item_result",
+   "wert": "OK | FAIL | SKIP | NOOP",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- item_result               (varchar, not null)        // OK | FAIL | SKIP | NOOP"
+  },
+  {
+   "zeilen": "259",
+   "name": "peak_apply_item.item_error_code",
+   "wert": "DB_LOOKUP_FAILED | TC_APPLY_FAILED | MAPPING_INVALID | PERMISSION_DENIED ... (nicht abschliessend)",
+   "einheit": "",
+   "status": "BEISPIEL",
+   "zitat": "- item_error_code           (varchar, nullable)        // DB_LOOKUP_FAILED | TC_APPLY_FAILED | MAPPING_INVALID | PERMISSION_DENIED ..."
+  },
+  {
+   "zeilen": "260",
+   "name": "peak_apply_item.item_error_detail",
+   "wert": "varchar/text, nullable; kurz, keine PII",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- item_error_detail          (varchar/text, nullable)  // kurz; keine PII"
+  },
+  {
+   "zeilen": "263",
+   "name": "peak_apply_item.pppd_pid",
+   "wert": "int, nullable; optionales Debug-Feld, default OFF",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- pppd_pid                  (int, nullable)            // aus PPPD_PID (B165)"
+  },
+  {
+   "zeilen": "264",
+   "name": "peak_apply_item.session_start_ts",
+   "wert": "datetime/epoch, nullable; optionales Debug-Feld",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- session_start_ts          (datetime/epoch, nullable) // aus START_TS (B165)"
+  },
+  {
+   "zeilen": "265",
+   "name": "peak_apply_item.client_ip",
+   "wert": "varchar, nullable; OPEN (privacy)",
+   "einheit": "",
+   "status": "OPEN",
+   "zitat": "- client_ip                 (varchar, nullable)        // aus CLIENT_IP (B165) — OPEN (privacy)"
+  },
+  {
+   "zeilen": "268",
+   "name": "IDX_peak_item_run_ppp",
+   "wert": "(run_id, ppp_ifname)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- IDX_peak_item_run_ppp      (run_id, ppp_ifname)"
+  },
+  {
+   "zeilen": "269",
+   "name": "IDX_peak_item_vpnconn",
+   "wert": "(vpn_connection_id), nur bei haeufiger Panel-Query",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- IDX_peak_item_vpnconn      (vpn_connection_id)   // nur wenn häufig panel-query"
+  },
+  {
+   "zeilen": "270",
+   "name": "IDX_peak_item_result",
+   "wert": "(item_result)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- IDX_peak_item_result       (item_result)"
+  },
+  {
+   "zeilen": "335",
+   "name": "peak_apply_item.session_id (Option)",
+   "wert": "= SESSION_ID, nur bei Bedarf",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- (OPTION) peak_apply_item.session_id = SESSION_ID"
+  },
+  {
+   "zeilen": "352",
+   "name": "Exit-Code 0",
+   "wert": "OK",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- exit_code soll kompatibel zu B166 sein (0..7) — Peak nutzt dieselben “Klassen”:"
+  },
+  {
+   "zeilen": "353",
+   "name": "Exit-Code 1",
+   "wert": "PARTIAL_OK",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- exit_code soll kompatibel zu B166 sein (0..7) — Peak nutzt dieselben “Klassen”:"
+  },
+  {
+   "zeilen": "354",
+   "name": "Exit-Code 2",
+   "wert": "TEMPFAIL_SQL",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- peak_apply_run.exit_code = 2 (TEMPFAIL_SQL)"
+  },
+  {
+   "zeilen": "355",
+   "name": "Exit-Code 4",
+   "wert": "RUNTIME_APPLY_ERROR (tc/cake)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "4 RUNTIME_APPLY_ERROR (tc/cake)"
+  },
+  {
+   "zeilen": "356",
+   "name": "Exit-Code 5",
+   "wert": "TEMPFAIL_LOCKED (wenn Peak eigenen Lock nutzt)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "5 TEMPFAIL_LOCKED (wenn Peak eigenen Lock nutzt)"
+  },
+  {
+   "zeilen": "357",
+   "name": "Exit-Code 6",
+   "wert": "STATE_MAPPING_ERROR (wenn /run mapping invalid)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "6 STATE_MAPPING_ERROR (wenn /run mapping invalid)"
+  },
+  {
+   "zeilen": "358",
+   "name": "Exit-Code 7",
+   "wert": "INTERNAL_ERROR",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "- exit_code soll kompatibel zu B166 sein (0..7) — Peak nutzt dieselben “Klassen”:"
+  },
+  {
+   "zeilen": "359",
+   "name": "Exit-Code 3",
+   "wert": "INVALID_ARGS (eher CLI; ggf. fuer MANUAL_APPLY relevant)",
+   "einheit": "",
+   "status": "KANDIDAT",
+   "zitat": "(3 INVALID_ARGS ist eher CLI, kann aber für MANUAL_APPLY relevant sein)"
+  },
+  {
+   "zeilen": "392",
+   "name": "Skip-Code fuer Nicht-USER",
+   "wert": "ADMIN_EXCLUDED (oder SKIP_NONUSER)",
+   "einheit": "",
+   "status": "UNKLAR",
+   "zitat": "- wenn conn_group_resolved != USER → item_result=SKIP, item_error_code=ADMIN_EXCLUDED (oder SKIP_NONUSER)"
+  },
+  {
+   "zeilen": "443",
+   "name": "Lasttest-Dauer Snapshotdaten",
+   "wert": "1",
+   "einheit": "Tag",
+   "status": "KANDIDAT",
+   "zitat": "- 1 Tag Snapshotdaten schreiben ohne Lock-Contention (Index ok) (Lasttest)."
+  },
+  {
+   "zeilen": "450-453",
+   "name": "DRIFT-Ampel BR-08",
+   "wert": "RISK",
+   "einheit": "",
+   "status": "FIX",
+   "zitat": "9) DRIFT-AMPel (nur Status)"
+  }
+ ],
+ "verweise_auf_dokumente": [
+  {
+   "zeilen": "12",
+   "name": "blocks/B055_DB_SCHEMA_CORE.txt",
+   "zitat": "- Quelle: blocks/B055_DB_SCHEMA_CORE.txt (Core-Schema-Note)"
+  },
+  {
+   "zeilen": "15",
+   "name": "blocks/B165_ACCOUNTING_COLLECTOR_SESSION_MAPPING.txt",
+   "zitat": "- Quelle: blocks/B165_ACCOUNTING_COLLECTOR_SESSION_MAPPING.txt"
+  },
+  {
+   "zeilen": "21",
+   "name": "blocks/B166_POLICY_APPLY_RECONCILE.txt",
+   "zitat": "- Quelle: blocks/B166_POLICY_APPLY_RECONCILE.txt (EXIT-CODES)"
+  },
+  {
+   "zeilen": "33",
+   "name": "Peak-Mode_entscheidung + Owner-Fixpunkte (CAKE Edition) (v1-Material)",
+   "zitat": "- Quelle: Peak-Mode_entscheidung + Owner-Fixpunkte (CAKE Edition) (v1 Material)"
+  },
+  {
+   "zeilen": "36",
+   "name": "Peak-Mode_Was es ist, wie es funktioniert (v1-Material)",
+   "zitat": "- Quelle: Peak-Mode_Was es ist, wie es funktioniert (Enforcer: USER-pppX, ADMIN exclude)"
+  },
+  {
+   "zeilen": "61",
+   "name": "BR-08A (ehemaliger Mapping-Contract, in BR-08 integriert)",
+   "zitat": "S2.2) BR-08 enthält zusätzlich (integriert) den Mapping-Contract (ehem. BR-08A):"
+  },
+  {
+   "zeilen": "306",
+   "name": "BR-09 (Fehlerklassen)",
+   "zitat": "- item_result=FAIL, item_error_code=DB_LOOKUP_FAILED (Details siehe BR-09 Fehlerklassen; hier nur Contract)"
+  }
+ ],
+ "offene_punkte": [
+  {
+   "zeilen": "85-88",
+   "kennung": "D-PEAK-DB-01",
+   "text": "Retention und Downsampling der peak_episode_snapshot-Reihen (Dauer; z. B. ab 24 h nur 60-s-Mittelwerte) sind nicht festgelegt."
+  },
+  {
+   "zeilen": "90-93",
+   "kennung": "D-PEAK-DB-02",
+   "text": "Ob die Detailtabelle peak_apply_item aktiviert wird; Empfehlung ON mit kurzer Retention (z. B. 7 Tage), nicht entschieden."
+  },
+  {
+   "zeilen": "95-98",
+   "kennung": "D-PEAK-DB-03",
+   "text": "Persistenz von CLIENT_IP (Default nicht speichern; optional nur intern 10.77.* oder gehasht) - offen bis Owner-Fix."
+  },
+  {
+   "zeilen": "100-103",
+   "kennung": "D-PEAK-DB-04",
+   "text": "Quelle der Profil-Bandbreite (Soll-Bandwidth) fuer EXIT_RESTORE: Policy-Keys/Settings oder Spalte in vpn_connections."
+  },
+  {
+   "zeilen": "154-157",
+   "kennung": "",
+   "text": "Ob 'maximal 1 aktive Episode' als harter DB-Constraint oder nur in der Logik durchgesetzt wird, ist als Option offen gelassen."
+  },
+  {
+   "zeilen": "392",
+   "kennung": "",
+   "text": "Benennung des Skip-Codes fuer Nicht-USER (ADMIN_EXCLUDED oder SKIP_NONUSER) ist nicht entschieden."
+  },
+  {
+   "zeilen": "446-447",
+   "kennung": "T8.6",
+   "text": "Retention-Test kann erst definiert werden, wenn D-PEAK-DB-01 festgelegt ist."
+  }
+ ],
+ "innere_widersprueche": [
+  {
+   "zeilen": "93 / 262-265",
+   "text": "peak_apply_item wird als OPTIONAL gefuehrt (Zeile 91, 238), zugleich lautet die Default-Empfehlung 'ON' (Zeile 93); die Mapping-Regeln 6.2 stehen unter dem Vorbehalt 'wenn Table aktiv'. Kein harter Widerspruch, aber unentschieden."
+  },
+  {
+   "zeilen": "430-432 / 392 / 230",
+   "text": "T8.3 zaehlt die ADMIN-Session in items_total und erwartet SKIP; Zeile 230 sagt, items_skipped_admin 'sollte 0 sein, da USER-only'. Das passt nur, wenn Nicht-USER schon vor dem Snapshot ausgefiltert werden - die beiden Stellen unterstellen unterschiedliche Filterzeitpunkte."
+  },
+  {
+   "zeilen": "103 / 255 / 398",
+   "text": "Das in D-PEAK-DB-04 genannte Audit-Feld 'profile_bw_bps_resolved' kommt im Schema-Contract (Abschnitt 5) nicht als Spalte vor; dort und in 6.6 heisst der gespeicherte Wert intended_bw_bps."
+  },
+  {
+   "zeilen": "370 / 179",
+   "text": "Die Mapping-Quelle heisst 'hold_until_current' (Zeile 370), die Zielspalte 'hold_until_snapshot' (Zeile 179); ebenso 'aggregation_mode' (Zeile 375) gegenueber 'softirq_aggregation_mode' (Zeile 135) - Benennungen nicht deckungsgleich."
+  },
+  {
+   "zeilen": "113",
+   "text": "Die Namenskonvention nennt created_at/updated_at als Audit-Spalten, keine der vier Tabellen fuehrt diese Spalten in ihrem Spalten-Contract auf."
+  }
+ ],
+ "relevanz": {
+  "stufe": "HOCH",
+  "begruendung": "Enthaelt den vollstaendigen Persistenz-/Audit-Vertrag fuer Peak Mode (Tabellen, Enumerationen, Exit-Codes, USER-only-Regel, Datenschutz) und die Abgrenzung DB-Audit gegen Laufzeit-Wahrheit. Die Festlegungen sind durchgehend an PPP-Schnittstellen und /run/vpn-sessions/*.env gebunden; fuer WireGuard (awg0) sagt das Dokument nichts.",
+  "rt_module": [
+   "MOD-009",
+   "BASE-000",
+   "BASE-070",
+   "BASE-030",
+   "MOD-003",
+   "BASE-080",
+   "BASE-090",
+   "BASE-100",
+   "MOD-007",
+   "MOD-006"
+  ]
+ },
+ "auffaelligkeiten": [
+  "Keine Zugangsdaten enthalten.",
+  "Die Datei hat keine abschliessende Zeilenschaltung (wc -l zaehlt 462, das Read-Werkzeug 463 Zeilen).",
+  "Der Text ist in Du-Form an den Owner gerichtet ('wenn du es spaeter explizit willst') - Dialogherkunft erkennbar ('in unserem v2-Dialog', Zeile 23).",
+  "Kein Datum im Dokument; der Changelog nennt nur 'heute'.",
+  "Alle Mapping-Regeln setzen PPP voraus (PPP_IF, PPPD_PID, ppp_ifname, active_ppp); WireGuard kommt nicht vor."
+ ]
+}
