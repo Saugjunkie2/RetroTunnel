@@ -18,7 +18,8 @@ ROLLE: DIENEND
   Konzeptdateien (base/, modules/, model/, decisions/).
 
 EINSTIEG
-  Jede neue Ausführung beginnt mit CLAUDE_BRIEFING.txt (TEIL 5), nicht hier.
+  Jede neue Ausführung beginnt mit CLAUDE_BRIEFING.txt (TEIL 0, dann TEIL 5),
+  nicht hier.
 
 INHALT UND ZWECK
   betreiberregeln/          Arbeitskopie der Betreiberregeln. Sie liegt im

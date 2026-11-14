@@ -1,11 +1,11 @@
 # RetroTunnel
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
-![Concept version: v2.1.15](https://img.shields.io/badge/Concept-v2.1.15-blue.svg)
+![Concept version: v2.7.0](https://img.shields.io/badge/Concept-v2.7.0-blue.svg)
 ![Status: M2 In Progress](https://img.shields.io/badge/Phase-M2%20In%20Progress-yellow.svg)
 ![Platform: Debian 13](https://img.shields.io/badge/Platform-Debian%2013-informational.svg)
 
-> **Hinweis zum Stand von `main` (seit 2026-11-13):** Auf ausdrückliche Anweisung des Betreibers wird der laufende Arbeitsstand der Konzept-Fertigstellung direkt auf `main` geführt. Der Inhalt von `main` ist **in Bearbeitung und weder vollständig geprüft noch freigegeben**. Maßgeblich ist der Fachstatus in [`governance/STATUS.yaml`](governance/STATUS.yaml); Einstieg für die Weiterarbeit: [`governance/FORTSETZUNG.md`](governance/FORTSETZUNG.md).
+> **Hinweis zum Stand von `main` (seit 2026-11-13):** Auf ausdrückliche Anweisung des Betreibers wird der laufende Arbeitsstand der Konzept-Fertigstellung direkt auf `main` geführt. Der Inhalt von `main` ist **in Bearbeitung und weder vollständig geprüft noch freigegeben**. Wo das Projekt steht, sagen die Steuerungsdokumente im Wurzelverzeichnis: [Prioritätenliste](PRIORITAETENLISTE.txt) (Stand je Paket), [Review-Tracker](REVIEW_TRACKER.txt) (Review-Stand, offene Befunde), [Phasenplan](04_PHASE_PLAN.txt) (Reife). Welche Datei wofür maßgeblich ist, legt [`00_MANIFEST.txt`](00_MANIFEST.txt) Abschnitt 6a fest. Fachstatus und Abschluss-Gates des laufenden Betreiberauftrags: [`governance/STATUS.yaml`](governance/STATUS.yaml).
 
 RetroTunnel ist ein in Entwicklung befindliches Architektur- und Implementierungskonzept für einen Debian-basierten Dual-Tunnel-VPN-Stack. Die Zielarchitektur soll zwei grundverschiedene Client-Welten auf einem Server bedienen:
 
@@ -14,7 +14,7 @@ RetroTunnel ist ein in Entwicklung befindliches Architektur- und Implementierung
 
 Geplant ist ein Full-Tunnel-VPN mit deterministischer Server-Side Policy, SQL-first AAA, rollenbasiertem Enforcement, DNS-Zwang, internem Webpanel und einem auf Produktivbetrieb ausgerichteten Betriebsmodell.
 
-> **Projektstand: Konzeptentwicklung (v2.1.15).** Die dokumentierten Module und Entscheidungen beschreiben den vorgesehenen Systemaufbau. Das Repository stellt derzeit **keine fertig implementierte oder als produktionsreif abgenommene VPN-Gesamtlösung** bereit. Fortschrittsangaben beziehen sich auf die Konzeptarbeit, soweit nicht ausdrücklich anders bezeichnet. Die [Prioritätenliste](PRIORITAETENLISTE.txt) dokumentiert die Arbeitsreihenfolge; der [Phasenplan](04_PHASE_PLAN.txt) beschreibt die erforderlichen Reife- und Abnahmekriterien. Einzelne Quelldateien können eigene Versionsstände führen; v2.1.15 bezeichnet den zentral dokumentierten Projektstand im [Changelog](03_CHANGELOG.txt).
+> **Projektstand: Konzeptentwicklung (v2.7.0).** Die dokumentierten Module und Entscheidungen beschreiben den vorgesehenen Systemaufbau. Das Repository stellt derzeit **keine fertig implementierte oder als produktionsreif abgenommene VPN-Gesamtlösung** bereit. Fortschrittsangaben beziehen sich auf die Konzeptarbeit, soweit nicht ausdrücklich anders bezeichnet. Die [Prioritätenliste](PRIORITAETENLISTE.txt) dokumentiert die Arbeitsreihenfolge; der [Phasenplan](04_PHASE_PLAN.txt) beschreibt die erforderlichen Reife- und Abnahmekriterien. Einzelne Quelldateien können eigene Versionsstände führen; v2.7.0 bezeichnet den zentral dokumentierten Projektstand im [Changelog](03_CHANGELOG.txt).
 
 ## Warum existiert dieses Projekt?
 
@@ -84,7 +84,7 @@ Vollständige Beschreibung: [`00_MANIFEST.txt`](00_MANIFEST.txt) §3.
 
 ## Projektstruktur
 
-> **Reifehinweis:** Der folgende Baum ist eine **Übersicht der Ziel-Architektur**, kein Anspruch auf ein vollständiges Dateiinventar. Nur mit ✅ markierte Ordner haben normativen Konzeptinhalt. Ordner ohne Markierung sind Platzhalter für zukünftige Arbeitspakete (M2–M4) und möglicherweise noch nicht als Verzeichnis auf GitHub vorhanden (Git verwaltet keine leeren Ordner). `model/` enthält das durchreviewte Denkmodell (DEPRECATED — wird bei Base-Ausarbeitung aufgelöst). Der aktuelle Konzept-Arbeitsstand ist in der Status-Tabelle am Ende dokumentiert.
+> **Reifehinweis:** Der folgende Baum ist eine **Übersicht der Ziel-Architektur**, kein Anspruch auf ein vollständiges Dateiinventar. Mit ✅ markierte Ordner sind als Konzept-Arbeitsschritt abgeschlossen; mit 🚧 markierte sind geschrieben, aber noch nicht abgeschlossen (Prüfung offen). Ordner ohne Markierung sind Platzhalter für zukünftige Arbeitspakete (M2–M4) und möglicherweise noch nicht als Verzeichnis auf GitHub vorhanden (Git verwaltet keine leeren Ordner). `model/` enthält das durchreviewte Denkmodell (DEPRECATED — wird bei Base-Ausarbeitung aufgelöst). Den aktuellen Arbeitsstand je Paket führt die [Prioritätenliste](PRIORITAETENLISTE.txt).
 
 ```
 RetroTunnel/
@@ -97,7 +97,8 @@ RetroTunnel/
 ├── LICENSE                         MIT
 │
 │   # Governance / Steuerung (Claude AI Co-Architect)
-├── CLAUDE_BRIEFING.txt             Handoff für neue Claude-Instanzen
+├── CLAUDE_BRIEFING.txt             Einstieg und Arbeitsregeln für Claude
+├── MARCOS_ARBEITSWEISE.txt         Arbeitsweise des Betreibers
 ├── REVIEW_STANDARD.txt             Review-Methodik, 8 Prüfebenen
 ├── REVIEW_TRACKER.txt              Datei-Inventar, Review-Status
 ├── PRIORITAETENLISTE.txt           Arbeitspakete (M0–M4)
@@ -120,11 +121,11 @@ RetroTunnel/
 │   ├── BASE-010_IDENTITY_CORE/     Customers, Connections, Rollen ✅
 │   ├── BASE-020_AAA_CORE/          FreeRADIUS + SQL-first ✅
 │   ├── BASE-030_TUNNEL_L2TP_IPSEC/ L2TP/IPsec (accel-ppp + strongSwan) ✅
-│   ├── BASE-040_TUNNEL_WIREGUARD/  AmneziaWireGuard
-│   ├── BASE-050_FIREWALL_CORE/     nftables, NAT, Peer-Isolation
+│   ├── BASE-040_TUNNEL_WIREGUARD/  AmneziaWireGuard 🚧
+│   ├── BASE-050_FIREWALL_CORE/     nftables, NAT, Peer-Isolation 🚧
 │   ├── BASE-060_DNS_CORE/          Unbound + AdGuard + DNAT53
-│   ├── BASE-070_SESSION_CORE/      Mapping, Locks, Janitor
-│   ├── BASE-080_POLICY_APPLY_CORE/ Apply, Reconcile, Hard-Cut
+│   ├── BASE-070_SESSION_CORE/      Mapping, Locks, Janitor 🚧
+│   ├── BASE-080_POLICY_APPLY_CORE/ Apply, Reconcile, Hard-Cut 🚧 (Entwurf)
 │   ├── BASE-090_SETTINGS_CORE/     SQL-first Settings-System
 │   ├── BASE-100_POLICY_CORE/       Policy-System (D003)
 │   └── BASE-110_WEBSTACK_CORE/     OpenResty + PHP-FPM + DB
@@ -145,7 +146,12 @@ RetroTunnel/
 ├── proofs/                         Tests, Acceptance, DoD
 ├── implementation/                 Configs, Guides, Build-Order
 ├── docs/                           Referenz-Dokumente
-└── entwuerfe/                      Ideen, Diskussionen (NICHT normativ)
+├── entwuerfe/                      Ideen, Diskussionen (NICHT normativ)
+│
+│   # Seit dem Betreiberauftrag vom 2026-11-11 (dienend, 00_MANIFEST 6a)
+├── nachlieferung/                  Nachgelieferte Altunterlagen (nur Lesequelle)
+├── governance/                     Auftragsebene + maschinenlesbare Register
+└── qa/                             Prüfwerkzeuge für Konzept und Register
 ```
 
 Das Schichtenmodell folgt der Regel: `model/` (Denkmodell) → `base/` (Kern) → `modules/` (Features). Ein Modul darf Base referenzieren, aber Base darf nie ein Modul voraussetzen (KR-02).
@@ -159,7 +165,7 @@ Seit 2026-04-16 ist die Nummerierung konsequent 3-stellig: Base-Ordner BASE-000 
 | [`00_MANIFEST.txt`](00_MANIFEST.txt) | Design-Prinzipien, Architektur-Achsen, Ordnerstruktur, Vorgänger-Referenz |
 | [`01_GLOSSARY.txt`](01_GLOSSARY.txt) | Kanonische Begriffe + PREFIX-LEGENDE (alle Identifier-Namensräume) |
 | [`02_ASSUMPTIONS_AND_RULES.txt`](02_ASSUMPTIONS_AND_RULES.txt) | 19 bindende System-Regeln, 9 Annahmen, 5 Nicht-Annahmen |
-| [`03_CHANGELOG.txt`](03_CHANGELOG.txt) | Zentrale Versions- und Projekthistorie (aktuell v2.1.15) |
+| [`03_CHANGELOG.txt`](03_CHANGELOG.txt) | Zentrale Versions- und Projekthistorie |
 | [`04_PHASE_PLAN.txt`](04_PHASE_PLAN.txt) | Soll-Phasen und getrennte Kriterien für Konzeptreife sowie Implementierungsabnahme |
 | [`PRIORITAETENLISTE.txt`](PRIORITAETENLISTE.txt) | Aktueller Arbeitsstand und Reihenfolge der Entwicklungsschritte |
 | `base/BASE-000_SQL_FIRST/` | SQL-first Governance: Prefixe, Naming, Registry, Auth-Split |
@@ -174,11 +180,14 @@ Governance-Dateien für die Zusammenarbeit mit Claude (AI Co-Architect):
 
 | Datei | Inhalt |
 |---|---|
-| `CLAUDE_BRIEFING.txt` | Handoff-Dokument für neue Claude-Instanzen |
+| `CLAUDE_BRIEFING.txt` | Einstieg, Arbeitsregeln und Projektstand in Kurzform für jede neue Claude-Ausführung |
+| `MARCOS_ARBEITSWEISE.txt` | Arbeitsweise des Betreibers (projektübergreifend) |
 | `REVIEW_STANDARD.txt` | Review-Methodik, 8 Prüfebenen, Autonomie-Grenze |
 | `REVIEW_TRACKER.txt` | Datei-Inventar, Review-Status, Sweep-Plan, Exit-Kriterien |
 | `PRIORITAETENLISTE.txt` | Arbeitspakete in 5 Modellphasen (M0–M4) |
 | `NAVIGATIONSKARTE_ALTES_KONZEPT.txt` | Themen-Index zum Vorgänger xp-vpn-stack |
+
+`governance/` (Auftragsebene des Betreiberauftrags vom 2026-11-11, maschinenlesbare Register, Prüfberichte) und `qa/` (Prüfwerkzeuge) dienen diesen Dokumenten und sind keine zweite Projektsteuerung.
 
 ## Voraussetzungen
 
@@ -223,13 +232,15 @@ Die Statusangaben unten betreffen die **Konzeptausarbeitung** (M0–M4). Insbeso
 | M2-010 | BASE-010_IDENTITY_CORE (Schema, Lifecycle, Write-Path) | ✅ Done |
 | M2-020 | BASE-020_AAA_CORE (Admission, RADIUS, WG-Vertrag) | ✅ Done |
 | M2-030 | BASE-030_TUNNEL_L2TP_IPSEC (accel-ppp + strongSwan) | ✅ Done |
-| M2-040..110 | Rest der Kern-Module (8 Base-Module) | ⬜ Waiting |
+| M2-040..110 | Rest der Kern-Module (8 Base-Module) | 🚧 In Arbeit |
 | M3 | Erweiterungs-Module (10 Module) | ⏸ Deferred |
 | M4 | Decisions, Proofs, Implementation | ⏸ Deferred |
 
+Den Stand der einzelnen Pakete – auch welche der acht übrigen Kern-Module geschrieben, geprüft oder offen sind – führt allein die [Prioritätenliste](PRIORITAETENLISTE.txt); diese Tabelle nennt nur die Phase.
+
 ## Vorgänger
 
-Das vollständige Vorgänger-Konzept (xp-vpn-stack, 8 Monate, 57 Blocks, 12 Decisions) wird im bisherigen lokalen Projektkontext unter `../xp-vpn-stack/` referenziert; es ist **nicht Bestandteil dieses GitHub-Repositories**. Architekturentscheidungen werden nicht blind übernommen — sie müssen im neuen Konzept explizit bestätigt oder geändert werden. Details zu Übernahmen und Änderungen: [`00_MANIFEST.txt`](00_MANIFEST.txt) §5.
+Das vollständige Vorgänger-Konzept (xp-vpn-stack, 8 Monate, 57 Blocks, 12 Decisions) wird im bisherigen lokalen Projektkontext unter `../xp-vpn-stack/` referenziert; es ist **nicht Bestandteil dieses GitHub-Repositories**. Einzelne Altunterlagen, die dort fehlten, hat der Betreiber am 2026-11-13 unter `nachlieferung/` nachgeliefert. Architekturentscheidungen werden nicht blind übernommen — sie müssen im neuen Konzept explizit bestätigt oder geändert werden. Details zu Übernahmen und Änderungen: [`00_MANIFEST.txt`](00_MANIFEST.txt) §5.
 
 **Begriffs-Brücke Alt ↔ Neu:** Im Altkonzept hießen die beiden Tunnel-Welten LEGACY (L2TP/IPsec für XP) und MODERN (damals IKEv2, heute WireGuard). In RetroTunnel sind die kanonischen Begriffe L2TP_IPSEC und WIREGUARD. Die NAVIGATIONSKARTE erklärt die Begriffs-Brücke im Detail.
 
