@@ -33,15 +33,30 @@ WERKZEUGE
                          Seit 2026-11-14 außerdem der GLEICHSTAND der
                          Steuerung (KR-07): ARBEITSPAKETE.yaml gegen
                          PRIORITAETENLISTE.txt (Bezug, Index-Zeile, Status,
-                         Abhängigkeiten, keine eigenen Felder); offene
-                         Befunde gegen REVIEW_TRACKER.txt Abschnitt 1d;
-                         Modulstatus im 04_PHASE_PLAN.txt gegen die Liste;
-                         Zählbereiche in den Steuerungsdokumenten gegen die
-                         Moduldateien; Inventar des Trackers gegen die
-                         Verzeichnisse; README-Version gegen den Changelog;
-                         Dateigröße (KR-03); STATUS.yaml ohne Modulstand.
+                         Titel, Abhängigkeiten, keine eigenen Felder,
+                         Abschnitt KRITISCHER PFAD); offene Befunde gegen
+                         REVIEW_TRACKER.txt Abschnitt 1d; Regeln für das
+                         Schließen, Herabstufen und Löschen von Befunden;
+                         kein [DONE] mit sperrendem Befund; Modulstatus,
+                         Matrix und Summen im 04_PHASE_PLAN.txt und Marken
+                         des README gegen die Liste; Zählangaben in den
+                         Steuerungsdokumenten gegen die Moduldateien;
+                         Inventar des Trackers gegen den Bestand;
+                         README-Version gegen den Changelog; Dateilänge
+                         (KR-03); zulässige Felder der STATUS.yaml auf
+                         allen Ebenen; Arbeitskopien von Betreiberregeln
+                         und Startauftrag gegen ihre SHA-256-Werte.
+                         Umfang und Grenzen im Einzelnen: REVIEW_STANDARD
+                         Abschnitt 10.4.
   trace_zeilen.py        Trägt zu einem wörtlichen Zitat den Zeilenbereich der
                          Quelle ein (nicht gefunden oder mehrdeutig = Fehler).
+  lesebeleg.py           Gleicht den Lesestand des Quelleninventars mit einem
+                         Sitzungsprotokoll ab: Welche Zeilen einer Quelldatei
+                         standen wörtlich in einer Werkzeugausgabe der
+                         Hauptsitzung? Belegt, dass der Text VORLAG, nicht,
+                         dass er verarbeitet wurde. Läuft NICHT im CI (das
+                         Protokoll liegt nur in der Cloud-Sitzung); das
+                         Ergebnis des letzten Laufs steht im Changelog.
   pruefe_extrakte.py     Prüft die Extrakte der Leseläufe über die Nachlieferung
                          (governance/arbeitsmaterial/nachlieferung/extrakte):
                          Aufbau, Bindung an die Lieferdatei am Liefer-Commit,
@@ -52,7 +67,9 @@ WERKZEUGE
   tests/test_negativ.py  Negativtests: absichtlich ungültige, harmlose Kopien der
                          Register müssen als Fehler erkannt werden (z. B. veränderte
                          Regelreferenz, falsche Commit-Bindung, gefälschtes Zitat,
-                         fehlender Beleg, Freigabe ohne Gates).
+                         fehlender Beleg, Freigabe ohne Gates). Die Klasse
+                         "Haertung" enthält die Umgehungsversuche der
+                         unabhängigen Kontrolle vom 2026-11-14.
 
 AUFRUF (aus dem Repository-Wurzelverzeichnis)
   python3 qa/quelleninventar.py --rt . --xpn <xp-vpn-stack-Checkout> --check

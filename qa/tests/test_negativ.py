@@ -416,7 +416,7 @@ class Arbeitspakete(Basis):
             if p["id"] == "AP-K060":
                 p["haengt_ab_von"] = ["AP-K050", "AP-K100"]
         self.schreibe(PAKETE, ap)
-        self.erwarte_fehler("Abhaengigkeit AP-K100 (M2-100) steht nicht im Eintrag M2-060")
+        self.erwarte_fehler("AP-K060: Abhaengigkeiten weichen von den Zeilen 'Abhaengigkeit:' des Eintrags M2-060 ab")
 
     def test_zwei_pakete_mit_demselben_bezug(self):
         ap = self.lade(PAKETE)
@@ -507,6 +507,260 @@ class Steuerung(Basis):
         self.datei("PRIORITAETENLISTE.txt",
                    lambda t: re.sub(rf"(?m)^(M2-\d+) \[[A-Z]+\] ({re.escape(modul)}_)", r"\1 [DONE] \2", t, count=1))
         self.erwarte_fehler(f"MODUL {modul}: in MODULPRUEFUNG als Entwurf gefuehrt")
+
+
+
+class Haertung(Steuerung):
+    """Umgehungsversuche aus der unabhaengigen Kontrolle vom 2026-11-14 (governance/pruefungen/
+    KONSOLIDIERUNG_PRUEFUNG_C_...): Jede dort gefundene Luecke hat hier einen Test, der sie als geschlossen belegt.
+    Dazu Positivproben fuer die vier gemeldeten Fehlalarme."""
+
+    def paket(self, kennung):
+        ap = self.lade(PAKETE)
+        return ap, next(p for p in ap["pakete"] if p["id"] == kennung)
+
+    # --- PRIORITAETENLISTE und Index -------------------------------------------------------------------
+
+    def test_index_fuehrt_eigenen_status_blockiert(self):
+        ap, p = self.paket("AP-K060")
+        p["status"] = "BLOCKIERT"
+        self.schreibe(PAKETE, ap)
+        self.erwarte_fehler("AP-K060: status BLOCKIERT passt nicht zu PRIORITAETENLISTE M2-060 [WAITING]")
+
+    def test_kritischer_pfad_nennt_anderen_status(self):
+        self.datei("PRIORITAETENLISTE.txt",
+                   lambda t: t.replace("M2-040 TUNNEL_WIREGUARD (ACTIVE)", "M2-040 TUNNEL_WIREGUARD (DONE)  "))
+        self.erwarte_fehler("KRITISCHER PFAD: M2-040 steht dort als (DONE), der Eintrag traegt [ACTIVE]")
+
+    def test_altes_paket_ohne_index_wieder_geoeffnet(self):
+        self.datei("PRIORITAETENLISTE.txt", lambda t: re.sub(r"(?m)^M1-07 \[DONE\]", "M1-07 [ACTIVE]", t))
+        self.erwarte_fehler("M1-07: traegt [ACTIVE] statt [DONE]")
+
+    def test_status_tag_ausserhalb_der_legende(self):
+        self.datei("PRIORITAETENLISTE.txt", lambda t: re.sub(r"(?m)^M1-07 \[DONE\]", "M1-07 [In Arbeit]", t))
+        self.erwarte_fehler("M1-07: unbekanntes Status-Tag [In Arbeit]")
+
+    def test_eintrag_ganz_ohne_status_tag(self):
+        self.datei("PRIORITAETENLISTE.txt", lambda t: re.sub(r"(?m)^M1-07 \[DONE\]", "M1-07 ", t))
+        self.erwarte_fehler("Eintrag ohne gueltiges Status-Tag")
+
+    def test_neuer_listeneintrag_ohne_index(self):
+        self.datei("PRIORITAETENLISTE.txt",
+                   lambda t: re.sub(r"(?m)^(M2-QC \[WAITING\])", "M2-120 [ACTIVE] BASE-120_NEUES_MODUL\n  -> Neu.\n\n\\1", t))
+        self.erwarte_fehler("M2-120: Eintrag ohne Zeile 'Index: AP-...'")
+
+    def test_abhaengigkeit_nur_in_der_liste_ergaenzt(self):
+        self.datei("PRIORITAETENLISTE.txt",
+                   lambda t: t.replace("  -> Abhaengigkeit: M2-050 (Firewall-Regeln fuer DNS)",
+                                       "  -> Abhaengigkeit: M2-050 (Firewall-Regeln fuer DNS), M2-090"))
+        self.erwarte_fehler("AP-K060: Abhaengigkeiten weichen von den Zeilen 'Abhaengigkeit:' des Eintrags M2-060 ab")
+
+    def test_index_titel_fuehrt_eigenen_text(self):
+        ap, p = self.paket("AP-K040")
+        p["titel"] += " - STAND: fertig, dritte Pruefrunde bestanden"
+        self.schreibe(PAKETE, ap)
+        self.erwarte_fehler("AP-K040: titel weicht vom Titel des Eintrags M2-040")
+
+    def test_index_ergebnis_fuehrt_fortschrittstext(self):
+        ap, p = self.paket("AP-K040")
+        p["ergebnis"] = ["Stand: 12 Dateien geschrieben, naechster Schritt: Pruefung"]
+        self.schreibe(PAKETE, ap)
+        self.erwarte_fehler("AP-K040: ergebnis ist kein Pfad")
+
+    def test_index_mit_neuem_feld_auf_oberster_ebene(self):
+        ap = self.lade(PAKETE)
+        ap["naechste_schritte"] = ["BASE-060 schreiben"]
+        self.schreibe(PAKETE, ap)
+        self.erwarte_fehler("ARBEITSPAKETE: Feld naechste_schritte auf oberster Ebene ist nicht zulaessig")
+
+    # --- REVIEW_TRACKER -----------------------------------------------------------------------------------
+
+    def test_tracker_meldet_clean_trotz_offener_befunde(self):
+        self.datei("REVIEW_TRACKER.txt",
+                   lambda t: re.sub(r"(?m)^(  base/BASE-070_SESSION_CORE\s+).*$", r"\1✓ CLEAN (11 Dateien)", t, count=1))
+        self.erwarte_fehler("base/BASE-070_SESSION_CORE wird als CLEAN gefuehrt")
+
+    def test_tracker_nennt_falsche_dateizahl(self):
+        self.datei("REVIEW_TRACKER.txt",
+                   lambda t: re.sub(r"(?m)^(  base/BASE-050_FIREWALL_CORE\s+.*\()11 Dateien", r"\g<1>7 Dateien", t, count=1))
+        self.erwarte_fehler("base/BASE-050_FIREWALL_CORE wird mit 7 Dateien gefuehrt, im Verzeichnis liegen 11")
+
+    def test_neue_entscheidungsdatei_fehlt_im_tracker(self):
+        with open(os.path.join(self.tmp, "decisions", "D005_NEUE_ENTSCHEIDUNG.txt"), "w", encoding="utf-8") as f:
+            f.write("VERSION: v1.0\n")
+        self.erwarte_fehler("decisions/D005_NEUE_ENTSCHEIDUNG.txt fehlt im Inventar")
+
+    def test_neues_modulverzeichnis_fehlt_im_tracker(self):
+        os.makedirs(os.path.join(self.tmp, "modules", "MOD-001_ONBOARDING"))
+        with open(os.path.join(self.tmp, "modules", "MOD-001_ONBOARDING", "MOD-001_INDEX.txt"), "w", encoding="utf-8") as f:
+            f.write("VERSION: v1.0\n")
+        self.erwarte_fehler("modules/MOD-001_ONBOARDING existiert, fehlt aber im Inventar")
+
+    def test_pflegeeintrag_meldet_clean_trotz_offener_befunde(self):
+        self.datei("REVIEW_TRACKER_HISTORIE.txt", lambda t: t.replace("STATUS: NICHT CLEAN", "STATUS: CLEAN", 1))
+        self.erwarte_fehler("juengste PFLEGE-Eintrag meldet STATUS: CLEAN")
+
+    # --- 04_PHASE_PLAN ------------------------------------------------------------------------------------
+
+    def phasenzeile(self, funktion):
+        """Aendert die erste Phasenlisten-Zeile von BASE-040 (Abschnitt PH1)."""
+        def f(t):
+            m = re.search(r"(?m)^  BASE-040_TUNNEL_WIREGUARD\s+— .*$", t)
+            self.assertTrue(m, "Fixture passt nicht mehr zum 04_PHASE_PLAN")
+            return t[:m.start()] + funktion(m.group(0)) + t[m.end():]
+        self.datei("04_PHASE_PLAN.txt", f)
+
+    def test_phasenplan_status_mit_anderem_einzug(self):
+        self.phasenzeile(lambda z: "  " + z.replace("[IN-PROGRESS]", "[DONE]"))
+        self.erwarte_fehler("BASE-040 steht als DONE")
+
+    def test_phasenplan_status_mit_anderem_strich(self):
+        self.phasenzeile(lambda z: z.replace("—", "-").replace("[IN-PROGRESS]", "[DONE]"))
+        self.erwarte_fehler("BASE-040 steht als DONE")
+
+    def test_phasenplan_status_nicht_am_zeilenende(self):
+        self.phasenzeile(lambda z: z.replace("[IN-PROGRESS]", "[DONE] (v1.2)"))
+        self.erwarte_fehler("BASE-040 steht als DONE")
+
+    def test_phasenplan_status_tag_entfernt(self):
+        self.phasenzeile(lambda z: z.replace("[IN-PROGRESS]", ""))
+        self.erwarte_fehler("Modul BASE-040 ohne eindeutiges Status-Tag")
+
+    def test_phasenplan_unbekanntes_statuswort_in_der_matrix(self):
+        self.datei("04_PHASE_PLAN.txt",
+                   lambda t: re.sub(r"(?m)^(  BASE-040_TUNNEL_WIREGUARD\s+)IN-PROGRESS", r"\1FERTIG     ", t, count=1))
+        self.erwarte_fehler("Modul BASE-040: unbekanntes Statuswort 'FERTIG' in der Matrix")
+
+    def test_phasenplan_matrixzeile_geloescht(self):
+        self.datei("04_PHASE_PLAN.txt",
+                   lambda t: re.sub(r"(?m)^  BASE-040_TUNNEL_WIREGUARD\s+IN-PROGRESS.*\n", "", t, count=1))
+        self.erwarte_fehler("Modul BASE-040 fehlt in der MAPPING-MATRIX")
+
+    # --- Zaehlangaben -------------------------------------------------------------------------------------
+
+    def zaehlangabe(self, neu):
+        def f(t):
+            m = re.search(r"WT-01\.\.WT-(\d+)", t)
+            self.assertTrue(m, "Fixture passt nicht mehr zur PRIORITAETENLISTE")
+            return t[:m.start()] + neu + t[m.end():]
+        self.datei("PRIORITAETENLISTE.txt", f)
+
+    def test_zaehlangabe_mit_bis(self):
+        self.zaehlangabe("WT-01 bis WT-52")
+        self.erwarte_fehler("Zaehlbereich WT-01..52 stimmt nicht mit den Moduldateien ueberein")
+
+    def test_zaehlangabe_mit_auslassungszeichen(self):
+        self.zaehlangabe("WT-01…WT-52")
+        self.erwarte_fehler("Zaehlbereich WT-01..52 stimmt nicht mit den Moduldateien ueberein")
+
+    def test_zaehlangabe_ueber_zeilenumbruch(self):
+        self.zaehlangabe("WT-01..\n     WT-52")
+        self.erwarte_fehler("Zaehlbereich WT-01..52 stimmt nicht mit den Moduldateien ueberein")
+
+    def test_zaehlangabe_mit_anderer_stellenzahl(self):
+        self.zaehlangabe("WT-1..WT-052")
+        self.erwarte_fehler("Zaehlbereich WT-01..52 stimmt nicht mit den Moduldateien ueberein")
+
+    def test_teilbereich_im_proof_anker_besteht(self):
+        self.datei("04_PHASE_PLAN.txt",
+                   lambda t: t.replace("[BASE-040_095 T-WT-12, T-WT-16,", "[BASE-040_095 T-WT-01..05,", 1))
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_beschriebener_stand_ohne_vermerk(self):
+        self.datei("PRIORITAETENLISTE.txt",
+                   lambda t: t.replace("und T-PF-01..T-PF-20 (BF-0010; Nachzug QS-11).]", "und T-PF-01..T-PF-20.]", 1))
+        self.erwarte_fehler("Zaehlbereich PF-01..19 stimmt nicht mit den Moduldateien ueberein")
+
+    # --- STATUS.yaml --------------------------------------------------------------------------------------
+
+    def test_status_verweis_mit_neuem_schluessel(self):
+        st = self.lade(STATUS)
+        st["verweise"]["modulstand"] = "BASE-040 fertig, siehe PRIORITAETENLISTE.txt"
+        self.schreibe(STATUS, st)
+        self.erwarte_fehler("STATUS: verweise.modulstand ist nicht vorgesehen")
+
+    def test_status_stand_fuehrt_fortschrittstext(self):
+        st = self.lade(STATUS)
+        st["stand"] = "2026-11-14 - BASE-040 abgeschlossen, als naechstes BASE-060"
+        self.schreibe(STATUS, st)
+        self.erwarte_fehler("STATUS: stand ist kein Datum")
+
+    def test_status_fortschritt_eine_ebene_tiefer(self):
+        st = self.lade(STATUS)
+        st["automatische_wiederaufnahme"]["naechste_schritte"] = ["BASE-060 schreiben"]
+        self.schreibe(STATUS, st)
+        self.erwarte_fehler("STATUS: automatische_wiederaufnahme.naechste_schritte ist nicht vorgesehen")
+
+    def test_status_modulfortschritt_als_blockade(self):
+        st = self.lade(STATUS)
+        st["blockaden"].append({"id": "BL-04", "betrifft": ["Modulstand"], "art": "BASE-050 fertig",
+                                "beschreibung": "naechster Schritt: BASE-060 schreiben"})
+        self.schreibe(STATUS, st)
+        self.erwarte_fehler("Blockade BL-04: art 'BASE-050 fertig' ist keine der vorgesehenen Arten")
+
+    def test_gate_erfuellt_mit_leerem_nachweis(self):
+        st = self.lade(STATUS)
+        st["gates"]["G2"] = {"zustand": "ERFUELLT", "nachweis": "x"}
+        self.schreibe(STATUS, st)
+        self.erwarte_fehler("Gate G2 ERFUELLT, aber der nachweis nennt weder eine vorhandene Datei")
+
+    def test_g1_erfuellt_ohne_freeze_und_mit_offenen_paketen(self):
+        st = self.lade(STATUS)
+        st["gates"]["G1"] = {"zustand": "ERFUELLT", "nachweis": "PRIORITAETENLISTE.txt"}
+        self.schreibe(STATUS, st)
+        self.erwarte_fehler("Gate G1 ERFUELLT, aber der Funktions-Freeze ist nicht erklaert")
+
+    def test_erfundener_kandidat(self):
+        st = self.lade(STATUS)
+        st["fachstatus"] = "PRUEFBEREIT"
+        st["kandidat"] = {"commit": "a" * 40, "tree": "b" * 40}
+        self.schreibe(STATUS, st)
+        self.erwarte_fehler("kandidat.commit aaaaaaaaaaaa gibt es im Repository nicht")
+
+    # --- README, Changelog, KR-03, Modulpruefung ------------------------------------------------------------
+
+    def test_readme_version_ohne_v(self):
+        self.datei("README.md", lambda t: re.sub(r"Concept version: v(\d)", r"Concept version: \1", t, count=1))
+        self.erwarte_fehler("README.md nennt ")
+
+    def test_readme_fremde_versionsnummer_besteht(self):
+        self.datei("README.md", lambda t: t + "\nGetestet mit accel-ppp v1.13.0.\n")
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_changelog_neuer_eintrag_ohne_neuen_kopf(self):
+        self.datei("03_CHANGELOG.txt",
+                   lambda t: re.sub(r"(?m)^(v\d+\.\d+\.\d+ \()", "v99.0.0 (2027-01-01) — Testeintrag\n\n\\1", t, count=1))
+        self.erwarte_fehler("03_CHANGELOG: Kopf nennt")
+
+    def test_entscheidungsdatei_zu_lang(self):
+        ziel = next(f for f in sorted(os.listdir(os.path.join(self.tmp, "decisions"))) if f.endswith(".txt"))
+        self.datei(f"decisions/{ziel}", lambda t: t + "\nzeile" * 1600)
+        self.erwarte_fehler(f"KR-03: decisions/{ziel} hat")
+
+    def test_arbeitsweise_zu_lang(self):
+        self.datei("MARCOS_ARBEITSWEISE.txt", lambda t: t + "\nzeile" * 1600)
+        self.erwarte_fehler("KR-03: MARCOS_ARBEITSWEISE.txt hat")
+
+    def test_entwurfskennzeichen_an_geschriebenem_modul(self):
+        cfg = self.lade("governance/register/MODULPRUEFUNG.yaml")
+        ziel = next(m for m in cfg["module"] if not m.get("entwurf"))
+        ziel["entwurf"] = True
+        self.schreibe("governance/register/MODULPRUEFUNG.yaml", cfg)
+        self.erwarte_fehler(f"MODUL {ziel['modul']}: als Entwurf gefuehrt, aber")
+
+    def test_modul_aus_der_modulpruefung_entfernt(self):
+        cfg = self.lade("governance/register/MODULPRUEFUNG.yaml")
+        weg = cfg["module"].pop(0)
+        self.schreibe("governance/register/MODULPRUEFUNG.yaml", cfg)
+        self.erwarte_fehler(f"MODUL {weg['modul']}: {weg['pfad']} hat Moduldateien, steht aber nicht in")
+
+    def test_register_mit_neuem_feld_auf_oberster_ebene(self):
+        bf = self.lade(BEFUNDE)
+        bf["stand_je_paket"] = {"M2-040": "fertig"}
+        self.schreibe(BEFUNDE, bf)
+        self.erwarte_fehler("BEFUNDE: Feld stand_je_paket auf oberster Ebene ist nicht zulaessig")
 
 
 class Verbesserungen(Basis):

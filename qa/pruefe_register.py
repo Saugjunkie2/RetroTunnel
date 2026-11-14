@@ -35,8 +35,10 @@ TR_ART = ["SCHUTZZIEL", "FUNKTION", "BETRIEB", "ARCH_ENTSCHEIDUNG", "IMPL_DETAIL
           "OFFEN", "ARBEITSANWEISUNG", "DEFINITION", "HISTORIE"]
 TR_EINORDNUNG = ["UEBERNOMMEN", "ANGEPASST", "ERSETZT", "NICHT_ANWENDBAR"]
 BM_EINORDNUNG = ["BETREIBERENTSCHEIDUNG", "INFORMATION", "ARBEITSANWEISUNG"]
-PRIO_MAP = {"DONE": {"ERLEDIGT"}, "ACTIVE": {"IN_ARBEIT"}, "NEXT": {"OFFEN", "IN_ARBEIT"},
-            "WAITING": {"OFFEN", "BLOCKIERT"}, "DEFERRED": {"OFFEN", "BLOCKIERT"}, "LAUFEND": {"IN_ARBEIT", "OFFEN"}}
+# Status-Spiegel des Index: je Tag der PRIORITAETENLISTE genau EIN Indexstatus. NEXT, WAITING und DEFERRED sind im
+# Index alle OFFEN - der Index fuehrt die feinere Unterscheidung der Liste bewusst nicht.
+PRIO_MAP = {"DONE": {"ERLEDIGT"}, "ACTIVE": {"IN_ARBEIT"}, "NEXT": {"OFFEN"}, "WAITING": {"OFFEN"},
+            "DEFERRED": {"OFFEN"}, "LAUFEND": {"IN_ARBEIT"}}
 
 
 AP_FELDER = {"id", "titel", "bezug", "haengt_ab_von", "status", "ergebnis"}
@@ -50,6 +52,38 @@ STEUERUNG = ["00_MANIFEST.txt", "01_GLOSSARY.txt", "02_ASSUMPTIONS_AND_RULES.txt
              "REVIEW_STANDARD.txt", "REVIEW_TRACKER.txt",
              "REVIEW_TRACKER_HISTORIE.txt", "NAVIGATIONSKARTE_ALTES_KONZEPT.txt", "README.md"]
 PRIO_TAGS = {"DONE", "ACTIVE", "NEXT", "WAITING", "DEFERRED", "LAUFEND"}
+AP_KOPF = {"schema", "ausgangs_commit_rt", "ausgangs_commit_xpn", "pakete"}
+# Eintraege der PRIORITAETENLISTE ohne Indexeintrag: die vor dem Auftrag vom 2026-11-11 abgeschlossenen Pakete und die
+# Daueraufgabe QS-01. Jeder andere Eintrag braucht die Zeile "Index: AP-...".
+ALT_PAKETE = {**{f"M0-{i:02d}": "DONE" for i in range(1, 8)}, **{f"M1-{i:02d}": "DONE" for i in range(1, 8)},
+              "M1-SWEEP": "DONE", "M2-000": "DONE", "M2-005": "DONE", "M2-010": "DONE", "M2-020": "DONE",
+              "M2-030": "DONE", "QS-01": "LAUFEND"}
+# Module, die vor dem Auftrag geschrieben wurden und (noch) nicht unter der maschinellen Modulpruefung stehen.
+ALT_MODULE = {"BASE-000", "BASE-005", "BASE-010", "BASE-020", "BASE-030"}
+# Welches Modul die Kennungen eines Praefix DEFINIERT (nur dort wird gezaehlt). Fuer die Praefixe der Altmodule darf
+# ein Steuerungsdokument den im Changelog beschriebenen, im Repository nicht vorhandenen Stand nennen, wenn der
+# Vermerk "BF-0010" in der Naehe steht.
+EIGNER = {"SQL": "BASE-000", "T-SQL": "BASE-000", "PF": "BASE-005", "T-PF": "BASE-005", "INV": "BASE-010",
+          "AAA": "BASE-020", "T-AAA": "BASE-020", "LT": "BASE-030", "T-LT": "BASE-030",
+          **{p + k: m for k, m in (("WT", "BASE-040"), ("FW", "BASE-050"), ("SC", "BASE-070"), ("PA", "BASE-080"))
+             for p in ("", "T-", "DEC-", "ANF-")}}
+ALT_PRAEFIXE = {p for p, m in EIGNER.items() if m in ALT_MODULE}
+# Dokumente, die Vergangenes festhalten: dort werden Zaehlangaben nicht gegen den heutigen Bestand geprueft.
+ZEITDOKUMENTE = {"REVIEW_TRACKER_HISTORIE.txt"}
+KR03_AUSNAHME = {"03_CHANGELOG.txt"}   # ueberschritt 1500 Zeilen schon am Ausgangsstand (3279); 00_MANIFEST KR-03
+STATUS_VERWEISE = {"einstieg", "aufgaben_status_naechste_schritte", "review_stand_und_offene_befunde",
+                   "reifegrad_je_phase", "historie_und_nachweise", "lesestand_der_quellen", "betreibermitteilungen",
+                   "umgebung_und_wiederaufnahme"}
+STATUS_UNTERFELDER = {
+    "identitaeten": {"zielrepo", "arbeitsbranch", "frueherer_arbeitsbranch", "hauptbranch", "pull_request",
+                     "quellen_commit_rt", "quellen_commit_xpn", "quellen_commit_nl", "betreiberregeln", "startauftrag"},
+    "automatische_wiederaufnahme": {"eingerichtet", "mechanismus", "nachgewiesen", "nicht_nachgewiesen"},
+    "kandidat": {"commit", "tree"},
+}
+GATE_FELDER = {"zustand", "hinweis", "nachweis"}
+BL_FELDER = {"id", "betrifft", "art", "beschreibung"}
+BL_ART = {"Betreiberaktion erforderlich", "Ressourcenlimit", "Quellenlücke (kein Blocker)"}
+BL_BETRIFFT = {"G1", "G2", "G3", "G4", "Ausfuehrung", "Quellenbasis"}
 
 QUELLEN = ("RT", "XPN", "NL")
 NL_PRAEFIX = "nachlieferung/"
@@ -74,6 +108,9 @@ class Pruefung:
         self.trace_ziele = set()
         self.entwuerfe = set()
         self._liste = None
+        self.pfad_zeilen = []          # Zeilen des Abschnitts KRITISCHER PFAD der PRIORITAETENLISTE
+        self.sperren = {}              # Listen-Kennung -> offene Befunde, die das Paket am Abschluss hindern
+        self.offene_befunde = 0
 
     def err(self, m):
         self.fehler.append(m)
@@ -121,6 +158,41 @@ class Pruefung:
                     self.err(f"STATUS: verweise.{name} nennt eine Datei, die es nicht gibt: {datei}")
         if not st.get("verweise"):
             self.err("STATUS: verweise fehlt (wo Aufgaben, Review-Stand, Reife und Chronik stehen)")
+        # Unterhalb der obersten Ebene sind ebenfalls nur die vorgesehenen Felder zulaessig. Der TEXT der Felder
+        # (hinweis, beschreibung) ist frei und wird NICHT geprueft.
+        vw = st.get("verweise") or {}
+        if isinstance(vw, dict):
+            for k in sorted(set(vw) - STATUS_VERWEISE):
+                self.err(f"STATUS: verweise.{k} ist nicht vorgesehen")
+            for k in sorted(STATUS_VERWEISE - set(vw)):
+                self.err(f"STATUS: verweise.{k} fehlt")
+            for name, ziel in vw.items():
+                if not re.findall(r"[\w./-]+\.(?:txt|yaml|md)", str(ziel)):
+                    self.err(f"STATUS: verweise.{name} nennt keine Datei")
+        for feld, erlaubt in STATUS_UNTERFELDER.items():
+            wert = st.get(feld)
+            if isinstance(wert, dict):
+                for k in sorted(set(wert) - erlaubt):
+                    self.err(f"STATUS: {feld}.{k} ist nicht vorgesehen")
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(st.get("stand", ""))):
+            self.err("STATUS: stand ist kein Datum (JJJJ-MM-TT)")
+        if not isinstance(st.get("checkpoint"), int):
+            self.err("STATUS: checkpoint ist keine Zahl")
+        for g, inhalt in (st.get("gates") or {}).items():
+            if g not in ("G1", "G2", "G3", "G4"):
+                self.err(f"STATUS: unbekanntes Gate {g}")
+            for k in sorted(set(inhalt or {}) - GATE_FELDER):
+                self.err(f"STATUS: gates.{g}.{k} ist nicht vorgesehen")
+        for b in st.get("blockaden") or []:
+            for k in sorted(set(b) - BL_FELDER):
+                self.err(f"STATUS: Blockade {b.get('id')}: Feld {k} ist nicht vorgesehen")
+            if not re.fullmatch(r"BL-\d{2}", str(b.get("id"))):
+                self.err(f"STATUS: Blockade-Kennung nicht im Format BL-nn: {b.get('id')}")
+            if b.get("art") not in BL_ART:
+                self.err(f"STATUS: Blockade {b.get('id')}: art '{b.get('art')}' ist keine der vorgesehenen Arten")
+            for x in b.get("betrifft") or []:
+                if x not in BL_BETRIFFT:
+                    self.err(f"STATUS: Blockade {b.get('id')}: betrifft '{x}' ist nicht vorgesehen")
         if st.get("fachstatus") not in FACHSTATUS:
             self.err(f"STATUS: unbekannter fachstatus {st.get('fachstatus')}")
         if st.get("ausfuehrungsstatus") not in AUSF:
@@ -133,6 +205,20 @@ class Pruefung:
                 self.err(f"STATUS: Gate {g} unbekannter zustand {gates[g].get('zustand')}")
             elif gates[g].get("zustand") == "ERFUELLT" and not gates[g].get("nachweis"):
                 self.err(f"STATUS: Gate {g} ERFUELLT ohne nachweis")
+            elif gates[g].get("zustand") == "ERFUELLT" and not self.nachweis_aufloesbar(
+                    re.findall(r"[\w./-]+\.(?:txt|yaml|md)|\b[0-9a-f]{7,40}\b", str(gates[g].get("nachweis")))):
+                self.err(f"STATUS: Gate {g} ERFUELLT, aber der nachweis nennt weder eine vorhandene Datei noch einen "
+                         f"vorhandenen Commit")
+        if (gates.get("G1") or {}).get("zustand") == "ERFUELLT":
+            # G1 = fachliche Vollstaendigkeit und begruendeter Funktions-Freeze: alle Pakete bis QS-16 sind [DONE],
+            # und der Freeze ist erklaert.
+            vbx = self.lade("governance/register/VERBESSERUNGEN.yaml", pflicht=False) or {}
+            if not vbx.get("freeze_erklaert"):
+                self.err("STATUS: Gate G1 ERFUELLT, aber der Funktions-Freeze ist nicht erklaert")
+            for kennung, e in self.lies_prioritaetenliste().items():
+                mq = re.fullmatch(r"QS-(\d+)", kennung)
+                if e["tag"] != "DONE" and kennung != "QS-01" and not (mq and int(mq.group(1)) > 16):
+                    self.err(f"STATUS: Gate G1 ERFUELLT, aber {kennung} ist [{e['tag']}]")
         fs = st.get("fachstatus")
         alle = all((gates.get(g) or {}).get("zustand") == "ERFUELLT" for g in ("G1", "G2", "G3", "G4"))
         if fs in ("FREIGEGEBEN", "ABGESCHLOSSEN_UND_UEBERNOMMEN") and not alle:
@@ -147,6 +233,13 @@ class Pruefung:
             if not (re.fullmatch(r"[0-9a-f]{40}", str(k.get("commit", ""))) and
                     re.fullmatch(r"[0-9a-f]{40}", str(k.get("tree", "")))):
                 self.err(f"STATUS: fachstatus {fs} ohne kandidat.commit/kandidat.tree (40-stellige Git-IDs)")
+            else:
+                baum = subprocess.run(["git", "-C", self.git, "rev-parse", "--verify", "-q", f"{k['commit']}^{{tree}}"],
+                                      capture_output=True, text=True)
+                if baum.returncode != 0:
+                    self.err(f"STATUS: kandidat.commit {k['commit'][:12]} gibt es im Repository nicht")
+                elif baum.stdout.strip() != k["tree"]:
+                    self.err(f"STATUS: kandidat.tree passt nicht zum kandidat.commit {k['commit'][:12]}")
         if fs in ("FACHLICH_FERTIG_FREIGABE_BLOCKIERT", "FREIGEGEBEN", "ABGESCHLOSSEN_UND_UEBERNOMMEN"):
             for b in (bf or {}).get("befunde") or []:
                 if b.get("klasse") in ("KRITISCH", "SCHWERWIEGEND") and b.get("status") not in BF_ERLEDIGT:
@@ -242,8 +335,11 @@ class Pruefung:
         for n in by:
             dfs(n, [])
         # Abgleich mit PRIORITAETENLISTE.txt. Die Liste ist MASSGEBLICH (00_MANIFEST 6a, KR-07); dieses Register
-        # ist ihr maschinenlesbarer Index und darf weder eigene Pakete noch einen eigenen Stand fuehren.
+        # ist ihr maschinenlesbarer Index und darf weder eigene Pakete noch einen eigenen Stand oder Text fuehren.
         liste = self.lies_prioritaetenliste()
+        for k in sorted(set(ap or {}) - AP_KOPF):
+            self.err(f"ARBEITSPAKETE: Feld {k} auf oberster Ebene ist nicht zulaessig (der Index fuehrt keinen Stand)")
+        idx_bezuege = {p.get("bezug") for p in pakete}
         bezuege = {}
         for p in pakete:
             for k in sorted(set(p) - AP_FELDER):
@@ -267,20 +363,61 @@ class Pruefung:
             if e["index"] != [p["id"]]:
                 self.err(f"ARBEITSPAKETE {p['id']}: Eintrag {b} der PRIORITAETENLISTE nennt als Index "
                          f"{e['index'] or 'nichts'} statt {p['id']}")
-            for d in p.get("haengt_ab_von") or []:
-                db = (by.get(d) or {}).get("bezug")
-                if db and not re.search(rf"(?<![A-Z0-9-]){re.escape(db)}(?![0-9A-Z])", e["text"]):
-                    self.err(f"ARBEITSPAKETE {p['id']}: Abhaengigkeit {d} ({db}) steht nicht im Eintrag {b} "
-                             f"der PRIORITAETENLISTE")
+            if p.get("titel") != e["titel"]:
+                self.err(f"ARBEITSPAKETE {p['id']}: titel weicht vom Titel des Eintrags {b} der PRIORITAETENLISTE ab "
+                         f"(der Index fuehrt keinen eigenen Text)")
+            for erg in p.get("ergebnis") or []:
+                if not re.fullmatch(r"[^\s:]+", str(erg)) or not re.search(r"[/.]", str(erg)):
+                    self.err(f"ARBEITSPAKETE {p['id']}: ergebnis ist kein Pfad: {str(erg)[:50]}")
+            # Abhaengigkeiten: genau die Kennungen aus den Zeilen "Abhaengigkeit:" des Eintrags, soweit sie einen
+            # Indexeintrag haben (aeltere Pakete ohne Index koennen nicht gespiegelt werden).
+            im_index = {(by.get(d) or {}).get("bezug") for d in p.get("haengt_ab_von") or []} - {None}
+            in_liste = {x for x in e["abh"] if x in idx_bezuege}
+            if im_index != in_liste:
+                self.err(f"ARBEITSPAKETE {p['id']}: Abhaengigkeiten weichen von den Zeilen 'Abhaengigkeit:' des "
+                         f"Eintrags {b} ab (Liste: {sorted(in_liste) or 'keine'}, Index: {sorted(im_index) or 'keine'})")
         for kennung, e in liste.items():
             for i in e["index"]:
                 if (by.get(i) or {}).get("bezug") != kennung:
                     self.err(f"PRIORITAETENLISTE {kennung}: Index {i} hat im Register keinen Eintrag mit bezug {kennung}")
+            if not e["index"]:
+                if kennung not in ALT_PAKETE:
+                    self.err(f"PRIORITAETENLISTE {kennung}: Eintrag ohne Zeile 'Index: AP-...' (ohne Indexeintrag "
+                             f"sind nur die vor dem 2026-11-11 abgeschlossenen Pakete und QS-01)")
+                elif e["tag"] != ALT_PAKETE[kennung]:
+                    self.err(f"PRIORITAETENLISTE {kennung}: traegt [{e['tag']}] statt [{ALT_PAKETE[kennung]}] "
+                             f"(Paket ohne Indexeintrag)")
+        for kennung in sorted(set(ALT_PAKETE) - set(liste)):
+            self.err(f"PRIORITAETENLISTE: Eintrag {kennung} fehlt oder traegt kein gueltiges Status-Tag")
+        # Abschnitt KRITISCHER PFAD: Statusworte in Klammern muessen dem Tag der genannten Pakete entsprechen.
+        for z in self.pfad_zeilen:
+            mt = re.search(r"\((DONE|ACTIVE|NEXT|WAITING|DEFERRED|LAUFEND)\)", z)
+            if not mt:
+                continue
+            vor, kennungen = z[:mt.start()], set()
+            for start, bis in re.findall(r"(M\d-\d+)\.\.(\d+)", vor):
+                praefix, erste = start.rsplit("-", 1)
+                kennungen |= {k for k in liste if k.startswith(praefix + "-") and k.rsplit("-", 1)[1].isdigit()
+                              and int(erste) <= int(k.rsplit("-", 1)[1]) <= int(bis)}
+            vor = re.sub(r"M\d-\d+\.\.\d+", " ", vor)
+            einzeln = set(re.findall(r"M\d-[0-9A-Z]+|QS-\d+", vor))
+            kennungen |= einzeln
+            for phase in re.findall(r"(?<![\w-])(M\d)(?![\w-])", vor):
+                kennungen |= {k for k in liste if k.startswith(phase + "-")}
+            for k in sorted(kennungen):
+                if k not in liste:
+                    self.err(f"PRIORITAETENLISTE, KRITISCHER PFAD: unbekannte Kennung {k}")
+                elif liste[k]["tag"] != mt.group(1):
+                    self.err(f"PRIORITAETENLISTE, KRITISCHER PFAD: {k} steht dort als ({mt.group(1)}), der Eintrag "
+                             f"traegt [{liste[k]['tag']}]")
         return by
 
     def lies_prioritaetenliste(self):
-        """Eintraege der PRIORITAETENLISTE.txt: Kennung -> {tag, index, text}. Ein Eintrag beginnt mit
-        'M2-040 [ACTIVE] ...' am Zeilenanfang und endet am naechsten Eintrag oder an einer Trennlinie."""
+        """Eintraege der PRIORITAETENLISTE.txt: Kennung -> {tag, index, text, titel, abh}. Ein Eintrag beginnt mit
+        'M2-040 [ACTIVE] Titel' am Zeilenanfang und endet am naechsten Eintrag oder an einer Trennlinie.
+        titel = Text hinter dem Tag samt eingerueckter Fortsetzungszeilen bis zur ersten Pfeilzeile;
+        abh   = Kennungen aus den Zeilen '-> Abhaengigkeit: ...' samt Fortsetzungszeilen.
+        Die Zeilen des Abschnitts KRITISCHER PFAD stehen danach in self.pfad_zeilen."""
         if self._liste is not None:
             return self._liste
         pl = os.path.join(self.root, "PRIORITAETENLISTE.txt")
@@ -290,22 +427,55 @@ class Pruefung:
             self.err("PRIORITAETENLISTE.txt fehlt")
             return eintraege
         with open(pl, encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                m = re.match(r"^(M\d-[0-9A-Z]+|QS-\d+)\s+\[([A-Z]+)\]", line)
-                if m:
-                    akt = m.group(1)
-                    if akt in eintraege:
-                        self.err(f"PRIORITAETENLISTE: Kennung {akt} mehrfach vergeben")
-                    if m.group(2) not in PRIO_MAP and m.group(2) not in PRIO_TAGS:
-                        self.err(f"PRIORITAETENLISTE {akt}: unbekanntes Status-Tag [{m.group(2)}]")
-                    eintraege[akt] = {"tag": m.group(2), "index": [], "text": line}
-                elif re.match(r"^(={10,}|-{10,})", line):
-                    akt = None
-                elif akt:
-                    eintraege[akt]["text"] += line
-                    mi = re.search(r"Index:\s*(AP-[A-Z0-9]+)", line)
-                    if mi:
-                        eintraege[akt]["index"].append(mi.group(1))
+            zeilen = fh.read().splitlines()
+        im_pfad = im_titel = in_abh = False
+        for line in zeilen:
+            if line.startswith("ZUSAMMENFASSUNG: KRITISCHER PFAD"):
+                im_pfad, akt = True, None
+                continue
+            if im_pfad:
+                if re.match(r"^CHANGELOG\s*$", line):
+                    im_pfad = False
+                else:
+                    self.pfad_zeilen.append(line)
+                continue
+            m = re.match(r"^(M\d-[0-9A-Z]+|QS-\d+)\s+\[([^\]]*)\]\s*(.*)$", line)
+            if m:
+                akt = m.group(1)
+                if akt in eintraege:
+                    self.err(f"PRIORITAETENLISTE: Kennung {akt} mehrfach vergeben")
+                if m.group(2) not in PRIO_TAGS:
+                    self.err(f"PRIORITAETENLISTE {akt}: unbekanntes Status-Tag [{m.group(2)}]")
+                eintraege[akt] = {"tag": m.group(2), "index": [], "text": line + "\n", "titel": m.group(3).strip(),
+                                  "abh": set()}
+                im_titel, in_abh = True, False
+                continue
+            if re.match(r"^(M\d-[0-9A-Z]+|QS-\d+)\s", line):
+                self.err(f"PRIORITAETENLISTE: Eintrag ohne gueltiges Status-Tag: {line.strip()[:60]}")
+                akt = None
+                continue
+            if re.match(r"^(={10,}|-{10,})", line):
+                akt = None
+                continue
+            if not akt:
+                continue
+            e = eintraege[akt]
+            e["text"] += line + "\n"
+            s = line.strip()
+            pfeil = s.startswith(("->", "→"))
+            if im_titel and line.startswith("  ") and s and not pfeil:
+                e["titel"] += " " + s
+            else:
+                im_titel = False
+            if pfeil:
+                in_abh = bool(re.match(r"^(->|→)\s*Abh(ae|ä)ngigkeit", s))
+            elif not s:
+                in_abh = False
+            if in_abh:
+                e["abh"] |= set(re.findall(r"M\d-[0-9A-Z]+|QS-\d+", s))
+            mi = re.search(r"Index:\s*(AP-[A-Z0-9]+)", line)
+            if mi:
+                e["index"].append(mi.group(1))
         return eintraege
 
     def pruefe_fundstelle(self, wer, fs, commits):
@@ -481,6 +651,7 @@ class Pruefung:
                 continue
             stern = "*" if b.get("klasse") in ("KRITISCH", "SCHWERWIEGEND") else ""
             soll.setdefault(bezug, set()).add(f"{b.get('id')}{stern}")
+            self.sperren.setdefault(bezug, set()).add(b.get("id"))
             # Kein [DONE] eines Pakets, solange ein Befund dieses Pakets offen ist - auch kein kleiner
             # (CLAUDE_BRIEFING, BEFUND-REGEL; REVIEW_STANDARD 10.2).
             if (self.lies_prioritaetenliste().get(bezug) or {}).get("tag") == "DONE":
@@ -492,6 +663,7 @@ class Pruefung:
                     self.err(f"BEFUNDE {b.get('id')}: sperrt_auch nennt unbekanntes Paket {ap}")
                     continue
                 bz = pakete[ap].get("bezug")
+                self.sperren.setdefault(bz, set()).add(b.get("id"))
                 if (self.lies_prioritaetenliste().get(bz) or {}).get("tag") == "DONE":
                     self.err(f"PRIORITAETENLISTE {bz} ist [DONE], aber Befund {b.get('id')} sperrt dieses Paket")
         for k in sorted(set(soll) | set(ist)):
@@ -510,6 +682,7 @@ class Pruefung:
             self.err(f"REVIEW_TRACKER 1d: Vermerk SPERRT AUCH nennt {sorted(genannt) or 'nichts'}, das Register fuehrt "
                      f"sperrt_auch bei {sorted(gefuehrt) or 'keinem offenen Befund'}")
         mz = re.search(r"Zusammen\s+(\d+)\s+offene\s+von\s+(\d+)\s+Befunden;\s+(\d+)\s+sind\s+geschlossen", abschnitt)
+        self.offene_befunde = offen
         if not mz or [int(x) for x in mz.groups()] != [offen, gesamt, gesamt - offen]:
             self.err(f"REVIEW_TRACKER 1d: Gesamtzahlen stimmen nicht mit dem Register ueberein "
                      f"(Register: {offen} offen von {gesamt}, {gesamt - offen} geschlossen)")
@@ -718,8 +891,12 @@ class Pruefung:
             if m.get("entwurf"):
                 # Entwurf: alle Formpruefungen gelten; fehlende Herkunft ist ein Hinweis. Ein Entwurf kann in der
                 # PRIORITAETENLISTE nicht [DONE] sein (pruefe_steuerung) - die volle Pruefung ist damit Pflicht
-                # vor dem Abschluss.
+                # vor dem Abschluss. Das Kennzeichen ist nur zulaessig, solange JEDE Datei des Moduls im Kopf
+                # "STATUS: IN ARBEIT" traegt - sonst liesse sich fehlende Herkunft hinter ihm verstecken.
                 self.entwuerfe.add(name)
+                for f, t in sorted(texte.items()):
+                    if not re.search(r"^STATUS:\s*IN ARBEIT", "\n".join(t.splitlines()[:12]), re.M):
+                        self.err(f"MODUL {name}: als Entwurf gefuehrt, aber {f} traegt im Kopf nicht 'STATUS: IN ARBEIT'")
                 if ohne:
                     self.hinweise.append(f"MODUL {name} (ENTWURF): {len(ohne)} von {len(inv_set)} Invarianten "
                                          f"ohne Herkunft: {', '.join(ohne)}")
@@ -730,50 +907,82 @@ class Pruefung:
             for (mod, i) in neu_ids:
                 if mod == name and i not in inv_set:
                     self.err(f"NEU_BEGRUENDET: {mod} {i} ist keine definierte Invariante")
+        # Jedes Modulverzeichnis mit Dateien steht unter der Modulpruefung - ausser den vor dem Auftrag
+        # geschriebenen Modulen (ALT_MODULE), die erst mit ihrem Nachzug aufgenommen werden.
+        gefuehrt = {m.get("modul") for m in cfg.get("module") or []}
+        for wurzel in ("base", "modules"):
+            w = os.path.join(self.root, wurzel)
+            for d in sorted(os.listdir(w)) if os.path.isdir(w) else []:
+                mm = re.match(r"((?:BASE|MOD)-\d{3})_", d)
+                hat = os.path.isdir(os.path.join(w, d)) and any(f.endswith(".txt") for f in os.listdir(os.path.join(w, d)))
+                if mm and hat and mm.group(1) not in gefuehrt and mm.group(1) not in ALT_MODULE:
+                    self.err(f"MODUL {mm.group(1)}: {wurzel}/{d} hat Moduldateien, steht aber nicht in "
+                             f"governance/register/MODULPRUEFUNG.yaml")
         return n
 
     def pruefe_steuerung(self):
         """Steuerungsdokumente (00_MANIFEST 6a) gegeneinander und gegen den Bestand:
-        (a) Modulstatus im 04_PHASE_PLAN entspricht dem Status-Tag der PRIORITAETENLISTE,
+        (a) Modulstatus im 04_PHASE_PLAN (Phasenlisten, Matrix, Summen) entspricht der PRIORITAETENLISTE,
         (b) ein Modul im Entwurf (MODULPRUEFUNG entwurf: true) ist nirgends DONE,
-        (c) Zaehlbereiche 'XX-01..XX-NN' in den Steuerungsdokumenten stimmen mit den Moduldateien ueberein,
-        (d) keine Datei der Steuerung oder des Kanons ueberschreitet 1500 Zeilen (KR-03),
-        (e) REVIEW_TRACKER fuehrt jedes Modulverzeichnis mit Inhalt und nennt keines 'EMPTY', das Dateien hat,
-        (f) README nennt die Version des Changelogs."""
+        (c) Zaehlangaben 'XX-01..XX-NN' in den Steuerungsdokumenten stimmen mit den Moduldateien ueberein,
+        (d) kein Steuerungsdokument und keine kanonische Datei ueberschreitet 1500 Zeilen (KR-03),
+        (e) das Inventar des REVIEW_TRACKER passt zum Bestand und zu den offenen Befunden,
+        (f) README und Changelog nennen dieselbe Version,
+        (g) Marken und Statustabelle des README entsprechen der PRIORITAETENLISTE.
+        Geprueft wird die Schreibweise, die die Dokumente verwenden; freie Saetze prueft niemand."""
         liste = self.lies_prioritaetenliste()
         modul_tag = {}
         for kennung, e in liste.items():
             mm = re.search(r"\b((?:BASE|MOD)-\d{3})_[A-Z0-9_]+", e["text"].splitlines()[0])
             if mm:
                 modul_tag[mm.group(1)] = (kennung, e["tag"])
+        statuswort = {"DONE", "IN-PROGRESS", "WAITING"}
         # (a) Phasenplan
         pp = os.path.join(self.root, "04_PHASE_PLAN.txt")
         if os.path.exists(pp):
             with open(pp, encoding="utf-8", errors="replace") as fh:
                 zeilen = fh.read().splitlines()
-            funde = []          # (zeile, modul, status)
+            funde, matrix, in_matrix = [], set(), False          # funde: (zeile, modul, status)
             for n, z in enumerate(zeilen, 1):
-                mt = re.match(r"^  ((?:BASE|MOD)-\d{3})_[A-Z0-9_]+\s+(DONE|IN-PROGRESS|WAITING)\b", z)
-                if mt:
-                    funde.append((n, mt.group(1), mt.group(2)))
+                if z.startswith("MAPPING-MATRIX"):
+                    in_matrix = True
+                elif in_matrix and z.startswith("KONSOLIDIERTE STATUS-AUFSTELLUNG"):
+                    in_matrix = False
+                mm = re.match(r"^\s+((?:BASE|MOD)-\d{3})_[A-Z0-9_]+\s+(.*)$", z)
+                if not mm:
                     continue
-                mk = re.match(r"^  ((?:BASE|MOD)-\d{3})_[A-Z0-9_]+\s+—", z)
-                if mk:
-                    for k in range(n - 1, min(n + 7, len(zeilen))):
-                        if k > n - 1 and (not zeilen[k].strip() or re.match(r"^  (?:BASE|MOD)-\d{3}_", zeilen[k])):
-                            break
-                        ms = re.search(r"\[(DONE|IN-PROGRESS|WAITING)\]\s*$", zeilen[k])
-                        if ms:
-                            funde.append((n, mk.group(1), ms.group(1)))
-                            break
+                modul, rest = mm.group(1), mm.group(2)
+                if in_matrix:
+                    wort = (rest.split() or [""])[0]
+                    matrix.add(modul)
+                    if wort not in statuswort:
+                        self.err(f"04_PHASE_PLAN:{n}: Modul {modul}: unbekanntes Statuswort '{wort}' in der Matrix")
                     else:
-                        self.err(f"04_PHASE_PLAN:{n}: Modul {mk.group(1)} ohne Status-Tag")
+                        funde.append((n, modul, wort))
+                elif re.match(r"^[—–-]\s", rest):
+                    # Phasenliste: "BASE-040_NAME — Text ... [STATUS]"; das Tag steht irgendwo im Eintrag.
+                    block, k = [z], n
+                    while (k < len(zeilen) and zeilen[k].strip() and len(block) < 8
+                           and not re.match(r"^\s+(?:BASE|MOD)-\d{3}_", zeilen[k])):
+                        block.append(zeilen[k])
+                        k += 1
+                    tags = re.findall(r"\[([A-Z][A-Z-]*)\]", " ".join(block))
+                    for t in tags:
+                        if t not in statuswort:
+                            self.err(f"04_PHASE_PLAN:{n}: Modul {modul}: unbekanntes Status-Tag [{t}]")
+                    gueltig = [t for t in tags if t in statuswort]
+                    if len(gueltig) != 1:
+                        self.err(f"04_PHASE_PLAN:{n}: Modul {modul} ohne eindeutiges Status-Tag")
+                    else:
+                        funde.append((n, modul, gueltig[0]))
             for n, modul, status in funde:
                 if modul not in modul_tag:
                     self.err(f"04_PHASE_PLAN:{n}: Modul {modul} hat keinen Eintrag in der PRIORITAETENLISTE")
                 elif modul_tag[modul][1] not in PLAN_ZU_LISTE[status]:
                     self.err(f"04_PHASE_PLAN:{n}: {modul} steht als {status}, die PRIORITAETENLISTE fuehrt "
                              f"{modul_tag[modul][0]} als [{modul_tag[modul][1]}]")
+            for modul in sorted(set(modul_tag) - matrix):
+                self.err(f"04_PHASE_PLAN: Modul {modul} fehlt in der MAPPING-MATRIX")
             # Summen der Status-Aufstellung muessen zur PRIORITAETENLISTE passen
             ma = re.search(r"^KONSOLIDIERTE STATUS-AUFSTELLUNG.*?(?=^={10,})", "\n".join(zeilen), re.M | re.S)
             if not ma:
@@ -793,40 +1002,76 @@ class Pruefung:
         for modul in sorted(self.entwuerfe):
             if modul_tag.get(modul, ("", ""))[1] == "DONE":
                 self.err(f"MODUL {modul}: in MODULPRUEFUNG als Entwurf gefuehrt, in der PRIORITAETENLISTE aber [DONE]")
-        # Bestand der Module
+        # Bestand der Module: Dateizahl je Verzeichnis und hoechste DEFINIERTE Kennung je Praefix (nur im Modul,
+        # dem der Praefix gehoert - Erwaehnungen in anderen Modulen zaehlen nicht).
         bereiche, verzeichnisse = {}, {}
         base = os.path.join(self.root, "base")
         for d in sorted(os.listdir(base)) if os.path.isdir(base) else []:
             mm = re.match(r"(BASE-\d{3})_", d)
-            dateien = [f for f in os.listdir(os.path.join(base, d)) if f.endswith(".txt")] \
-                if os.path.isdir(os.path.join(base, d)) else []
-            if not mm:
+            if not mm or not os.path.isdir(os.path.join(base, d)):
                 continue
+            # Moduldateien: alle .txt des Verzeichnisses samt Unterordnern, ohne Entwuerfe (KR-01)
+            dateien = []
+            for pfad, _dirs, namen in os.walk(os.path.join(base, d)):
+                if "entwuerfe" not in os.path.relpath(pfad, base).split(os.sep):
+                    dateien += [os.path.join(pfad, f) for f in namen if f.endswith(".txt")]
             verzeichnisse[mm.group(1)] = (d, len(dateien))
             for f in dateien:
-                with open(os.path.join(base, d, f), encoding="utf-8", errors="replace") as fh:
+                with open(f, encoding="utf-8", errors="replace") as fh:
                     text = fh.read()
-                n_zeilen = len(text.splitlines())
-                if n_zeilen > 1500:
-                    self.err(f"KR-03: base/{d}/{f} hat {n_zeilen} Zeilen (Grenze 1500)")
                 for praef, nr in re.findall(r"^ {0,2}((?:T-|DEC-|ANF-)?[A-Z]{2,3})-(\d{2,3})(?=[ :.)])", text, re.M):
-                    bereiche[praef] = max(bereiche.get(praef, 0), int(nr))
-        # (c) Zaehlbereiche, (d) Laenge, je Steuerungsdokument
-        for rel in STEUERUNG:
+                    if EIGNER.get(praef) == mm.group(1):
+                        bereiche[praef] = max(bereiche.get(praef, 0), int(nr))
+        # (d) KR-03: Steuerungsdokumente und kanonische Dateien (base/, modules/, model/, decisions/; ohne Entwuerfe)
+        kandidaten = list(STEUERUNG) + ["03_CHANGELOG.txt", "MARCOS_ARBEITSWEISE.txt"]
+        for wurzel in ("base", "modules", "model", "decisions"):
+            for pfad, _dirs, dateien in os.walk(os.path.join(self.root, wurzel)):
+                if "entwuerfe" in os.path.relpath(pfad, self.root).split(os.sep):
+                    continue
+                kandidaten += [os.path.relpath(os.path.join(pfad, f), self.root) for f in dateien if f.endswith(".txt")]
+        for rel in sorted(set(kandidaten)):
             p = os.path.join(self.root, rel)
             if not os.path.exists(p):
-                self.err(f"Steuerungsdokument fehlt: {rel}")
+                if rel in STEUERUNG:
+                    self.err(f"Steuerungsdokument fehlt: {rel}")
+                continue
+            with open(p, encoding="utf-8", errors="replace") as fh:
+                n_zeilen = len(fh.read().splitlines())
+            if n_zeilen > 1500:
+                if rel in KR03_AUSNAHME:
+                    self.hinweise.append(f"KR-03: {rel} hat {n_zeilen} Zeilen (dokumentierte Ausnahme, 00_MANIFEST KR-03)")
+                else:
+                    self.err(f"KR-03: {rel} hat {n_zeilen} Zeilen (Grenze 1500)")
+        # (c) Zaehlangaben je Steuerungsdokument. Erkannt werden "WT-01..WT-57", "WT-01..57", "WT-01 bis WT-57",
+        # "WT-01 … WT-57", "WT-01 - WT-57", auch ueber einen Zeilenumbruch und mit anderer Stellenzahl. Eine Angabe
+        # ab -01 nennt den VOLLEN Bereich; ein Teilbereich ist zulaessig in einem Proof-Anker (eckige Klammer) oder
+        # mit dem Wort "Teilbereich" davor. Zahlen in Worten ("52 Invarianten") erkennt die Pruefung nicht.
+        angabe = re.compile(r"(?<![\w-])((?:T-|DEC-|ANF-)?[A-Z]{2,3})-0*1(?:\s*\.\.\s*|\s*…\s*|\s+bis\s+|\s+[-–]\s+)"
+                            r"(?:\1-)?0*(\d{1,3})\b")
+        for rel in STEUERUNG:
+            p = os.path.join(self.root, rel)
+            if rel in ZEITDOKUMENTE or not os.path.exists(p):
                 continue
             with open(p, encoding="utf-8", errors="replace") as fh:
                 text = fh.read()
-            if len(text.splitlines()) > 1500:
-                self.err(f"KR-03: {rel} hat {len(text.splitlines())} Zeilen (Grenze 1500)")
-            for n, z in enumerate(text.splitlines(), 1):
-                for praef, bis in re.findall(r"\b((?:T-|DEC-|ANF-)?[A-Z]{2,3})-01\.\.(?:\1-)?(\d{2,3})\b", z):
-                    if praef in PRUEF_PRAEFIXE and praef in bereiche and int(bis) != bereiche[praef]:
-                        self.err(f"{rel}:{n}: Zaehlbereich {praef}-01..{bis} stimmt nicht mit den Moduldateien "
-                                 f"ueberein (dort bis {praef}-{bereiche[praef]:02d})")
-        # (e) REVIEW_TRACKER-Inventar gegen Verzeichnisse
+            zeilen_d = text.splitlines()
+            for m in angabe.finditer(text):
+                praef, bis = m.group(1), int(m.group(2))
+                if praef not in bereiche:
+                    continue
+                n = text.count("\n", 0, m.start()) + 1
+                davor = text[max(0, m.start() - 400):m.start()]
+                teil = davor.rfind("[") > davor.rfind("]") or re.search(r"Teilbereich\s*$", davor)
+                umfeld = "\n".join(zeilen_d[max(0, n - 4):n + 3])
+                if bis == bereiche[praef]:
+                    continue
+                if praef in ALT_PRAEFIXE and "BF-0010" in umfeld:
+                    continue           # beschriebener, im Repository nicht vorhandener Stand - als solcher vermerkt
+                if bis < bereiche[praef] and teil:
+                    continue
+                self.err(f"{rel}:{n}: Zaehlbereich {praef}-01..{bis} stimmt nicht mit den Moduldateien "
+                         f"ueberein (dort bis {praef}-{bereiche[praef]:02d})")
+        # (e) REVIEW_TRACKER-Inventar gegen Verzeichnisse, Dateizahl, offene Befunde und weitere kanonische Dateien
         pt = os.path.join(self.root, "REVIEW_TRACKER.txt")
         if os.path.exists(pt):
             with open(pt, encoding="utf-8", errors="replace") as fh:
@@ -835,22 +1080,64 @@ class Pruefung:
                 mi = re.search(rf"^  base/{re.escape(d)}\s+(.*)$", tracker, re.M)
                 if anzahl and not mi:
                     self.err(f"REVIEW_TRACKER: base/{d} hat {anzahl} Dateien, fehlt aber im Inventar")
-                elif mi and anzahl and "EMPTY" in mi.group(1):
+                    continue
+                if not mi:
+                    continue
+                zeile = mi.group(1)
+                if anzahl and "EMPTY" in zeile:
                     self.err(f"REVIEW_TRACKER: base/{d} hat {anzahl} Dateien, wird aber als EMPTY gefuehrt")
-                elif mi and not anzahl and "EMPTY" not in mi.group(1):
+                elif not anzahl and "EMPTY" not in zeile:
                     self.err(f"REVIEW_TRACKER: base/{d} hat keine Moduldateien, wird aber nicht als EMPTY gefuehrt")
+                mz = re.search(r"(\d+) Dateien", zeile)
+                if mz and int(mz.group(1)) != anzahl:
+                    self.err(f"REVIEW_TRACKER: base/{d} wird mit {mz.group(1)} Dateien gefuehrt, im Verzeichnis "
+                             f"liegen {anzahl}")
+                if "CLEAN" in zeile:
+                    kennung, tag = modul_tag.get(modul, ("", ""))
+                    if tag != "DONE":
+                        self.err(f"REVIEW_TRACKER: base/{d} wird als CLEAN gefuehrt, die PRIORITAETENLISTE fuehrt "
+                                 f"{kennung or modul} als [{tag or 'unbekannt'}]")
+                    elif self.sperren.get(kennung):
+                        self.err(f"REVIEW_TRACKER: base/{d} wird als CLEAN gefuehrt, obwohl Befunde offen sind: "
+                                 f"{' '.join(sorted(self.sperren[kennung]))}")
             for rel in STEUERUNG + ["03_CHANGELOG.txt", "MARCOS_ARBEITSWEISE.txt"]:
                 if rel != "README.md" and not re.search(rf"^  {re.escape(rel)}\s", tracker, re.M):
                     self.err(f"REVIEW_TRACKER: Steuerungsdokument {rel} fehlt im Inventar")
-        # (f) README nennt die Changelog-Version
+            dec = os.path.join(self.root, "decisions")
+            for f in sorted(os.listdir(dec)) if os.path.isdir(dec) else []:
+                if f.endswith(".txt") and f"decisions/{f}" not in tracker:
+                    self.err(f"REVIEW_TRACKER: decisions/{f} fehlt im Inventar")
+            mod = os.path.join(self.root, "modules")
+            for d in sorted(os.listdir(mod)) if os.path.isdir(mod) else []:
+                if os.path.isdir(os.path.join(mod, d)) and not re.search(rf"^  modules/{re.escape(d)}\s", tracker, re.M):
+                    self.err(f"REVIEW_TRACKER: modules/{d} existiert, fehlt aber im Inventar")
+        # Der juengste PFLEGE-Eintrag der Pruefhistorie darf nicht CLEAN melden, solange Befunde offen sind.
+        ph = os.path.join(self.root, "REVIEW_TRACKER_HISTORIE.txt")
+        if os.path.exists(ph) and self.offene_befunde:
+            with open(ph, encoding="utf-8", errors="replace") as fh:
+                bloecke = re.split(r"(?m)^  (?=PFLEGE-)", fh.read())
+            if len(bloecke) > 1 and re.search(r"STATUS:\s*CLEAN", bloecke[1].split("\n  PFLEGE-")[0]):
+                self.err(f"REVIEW_TRACKER_HISTORIE: Der juengste PFLEGE-Eintrag meldet STATUS: CLEAN, im Register sind "
+                         f"{self.offene_befunde} Befunde offen")
+        # (f) README nennt an seinen Versionsstellen die Version des Changelogs; Kopf und juengster Eintrag des
+        # Changelogs stimmen ueberein.
         pc, pr = os.path.join(self.root, "03_CHANGELOG.txt"), os.path.join(self.root, "README.md")
         if os.path.exists(pc) and os.path.exists(pr):
             with open(pc, encoding="utf-8", errors="replace") as fh:
-                mv = re.search(r"^VERSION:\s*(v[\d.]+)", fh.read(), re.M)
+                changelog = fh.read()
+            mv = re.search(r"^VERSION:\s*(v[\d.]+)", changelog, re.M)
+            me = re.search(r"^(v\d+\.\d+(?:\.\d+)?) \(", changelog, re.M)
             with open(pr, encoding="utf-8", errors="replace") as fh:
                 readme = fh.read()
+            if mv and me and mv.group(1) != me.group(1):
+                self.err(f"03_CHANGELOG: Kopf nennt {mv.group(1)}, der juengste Eintrag ist {me.group(1)}")
             if mv:
-                for v in set(re.findall(r"\bv\d+\.\d+\.\d+\b", readme)) - {mv.group(1)}:
+                stellen = (re.findall(r"Concept version:\s*([^\]]*)\]", readme)
+                           + re.findall(r"badge/Concept-([^-]*)-", readme)
+                           + re.findall(r"Konzeptentwicklung \(([^)]*)\)", readme))
+                if len(stellen) < 3:
+                    self.err("README.md: Versionsangabe fehlt (Badge-Text, Badge-Adresse oder 'Konzeptentwicklung (v...)')")
+                for v in sorted(set(stellen) - {mv.group(1)}):
                     self.err(f"README.md nennt {v}, der Changelog steht bei {mv.group(1)}")
         # (g) README: Marken am Modulbaum und Statustabelle sind KOPIEN des Status der PRIORITAETENLISTE
         # (00_MANIFEST 6a Zeile 11). Schreibweise: Baumzeile "│   ├── BASE-040_NAME/  Text 🚧"; Tabellenzeile
@@ -858,7 +1145,6 @@ class Pruefung:
         if os.path.exists(pr):
             with open(pr, encoding="utf-8", errors="replace") as fh:
                 zeilen_r = fh.read().splitlines()
-            wort = {"DONE": "✅ Done", "ACTIVE": "🚧 In Arbeit"}
             for n, z in enumerate(zeilen_r, 1):
                 mb = re.match(r"^│\s+[├└]── ((?:BASE|MOD)-\d{3})_\w+/\s*(.*)$", z)
                 if mb:
@@ -911,6 +1197,10 @@ class Pruefung:
         ident = (st or {}).get("identitaeten") or {}
         commits = {"RT": ident.get("quellen_commit_rt"), "XPN": ident.get("quellen_commit_xpn"),
                    "NL": ident.get("quellen_commit_nl")}
+        for name, daten, erlaubt in (("BEFUNDE", bf, {"schema", "befunde"}),
+                                     ("VERBESSERUNGEN", vb, {"schema", "freeze_erklaert", "eintraege"})):
+            for k in sorted(set(daten or {}) - erlaubt):
+                self.err(f"{name}: Feld {k} auf oberster Ebene ist nicht zulaessig")
         self.pruefe_status(st, bf)
         self.pruefe_umgebung(up)
         pakete = self.pruefe_pakete(ap) or {}
