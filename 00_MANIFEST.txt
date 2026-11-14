@@ -1,7 +1,7 @@
 ================================================================================
 RetroTunnel — MANIFEST
 ================================================================================
-VERSION: v1.1
+VERSION: v1.2
 DATUM: 2026-11-14
 STATUS: ACTIVE
 OWNER: Marco (Owner) + Claude (Co-Architect)
@@ -286,14 +286,18 @@ in diesem Konzept explizit geändert):
   - Rollen: 3 (LEGACY/MODERN/ADMIN) → 4 (USER/VIP/MODERATOR/ADMIN)
   - IP-Pools: 3 → 5 (SERVICE + 4 Rollen)
   - DoT/DoQ Blocking: Out-of-scope (alt) → In-scope (Port 853 DROP)
+    [Stand 2026-11-14: BASE-050 DEC-FW-12 sieht ABWEISUNG (TCP-Reset
+    bzw. ICMP) statt stillem Verwerfen vor; Schutzziel unveraendert.
+    Vorschlag des Moduls, bis BASE-050 unabhaengig geprueft ist.]
   - Session-Mapping WIREGUARD: VICI-Listener (IKEv2) → WG-Hook (WireGuard)
   - QoS WIREGUARD: OFFEN/unlösbar (IKEv2) → lösbar (awg0-Interface + tc)
   - WG-Feldnamen: Prefix wg_ (nicht awg_). WireGuard ist die Konstante.
   - WG-Server-Config: Komplett in SQL (Option A). Kein Hidden Config File.
-    [Praezisiert 2026-11-12 durch BASE-040 DEC-WT-03/04: awg0.conf ist
-    ein aus SQL gerendertes Artefakt ohne Peers und ohne Secret; allein
-    der Server-PrivateKey liegt nicht in SQL, sondern root-only in einer
-    eigenen Schluesseldatei.]
+    [GEAENDERT 2026-11-12 durch BASE-040 DEC-WT-03/04: awg0.conf ist
+    ein aus SQL gerendertes Artefakt ohne Peers und ohne Secret; der
+    Server-PrivateKey liegt NICHT in SQL, sondern root-only in einer
+    eigenen Schluesseldatei. Das weicht von "komplett in SQL" ab; die
+    Entscheidung steht bis zum Abschluss von BASE-040 zur Pruefung.]
 
   Nicht übernommen / Entfallen:
   - strongSwan IKEv2 Konfiguration (B059, B100 IKEv2-Teile)
@@ -313,7 +317,9 @@ RetroTunnel/
   01_GLOSSARY.txt              Begriffe (kanonisch)
   02_ASSUMPTIONS_AND_RULES.txt Bindende Regeln
   03_CHANGELOG.txt             Versionshistorie
-  04_PHASE_PLAN.txt            Phasen-Roadmap (M0-M4, PH1-PH10, Acceptance)
+  04_PHASE_PLAN.txt            Phasen-Roadmap (PH1-PH10, Reifegrad,
+                               Acceptance; M0-M4 fuehrt die
+                               PRIORITAETENLISTE)
   CLAUDE_BRIEFING.txt          Handoff/Arbeitsanweisungen für Claude
   CLAUDE_BRIEFING_ERKENNTNISSE.txt  Zweiter Teil des Briefings (TEIL 5b)
   MARCOS_ARBEITSWEISE.txt      Arbeitsweise + Muster (Aufruf via Briefing 1a)
@@ -399,24 +405,33 @@ RetroTunnel/
                                Freigabegate.
 
   Noch ohne Inhalt und deshalb im Repository nicht sichtbar (Git führt
-  keine leeren Ordner): modules/, proofs/, temp_drittreviews/.
+  keine leeren Ordner): modules/, proofs/, temp_drittreviews/,
+  implementation/guides/ sowie base/BASE-060_DNS_CORE/,
+  base/BASE-090_SETTINGS_CORE/ und base/BASE-100_POLICY_CORE/.
+  base/BASE-110_WEBSTACK_CORE/ enthält bisher nur Entwürfe (KR-01).
 
 ================================================================================
 6a) STEUERUNG DES PROJEKTS: ZUSTÄNDIGKEITEN
 ================================================================================
 
 Für jede Funktion der Projektsteuerung gibt es genau EINE maßgebliche
-Datei (KR-07). Festgelegt am 2026-11-14 auf Anweisung des Betreibers;
-Hergang und Begründung: 03_CHANGELOG v2.7.0.
+Datei (KR-07). Festgelegt am 2026-11-14 auf Anweisung des Betreibers
+(BM-0015); Hergang und Begründung: 03_CHANGELOG v2.7.0, nach der
+unabhängigen Kontrolle berichtigt mit v2.8.0. Die Zuordnung unten hat
+der Hauptarchitekt getroffen, nicht der Betreiber.
 
 RANGFOLGE
   (1) Betreiberregeln (Arbeitskopie: governance/betreiberregeln/) und
       spätere Mitteilungen des Betreibers (BM-nnnn). Auftragsebene.
   (2) Die Steuerungsdokumente des Betreibers (Zeilen 1 bis 11 unten).
       Sie gelten für die Konzeptarbeit. Wo eine ihrer Arbeitsanweisungen
-      dem Auftrag vom 2026-11-11 widerspricht, ist die Stelle IM DOKUMENT
-      sichtbar markiert (KR-06) - nicht stillschweigend übergangen und
-      nicht pauschal als "historisch" abgetan.
+      dem Auftrag vom 2026-11-11 widerspricht, ist das sichtbar markiert
+      (KR-06) - nicht stillschweigend übergangen und nicht pauschal als
+      "historisch" abgetan. ORT DER MARKIERUNG: CLAUDE_BRIEFING TEIL 0.2
+      (für das Briefing, für MARCOS_ARBEITSWEISE - diese Datei ändert
+      nur der Betreiber - und für die STOP-REGEL des 04_PHASE_PLAN, wo
+      zusätzlich ein Verweis steht), REVIEW_STANDARD Abschnitt 10.1 und
+      KR-05 unten. Was dort nicht genannt ist, gilt unverändert.
   (3) governance/, qa/, .github/: dienend. Sie belegen Herkunft, Prüfung,
       Umsetzung und Auftragsstatus.
 
@@ -438,10 +453,13 @@ ZUSTÄNDIGKEITEN
    5  Phasen PH1-PH10: Reifegrad, Acceptance, Proof-Anker, Modul-Matrix
         Maßgeblich: 04_PHASE_PLAN.txt
    6  Arbeitsreihenfolge, Status, Stand und nächster Schritt je Paket
-        Maßgeblich: PRIORITAETENLISTE.txt
+        Maßgeblich: PRIORITAETENLISTE.txt - die EINZIGE Stelle für den
+        Stand von Paketen und Modulen.
         Ergänzend: governance/register/ARBEITSPAKETE.yaml - maschinen-
         lesbarer Index DERSELBEN Pakete (Kennung, Abhängigkeiten,
         Status-Spiegel). Kein eigener Stand, keine eigenen Pakete.
+        Kopien des Status, je maschinell an die Liste gekoppelt:
+        04_PHASE_PLAN (Zeile 5) und README (Zeile 11).
    7  Datei-Inventar, Review-Stand je Datei, Prüfhistorie, offene
       Befunde im Überblick
         Maßgeblich: REVIEW_TRACKER.txt; die Prüfhistorie und die
@@ -449,16 +467,19 @@ ZUSTÄNDIGKEITEN
         REVIEW_TRACKER_HISTORIE.txt (am 2026-11-14 nach KR-03 geteilt).
         Ergänzend: governance/register/BEFUNDE.yaml (die Einzelbefunde
         seit 2026-11-11, maschinell geprüft; der Tracker nennt je Paket
-        die offenen Kennungen), governance/pruefungen/,
-        governance/register/MODULPRUEFUNG.yaml (welche Module die
-        maschinelle Modulprüfung durchlaufen).
+        die offenen Kennungen), governance/pruefungen/ (Berichte
+        unabhängiger Prüfer im Wortlaut; dazu Arbeitspapiere des
+        Hauptarchitekten zur Auswertung eines Berichts, als solche
+        benannt), governance/register/MODULPRUEFUNG.yaml (welche Module
+        die maschinelle Modulprüfung durchlaufen).
    8  Prüfmaßstab und Prüfverfahren
         Maßgeblich: REVIEW_STANDARD.txt
         Ergänzend: qa/ (maschinelle Teilprüfungen; was sie abdecken und
         was nicht, steht im Standard); Betreiberregeln Abschnitt 5 und 6
         für die Abschlussprüfung (Q1-Q6, zwei Vollaudits).
-   9  Einstieg, Arbeitsregeln und Projektstand in Kurzform für jede
-      neue Ausführung
+   9  Einstieg und Arbeitsregeln für jede neue Ausführung; fachliche
+      Orientierung (Teil 3.1 und 3.2). KEIN Paket- oder Modulstand
+      (dafür Zeile 6).
         Maßgeblich: CLAUDE_BRIEFING.txt (Start: TEIL 0, dann TEIL 5)
         mit seinem zweiten Teil CLAUDE_BRIEFING_ERKENNTNISSE.txt (TEIL
         5b; am 2026-11-14 nach KR-03 geteilt).
@@ -468,15 +489,18 @@ ZUSTÄNDIGKEITEN
         Briefing überführt (TEIL 0, 3 und 5) und entfernt.
   10  Wegweiser in die Altquellen (Thema -> Quelle)
         Maßgeblich: NAVIGATIONSKARTE_ALTES_KONZEPT.txt
-        Ergänzend: governance/register/QUELLENINVENTAR.yaml (Bestand und
-        Lesestand je Quelldatei), governance/register/trace/ (Herkunft:
-        Quelle <-> heutiger Erfüllungsort), governance/arbeitsmaterial/
-        (Sichtung der Nachlieferung).
+        Ergänzend: governance/arbeitsmaterial/ (Sichtung der
+        Nachlieferung; Arbeitsmaterial, nicht normativ).
   11  Außendarstellung
-        Maßgeblich: README.md - führt keinen eigenen Paket- oder
-        Modulstand; verweist auf PRIORITAETENLISTE und Changelog.
+        Maßgeblich: README.md. Die Marken am Modulbaum und die
+        Statustabelle dort sind eine KOPIE des Status aus der
+        PRIORITAETENLISTE; eine maschinelle Prüfung erzwingt den
+        Gleichstand. Eigenen Stand führt das README nicht.
   12  Auftragsebene (Betreiberauftrag 2026-11-11; im früheren Bestand
       ohne Entsprechung, deshalb eigene Dateien)
+        governance/betreiberregeln/: Arbeitskopien der Betreiberregeln
+          und des Startauftrags mit Hinweis zur Herkunft (kein
+          Schutznachweis).
         governance/STATUS.yaml: Fachstatus nach Betreiberregeln
           Abschnitt 8, Abschluss-Gates G1-G4, Quellen-Commits,
           Blockaden. KEIN Modulfortschritt, keine nächsten Schritte.
@@ -486,8 +510,25 @@ ZUSTÄNDIGKEITEN
           des Betreibers im Wortlaut, mit Auslegung und Folgen.
         governance/register/VERBESSERUNGEN.yaml: Funktions- und
           Verbesserungsanalyse als Grundlage des Funktions-Freeze. Jede
-          aufgenommene Verbesserung ist in einer kanonischen Datei
-          verankert; der Eintrag verweist dorthin.
+          aufgenommene Verbesserung wird in einer kanonischen Datei
+          verankert, spätestens zum Freeze; der Eintrag verweist
+          dorthin. Stand 2026-11-14: Eine von 17 ist noch nicht
+          verankert (VB-0019, PRIORITAETENLISTE M2-060).
+        governance/BETREIBER_EINRICHTUNGSANFRAGE.md: die einmalige
+          Einrichtungsanfrage an den Betreiber (Gate G4); abgelehnt am
+          2026-11-13 (BM-0002), bleibt als Nachweis.
+        governance/README.txt, qa/README.txt: Wegweiser, keine Regeln.
+  13  Bestand und Lesestand der Quellen (im früheren Bestand ohne
+      Entsprechung)
+        Maßgeblich: governance/register/QUELLENINVENTAR.yaml, maschinell
+        gegen die Quellen-Commits geprüft. Kurzzahlen in der
+        PRIORITAETENLISTE (QS-08 bis QS-10) sind Kopien mit Datum.
+  14  Rückverfolgung Quelle <-> heutiger Erfüllungsort (im früheren
+      Bestand ohne Entsprechung)
+        Maßgeblich: governance/register/trace/ mit wörtlichen,
+        maschinell geprüften Zitaten. NEU_BEGRUENDET.yaml nennt dort
+        die Invarianten ohne Altquelle; die fachliche Begründung
+        selbst gehört ins Modul.
 
 SCHUTZ GEGEN ERNEUTES AUSEINANDERLAUFEN (maschinell, bei jedem Push)
   qa/pruefe_register.py bricht ab, wenn
@@ -500,13 +541,18 @@ SCHUTZ GEGEN ERNEUTES AUSEINANDERLAUFEN (maschinell, bei jedem Push)
     (Zeile 5);
   - ein Zaehlbereich (z. B. WT-01..WT-57) in einem Steuerungsdokument
     nicht zu den Moduldateien passt;
-  - README eine andere Version nennt als der Changelog (Zeile 11);
-  - governance/STATUS.yaml Modulfortschritt oder naechste Schritte
-    fuehrt (Zeile 12);
-  - eine Datei der Steuerung oder des Kanons 1500 Zeilen ueberschreitet
-    (KR-03).
+  - README eine andere Version nennt als der Changelog oder eine Marke
+    am Modulbaum oder eine Zeile der Statustabelle nicht zum Status der
+    PRIORITAETENLISTE passt (Zeile 11);
+  - governance/STATUS.yaml ein Feld fuehrt, das dort nicht vorgesehen
+    ist (Zeile 12). Den TEXT der Felder prueft das nicht;
+  - ein Paket [DONE] ist, obwohl ein Befund dieses Pakets offen ist;
+  - ein Steuerungsdokument oder eine Datei direkt unter base/<Modul>/
+    1500 Zeilen ueberschreitet (KR-03).
   Jede dieser Pruefungen hat einen Negativtest (qa/tests/). Sie pruefen
-  Gleichstand, nicht Inhalt (REVIEW_STANDARD Abschnitt 10.4).
+  Gleichstand, nicht Inhalt, und nur in der Schreibweise, die die
+  Dokumente heute verwenden. Was sie genau abdecken und was nicht:
+  REVIEW_STANDARD Abschnitt 10.4.
 
 ================================================================================
 7) REGELN FÜR DIESES KONZEPT
@@ -539,14 +585,17 @@ KR-04  Vorgänger als Referenz: xp-vpn-stack liegt unter ../xp-vpn-stack/
 KR-05  Owner-Entscheide: Konzeptionelle Entscheidungen trifft Marco.
       Claude liefert Analyse, Optionen und Empfehlungen, entscheidet
       aber nicht eigenständig über Architektur.
-      STAND SEIT 2026-11-11 (Betreiberauftrag; Betreiberregeln B01 bis
-      B03): Für die autonome Konzept-Fertigstellung hat Marco die
+      STAND SEIT 2026-11-11 (Betreiberauftrag; OP-B01 bis OP-B03):
+      Für die autonome Konzept-Fertigstellung hat Marco die
       technischen und funktionalen Architekturentscheidungen an den
       Hauptarchitekten übertragen. KR-05 gilt damit in dieser Form fort:
       (a) Dem Betreiber vorbehalten bleiben der Grundzweck des Projekts,
           die Betreiberregeln, die Abschluss-Gates und die Freigabe,
-          Käufe und unumkehrbare äußere Eingriffe sowie alles, was er
-          durch eine Mitteilung an sich zieht.
+          zusätzliche Installationen, Käufe, produktive Zugangseingriffe
+          und unumkehrbare äußere Aktionen (Betreiberregeln 7.9) sowie
+          alles, was er durch eine Mitteilung an sich zieht. Prüfminimum,
+          Befunde und Status werden nie so geändert, dass ein
+          gescheiterter Stand bestanden wirkt (OP-E2).
       (b) Jede selbst getroffene Entscheidung wird mit Quelle,
           Begründung und Folgen in der kanonischen Datei festgehalten
           (Dnnn oder DEC-xx-nn), zurückverfolgt und unabhängig
@@ -568,7 +617,9 @@ KR-07  Eine Funktion, eine maßgebliche Datei: Für jede Funktion der
       bestehende Datei die Funktion durch Erweiterung erfüllen kann;
       der Zweck wird in 6a eingetragen. Wird eine Funktion abgelöst,
       steht das mit Begründung im Changelog und an der abgelösten
-      Stelle. (Betreiberanweisung vom 2026-11-14.)
+      Stelle. (Vom Hauptarchitekten abgeleitet aus der
+      Betreiberanweisung vom 2026-11-14, BM-0015 Abschnitte 2, 5 und 8;
+      die Bedingung "maschinelle Prüfung" ist eine eigene Festlegung.)
 
 ================================================================================
 8) SERVER-RAHMENDATEN

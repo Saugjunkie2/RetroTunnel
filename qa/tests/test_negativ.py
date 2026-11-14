@@ -22,6 +22,7 @@ BEFUNDE = "governance/register/BEFUNDE.yaml"
 VERB = "governance/register/VERBESSERUNGEN.yaml"
 MITT = "governance/register/BETREIBERMITTEILUNGEN.yaml"
 REGELN = "governance/betreiberregeln/RETROTUNNEL_BETREIBERREGELN_v1.0_2026-11-11.md"
+STARTAUFTRAG = "governance/betreiberregeln/STARTAUFTRAG_2026-11-11_ARBEITSKOPIE.md"
 TRACE = "governance/register/trace/_TEST_README.yaml"
 TRACE_NL = "governance/register/trace/_TEST_NL.yaml"
 NL_DATEI = "nachlieferung/B052_DB_OUTAGE_CONTRACT.txt"
@@ -94,6 +95,15 @@ class StatusUndGates(Basis):
         with open(os.path.join(self.tmp, REGELN), "a", encoding="utf-8") as f:
             f.write("\nmanipulierte Zeile\n")
         self.erwarte_fehler("SHA-256 der Betreiberregel-Arbeitskopie weicht ab")
+
+    def test_veraenderter_startauftrag(self):
+        with open(os.path.join(self.tmp, STARTAUFTRAG), "a", encoding="utf-8") as f:
+            f.write("\nnachtraeglich eingefuegter Satz\n")
+        self.erwarte_fehler("SHA-256 der Startauftrag-Arbeitskopie weicht ab")
+
+    def test_startauftrag_fehlt(self):
+        os.remove(os.path.join(self.tmp, STARTAUFTRAG))
+        self.erwarte_fehler("Startauftrag-Arbeitskopie fehlt")
 
     def test_freigegeben_ohne_alle_gates(self):
         st = self.lade(STATUS)
@@ -308,6 +318,12 @@ class Befunde(Basis):
         self.neu(arbeitspaket=fertig["id"])
         self.erwarte_fehler(f"PRIORITAETENLISTE {fertig['bezug']} ist [DONE], aber Befund {self.bid}")
 
+    def test_paket_abgeschlossen_trotz_sperrendem_befund_eines_anderen_pakets(self):
+        ap = self.lade(PAKETE)
+        fertig = next(p for p in ap["pakete"] if p.get("status") == "ERLEDIGT" and p.get("bezug"))
+        self.neu(arbeitspaket="AP-K060", sperrt_auch=[fertig["id"]])
+        self.erwarte_fehler(f"PRIORITAETENLISTE {fertig['bezug']} ist [DONE], aber Befund {self.bid} sperrt dieses Paket")
+
     def test_tracker_mit_zusatztext_und_umbruch_besteht(self):
         """Zusatztext hinter den Kennungen und ein Umbruch im Summensatz sind zulaessig (kein Fehlalarm)."""
         def f(t):
@@ -456,6 +472,18 @@ class Steuerung(Basis):
     def test_readme_nennt_alte_version(self):
         self.datei("README.md", lambda t: re.sub(r"\bv\d+\.\d+\.\d+\b", "v9.9.9", t, count=1))
         self.erwarte_fehler("README.md nennt v9.9.9")
+
+    def test_readme_modulmarke_weicht_von_der_liste_ab(self):
+        self.datei("README.md", lambda t: t.replace("nftables, NAT, Peer-Isolation 🚧", "nftables, NAT, Peer-Isolation ✅"))
+        self.erwarte_fehler("BASE-050 traegt '✅', die PRIORITAETENLISTE fuehrt M2-050 als [ACTIVE]")
+
+    def test_readme_statuszeile_weicht_von_der_liste_ab(self):
+        self.datei("README.md", lambda t: re.sub(r"(\| M2-040\.\.110 \|[^|]*\|) 🚧 In Arbeit \|", r"\1 ✅ Done |", t))
+        self.erwarte_fehler("Statuszeile M2-040..110 nennt '✅ Done'")
+
+    def test_readme_marke_an_ungeschriebenem_modul(self):
+        self.datei("README.md", lambda t: t.replace("Unbound + AdGuard + DNAT53\n", "Unbound + AdGuard + DNAT53 🚧\n", 1))
+        self.erwarte_fehler("BASE-060 traegt '🚧', die PRIORITAETENLISTE fuehrt M2-060 als [WAITING]")
 
     def test_steuerungsdokument_zu_lang(self):
         self.datei("01_GLOSSARY.txt", lambda t: t + "\nzeile" * 1600)

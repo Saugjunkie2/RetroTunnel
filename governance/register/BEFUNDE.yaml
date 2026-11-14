@@ -7,6 +7,7 @@
 # pruefer_einstufung: Einstufung im Bericht - KRITISCH | HOCH | MITTEL | NIEDRIG | HINWEIS (Skala der Pruefer) oder
 #   BLOCKER | MAJOR | MINOR | NICE (Skala des REVIEW_STANDARD); Zuordnung zur klasse: REVIEW_STANDARD 10.2.
 # Befunde werden nie geloescht; Kennungen sind lueckenlos.
+# sperrt_auch: weitere Pakete, die nicht [DONE] werden duerfen, solange dieser Befund offen ist (ausser arbeitspaket).
 # Herabstufungen nur mit Begründung im Feld "herabstufung" und Bestätigung durch gesonderte Prüfung.
 # fundstellen: "RT:<pfad>:<zeile>" bezieht sich auf den RetroTunnel-Baseline-Commit, "XPN:<pfad>[:<zeile>]" auf den XPN-Baseline-Commit.
 #              "NL:<pfad>[:<zeile>]" auf die Nachlieferung am Liefer-Commit, "ZIEL:<pfad>[:<zeile>]@<commit>" auf eine Datei des
@@ -1023,7 +1024,8 @@ befunde:
     K-f), SESSION_SETTING_BLOCKED; _060 FRIST; _050 Abschn. 5; _010 DEC-SC-24; _080 ANF-SC-08. Invarianten: SC-59. Tests: T-SC-74. Die erste Fassung der Behebung
     (bb3b98d: alle Keys mit Notwert) widersprach den in TRUTH_MODEL Abschnitt 7 bereits festgelegten Klassen und wurde in 7007c45 berichtigt. Offen: dieselbe
     Pruefung fuer das Fehlerverhalten der Settings in BASE-040_020 (LKG) und BASE-050. Die Behebung ist noch NICHT unabhaengig nachgeprueft; bis dahin bleibt
-    der Befund in Arbeit.'
+    der Befund in Arbeit.
+    Nachtrag 2026-11-14: Mit B057 (Settings-Kanon des Vorgaengers, am 2026-11-14 vollstaendig gelesen) liegt die Quelle fuer den zweiten Teil vor: Rueckfall nur als verschaerfender Notwert (FAIL_SAFE_HARDCAP und TIGHTEN_ONLY) oder Fail-Closed. Die in BASE-040_020 fuer 14 Keys verwendete Klasse LKG (zuletzt gueltig gelesener Wert) kennt B057 nicht; sie ist je Key zu begruenden (Betrieb waehrend einer Datenbankstoerung) oder auf die Klassen des Katalogs zurueckzufuehren.'
   titel: Settings-Rückfall in BASE-070 als lokale Regel statt nach der Fehlerklasse des Katalogs
   beschreibung: 'BASE-070_070 Abschnitt 3 legt fest: bei fehlendem oder ungültigem Key gilt der zuletzt gültig gelesene
     Wert, sonst der Vorschlagswert als ''eingebauter Rückfallwert''. TRUTH_MODEL SF-02 verbietet lokale Rückfälle außer
@@ -1278,7 +1280,53 @@ befunde:
   entdeckt_in: Nachpruefung der Behebung BASE-070, Teil B (2026-11-14)
 - id: BF-0053
   klasse: SCHWERWIEGEND
-  status: OFFEN
+  status: IN_ARBEIT
+  sperrt_auch: [AP-K040, AP-K050, AP-K070, AP-K080]
+  stand: '2026-11-14: Alle sechs Dateien selbst vollstaendig gelesen (00_MASTER, B050, B055, B057, B058, B342; Lesestand im Quelleninventar, am
+    Sitzungsprotokoll belegt). Der Befund bleibt offen, bis die Abgleichpunkte unten gegen BASE-040, BASE-050, BASE-070 und den Entwurf BASE-080 geprueft, je
+    Aussage zurueckverfolgt und Abweichungen als eigene Befunde gefuehrt sind. Vier Punkte sind am 2026-11-14 bereits nachgeschlagen (Ergebnis je Punkt vermerkt).'
+  abgleichpunkte:
+  - 'MASTER Z.61-65: Hard-Cut in der Reihenfolge Durchsetzen -> conntrack beidseitig -> bei Fehlschlag Sitzung beenden -> scheitert beides: Alarm, kein stilles
+    Scheitern. Ziel: BASE-080_030. Nachgeschlagen: Rueckfall "Laufzeit beenden" ist vorhanden; der Fall "beides scheitert" ist noch zu pruefen.'
+  - 'MASTER Z.55-59: Sperre vor jedem SQL-/Herstellungszugriff, Loesen erst nach Erfolg, bei Fehlschlag Sitzung beenden; die Sperre ist kein eingeschraenkter
+    Modus (kein Portal, kein DNS). Ziel: BASE-050, BASE-080 (je Tunnel).'
+  - 'MASTER Z.66, 127-128: Abgleich spaetestens alle 5 Minuten; Abgleich nach Neustart zwingend. Ziel: BASE-080_040 (Obergrenze des Intervalls).'
+  - 'MASTER Z.121, 262 und B050 Z.116-120, 146-147: Verbrauchs-Spool dauerhaft, begrenzt, aelteste zuerst verwerfen, Alarm, KEIN Dienst-Stopp wegen vollem
+    Spool. Ziel: BASE-070_050, BASE-040_060. Nachgeschlagen: BASE-070_050 haelt diese Eigenschaften ausdruecklich fest; BASE-040_060 noch zu pruefen.'
+  - 'MASTER Z.71-75: Bereinigung im Anmeldepfad mit Cache gegen Anmeldefluten; Laufzeitangaben nie per blosser Existenz wahr. Ziel: BASE-070_030, _040.'
+  - 'MASTER Z.37: kein IPv6-Leck fuer IPv4-only-Clients. Ziel: BASE-050.'
+  - 'MASTER Z.41-42, 134: Nutzer nur definierte Web-Dienste, nie Verwaltungsdienste; Grundschutz auch fuer ADMIN. Ziel: BASE-050.'
+  - 'MASTER Z.140: Aktionen im Panel loesen die Herstellung sofort aus. Ziel: BASE-080_050.'
+  - 'B050 Z.18 und B342 PRIO 0: Stoerungen des Backends duerfen nie zu Sperren (Bans) fuehren und brauchen einen eigenen Grund. Ziel: BASE-020_070, BASE-070,
+    BASE-080, MOD-005.'
+  - 'B050 Z.68-77 und B055 Z.53-55: Anmeldename eindeutig, Format vpn_ plus 16 Zeichen a-z2-7, MUSS validiert werden. Ziel: BASE-070 (Behebung von BF-0013
+    gegen diese Formatpflicht pruefen: abweichende Schreibweise ist ungueltig, nicht gleichwertig).'
+  - 'B050 Z.86 und B057 13.10: Zahlenwerte des Vorgaengers (Zwischenmeldung 300 s, Schwelle 900 s, Lauf 300 s; Sperr-TTL Notwert 20 s; Bereinigung im
+    Anmeldepfad: Fenster 10 s, Ergebnis 30 s, Zeitlimit 1 s mit Obergrenzen 30/120/2 s; Reserve 0; Online-Fenster 300 s; Neuverbindungsrate Notwert 1/s).
+    Ziel: BASE-070_070, BASE-070_060, BASE-050 - Standard- und Notwerte Zeile fuer Zeile vergleichen, Abweichungen begruenden.'
+  - 'B050 Z.124-128: Datenbank aus = Ablehnung fuer ALLE, schnell, ohne Haengen; keine Notzugaenge ueber RADIUS; Wiederherstellung ueber SSH/Konsole. Ziel:
+    BASE-020, BASE-050 (Notfallkanal).'
+  - 'B050 Z.149: mehrdeutige Zuordnung beim Sitzungsbeginn (doppelter Anmeldename, mehrere aktive Treffer) MUSS scheitern - keine Zuordnung, keine Herstellung,
+    nachvollziehbare Meldung. Ziel: BASE-080_030 (--l2tp-up), BASE-070_020. Nachgeschlagen: abgedeckt durch BASE-080_030 Abschnitt 6.1 (Zuordnung ueber
+    die Adresse, Gegenprobe ueber den Anmeldenamen; Widerspruch = STATE_MAPPING_ERROR, keine Freigabe, Sitzung wird beendet) und Fall L-D (dieselbe Adresse
+    mehrfach). Als ANGEPASST zurueckzuverfolgen.'
+  - 'B055 Z.95-112: Sperre je Connection eindeutig, Freigabe bei Buchungsbeginn, abgelaufene Sperren im Anmeldepfad ignorierbar. Ziel: BASE-070_030 (Freigabe
+    MIT Haltervergleich seit BF-0016 ist eine Anpassung und als solche zurueckzuverfolgen).'
+  - 'B057 13.2, 13.4, 13.5: Rueckfall auf einen Notwert nur bei FAIL_SAFE_HARDCAP UND TIGHTEN_ONLY; fehlend und ungueltig verschieden behandeln; ungueltig
+    immer mit Audit-Ereignis und Gesundheitsmeldung; kein stiller Notbetrieb. Ziel: Settings-Abschnitte aller vier Module. Siehe BF-0041: Die Fehlerklasse
+    LKG (zuletzt gueltiger Wert) in BASE-040_020 kennt B057 nicht.'
+  - 'B057 13.3 (Arbeitsregel P0/P1): Jede Key-Ergaenzung nennt die Aufloesungsreihenfolge CONNECTION > CUSTOMER > GLOBAL und den Nachweis effective_value +
+    effective_source in der Diagnose. Ziel: Settings-Abschnitte. Nachgeschlagen: In BASE-040, BASE-050, BASE-070, BASE-080 kommt effective_source nicht vor -
+    PRUEFEN, ob TRUTH_MODEL/BASE-090 das abdecken oder ein Befund entsteht.'
+  - 'B057 13.10: quarantine_days ist FAIL_CLOSED, TIGHTEN_ONLY, nicht ueberschreibbar. Ziel: BASE-070_060 (die "offene Frist" seit BF-0050 ist eine Anpassung
+    und als solche zurueckzuverfolgen).'
+  - 'B058: Policy-Schluessel nie aus Adresse, Oberflaeche oder Protokoll ableiten; Ableitungen vollstaendig, deterministisch, in der Diagnose sichtbar; Test
+    je Gruppe und Negativtest. Ziel: BASE-050, BASE-070_060 (liest irgendein Pfad die Rolle aus der Adresse?).'
+  - 'B342 Abschnitt 3 und 6: Rangfolge Backend > harte Sperren > SimUse > Ratenbegrenzung > MANUAL > EXPIRY > QUOTA > UNCLAIMED_OVERDUE > OK; Ratenbegrenzung
+    schraenkt ein, lehnt nicht ab; Panel-Zustaende aendern die Kernel-Wirkung nie. Ziel: BASE-080_020 (Rangfolge der sechs Bedingungsquellen), BASE-010_050.
+    Nachgeschlagen: BASE-010_050 fuehrt eine eigene Rangfolge (ADMIN_MANUAL 1, UNCLAIMED_OVERDUE 2, PLAN_LIMIT_EXCEEDED 3, EXPIRY_PASSED 4, QUOTA_EXHAUSTED 5,
+    CUSTOMER_PAUSED 6), die von B342 abweicht (dort UNCLAIMED_OVERDUE zuletzt). Die Abweichung stammt aus BASE-010 und ist beim Rueckverfolgen von B342 als
+    ANGEPASST mit Begruendung zu belegen.'
   titel: Fundament-Dateien Stufe 1 des Altkonzepts nicht vollstaendig gelesen, obwohl vier Module geschrieben sind
   beschreibung: 'CLAUDE_BRIEFING Teil 2 verlangt, vor Architekturarbeit die Fundament-Dateien Stufe 1 des Altkonzepts vollstaendig zu lesen (00_MASTER, B050,
     B055, B058, B345, B057, B060, B061, B063, B166, B171, D012, B342). Gelesen sind B060, B061, B063, B166, B171, D012 und B345 (Nachlieferung). NICHT gelesen

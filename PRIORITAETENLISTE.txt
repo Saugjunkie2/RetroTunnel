@@ -1,7 +1,7 @@
 ================================================================================
 RETROTUNNEL — PRIORITÄTENLISTE / ABARBEITUNGSPLAN
 ================================================================================
-VERSION: v1.1
+VERSION: v1.2
 DATUM: 2026-11-14
 STATUS: ACTIVE
 
@@ -30,6 +30,22 @@ Legende:
   [WAITING]  = Wartet auf Vorgänger
   [DEFERRED] = Bewusst zurückgestellt (spätere Phase)
   [LAUFEND]  = Daueraufgabe (nur Querschnitts-Aufgaben)
+
+WELCHES PAKET ALS NÄCHSTES (maßgeblich; CLAUDE_BRIEFING 3.4 verweist
+hierher):
+  1. Was die jüngste Mitteilung des Betreibers verlangt
+     (governance/register/BETREIBERMITTEILUNGEN.yaml).
+  2. Sonst der Vorrang, den der KRITISCHE PFAD am Ende dieser Datei
+     nennt.
+  3. Sonst das erste [ACTIVE]-Paket in der Reihenfolge dieser Datei, das
+     nicht ruht und dessen Abhängigkeiten erfüllt sind; danach das erste
+     [WAITING]-Paket mit erfüllten Abhängigkeiten.
+  Mehrere Pakete können zugleich [ACTIVE] sein (geschrieben, Abschluss
+  offen). Ruht ein begonnenes Paket, steht dort "Ruht, bis ...".
+  [DONE] setzt voraus: alle Punkte unter "OFFEN BIS [DONE]" erledigt UND
+  kein offener Befund, der das Paket sperrt (REVIEW_TRACKER 1d; maschinell
+  erzwungen). Zum Qualitäts-Gate gehört als Schritt 4 die unabhängige
+  Prüfung nach REVIEW_STANDARD 10.3.
 
 FUNDORTE DER ALTQUELLEN: NAVIGATIONSKARTE_ALTES_KONZEPT.txt. Die unten
 genannten Ordner entwuerfe/sql-first/, entwuerfe/peak_mode_v2/ und
@@ -142,6 +158,9 @@ M1-05 [DONE] state_machines/SM_SESSION.txt
   -> PATCH-REIF (27 Invarianten, 38 Tests, konvergiert) — HINWEIS:
      SM_SESSION ist deprecated als aktive Quelle; Inhalte werden
      bei BASE-070-Ausarbeitung gemaess D004-E03 uebernommen.
+     [STAND 2026-11-14: mit BASE-070 vollstaendig zurueckverfolgt
+     (M2-070); als aufgeloest gilt die Datei erst nach bestandenem
+     Qualitaets-Gate von BASE-070.]
   → Abhängigkeit: M1-02, M1-03
   → Altes Konzept: B171, D012, B165, B168, B169
 
@@ -235,10 +254,14 @@ M2-005 [DONE] BASE-005_PLATFORM_CORE
      Drift-Risiko und mehreren Diensten).
   -> Pflicht-Abschnitt "Plattform-Contract" in allen Fach-Bases.
   -> 19 Invarianten (PF-01..PF-19), 21 Tests (T-PF-01..T-PF-21).
+     [Beschriebener Stand vom 2026-05-30. Im Repository: PF-01..PF-18
+     und T-PF-01..T-PF-20 (BF-0010; Nachzug QS-11).]
   -> Status: 11 Dateien, alle ACTIVE. Alle Skelette gefuellt.
      3 Design-Entscheidungen geschlossen: Hybrid-Logging, GPG-Backup,
      systemd-Default-Shutdown.
   -> 2 deferred auf BASE-040: AmneziaWG-Port, WG-Config-Pfad.
+     [STAND 2026-11-14: beides in BASE-040 entschieden (DEC-WT-02,
+     DEC-WT-03); offen ist der Nachzug in BASE-005 (QS-11, BF-0059).]
   -> Abhaengigkeit: keine direkte, nur logisch vor Fach-Bases.
   -> Altes Konzept: keine direkte Entsprechung — Platform-Contract
      war im Altkonzept ueber viele B-Dateien verstreut.
@@ -255,6 +278,8 @@ M2-010 [DONE] BASE-010_IDENTITY_CORE
   -> Altes Konzept: B055, B058, B345
   -> FERTIG 2026-04-17: 11 Dateien, 90 Invarianten + 3 LR,
      116 Tests, ChatGPT-Drittreview v1+v2 bestanden.
+     [Zahlen des beschriebenen Stands vom 2026-05-30. Im Repository:
+     INV-01..INV-82 und 3 LR, 97 Tests (BF-0010; Nachzug QS-11).]
      Auth-Split (3 Parteien), connection_ref con_[a-z2-7]{12},
      wg_connection_name deterministisch, Provisioning atomar,
      SoT/Mechanik-Split BASE-010/020. SM_CONNECTION aufgeloest.
@@ -277,6 +302,8 @@ M2-020 [DONE] BASE-020_AAA_CORE
 
 M2-030 [DONE] BASE-030_TUNNEL_L2TP_IPSEC
   -> 10 Dateien, 41 Invarianten, 46 Tests.
+     [Beschriebener Stand vom 2026-05-30. Im Repository: LT-01..LT-40
+     und T-LT-01..T-LT-45 (BF-0010; Nachzug QS-11).]
   -> accel-ppp + strongSwan (swanctl/vici). Konsistenzfehler aufgeloest.
   -> Default-Deny auf ppp* (F-001), radacct-Korrelation (F-002).
   -> IKE-Lifetime, acct-timeout, ip-pre-up, fork-limit.
@@ -298,7 +325,12 @@ M2-040 [ACTIVE] BASE-040_TUNNEL_WIREGUARD
      (3) Antworten der Nachbarmodule auf ANF-WT-01..ANF-WT-18, darunter
          der Nachzug in BASE-005 (Port, Service-Inventar,
          Schluesseldatei) mit QS-11;
-     (4) Pattern-Check und Qualitaets-Gate (CLAUDE_BRIEFING Regel 10).
+     (4) Qualitaets-Gate (CLAUDE_BRIEFING Regel 10), Schritte 1 bis 4.
+         Der Pattern-Check ist am 2026-11-14 gelaufen (Ergebnis:
+         REVIEW_TRACKER, Inventar); seine Reste sind offen: 02 in
+         Teilen, 04 offen, Ueberschrift der Owner-Grenzen (BF-0056);
+     (5) Abgleich mit den Fundament-Dateien Stufe 1 des Altkonzepts
+         (BF-0053 sperrt dieses Paket; Arbeit in QS-09).
      Review-Stand und offene Befunde: REVIEW_TRACKER Abschnitt 1 und 1d.
   -> AmneziaWireGuard Konfiguration, Interface, Peer-Management
   -> awg0 Interface, AllowedIPs, PublicKey-Verwaltung
@@ -340,7 +372,13 @@ M2-050 [ACTIVE] BASE-050_FIREWALL_CORE
      (1) unabhaengige Gegenpruefung (steht noch ganz aus);
      (2) Fehlerverhalten der Settings gegen TRUTH_MODEL;
      (3) Antworten der Nachbarmodule auf ANF-FW-01..ANF-FW-12;
-     (4) Pattern-Check und Qualitaets-Gate (CLAUDE_BRIEFING Regel 10).
+     (4) Qualitaets-Gate (CLAUDE_BRIEFING Regel 10), Schritte 1 bis 4.
+         Der Pattern-Check ist am 2026-11-14 gelaufen; Reste: 02 offen
+         (keine unabhaengige Pruefung), Ueberschrift (BF-0056);
+     (5) Abgleich mit den Fundament-Dateien Stufe 1 des Altkonzepts
+         (BF-0053 sperrt dieses Paket; Arbeit in QS-09);
+     (6) BF-0006 und BF-0011 sind eingearbeitet, aber erst mit der
+         Gegenpruefung bestaetigt.
      Review-Stand und offene Befunde: REVIEW_TRACKER Abschnitt 1 und 1d.
   -> nftables: WAN-Stealth, Rollen-Ranges, Service-Allowlist,
      Peer-Isolation, DNS-Zwang (DNAT53), DoT-Block, NAT/Masquerade
@@ -385,24 +423,37 @@ M2-060 [WAITING] BASE-060_DNS_CORE
   -> Unbound + AdGuard, DNAT53, Binding auf SERVICE_DNS
   -> Zeitbasis/NTP gehoert laut 04_PHASE_PLAN (PH3) mit in dieses Paket.
   -> Beantwortet ANF-FW-05 (BASE-050).
+  -> Verankert die aufgenommene Verbesserung VB-0019 (Blockpage-
+     Override: Speicherort, Weitergabe an den Filter, Ablauf, Protokoll);
+     der Anteil der Rollenerkennung folgt mit M3-010.
   -> Abhaengigkeit: M2-050 (Firewall-Regeln fuer DNS)
   -> Altes Konzept: B210, B200, B260; RetroTunnel: BASE-005_030,
      BASE-020 (WG-DNS-Vertrag), BASE-030 (LT-41)
+     [LT-41 gehoert zum beschriebenen Stand; im Repository endet
+     BASE-030 bei LT-40 (BF-0010).]
 
 M2-070 [ACTIVE] BASE-070_SESSION_CORE
   -> Index: AP-K070
   -> STAND 2026-11-14: 11 Dateien geschrieben (DEC-SC-01..DEC-SC-24,
      SC-01..SC-73, T-SC-01..T-SC-109; Tests mit Belegstand "geplant").
-     SM_SESSION vollstaendig aufgeloest (Rueckverfolgung). Unabhaengige
+     SM_SESSION vollstaendig zurueckverfolgt; als aufgeloest gilt sie
+     erst nach bestandenem Qualitaets-Gate. Unabhaengige
      Gegenpruefung durch zwei Pruefer (2026-11-13: 27 Befunde, davon 3
      kritisch) und Nachpruefung der Behebung (2026-11-14: 22 von 30
-     behoben, 8 teilweise, dazu 30 neue kleinere Fehler); beides
-     eingearbeitet.
+     behoben, 8 teilweise, dazu 30 neue Fehler, acht davon
+     schwerwiegend); beides eingearbeitet.
      OFFEN BIS [DONE]:
      (1) dritte Pruefrunde fuer die zweite Nachbesserung (die acht
          Reste und die neuen Fehler);
      (2) Antworten der Nachbarmodule auf ANF-SC-01..ANF-SC-16;
-     (3) Pattern-Check und Qualitaets-Gate (CLAUDE_BRIEFING Regel 10).
+     (3) Qualitaets-Gate (CLAUDE_BRIEFING Regel 10), Schritte 1 bis 4.
+         Der Pattern-Check ist am 2026-11-14 gelaufen; Reste: 01
+         unvollstaendig (BF-0054), 02 in Teilen;
+     (4) Einordnung der Prueferbefunde beider Runden nach
+         REVIEW_STANDARD Abschnitt 7 (korrekt / teilweise / falsch /
+         kontextabhaengig / offen) nachtragen;
+     (5) Abgleich mit den Fundament-Dateien Stufe 1 des Altkonzepts
+         (BF-0053 sperrt dieses Paket; Arbeit in QS-09).
      Review-Stand und offene Befunde: REVIEW_TRACKER Abschnitt 1 und 1d.
   -> Session-Mapping fuer beide Tunnel-Typen
   -> /run/vpn-sessions/*.env (oder WireGuard-Aequivalent)
@@ -452,8 +503,12 @@ M2-080 [ACTIVE] BASE-080_POLICY_APPLY_CORE
          maschineller Modulpruefung; vorher kein [DONE] moeglich);
      (2) Kennungen bereinigen (T-PA kollidiert mit zwei Tests in
          BASE-010_095; lokale Kennungen, die globalen gleichen);
-     (3) unabhaengige Gegenpruefung;
-     (4) Pattern-Check und Qualitaets-Gate (CLAUDE_BRIEFING Regel 10).
+     (3) unabhaengige Gegenpruefung; der Pruefauftrag nennt die
+         Audit-Punkte aus BF-0063 ausdruecklich;
+     (4) Qualitaets-Gate (CLAUDE_BRIEFING Regel 10), Schritte 1 bis 4.
+         Pattern-Check vom 2026-11-14: 01 unvollstaendig (BF-0055);
+     (5) Abgleich mit den Fundament-Dateien Stufe 1 des Altkonzepts
+         (BF-0053 sperrt dieses Paket; Arbeit in QS-09).
      Ruht, bis QS-07 abgeschlossen ist (Betreiberanweisung 2026-11-14).
   -> vpn-policy-apply, FLUSH+REBUILD, Reconcile, Hard-Cut
   -> Single-Writer, Exit-Codes
@@ -532,6 +587,12 @@ M2-QC [WAITING] QUALITAETS-CHECK NACH M2-ABSCHLUSS
      muss eine Gesamtuebersicht in BASE-005_070 (Service-Inventar)
      erstellt werden: Alle Timer, Intervalle, Abhaengigkeiten,
      Fail-Verhalten. Kein neuer Base-Ordner noetig.
+  -> PHASE A+B UEBER ALLE MODULE (CLAUDE_BRIEFING Teil 5 Schritt 7;
+     TEIL 0.2 e): Einzeldatei- und Cross-File-Pruefung ueber base/ und
+     decisions/ mit Befundbericht im Changelog. Seit dem Auftrag vom
+     2026-11-11 nicht gelaufen.
+  -> Zusammenstellung der in den Kern-Modulen verteilten Grenzwerte
+     und Mengenbremsen als Vorarbeit fuer M3-070 (BF-0069).
   -> Abhaengigkeit: Alle M2-Bases mindestens als Entwurf (M2-040,
      M2-050, M2-060, M2-070, M2-080, M2-090, M2-100, M2-110)
 
@@ -544,6 +605,8 @@ Plan in 04_PHASE_PLAN.txt (SOLL-Liste, RetroTunnel-spezifisch). B290
 
 M3-010 [DEFERRED] MOD-002_RESTRICTED_MODE (Walled Garden)
   -> Index: AP-M002
+  -> Traegt den Anteil der Rollenerkennung von VB-0019 (Blockpage-
+     Override; Hauptteil in M2-060).
   -> Abhaengigkeit: M2-050, M2-080
   -> Altes Konzept: B150
 
@@ -729,7 +792,20 @@ QS-07 [ACTIVE] Konsolidierung der Projektsteuerung
   -> Betreiberanweisung vom 2026-11-14 (BM-0015), Vorrang vor der
      Modularbeit: Die Dokumente im Wurzelverzeichnis sind die Steuerung;
      governance/ und qa/ dienen ihr. Zustaendigkeiten: 00_MANIFEST 6a.
-     Hergang, Aenderungen und offener Rest: 03_CHANGELOG v2.7.0.
+     Hergang und Aenderungen: 03_CHANGELOG v2.7.0; unabhaengige
+     Kontrolle und ihre Einarbeitung: v2.8.0.
+  -> STAND 2026-11-14: Schritte A bis D umgesetzt. Schritt E: drei
+     Pruefberichte unter governance/pruefungen/ (einer abgebrochen), 51
+     eingestufte Befunde und eine Liste umgehbarer Pruefregeln;
+     eingearbeitet.
+     OFFEN BIS [DONE]:
+     (1) Bestaetigung der Einarbeitung durch einen unabhaengigen
+         Pruefer (BF-0070 bis BF-0083);
+     (2) Rest der abgebrochenen Pruefung der Pruefwerkzeuge und die
+         nicht gelaufene Blickrichtung "Bestand" (nichts verloren,
+         nichts abgeschwaecht);
+     (3) Review der geaenderten Steuerungsdokumente nach REVIEW_TRACKER
+         Abschnitt 2 (Klasse B) und REVIEW_STANDARD 5.2.
   -> Abhaengigkeit: QS-03
 
 QUELLENBASIS UND RUECKVERFOLGUNG
@@ -744,17 +820,20 @@ QS-08 [ACTIVE] RetroTunnel-Bestand vollstaendig lesen
      Steuerungsdokumente im Wurzelverzeichnis sind vollstaendig gelesen.
   -> Abhaengigkeit: QS-03
 
-QS-09 [WAITING] XPN-Querschnittsquellen lesen und zuordnen
+QS-09 [ACTIVE] XPN-Querschnittsquellen lesen und zuordnen
   -> Index: AP-Q02
   -> Master, Glossar, Regeln, Block-Index, Changelog, Decisions
      D001-Alt bis D012-Alt, die Bloecke B010, B020, B030, B040, B050,
      B055, B056, B070, B080, B090, B290, B310, B344, Anweisungen/,
      templates/, ZIP-Schnappschuesse, entfernte Dateien der Historie.
      Modulbezogene Bloecke liest das jeweilige Modulpaket.
-  -> STAND 2026-11-14: XPN 27 von 107 Dateien vollstaendig gelesen. Die
-     "Fundament-Dateien Stufe 1" des CLAUDE_BRIEFING (Teil 2) sind damit
-     NICHT vollstaendig gelesen - offen: 00_MASTER, B050, B055, B057,
-     B058, B342.
+  -> STAND 2026-11-14: XPN 33 von 107 Dateien vollstaendig gelesen. Die
+     13 "Fundament-Dateien Stufe 1" des CLAUDE_BRIEFING (Teil 2) sind
+     seit 2026-11-14 alle vollstaendig gelesen (zuletzt 00_MASTER, B050,
+     B055, B057, B058, B342) - NACH dem Schreiben von vier Modulen statt
+     davor. OFFEN: der Abgleich dieser Dateien mit BASE-040, BASE-050,
+     BASE-070 und dem Entwurf BASE-080 (19 Punkte, BF-0053); bis dahin
+     sperrt BF-0053 das [DONE] dieser vier Module.
   -> Abhaengigkeit: QS-04
 
 QS-10 [ACTIVE] Fehlende Pflichtquellen behandeln
@@ -783,7 +862,11 @@ QS-11 [WAITING] Nachzug der Changelog-Entscheidungen in die Moduldateien
      hinter dem im Changelog dokumentierten Stand (v1.5 bis v2.1.15).
      Dazu die Anforderungen der neuen Module an diese Dateien (ANF-WT,
      ANF-FW, ANF-SC, ANF-PA) und die offenen Punkte aus REVIEW_TRACKER
-     1b/1c, die aktive Dateien betreffen.
+     1b/1c, die aktive Dateien betreffen (im Register: BF-0057 bis
+     BF-0060).
+  -> Nach dem Nachzug: PHASE A+B ueber BASE-000 bis BASE-030
+     (CLAUDE_BRIEFING Teil 5 Schritt 7; TEIL 0.2 e). Vorher waere sie
+     eine Pruefung gegen einen Stand, der im Repository nicht liegt.
   -> Abhaengigkeit: QS-08
 
 GESAMTSCHAU
@@ -798,7 +881,7 @@ QS-13 [WAITING] Schlussabgleich der Steuerungsdokumente, Aufloesung von
   -> Index: AP-A06
   -> MANIFEST, GLOSSARY, RULES, PHASE_PLAN, README auf den Endstand;
      model/ aufgeloest; QS-01 abgeschlossen. Die Ordnung der Steuerung
-     selbst ist seit QS-07 hergestellt; hier geht es um den Inhalt.
+     selbst ist Gegenstand von QS-07; hier geht es um den Inhalt.
   -> Abhaengigkeit: M4-01
 
 FUNKTIONSANALYSE UND FREEZE (Betreiberregeln Abschnitt 4)
@@ -900,7 +983,8 @@ ZUSAMMENFASSUNG: KRITISCHER PFAD
   QS-17..QS-23 Pruefung und Abschluss (zwei Vollaudits, Gates G1-G4)
 
   Begleitend: QS-01 (Self-Containment), QS-08..QS-11 (Quellenbasis und
-  Nachzug). Vorrang seit 2026-11-14: QS-07.
+  Nachzug). VORRANG seit 2026-11-14: QS-07; danach QS-09 (Abgleich der
+  Fundament-Dateien, BF-0053), weil er vier Module sperrt.
 
 ================================================================================
 CHANGELOG

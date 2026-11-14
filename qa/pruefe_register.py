@@ -165,6 +165,19 @@ class Pruefung:
                              f"STATUS {str(br.get('sha256_arbeitskopie'))[:16]}…)")
         else:
             self.err("STATUS: identitaeten.betreiberregeln.arbeitskopie fehlt")
+        sa = ((st.get("identitaeten") or {}).get("startauftrag") or {})
+        if not sa.get("arbeitskopie"):
+            self.err("STATUS: identitaeten.startauftrag.arbeitskopie fehlt (Wortlaut des Auftrags gehoert ins Repository)")
+        else:
+            p = os.path.join(self.root, sa["arbeitskopie"])
+            if not os.path.exists(p):
+                self.err(f"STATUS: Startauftrag-Arbeitskopie fehlt: {sa['arbeitskopie']}")
+            else:
+                with open(p, "rb") as fh:
+                    h = hashlib.sha256(fh.read()).hexdigest()
+                if h != sa.get("sha256_arbeitskopie"):
+                    self.err(f"STATUS: SHA-256 der Startauftrag-Arbeitskopie weicht ab (Datei {h[:16]}…, "
+                             f"STATUS {str(sa.get('sha256_arbeitskopie'))[:16]}…)")
         pflicht = ["quellen_commit_rt", "quellen_commit_xpn"]
         if os.path.isdir(os.path.join(self.root, NL_PRAEFIX)):
             pflicht.append("quellen_commit_nl")
@@ -472,6 +485,15 @@ class Pruefung:
             # (CLAUDE_BRIEFING, BEFUND-REGEL; REVIEW_STANDARD 10.2).
             if (self.lies_prioritaetenliste().get(bezug) or {}).get("tag") == "DONE":
                 self.err(f"PRIORITAETENLISTE {bezug} ist [DONE], aber Befund {b.get('id')} dieses Pakets ist offen")
+            # sperrt_auch: weitere Pakete, die dieser Befund am Abschluss hindert (z. B. eine Lesepflicht, die
+            # mehrere Module betrifft).
+            for ap in b.get("sperrt_auch") or []:
+                if ap not in pakete:
+                    self.err(f"BEFUNDE {b.get('id')}: sperrt_auch nennt unbekanntes Paket {ap}")
+                    continue
+                bz = pakete[ap].get("bezug")
+                if (self.lies_prioritaetenliste().get(bz) or {}).get("tag") == "DONE":
+                    self.err(f"PRIORITAETENLISTE {bz} ist [DONE], aber Befund {b.get('id')} sperrt dieses Paket")
         for k in sorted(set(soll) | set(ist)):
             fehlt, zuviel = soll.get(k, set()) - ist.get(k, set()), ist.get(k, set()) - soll.get(k, set())
             if fehlt:
@@ -807,6 +829,54 @@ class Pruefung:
             if mv:
                 for v in set(re.findall(r"\bv\d+\.\d+\.\d+\b", readme)) - {mv.group(1)}:
                     self.err(f"README.md nennt {v}, der Changelog steht bei {mv.group(1)}")
+        # (g) README: Marken am Modulbaum und Statustabelle sind KOPIEN des Status der PRIORITAETENLISTE
+        # (00_MANIFEST 6a Zeile 11). Schreibweise: Baumzeile "│   ├── BASE-040_NAME/  Text 🚧"; Tabellenzeile
+        # "| M2-040 | Text | 🚧 In Arbeit |" (Kennung: ein Paket, eine Phase "M3" oder ein Bereich "M2-040..110").
+        if os.path.exists(pr):
+            with open(pr, encoding="utf-8", errors="replace") as fh:
+                zeilen_r = fh.read().splitlines()
+            wort = {"DONE": "✅ Done", "ACTIVE": "🚧 In Arbeit"}
+            for n, z in enumerate(zeilen_r, 1):
+                mb = re.match(r"^│\s+[├└]── ((?:BASE|MOD)-\d{3})_\w+/\s*(.*)$", z)
+                if mb:
+                    modul, rest = mb.group(1), mb.group(2)
+                    if modul not in modul_tag:
+                        self.err(f"README.md:{n}: Modul {modul} hat keinen Eintrag in der PRIORITAETENLISTE")
+                        continue
+                    kennung, tag = modul_tag[modul]
+                    ist = "✅" if "✅" in rest else ("🚧" if "🚧" in rest else "ohne Marke")
+                    soll = {"DONE": "✅", "ACTIVE": "🚧"}.get(tag, "ohne Marke")
+                    if ist != soll:
+                        self.err(f"README.md:{n}: {modul} traegt '{ist}', die PRIORITAETENLISTE fuehrt {kennung} "
+                                 f"als [{tag}] (erwartet: '{soll}')")
+                    if ("Entwurf" in rest) != (modul in self.entwuerfe):
+                        self.err(f"README.md:{n}: Angabe 'Entwurf' bei {modul} passt nicht zu MODULPRUEFUNG.yaml")
+                    continue
+                mt = re.match(r"^\|\s*(M\d(?:-[0-9A-Z]+)?)(?:\.\.([0-9]+))?\s*\|.*\|\s*([^|]*?)\s*\|\s*$", z)
+                if not mt or not re.search(r"[✅🚧⏸]", mt.group(3)):
+                    continue
+                von, bis, status = mt.group(1), mt.group(2), mt.group(3)
+                if bis:
+                    praefix, start = von.rsplit("-", 1)
+                    tags = [e["tag"] for k, e in liste.items()
+                            if k.startswith(praefix + "-") and k.rsplit("-", 1)[1].isdigit()
+                            and int(start) <= int(k.rsplit("-", 1)[1]) <= int(bis)]
+                elif von in liste:
+                    tags = [liste[von]["tag"]]
+                else:
+                    tags = [e["tag"] for k, e in liste.items() if k.startswith(von + "-")]
+                if not tags:
+                    self.err(f"README.md:{n}: Statuszeile {von} ist keinem Paket der PRIORITAETENLISTE zuordenbar")
+                    continue
+                if all(t == "DONE" for t in tags):
+                    soll = "✅ Done"
+                elif all(t in ("DEFERRED", "WAITING") for t in tags):
+                    soll = "⏸ Deferred"
+                else:
+                    soll = "🚧 In Arbeit"
+                if status != soll:
+                    self.err(f"README.md:{n}: Statuszeile {von}{'..' + bis if bis else ''} nennt '{status}', nach der "
+                             f"PRIORITAETENLISTE waere es '{soll}'")
 
     def lauf(self):
         st = self.lade("governance/STATUS.yaml")
