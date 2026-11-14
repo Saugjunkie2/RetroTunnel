@@ -4,7 +4,7 @@ BASE-040 — INVARIANTEN (WireGuard-Tunnel)
 DATEI: BASE-040_090_INVARIANTEN.txt
 STATUS: ACTIVE
 
-Harter Vertrag. Jede Verletzung ist ein Fehler. Kennungen WT-01..WT-52
+Harter Vertrag. Jede Verletzung ist ein Fehler. Kennungen WT-01..WT-56
 (WT = WireGuard-Tunnel; bewusst NICHT "WG-xx", weil WG-01..05 und
 WG-GRACE-01..05 bereits Vertragsklauseln in BASE-020_040 bezeichnen).
 Herkunft je Invariante: Rueckverfolgungs-Records unter
@@ -60,12 +60,23 @@ PEER-ZUSTAND
          herstellen, Peer eintragen, verifizieren, Gate loesen).
 
   WT-08  Ein Peer ohne SOLL-Grundlage in SQL wird entfernt. Es gibt keine
-         Peer-Allowlist ausserhalb von SQL.
+         Peer-Allowlist ausserhalb von SQL. (Nicht auswertbare Zeilen:
+         WT-53.)
 
   WT-09  Der SOLL-Zustand eines Peers ist eine reine Funktion des SQL-
-         Zustands: PRESENT genau dann, wenn tunnel_type = WIREGUARD,
-         op_status IN (ACTIVE, RESTRICTED), revoked_at IS NULL, beide
-         fixed-IPs gesetzt und genau eine Auth-Row vorhanden ist.
+         Zustands mit drei Ergebnissen. PRESENT genau dann, wenn
+         tunnel_type = WIREGUARD, op_status IN (ACTIVE, RESTRICTED),
+         revoked_at IS NULL, beide fixed-IPs gesetzt und genau eine
+         Auth-Row vorhanden ist. ABSENT, wenn die Zeile fehlt, op_status
+         DISABLED ist, revoked_at gesetzt ist oder der Tunneltyp
+         L2TP_IPSEC ist - Sperrung und Widerruf gelten, gleich was die
+         uebrigen Felder sagen. In jedem anderen Fall UNBESTIMMT.
+
+  WT-53  Ist der SOLL-Zustand einer Connection UNBESTIMMT, wird ihr Peer
+         weder eingetragen noch entfernt noch ersetzt, und kein Gate wird
+         geloest; der Zustand wird gemeldet, bis die Zeile berichtigt
+         ist. Ein fehlerhafter Datenbestand entfernt nie alle Peers.
+         (Kennung nachgetragen; steht sachlich beim SOLL-Zustand.)
 
   WT-10  AllowedIPs eines Peers sind exakt fixed_ip/32 und fixed_ipv6/128,
          unveraendert aus der DB uebernommen. Keine Neuberechnung aus
@@ -174,9 +185,11 @@ LAUFZEIT UND AKTIVITAET
 VERBRAUCHSBUCHUNG
 ================================================================================
 
-  WT-37  Je Buchungslauf werden zuerst Cursor und counter_epoch aus der DB
-         gelesen, danach die Kernel-Zaehler. Jede Buchung ist ein
-         Compare-and-Set auf counter_epoch.
+  WT-37  Jeder Bucher liest zuerst Cursor und counter_epoch aus der DB,
+         danach die Kernel-Zaehler. Jede Buchung ist ein Compare-and-Set
+         auf den GELESENEN Buchungsstand: beide Cursorwerte und
+         counter_epoch. Zwei gleichzeitige Bucher derselben Connection
+         zaehlen nichts doppelt und verlieren nichts.
 
   WT-38  Die Buchung ist idempotent und zaehlt nie doppelt. Ist ein
          Kernel-Zaehler kleiner als der Cursor, gilt der Zaehler als neu
@@ -188,7 +201,25 @@ VERBRAUCHSBUCHUNG
 
   WT-40  Vor jedem Entfernen des Interfaces wird ein Zaehler-Snapshot
          dauerhaft abgelegt. Snapshots werden vor jeder anderen Buchung
-         nachgebucht; das Nachbuchen ist idempotent.
+         nachgebucht - der Zaehlerstand einer einzelnen Connection
+         spaetestens vor dem Nullen ihres Cursors; das Nachbuchen ist
+         idempotent.
+
+  WT-54  Die Schlussbuchung vor dem Entfernen eines Peers und das
+         Nachbuchen eines Snapshots sind Buchungen derselben
+         Implementierung wie der Buchungslauf - mit demselben Vergleich
+         und derselben Tagesreihe. Gelingt die Schlussbuchung nicht, liegt
+         der Zaehlerstand im Spool, BEVOR der Peer entfernt wird.
+
+  WT-55  Ein Fehler einer einzelnen Anweisung im Buchungslauf (eine
+         Connection, die Tagesreihe) und ein wiederholbarer Abbruch durch
+         die Datenbank verwerfen hoechstens die betroffene Buchung bzw.
+         fuehren zu einer Wiederholung. Sie gelten nicht als
+         Datenbankstoerung und zaehlen nicht zur Stoerzeit des
+         Grace-Automaten.
+
+  WT-56  Der Controller fuehrt auf Anforderung sofort einen Buchungslauf
+         aus. Buchungslaeufe des Controllers ueberlappen nicht.
 
   WT-41  Der Controller sammelt keine Verbrauchsdaten im Speicher an, die
          ueber die jeweils letzten Zaehlerstaende je Peer hinausgehen

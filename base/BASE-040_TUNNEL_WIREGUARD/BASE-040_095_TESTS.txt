@@ -105,6 +105,21 @@ PEER-LIFECYCLE
   T-WT-20  [L] Von Hand eingetragener Fremd-Peer wird durch den Abgleich
             entfernt; Ereignis WG_PEER_UNKNOWN. [WT-08, WT-19]
 
+  T-WT-62  [L] Nicht auswertbare Zeile: op_status einer Connection mit
+            eingetragenem Peer auf einen Wert ausserhalb des Wertevorrats
+            setzen (ebenso: zugelassener Status ohne Tunneladresse;
+            zweite Auth-Row): Einzel-Apply und Massenabgleich lassen den
+            Peer unveraendert, Ergebnis STATE_UNDETERMINED, Ereignis
+            WG_PEER_STATE_UNDETERMINED; der Massenabgleich gilt nicht als
+            fehlerfrei. Dieselbe Zeile ohne eingetragenen Peer: Es wird
+            keiner eingetragen. op_status ALLER Connections so
+            verfaelschen: Kein Peer wird entfernt. Eine Connection mit
+            op_status DISABLED daneben, eine weitere mit zugelassenem
+            Status und gesetztem revoked_at: Ihre Peers werden entfernt
+            (Verweigern geht vor). Nach Berichtigung der Zeile stellt der
+            naechste Lauf den SOLL-Zustand her. (Kennung nachgetragen.)
+            [WT-53, WT-09]
+
   T-WT-21  [L] Massenabgleich waehrend laufender Uebertragung eines
             unveraenderten Peers: keine Unterbrechung, Handshake-Zeit
             unveraendert. [WT-18]
@@ -209,10 +224,40 @@ CONTROLLER UND VERBRAUCH
             korrektem Delta, kein Sprung. [WT-38]
 
   T-WT-45  [L] Dauerwechsel Hard-Cut/Add einer Connection parallel zu
-            Buchungslaeufen (mindestens 1.000 Wiederholungen): Summe in
-            quota_used entspricht der uebertragenen Menge innerhalb der
-            Toleranz; verworfene CAS-Versuche treten auf und schaden nicht.
-            [WT-37, WT-39]
+            Buchungslaeufen (mindestens 1.000 Wiederholungen): Die Summe
+            in quota_used ist nie groesser als die uebertragene Menge und
+            weicht nach unten hoechstens um die Messgrenze zwischen
+            Schlussbuchung und Entfernen ab; verworfene Vergleiche treten
+            auf und schaden nicht. [WT-37, WT-39]
+
+  T-WT-59  [L] Zwei Bucher ohne Wiedereintrag: Den Buchungslauf zwischen
+            Kernel-Lesung und Schreiben anhalten; die Connection auf
+            DISABLED setzen und den Peer entfernen lassen
+            (Schlussbuchung); den Lauf fortsetzen. Der Lauf scheitert am
+            Vergleich; quota_used und Tagesreihe entsprechen genau dem
+            Kernelzaehler der Schlussbuchung. Spiegelbildlich: Die
+            Schlussbuchung zwischen Lesen und Schreiben anhalten, den
+            Buchungslauf abschliessen lassen: Die Schlussbuchung rechnet
+            neu. Verliert sie den Vergleich in allen Versuchen
+            (wg_final_booking_max_attempts), liegt ein Einzel-Snapshot im
+            Spool, BEVOR der Peer entfernt wird; er wird nachgebucht, und
+            ein Wiedereintrag der Connection erfolgt erst danach.
+            (Kennung nachgetragen.) [WT-37, WT-54, WT-40]
+
+  T-WT-60  [L] Fehlerklassen im Buchungslauf: Das Schreiben der Tagesreihe
+            dauerhaft scheitern lassen: Jeder Lauf bucht quota_used,
+            meldet USAGE_DAILY_WRITE_FAILED, und die Stoerzeit des
+            Grace-Automaten bleibt null - awg0 wird nicht gestoppt. Das
+            UPDATE EINER Connection scheitern lassen: Alle anderen werden
+            gebucht. Eine Verklemmung mit einer anderen Transaktion
+            erzwingen: Der Lauf wird einmal wiederholt und zaehlt nicht
+            als Datenbankstoerung. (Kennung nachgetragen.) [WT-55]
+
+  T-WT-61  [L] Buchungslauf auf Anforderung: Das Signal loest sofort einen
+            Lauf aus; die Marke wg_accounting_last_ok_at wird
+            fortgeschrieben. Signal waehrend eines laufenden Laufs: genau
+            ein weiterer Lauf danach, keine Ueberlappung. (Kennung
+            nachgetragen.) [WT-56]
 
   T-WT-46  [L] Client trennen: nach der Schwelle ACTIVITY_END; Peer bleibt
             eingetragen; erneutes Verbinden ohne Serveraktion, Policy

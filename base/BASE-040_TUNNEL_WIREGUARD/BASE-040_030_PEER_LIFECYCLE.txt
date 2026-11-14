@@ -14,7 +14,8 @@ ZWECK:
 1) ZUSTANDSMODELL
 ================================================================================
 
-  SOLL-FUNKTION (rein aus SQL, deterministisch, tunnelspezifisch):
+  SOLL-FUNKTION (rein aus SQL, deterministisch, tunnelspezifisch) mit
+  DREI Ergebnissen:
 
     soll(c) = PRESENT, wenn ALLE Bedingungen gelten:
         c.tunnel_type = 'WIREGUARD'
@@ -22,7 +23,32 @@ ZWECK:
         c.revoked_at IS NULL
         c.fixed_ip IS NOT NULL AND c.fixed_ipv6 IS NOT NULL
         es existiert genau eine Row in wg_connection_auth fuer c
-      sonst ABSENT.
+
+    soll(c) = ABSENT, wenn die Daten EINDEUTIG keinen Peer verlangen:
+        die Connection-Zeile existiert nicht (mehr), ODER
+        c.op_status = 'DISABLED', ODER
+        c.revoked_at IS NOT NULL, ODER
+        c.tunnel_type = 'L2TP_IPSEC'
+      VERWEIGERN GEHT VOR: Sperrung und Widerruf gelten, gleich was die
+      uebrigen Felder der Zeile sagen.
+
+    soll(c) = UNBESTIMMT in jedem anderen Fall. Die Datenbank antwortet,
+    aber die Zeile ergibt kein eindeutiges SOLL - zum Beispiel:
+        op_status oder tunnel_type ausserhalb des Wertevorrats;
+        zugelassener Status ohne Tunneladresse;
+        zugelassener Status ohne oder mit mehreren Auth-Rows.
+
+  UNBESTIMMT HEISST EINFRIEREN (B052: "nicht eindeutig ableitbarer Zustand
+  verhaelt sich wie Datenbankausfall"; BASE-080 DEC-PA-22):
+    - NICHTS OEFFNEN: kein Peer wird eingetragen, kein Gate geloest.
+    - NICHTS UMSCHALTEN: ein vorhandener Peer wird weder entfernt noch
+      ersetzt; sein Policy-Zustand bleibt.
+    - Ergebnis STATE_UNDETERMINED, Ereignis WG_PEER_STATE_UNDETERMINED
+      (ALERT) mit der Art des Widerspruchs.
+  Die Regel gilt je Connection: Eine fehlerhafte Zeile sperrt nicht alle,
+  und ein fehlerhafter Datenbestand entfernt nicht alle Peers. Eindeutig
+  gesperrte oder widerrufene Connections sind davon nicht beruehrt - ihr
+  Peer wird entfernt.
 
     Zugehoerige Peer-Daten bei PRESENT:
         PublicKey    = wg_connection_auth.wg_public_key
@@ -60,12 +86,14 @@ ZWECK:
   wg_ensure            vpn_connection_id      OK_ADDED | OK_UNCHANGED |
                                               OK_REMOVED | OK_REPLACED |
                                               TEMPFAIL_DB | FAIL_KERNEL |
-                                              FAIL_VERIFY
+                                              FAIL_VERIFY |
+                                              STATE_UNDETERMINED
   wg_cut               vpn_connection_id,     OK_REMOVED | OK_ABSENT |
                        reason                 FAIL_KERNEL
   wg_sync_all          -                      Zaehler added/removed/replaced/
-                                              unchanged/failed; Gesamtcode OK
-                                              nur wenn failed = 0
+                                              unchanged/frozen/failed;
+                                              Gesamtcode OK nur wenn
+                                              failed = 0 und frozen = 0
   wg_verify            vpn_connection_id      IST-Zustand + Abweichungsliste
                        oder "all"             (nur lesend)
 
@@ -105,6 +133,11 @@ ZWECK:
       (RESTRICTED -> restricted_v4/_v6) und Shaping-Zuordnung (MOD-003)
       fuer die fixed-IPs. Owner der Regeln: BASE-050/BASE-080.
   A4  CURSOR NULLEN, DANN PEER EINTRAGEN:
+      0) Liegt im Snapshot-Spool ein Zaehlerstand DIESER Connection aus
+         einer frueheren Schlussbuchung (R1), wird er ZUERST nachgebucht
+         (BASE-040_060 Abschnitt 5). Gelingt das nicht, unterbleibt der
+         Eintrag (TEMPFAIL_DB): Nach dem Nullen des Cursors waere der
+         Snapshot nicht mehr richtig zuzuordnen.
       a) UPDATE vpn_connections SET last_known_rx_bytes = 0,
          last_known_tx_bytes = 0, counter_epoch = counter_epoch + 1
          WHERE id = :id AND (last_known_rx_bytes <> 0 OR
@@ -142,10 +175,17 @@ ZWECK:
          Connection enthalten
   (ii) deckt den Tombstone-Fall (Auth-Row bereits geloescht) und Drift ab.
 
-  R1  LETZTE BUCHUNG: DB-Cursor lesen, DANN Kernel-Zaehler des Peers
-      lesen und per D004 P-01 buchen (normale Buchung, Cursor = letzter
-      Zaehlerstand). Ist die DB nicht erreichbar, wird der Zaehlerstand in
-      den Snapshot-Spool geschrieben (BASE-040_060 5). Der Cursor wird hier
+  R1  SCHLUSSBUCHUNG: DB-Cursor und Epoche lesen, DANN Kernel-Zaehler des
+      Peers lesen und per D004 P-01 buchen (normale Buchung, Cursor =
+      letzter Zaehlerstand). Das ist eine Buchung nach SV-4 (BASE-070_050
+      Abschnitt 4): dieselbe Implementierung wie der Buchungslauf, mit
+      Tagesreihe und mit dem Vergleich auf die GELESENEN Cursorwerte und
+      die Epoche. Trifft der Vergleich nicht - der Buchungslauf des
+      Controllers hat inzwischen geschrieben -, wird neu gelesen und neu
+      gerechnet, hoechstens wg_final_booking_max_attempts mal.
+      Gelingt die Buchung so nicht oder ist die DB nicht erreichbar, wird
+      der Zaehlerstand des Peers in den Snapshot-Spool geschrieben
+      (BASE-040_060 5) - BEVOR R2 den Peer entfernt. Der Cursor wird hier
       NICHT genullt; das geschieht erst unmittelbar vor einem erneuten
       Eintrag (A4a).
   R2  PEER ENTFERNEN.
@@ -225,6 +265,11 @@ ZWECK:
         zu_ersetzen   PublicKey in beiden, AllowedIPs verschieden
         zu_entfernen  PublicKey nur in R (auch: unbekannte Peers)
         zu_ergaenzen  PublicKey nur in D
+        eingefroren   Connection mit soll(c) = UNBESTIMMT: Ihr Peer wird -
+                      ob vorhanden oder nicht - in keiner der Mengen
+                      gefuehrt und in S4 bis S8 nicht angefasst. Dazu
+                      zaehlt auch ein Peer im Kernel, dessen AllowedIPs
+                      einer solchen Connection gehoeren.
   S4  ENTFERNEN (zu_entfernen + zu_ersetzen) je Peer per Remove-Sequenz.
   S5  GATE fuer alle fixed-IPs aus zu_ergaenzen + zu_ersetzen in EINER
       nft-Transaktion setzen.
@@ -234,7 +279,8 @@ ZWECK:
   S8  GATE LOESEN nur fuer verifizierte Peers; fuer fehlgeschlagene bleibt
       das Gate gesetzt und der Peer wird entfernt.
   S9  Ergebniszaehler protokollieren; Health-Indikator
-      wg_peer_sync_last_ok_at nur bei failed = 0 aktualisieren.
+      wg_peer_sync_last_ok_at nur bei failed = 0 und frozen = 0
+      aktualisieren.
 
   EIGENSCHAFTEN:
   - Unveraenderte Peers werden nicht angefasst: laufende Verbindungen
@@ -288,12 +334,17 @@ ZWECK:
                                              Controllers (BASE-040_050 3)
 
   WETTLAUF BUCHUNG GEGEN UMBAU: Der Controller bucht ausserhalb des Single-
-  Writer-Locks. Doppelzaehlung wird durch zwei Regeln ausgeschlossen
-  (BASE-040_050 Abschnitt 5): (1) je Buchungslauf werden ZUERST Cursor und
-  counter_epoch aus der DB gelesen, DANACH die Kernel-Zaehler; (2) die
-  Buchung ist ein Compare-and-Set auf counter_epoch. Nullt der Treiber
-  zwischenzeitlich den Cursor (A4a), scheitert das CAS und der Lauf wird
-  fuer diese Connection verworfen.
+  Writer-Locks; Controller (Buchungslauf) und Treiber (Schlussbuchung R1)
+  koennen dieselbe Connection also gleichzeitig buchen. Doppelzaehlung
+  wird durch zwei Regeln ausgeschlossen (BASE-040_050 Abschnitt 5):
+  (1) Jeder Bucher liest ZUERST Cursor und counter_epoch aus der DB,
+  DANACH die Kernel-Zaehler. (2) Jede Buchung ist ein Compare-and-Set auf
+  den GELESENEN Buchungsstand - beide Cursorwerte UND counter_epoch.
+  Hat inzwischen ein anderer Bucher geschrieben (Cursor veraendert) oder
+  der Treiber den Cursor genullt (A4a: Cursor und Epoche veraendert),
+  scheitert der Vergleich; die Buchung wird verworfen und aus frischer
+  Lesung neu gerechnet. Der Vergleich allein auf counter_epoch genuegte
+  nicht: Die Epoche aendert sich bei einer gewoehnlichen Buchung nicht.
 
 ================================================================================
 8) DRIFT-KLASSEN
@@ -310,11 +361,44 @@ ZWECK:
   WG_PEER_DISABLED_ACTIVE  Peer vorhanden, op_status         sofort entfernen,
                            DISABLED                          ALERT (Sicherheits-
                                                              ereignis)
+  WG_PEER_STATE_           soll(c) = UNBESTIMMT              KEINE Aenderung
+  UNDETERMINED             (Abschnitt 1)                     am Peer; ALERT,
+                                                             bis die Zeile
+                                                             berichtigt ist
   WG_IFACE_DRIFT           Interface-Parameter weichen ab    ALERT, kein
                                                              Auto-Neustart
 
   Jedes Drift-Ereignis wird protokolliert (ohne Schluesselmaterial; der
   PublicKey darf genannt werden) und ist im Panel sichtbar.
+
+================================================================================
+9) LAUFZEIT-ADAPTER WIREGUARD (Schnittstelle BASE-070_040 Abschnitt 1)
+================================================================================
+
+  Der WG-Treiber stellt die tunnelneutrale Adapter-Schnittstelle des
+  Sitzungskerns bereit (ANF-SC-09). Merkmal einer Connection in der
+  Laufzeit ist ihr PublicKey; Quelle ist der Kernel.
+
+    list()      je Peer: PublicKey, zugehoerige Connection (aus dem
+                SOLL-Abbild), Handshake-Zeit, Tunneladressen; dazu die
+                Interface-Generation. Kann der Kernel nicht gelesen
+                werden: FEHLER.
+    probe(c)    LIVE      Peer vorhanden und Handshake juenger als
+                          wg_handshake_stale_threshold_seconds
+                NOT_LIVE  Peer fehlt, Handshake aelter oder nie erfolgt,
+                          oder das Interface besteht gesichert nicht
+                UNKNOWN   Kernel nicht lesbar, Zeitlimit, Zuordnung nicht
+                          eindeutig
+                (TRANSITION kommt bei WireGuard nicht vor.)
+    kill(c)     Remove-Sequenz (Abschnitt 4) mit dem uebergebenen Grund
+                und - bei soll(c) = PRESENT - sofortiges Wiedereintragen
+                (Abschnitt 5, "Admin-Hard-Cut ohne Statuswechsel").
+                KILLED nach bestandener Pruefung R5; NOT_FOUND, wenn kein
+                Peer der Connection vorhanden war; FAILED sonst.
+
+  Der Adapter laeuft unter dem Single-Writer-Lock, soweit er aendert
+  (kill); list und probe lesen nur. Er gibt keine Schluessel und keine
+  Endpoints zurueck.
 
 ================================================================================
 CHANGELOG

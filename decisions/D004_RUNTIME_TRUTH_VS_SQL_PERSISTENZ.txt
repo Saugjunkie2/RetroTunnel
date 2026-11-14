@@ -1,10 +1,12 @@
 ================================================================================
 RetroTunnel — DECISION D004: RUNTIME-TRUTH VS SQL-PERSISTENZ
 ================================================================================
-VERSION: v2.0-REKONSTRUKTION
-DATUM: 2026-11-11
+VERSION: v2.1-REKONSTRUKTION
+DATUM: 2026-11-14
 STATUS: ENTSCHIEDEN (E01-E09 am 2026-05-26 durch den Owner; Praezisierungen
-        2026-05-28; Rekonstruktion + Praezisierungen P-01..P-06 am 2026-11-11)
+        2026-05-28; Rekonstruktion + Praezisierungen P-01..P-06 am 2026-11-11;
+        P-01 berichtigt am 2026-11-14 nach unabhaengiger Gegenpruefung,
+        Befund BF-0026)
 ENTSCHEIDER: Marco (E01-E09, R-03); Hauptarchitekt unter Betreiberauftrag
              2026-11-11 (P-01..P-06, technische Autonomie)
 
@@ -178,21 +180,37 @@ P-01  NORMATIVER DELTA-ALGORITHMUS (ersetzt den nicht ueberlieferten
         UPDATE vpn_connections
            SET quota_used = quota_used + delta,
                last_known_rx_bytes = rx, last_known_tx_bytes = tx,
-               counter_epoch = epoch, last_counter_seen_at = NOW()
-         WHERE id = c.id AND counter_epoch = c.counter_epoch   -- CAS
+               counter_epoch = epoch,
+               last_counter_seen_at = <Lesezeit des Kernels>
+         WHERE id = c.id AND counter_epoch = c.counter_epoch
+           AND last_known_rx_bytes = c.last_known_rx_bytes
+           AND last_known_tx_bytes = c.last_known_tx_bytes   -- CAS
+      Der Vergleich (CAS) gilt dem GELESENEN Buchungsstand: beide
+      Cursorwerte und counter_epoch. Trifft er nicht, hat ein anderer
+      Bucher geschrieben oder der Cursor wurde genullt; die Buchung wird
+      verworfen und aus frischer Lesung neu gerechnet.
+      BERICHTIGUNG 2026-11-14 (BF-0026): Die Fassung v2.0 verglich allein
+      counter_epoch. Die Epoche aendert sich bei einer gewoehnlichen
+      Buchung nicht; zwei gleichzeitige Bucher derselben Connection -
+      Buchungslauf und Schlussbuchung vor dem Entfernen eines Peers -
+      haetten denselben Verkehr zweimal gebucht.
       Eigenschaften: idempotent (ein gescheitertes Update wird beim naechsten
       Lauf aus dem persistierten Cursor neu berechnet), keine Doppelzaehlung
-      (CAS auf counter_epoch), kein Verlust bei verzoegerter Buchung (der
-      Kernel-Zaehler haelt die Wahrheit, solange das Interface besteht).
+      (CAS auf den gelesenen Buchungsstand), kein Verlust bei verzoegerter
+      Buchung (der Kernel-Zaehler haelt die Wahrheit, solange das Interface
+      besteht).
       Pflichtregel "kontrollierter Reset": Jede eigene Aktion, die Kernel-
       Zaehler eines Peers loescht (Peer-Remove, Interface-Stop), bucht ZUVOR
       das letzte Delta. Unmittelbar VOR jedem (Wieder-)Eintrag eines Peers
       wird der Cursor auf 0 gesetzt und counter_epoch erhoeht. Ohne diese
       Regel wuerde ein Peer, der nach dem Wiedereintrag mehr als den alten
       Cursorwert uebertraegt, unterzaehlt.
-      Lesereihenfolge je Buchungslauf: erst Cursor/Epoch aus der DB, dann
+      Lesereihenfolge jedes Buchers: erst Cursor/Epoch aus der DB, dann
       Kernel-Zaehler; zusammen mit dem CAS schliesst das Doppelzaehlung bei
-      gleichzeitigem Peer-Umbau aus.
+      gleichzeitigem Peer-Umbau UND bei zwei gleichzeitigen Buchern aus.
+      Alle Bucher - Buchungslauf, Schlussbuchung vor dem Entfernen eines
+      Peers, Nachbuchen eines Snapshots - benutzen EINE Implementierung
+      dieses Algorithmus.
       Echter Ueberlauf der 64-Bit-Kernel-Zaehler ist praktisch ausgeschlossen
       und waere vom Reset-Zweig abgedeckt; der Key wg_counter_wrap_detection
       ist deshalb entbehrlich (ERSETZT, kein Schutzzielverlust).

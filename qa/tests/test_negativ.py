@@ -8,7 +8,7 @@ ERKENNT. Es werden weder das Repository noch fremde Systeme veraendert.
 Aufruf (aus dem Repository-Wurzelverzeichnis):
   python3 -m unittest discover -s qa/tests -v
 """
-import os, shutil, subprocess, sys, tempfile, unittest
+import os, re, shutil, subprocess, sys, tempfile, unittest
 import yaml
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -350,8 +350,16 @@ class Modulpruefung(Basis):
             f.write(fn(s))
 
     def test_invariante_ohne_test(self):
-        self.text("BASE-040_090_INVARIANTEN.txt", lambda s: s + "\n  WT-53  Ungepruefte Zusatzinvariante.\n")
-        self.erwarte_fehler("Invariante WT-53 wird von keinem Test geprueft")
+        # Die naechste freie Kennung wird aus dem Bestand ermittelt, damit der Test nicht an der aktuellen Zahl haengt.
+        kennung = []
+
+        def zusatz(s):
+            n = max(int(x) for x in re.findall(r"^  WT-(\d{2,3})  \S", s, re.M)) + 1
+            kennung.append(f"WT-{n:02d}")
+            return s + f"\n  {kennung[0]}  Ungepruefte Zusatzinvariante.\n"
+
+        self.text("BASE-040_090_INVARIANTEN.txt", zusatz)
+        self.erwarte_fehler(f"Invariante {kennung[0]} wird von keinem Test geprueft")
 
     def test_test_verweist_auf_undefinierte_invariante(self):
         self.text("BASE-040_095_TESTS.txt", lambda s: s.replace("[WT-11]", "[WT-99]", 1))

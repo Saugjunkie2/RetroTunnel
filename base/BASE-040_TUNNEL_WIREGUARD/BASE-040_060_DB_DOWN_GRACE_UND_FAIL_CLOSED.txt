@@ -38,8 +38,14 @@ ZWECK:
   PROBE = (bestehende Verbindung nutzen oder neu aufbauen) + SELECT 1 +
           Lesen einer Zeile aus settings_global als DB-User system.
   Ergebnis OK nur, wenn alle Teile innerhalb des Zeitlimits gelingen.
-  Als FEHLER zaehlen ausserdem: gescheiterter Buchungslauf (BASE-040_050
-  F6) und TEMPFAIL_DB aus vpn-policy-apply.
+  Als FEHLER zaehlen ausserdem: ein an der VERBINDUNG gescheiterter
+  Buchungslauf (BASE-040_050 F6: nicht erreichbar, Zeitlimit) und
+  TEMPFAIL_DB aus vpn-policy-apply.
+  NICHT als Fehler zaehlen Fehler einzelner Anweisungen im Buchungslauf
+  (eine Connection, die Tagesreihe) und wiederholbare Abbrueche
+  (Verklemmung, Wartezeit auf eine Sperre): Sie sagen nichts ueber die
+  Erreichbarkeit der Datenbank. Sonst koennte eine fehlerhafte
+  Statistik-Tabelle ueber die Stoerzeit awg0 fuer alle Kunden stoppen.
   Die Probe schreibt nichts in die DB.
 
 ================================================================================
@@ -143,8 +149,17 @@ ZWECK:
     (Zugangsentzug vor Verbrauchsgenauigkeit); Ereignis WG_ACCOUNTING_LOSS.
     Groessenschranke: ein Datensatz je Peer; die Sicherheitsgrenze
     SPOOL_HARD_MAX_BYTES (BASE-005_040) gilt zusaetzlich.
+    EINZEL-SNAPSHOT: Dasselbe Format mit genau EINEM Peer schreibt der
+    WG-Treiber, wenn die Schlussbuchung vor dem Entfernen eines Peers
+    nicht gelingt (BASE-040_030 Schritt R1); der Dateiname traegt
+    zusaetzlich die vpn_connection_id.
 
-  NACHBUCHEN (durch den Controller, vor jeder anderen Buchung):
+  NACHBUCHEN (durch den Controller, vor jeder anderen Buchung; fuer den
+  Einzel-Snapshot EINER Connection auch durch den WG-Treiber unmittelbar
+  vor deren Wiedereintrag, BASE-040_030 Schritt A4):
+    Nachbuchen ist eine Buchung nach SV-4 (BASE-070_050 Abschnitt 4):
+    dieselbe Implementierung wie der Buchungslauf - mit Tagesreihe und
+    mit dem Vergleich auf die gelesenen Cursorwerte und die Epoche.
     Fuer jede Snapshot-Datei, aelteste zuerst:
       - Stimmt interface_generation mit der in SQL gefuehrten Laufzeitmarke
         wg_interface_generation ueberein (Tabelle der Laufzeitmarken,
