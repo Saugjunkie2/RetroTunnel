@@ -426,9 +426,8 @@ class Arbeitspakete(Basis):
         self.erwarte_fehler("bezug M2-060 bereits von AP-K060 belegt")
 
 
-class Steuerung(Basis):
-    """Gleichstand der Steuerungsdokumente (00_MANIFEST 6a, KR-07): Jede Angabe hat EINE massgebliche Datei; wer sie
-    woanders abweichend fuehrt, muss auffallen."""
+class DateiHelfer(Basis):
+    """Hilfe fuer Tests, die eine Textdatei der Kopie gezielt veraendern (ohne eigene Tests)."""
 
     def datei(self, rel, funktion):
         p = os.path.join(self.tmp, rel)
@@ -438,6 +437,11 @@ class Steuerung(Basis):
         self.assertNotEqual(alt, neu, f"Fixture passt nicht mehr zu {rel}")
         with open(p, "w", encoding="utf-8") as f:
             f.write(neu)
+
+
+class Steuerung(DateiHelfer):
+    """Gleichstand der Steuerungsdokumente (00_MANIFEST 6a, KR-07): Jede Angabe hat EINE massgebliche Datei; wer sie
+    woanders abweichend fuehrt, muss auffallen."""
 
     def test_ausgangsstand_ist_gruen(self):
         rc, out = self.lauf()
@@ -510,7 +514,7 @@ class Steuerung(Basis):
 
 
 
-class Haertung(Steuerung):
+class Haertung(DateiHelfer):
     """Umgehungsversuche aus der unabhaengigen Kontrolle vom 2026-11-14 (governance/pruefungen/
     KONSOLIDIERUNG_PRUEFUNG_C_...): Jede dort gefundene Luecke hat hier einen Test, der sie als geschlossen belegt.
     Dazu Positivproben fuer die vier gemeldeten Fehlalarme."""

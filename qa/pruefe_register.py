@@ -1135,6 +1135,9 @@ class Pruefung:
                 stellen = (re.findall(r"Concept version:\s*([^\]]*)\]", readme)
                            + re.findall(r"badge/Concept-([^-]*)-", readme)
                            + re.findall(r"Konzeptentwicklung \(([^)]*)\)", readme))
+                for z in readme.splitlines():      # jede Versionsnummer in den Zeilen zum Projektstand
+                    if "Projektstand" in z or "Concept version" in z:
+                        stellen += re.findall(r"\bv\d+(?:\.\d+)+\b", z)
                 if len(stellen) < 3:
                     self.err("README.md: Versionsangabe fehlt (Badge-Text, Badge-Adresse oder 'Konzeptentwicklung (v...)')")
                 for v in sorted(set(stellen) - {mv.group(1)}):
