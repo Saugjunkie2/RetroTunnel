@@ -18,16 +18,20 @@ ZWECK:
      Signalvertrag mit den Schreibvorgaengen SV-1 bis SV-3; die Tabelle
      log_runtime_activity; die Ende-Gruende.
   b) Die Semantik von SimUse=1 in allen vier Schichten und den Vertrag der
-     Tabelle vpn_session_locks.
-  c) Die Schnittstelle des Laufzeit-Adapters, die Regeln zum Schliessen
+     Tabelle vpn_session_locks, einschliesslich der beiden gespeicherten
+     Routinen des Zwecks L2TP_ADMISSION (aufgerufen vom AAA-Dienst).
+  c) Die Schnittstelle des Laufzeit-Adapters, die Zugehoerigkeit von
+     Laufzeitsitzungen zu Connections, die Regeln zum Schliessen
      von Geistern, vpn-sessiond, vpn-session-check, vpn-session-janitor,
      vpn-session-kill.
   d) Den Schreibvertrag der Gruppe D (SV-4 bis SV-6), die Tabellen
      vpn_l2tp_acct_state, log_quota_period, log_usage_daily, die
-     Quota-Periode und vpn-quota-period.
+     Quota-Periode mit der gemeinsamen Routine der Periodenrechnung und
+     vpn-quota-period.
   e) vpn_pool_config, den Allokator, vpn_ip_quarantine, die Rueckgabe von
-     Adressen und die Fuellstandsueberwachung.
-  f) Die Tabelle vpn_runtime_marks und ihr Verzeichnis.
+     Adressen, die Adress-Reparatur und die Fuellstandsueberwachung.
+  f) Die Tabelle vpn_runtime_marks und ihr Verzeichnis; die Pfade unter
+     /run/retrotunnel/session/ und den Spool-Bereich hardcut-audit.
   g) Den Vertrag des L2TP-Abgleichs (ausgefuehrt von BASE-030) und die
      Anforderungen an den WireGuard-Controller, soweit sie Episoden und
      Buchung betreffen (ausgefuehrt von BASE-040).
@@ -39,7 +43,8 @@ ZWECK:
   Gegenstand                                          Owner
   --------------------------------------------------- ---------------------
   Schema von vpn_connections (auch Gruppe D, ip_slot, BASE-010
-  fixed_ip, revoked_at, quarantine_until),
+  fixed_ip, revoked_at, quarantine_until), Auth-
+  Tabelle L2TP (subaccount_login, credential_version),
   Statusuebergaenge, Reason-Registry, Lifecycle-Log
   FreeRADIUS-Konfiguration, Pruefkette, Ablehnungs-   BASE-020
   gruende, radacct und radpostauth als Tabellen,
@@ -49,7 +54,8 @@ ZWECK:
   Peers, awg0, AWG Session Controller, WG-Adapter,    BASE-040
   Snapshot-Spool
   Regelwerk und Sets der Firewall                     BASE-050
-  Zeitbasis, Zeitzonendaten                           BASE-060
+  Zeitbasis, Zeitzonendaten, Signal "Systemzeit       BASE-060
+  synchronisiert"
   vpn-policy-apply, Abgleich der Policy-Zustaende,    BASE-080
   conntrack, Bewertung und Durchsetzung
   Settings-Katalog, Aufloesung, Klassen               BASE-090
@@ -78,6 +84,10 @@ ZWECK:
   GS-6  BASE-070 schreibt keinen op_status und loest keine Einschraenkung
         aus; es misst und meldet.
   GS-7  vpn_session_locks bleibt tunnelneutral (G5).
+  GS-8  Anmeldenamen werden in keinem Modul gekuerzt, umgewandelt oder
+        anders als byteweise verglichen (ANF-SC-16). Wo Anmeldename und
+        Tunneladresse einer Laufzeitsitzung vorliegen, ordnet kein Modul
+        die Sitzung allein ueber den Namen zu.
 
 ================================================================================
 4) ANTWORTEN AUF ANFORDERUNGEN ANDERER MODULE
@@ -115,77 +125,122 @@ ZWECK:
   ANF-SC-01 (BASE-010, Nachzug AP-Q04)
     a) Gruppe D ins Schema: Spalten laut _050 Abschnitt 1 (einschliesslich
        runtime_active_since); Initialisierung bei Anlage (Verbrauch 0,
-       laufende Quota-Periode).
-    b) Anlage und Rollenwechsel rufen den Allokator in ihrer Transaktion;
-       keine andere Stelle schreibt Slot oder Adressen. INV-83 und INV-84
-       laut Changelog v2.0 nachziehen.
+       laufende Quota-Periode aus der gemeinsamen Routine, _050
+       Abschnitt 5).
+    b) Anlage, Rollenwechsel und Adress-Reparatur rufen den Allokator in
+       ihrer Transaktion; keine andere Stelle schreibt Slot oder
+       Adressen. Die Transaktion liest festgeschrieben und sperrt als
+       erste Anweisung die beteiligten Pools (_060 V-1, V-2; beim
+       Rollenwechsel Quell- und Zielpool). INV-83 und INV-84 laut
+       Changelog v2.0 nachziehen.
     c) INV-82 um vpn_ip_quarantine erweitern (_060 Abschnitt 6).
     d) Physische Loeschung nach Quarantaene gilt fuer jede widerrufene
        Connection; der vorzeitige Loeschpfad erzeugt einen Quarantaene-
-       Eintrag ohne Herkunft.
+       Eintrag ohne Herkunft - in derselben Transaktion wie das Loeschen,
+       unter der Pool-Sperre (_060 W3).
     e) Lifecycle-Log: Ereignistypen SESSION_START, SESSION_END,
        SESSION_JANITOR_CLOSE, SESSION_SIMUSE_REJECT entfallen;
        SESSION_HARDCUT bleibt; QUARANTINE_END entfaellt zugunsten von
-       POOL_RETURN und CONNECTION_DELETED.
+       POOL_RETURN und CONNECTION_DELETED. SLOT_CHANGE gilt auch fuer
+       die Adress-Reparatur.
     f) Der Kennwortwechsel einer L2TP-Connection (durch Nutzer oder
        Verwaltung) laeuft als Umbau nach _030 Abschnitt 6: Sperre
        KEY_ROTATION, Aenderung, Hard-Cut mit Grund AUTH_KEY_ROTATED.
+       Die Auth-Zeile (vpn_connection_l2tp_ipsec_auth) erhaelt einen
+       Zaehler credential_version; jeder Kennwortwechsel erhoeht ihn in
+       DERSELBEN Transaktion, die das Kennwort schreibt (_030 P5 b).
        Die Bestaetigung an den Nutzer wird vor dem Hard-Cut ausgeliefert
        (Ablauf im Panel: MOD-006). VB-0021.
+    g) subaccount_login wird byteweise verglichen und ist in dieser
+       Vergleichsweise eindeutig (ANF-SC-16).
 
   ANF-SC-02 (BASE-000, Nachzug AP-Q04)
     Registry: vpn_sessions als ENTFALLEN; neu log_runtime_activity,
     vpn_l2tp_acct_state, log_quota_period, log_usage_daily,
     vpn_pool_config, vpn_ip_quarantine, vpn_runtime_marks; Rechte laut
-    _070 Abschnitt 4; Rechte auf vpn_sessions streichen. Empfohlen: je
-    Komponente ein eigener Datenbankzugang mit dem dort ablesbaren
-    Mindestumfang statt eines gemeinsamen Vollzugriffs.
+    _070 Abschnitt 4; Rechte auf vpn_sessions streichen. Der DB-User
+    radius erhaelt an vpn_session_locks KEIN Tabellenrecht, nur das
+    Ausfuehrungsrecht an den beiden Routinen des Zwecks L2TP_ADMISSION.
+    Alle Datenbankzugaenge dieses Moduls und des AAA-Dienstes laufen mit
+    Weltzeit als Sitzungszeitzone (_070 U-6) und lesen festgeschrieben
+    (_070 U-7). Empfohlen: je Komponente ein eigener Datenbankzugang mit
+    dem dort ablesbaren Mindestumfang statt eines gemeinsamen
+    Vollzugriffs.
 
   ANF-SC-03 (BASE-030, Nachzug AP-Q04)
-    a) Der Daemon weist eine zweite Sitzung desselben Anmeldenamens ab
-       (single-session=deny); LT-35 und T-LT-34 entsprechend (BF-0012).
-    b) L2TP-Adapter mit list, probe, kill nach _040 Abschnitt 1;
-       geschuetzte lokale Verwaltungsschnittstelle; Startzeit des Daemons.
-    c) vpn-l2tp-sync nach _020 Abschnitt 7 und _050 Abschnitt 3.
+    a) ZWEI SCHLUSSRIEGEL: Der Daemon weist eine zweite Sitzung desselben
+       Anmeldenamens ab (single-session=deny; LT-35 und T-LT-34
+       entsprechend, BF-0012) UND eine neue Sitzung, deren Tunneladresse
+       bereits einer bestehenden Sitzung zugewiesen ist. Er vergibt
+       keine Adresse aus einem eigenen Vorrat (_060 AV-3).
+    b) L2TP-Adapter mit list, probe, kill nach _040 Abschnitt 1:
+       Zugehoerigkeit ueber Anmeldename ODER Tunneladresse; vier
+       Antworten einschliesslich TRANSITION; Sitzungen im Auf- und Abbau
+       mit Zustand und Beginn; Sitzungskennung (AD-6) und Instanzkennung
+       des Daemons (AD-7); Beenden ueber Sitzungskennung bzw. Adresse,
+       nie allein ueber den Namen; geschuetzte lokale
+       Verwaltungsschnittstelle.
+    c) vpn-l2tp-sync nach _020 Abschnitt 7 und _050 Abschnitt 3,
+       einschliesslich Merker bei belegtem Einzel-Lock, Reihenfolge je
+       Connection, Mengenbremse (L6, L7) und Marken (L9).
     d) Hooks ohne radacct-Korrelation, ohne vpn_sessions, ohne Loeschen
        von Sperren. ip-up: Spiegel schreiben, Connection lesen, Adresse
-       pruefen, vpn-policy-apply, Abgleich anstossen. ip-down: Abbau,
+       pruefen, vpn-policy-apply, Abgleich anstossen. ip-down: als
+       ERSTEN Schritt den Ende-Vermerk schreiben (_040 G-8), dann Abbau,
        Spiegel entfernen, Abgleich anstossen. BASE-030_050 neu fassen.
        Der Laufzeit-Spiegel ist nur fuer root schreibbar. Der Spiegel
        enthaelt keine oeffentliche Gegenstelle (der bisherige Eintrag
        CALLING_SID entfaellt; DEC-SC-20).
-    e) LT-34 durch die Neustart-Regel ersetzen.
-    f) Wenn moeglich: Kennung des Anmeldeversuchs in der RADIUS-Anfrage
-       mitsenden (Halterkennung der Sperre, _030 Abschnitt 5).
+    e) LT-34 durch die Neustart-Regel ersetzen (_020 Schritt L3:
+       Erkennung an der Instanzkennung; geschlossen wird nur nach den
+       Geister-Regeln).
+    f) Der Daemon sendet das Attribut Class der Zusage in den
+       Abrechnungsmeldungen der Sitzung unveraendert zurueck
+       (Halterkennung der Sperre, _030 Abschnitt 4).
     g) Accounting-Start ohne Verzoegerung (LT-25 bleibt, mit neuer
        Begruendung): Die Nutzung soll innerhalb der Sperr-TTL im Protokoll
        stehen.
 
   ANF-SC-04 (BASE-020, Nachzug AP-Q04)
     a) SimUse-Baustein P1 bis P6 nach erfolgreicher Credential-Pruefung
-       (_030 Abschnitt 4), einschliesslich der Nachpruefung unter der
-       Sperre mit aktuellem Lesestand; Aufruf von vpn-session-check ohne
-       Shell, mit numerischem Argument und Zeitlimit.
-    b) Freigabe der Sperre bei Accounting-Start NACH dem Schreiben der
-       radacct-Zeile.
+       (_030 Abschnitt 4): Die Schritte 2.2 bis 2.4 halten den geprueften
+       Zulassungsstand fest (op_status, revoked_at, fixed_ip,
+       credential_version); P3 bis P5 sind EIN Aufruf einer
+       gespeicherten Routine; die Nachpruefung liest den aktuell
+       festgeschriebenen Stand. vpn-session-check wird ohne Shell
+       aufgerufen, mit numerischem Argument und Zeitlimit; die Antwort
+       TRANSITION fuehrt zu R_SIMUSE_GUARD_BUSY.
+    b) Die Halterkennung ist ein frischer Zufallswert je Anmeldeversuch
+       und steht in der Zusage als Attribut Class. Freigabe der Sperre
+       bei Accounting-Start NACH dem Schreiben der radacct-Zeile, ueber
+       die zweite Routine, NUR mit holder = Class der Meldung. Ohne
+       Class oder mit fremdem Class: keine Freigabe.
     c) Annahme der Abrechnungsmeldungen ohne Datenbank mit Puffer nach
-       _050 Abschnitt 8 (P-a bis P-e).
+       _050 Abschnitt 8 (P-a bis P-h).
     d) Eine Interim-Meldung legt eine fehlende radacct-Zeile an; 64-Bit-
-       Zaehler werden vollstaendig gefuehrt.
+       Zaehler werden vollstaendig gefuehrt; eine Zwischenmeldung senkt
+       keinen Zaehler und aendert eine geschlossene Zeile nur nach oben
+       (P-f; die Standardabfragen sind dafuer anzupassen).
     e) Alle Bezuege auf vpn_sessions entfernen (unter anderem AAA-06,
        BASE-020_010, _020, _030, _040, _050, _060).
+    f) Alle Datenbankverbindungen des AAA-Dienstes laufen mit Weltzeit
+       als Sitzungszeitzone (_070 U-6).
 
   ANF-SC-05 (BASE-020 mit MOD-007)
     Der DB-User system darf in radacct Geister schliessen (nur
     acctstoptime, acctsessiontime, acctterminatecause). radacct-Zeilen
-    werden erst geloescht, wenn ihr Buchungsstand abgeschlossen ist.
+    werden erst geloescht, wenn ihr Buchungsstand abgeschlossen ist; der
+    Buchungsstand wird nur ZUSAMMEN mit seiner radacct-Zeile oder nach
+    ihr geloescht (_050 A-5).
 
   ANF-SC-06 (BASE-020)
-    Neuer Ablehnungsgrund R_SIMUSE_GUARD_BUSY (voruebergehend); Beschreibung
-    von R_SIMUSE_ACTIVE auf Sonde und radacct umstellen; SimUse-Ablehnungen
-    stehen im AAA-Protokoll, nicht im Lifecycle-Log. Beide Gruende erhalten
-    den Pflicht-Schutz "darf keine Sperre ausloesen" (wie die
-    Backend-Gruende): Sie entstehen nur mit gueltigen Zugangsdaten.
+    Neuer Ablehnungsgrund R_SIMUSE_GUARD_BUSY (voruebergehend: Sperre
+    belegt, Sitzung im Auf- oder Abbau, Zulassungsstand waehrend der
+    Anmeldung geaendert); Beschreibung von R_SIMUSE_ACTIVE auf Sonde und
+    radacct umstellen; SimUse-Ablehnungen stehen im AAA-Protokoll, nicht
+    im Lifecycle-Log. Beide Gruende erhalten den Pflicht-Schutz "darf
+    keine Sperre ausloesen" (wie die Backend-Gruende): Sie entstehen nur
+    mit gueltigen Zugangsdaten.
 
   ANF-SC-07 (BASE-080)
     a) Bewertung der Quota in eigenem kurzem Takt mit den Limits aus
@@ -195,26 +250,46 @@ ZWECK:
        Policy-Herstellung: Hard-Cut-Kern mit "Laufzeit zuerst".
     c) Rollenwechsel-Kaskade: Sperren, Transaktion mit Allokator und
        Quarantaene, Hard-Cut, Freigabe in der Reihenfolge aus _030
-       Abschnitt 6 und _060 Abschnitt 5.
-    d) Marke policy_reconcile_last_ok_at schreiben.
+       Abschnitt 6 und _060 Abschnitt 5. Ebenso die Adress-Reparatur
+       (_060 Abschnitt 4, AR1 bis AR3).
+    d) Marken policy_reconcile_last_run_at und _last_ok_at sowie
+       policy_eval_last_run_at und _last_ok_at schreiben (_070
+       Abschnitt 1).
 
   ANF-SC-08 (BASE-090)
-    Keys aus _070 Abschnitt 3 katalogisieren (Grenzen, Konsistenzregeln
-    K-a bis K-e, Alias fuer Altnamen); Default von
-    radius_acct_interim_seconds entscheiden (VB-0020).
+    Keys aus _070 Abschnitt 3 katalogisieren: Grenzen, Konsistenzregeln
+    K-a bis K-g, Alias fuer Altnamen; je Key die Fehlerklasse
+    FAIL_SAFE_HARDCAP mit dem Vorschlagswert als Notwert (TRUTH_MODEL
+    Abschnitt 4). Die Aufloesung liefert wirksamen Wert, Herkunft und
+    Zustand des Keys; die Notwerte stehen vpn-sessiond auch ohne
+    Datenbank zur Verfuegung (Konfiguration aus dem Katalog). Default
+    von radius_acct_interim_seconds entscheiden (VB-0020).
 
   ANF-SC-09 (BASE-040)
-    Buchungslauf auf Anforderung (Signal) fuer die Stichtagsbuchung;
-    Tagesreihe im Buchungslauf (in BASE-040_050 F4 nachgetragen);
-    WG-Adapter mit list, probe, kill; Marken nach _070 Abschnitt 1.
+    a) Buchungslauf auf Anforderung (Signal) fuer die Stichtagsbuchung;
+       Tagesreihe im Buchungslauf (in BASE-040_050 F4 nachgetragen);
+       WG-Adapter mit list, probe, kill; Marken nach _070 Abschnitt 1.
+    b) Vergleich beim Schreiben auf die GELESENEN Cursorwerte UND
+       counter_epoch (_050 B-3); D004 P-01 entsprechend nachziehen.
+    c) Die Schlussbuchung vor dem Entfernen eines Peers (BASE-040_030
+       R1) und das Nachbuchen eines Snapshots sind Buchungen nach SV-4:
+       dieselbe Implementierung, derselbe Vergleich, dieselbe
+       Tagesreihe. Verliert R1 den Vergleich, rechnet es neu; gelingt
+       es in der vorgesehenen Zahl von Versuchen nicht, wird der
+       Zaehlerstand als Snapshot abgelegt, BEVOR der Peer entfernt wird.
+    d) Sicherungspunkt je Connection im Buchungslauf. Scheitert allein
+       die Tagesreihe, wird ohne sie gebucht; das zaehlt nicht als
+       Datenbankstoerung (_050 B-9).
 
   ANF-SC-10 (BASE-110, MOD-006)
     Sichten auf log_runtime_activity (mit und ohne Gegenstelle),
     log_usage_daily, log_quota_period, Pool-Kennzahlen; je Connection
     eine gemeinsame Zeitleiste aus Lifecycle-Log und
     Aktivitaetsereignissen (DEC-SC-03); privilegierter Auftragsweg fuer
-    Hard-Cut, Live-Auskunft, Live-Liste, Pool-Stellgroessen und
-    Reservefreigabe;
+    Hard-Cut, Live-Auskunft, Live-Liste, Pool-Stellgroessen,
+    Reservefreigabe, Adress-Reparatur, Freigabe zurueckgestellter
+    Rueckgaben, Bestaetigung der Zeit fuer einen Lauf (_070 U-5) und
+    Berichtigung einer Periode in der Zukunft;
     Kennzeichnung "zuletzt gesehen"; keine Bearbeitung von Sperren,
     Marken, Hinweisfeldern, Buchungsstaenden.
 
@@ -222,27 +297,53 @@ ZWECK:
     Meldeweg der Ereignisse aus _070 Abschnitt 6, auch ohne Datenbank;
     Aufbewahrung und Loeschlaeufe fuer log_runtime_activity (Gegenstelle
     und Zeile getrennt), log_usage_daily, log_quota_period, radacct.
+    vpn_l2tp_acct_state wird nur zusammen mit der zugehoerigen
+    radacct-Zeile geloescht, nie vorher (_050 A-5).
 
   ANF-SC-12 (BASE-100, MOD-010)
     Aufloesung des Limits je Connection; Verhaeltnis geteilter Kontingente
     zur Buchungsebene Connection (D004-E04); Planwechsel ohne Reset.
 
   ANF-SC-13 (MOD-008)
-    Sicherungsumfang: Tabellen dieses Moduls und der Spool-Bereich.
+    Sicherungsumfang: Tabellen dieses Moduls und der Spool-Bereich
+    (einschliesslich hardcut-audit).
     Wiederherstellung: Sperren verwerfen; nach Rueckkehr zu einem aelteren
     Datenbankstand buchen die Laeufe aus den weitergelaufenen Zaehlern
     nach (WireGuard: Cursor kleiner als Kernelzaehler; L2TP: spaetere
     Meldungen). Verloren ist, was in der Zwischenzeit endete und nicht
     mehr gemeldet wird - als Grenze der Wiederherstellung auszuweisen.
 
-  ANF-SC-14 (BASE-060)
-    Synchronisierte Systemzeit; aktuelle Zeitzonendaten; Datenbankzeit
-    gleich Systemzeit.
+  ANF-SC-14 (BASE-060, BASE-005)
+    a) Synchronisierte Systemzeit; aktuelle Zeitzonendaten; Datenbankzeit
+       gleich Systemzeit.
+    b) Ein lokal lesbares Signal "Systemzeit synchronisiert", das nach
+       einem Start erst gesetzt ist, wenn die Uhr tatsaechlich
+       abgeglichen wurde (_070 U-5).
+    c) Tunnel- und Anmeldedienste starten erst, nachdem die Uhr gestellt
+       ist: Keine Sitzung beginnt vor einer grossen Zeitkorrektur beim
+       Systemstart.
+    d) Grosse Zeitspruenge im Betrieb werden gemeldet.
 
   ANF-SC-15 (BASE-005, Nachzug AP-Q04)
-    Registry: Units, Werkzeuge, Pfade, Gruppe fuer den Socket,
+    Registry: Units, Werkzeuge, Pfade (einschliesslich ended/,
+    sync-request/ und hardcut-audit/), Gruppe fuer den Socket,
     Spool-Grenzen; das Kennwort der Verwaltungsschnittstelle von accel-ppp
     im Secret-Inventar.
+
+  ANF-SC-16 (BASE-020, BASE-010, BASE-000, BASE-030) - EINE SCHREIBWEISE
+    a) BASE-020: Der gesendete Anmeldename wird VOR der Suche gegen das
+       feste Format geprueft (BASE-010 AS-05). Ein Name, der ihm nicht
+       Zeichen fuer Zeichen entspricht - andere Gross- oder
+       Kleinschreibung, Leerraum, Zusatzzeichen -, wird ABGELEHNT. Er
+       wird nicht gekuerzt und nicht umgewandelt (BASE-020_030 Schritt
+       2.1 neu fassen: Das bisherige Trimmen entfaellt).
+    b) BASE-010, BASE-000: subaccount_login und radacct.username werden
+       byteweise verglichen (binaere Kollation der Spalten oder
+       binaerer Vergleich in jeder Abfrage); die Eindeutigkeit von
+       subaccount_login gilt in dieser Vergleichsweise.
+    c) BASE-030: Der Schlussriegel ueber den Namen ist mindestens so
+       streng; kann der Daemon dabei Gross- und Kleinschreibung
+       gleichsetzen, wird das genutzt (zusaetzliche Sicherung).
 
 ================================================================================
 6) ZU VERIFIZIERENDE ANNAHMEN
@@ -251,46 +352,69 @@ ZWECK:
   Die folgenden Punkte stuetzen sich auf dokumentiertes Verhalten fremder
   Software oder auf Abschaetzungen. Sie sind NICHT praktisch geprueft. Je
   Annahme ist der Ausweichweg genannt, falls sie nicht haelt.
+  Der Vermerk [Q] kennzeichnet Aussagen, die waehrend der Gegenpruefung
+  aus oeffentlichem Quelltext (accel-ppp, FreeRADIUS) gelesen wurden;
+  auch sie sind am Zielsystem NICHT bestaetigt und gelten nur fuer den
+  gelesenen Stand.
 
   E-SC-01  accel-ppp weist mit single-session=deny eine zweite Sitzung
            desselben Anmeldenamens ab, auch wenn die erste noch im Aufbau
-           ist und wenn beide gleichzeitig authentisiert werden.
+           ist und wenn beide gleichzeitig authentisiert werden. Der
+           Vergleich ist byteweise, solange keine andere Option gesetzt
+           ist [Q].
            AUSWEICHWEG: Die On-Demand-Pruefung wird Pflicht mit strenger
            Auslegung (UNKNOWN fuehrt zur Ablehnung); das kostet
            Verfuegbarkeit bei gestoerter Sonde.
-  E-SC-02  Die Verwaltungsschnittstelle von accel-ppp liefert je Sitzung
-           Anmeldename (vollstaendig und unveraendert), Sitzungskennung,
-           Interface, Adresse, Zustand und Beginn, erlaubt gezieltes
-           hartes Beenden, ist lokal und per Kennwort schuetzbar und
-           antwortet unter Last innerhalb des Zeitlimits. Eine Sitzung,
+  E-SC-02  Die Verwaltungsschnittstelle von accel-ppp liefert je Sitzung -
+           auch im Auf- und Abbau - Anmeldename (vollstaendig und
+           unveraendert), Sitzungskennung, Interface, Adresse, Zustand
+           und Beginn; sie erlaubt gezieltes hartes Beenden ueber
+           Sitzungskennung und ueber Adresse [Q], ist lokal und per
+           Kennwort schuetzbar und antwortet unter Last innerhalb des
+           Zeitlimits. Die Ausgabe ist eindeutig zerlegbar. Eine Sitzung,
            die sich noch in der Authentisierung befindet, erscheint nicht
            unter ihrem Anmeldenamen.
            AUSWEICHWEG: Adapter ueber Interface-Liste des Kernels und
            Laufzeit-Spiegel; mehr UNKNOWN, laengere Aussperrzeiten.
-           Erscheint die authentisierende Sitzung bereits unter dem
-           Namen, entscheidet die On-Demand-Pruefung je Zeile ueber die
-           Sitzungskennung statt ueber den Namen.
+           Ist die Ausgabe eine mit Leerzeichen aufgefuellte Tabelle
+           [Q], bleibt sie fuer zugelassene Namen eindeutig, weil diese
+           ein festes Format ohne Leerraum haben (ANF-SC-16); jede
+           andere Zeile ergibt UNKNOWN (AD-2). Erscheint die
+           authentisierende Sitzung bereits unter dem Namen, entscheidet
+           die Sitzungskennung.
   E-SC-03  accel-ppp sendet nach hartem Beenden Accounting-Stop und fuehrt
            kumulative 64-Bit-Zaehler in Interim- und Stop-Meldungen.
            AUSWEICHWEG: Schlusswerte ueber den ip-down-Hook in den Spool
            (Muster des Vorgaengers B165).
   E-SC-04  FreeRADIUS: Eine Interim-Meldung legt eine fehlende Zeile an;
-           acctuniqueid bleibt ueber die Sitzung gleich; eine Stop-Meldung
-           ueberschreibt auch eine bereits geschlossene Zeile; der
-           Pufferbetrieb mit Verwerfen nach Art der Meldung ist
-           herstellbar.
+           acctuniqueid bleibt ueber die Sitzung gleich und ist ueber
+           alle Sitzungen eindeutig, auch nach Absturz und Neustart des
+           Daemons [Q: praktisch sicher]; eine Stop-Meldung ueberschreibt
+           auch eine bereits geschlossene Zeile; der Pufferbetrieb mit
+           Verwerfen nach Art der Meldung, lesbarem Fuellstand und
+           erhaltener Reihenfolge je Sitzung ist herstellbar; die
+           Abfragen lassen sich so fassen, dass eine Zwischenmeldung
+           keinen Zaehler senkt (P-f).
            AUSWEICHWEG: wie E-SC-03; ohne Puffer ist der Verlust bei
            Datenbankstoerung auf Sitzungen begrenzt, die waehrend der
-           Stoerung enden.
+           Stoerung enden. Wird eine Kennung doch wiederverwendet, faellt
+           der Zaehler unter den Buchungsstand: Die Anomalie
+           L2TP_ACCT_COUNTER_REGRESSION zeigt es; Abhilfe ist eine
+           Kennung, die die Instanz des Daemons einschliesst.
   E-SC-05  Clients, insbesondere Windows XP und Vista ueber L2TP, arbeiten
            mit Tunneladressen, deren letztes Oktett 0 oder 255 ist.
            AUSWEICHWEG: skip_edge_octets = 1.
   E-SC-06  MariaDB und der Datenbanktreiber des AAA-Dienstes verhalten
-           sich wie vorausgesetzt: Zeilensperre auf vpn_pool_config,
+           sich wie vorausgesetzt: Zeilensperre auf vpn_pool_config;
            Schluesselkonflikt beim Sperrerwerb als eindeutiges
-           Fehlersignal.
-           AUSWEICHWEG: Sperrerwerb ueber eine gespeicherte Routine mit
-           eindeutigem Rueckgabewert.
+           Fehlersignal; festgeschriebenes Lesen ist je Verbindung
+           einstellbar, und ein sperrendes Lesen sieht den aktuellen
+           Stand (U-7, V-1); Abbrueche wegen Verklemmung, Wartezeit oder
+           geaenderter Zeile sind als wiederholbar erkennbar; NOW() ist
+           innerhalb einer Anweisung fest.
+           AUSWEICHWEG: Sperrerwerb und Allokator ueber gespeicherte
+           Routinen mit eindeutigem Rueckgabewert; wo festgeschriebenes
+           Lesen nicht einstellbar ist, liest jede Stelle sperrend.
   E-SC-07  Die On-Demand-Pruefung bleibt auch unter Last unter dem
            Zeitlimit, das der Daemon dem AAA-Dienst laesst (Regel K-d).
            AUSWEICHWEG: Zeitlimit des Daemons anheben oder die Pruefung
@@ -299,9 +423,61 @@ ZWECK:
   E-SC-08  L2TP-Abgleich und Tagesreihe bleiben bei den Zielgroessen
            (WireGuard 5.000 Peers) innerhalb ihrer Takte.
            AUSWEICHWEG: Buendelung der Schreiboperationen; laengerer Takt.
-  E-SC-09  Die Monatsgrenze in vpn_quota_timezone wird auch in Monaten mit
-           Zeitumstellung korrekt berechnet.
+  E-SC-09  Die Monatsgrenze (erster Zeitpunkt des Kalendermonats in
+           vpn_quota_timezone) wird auch in Monaten mit Zeitumstellung
+           korrekt berechnet.
            AUSWEICHWEG: keiner noetig; reine Implementierungspruefung.
+  E-SC-10  ZWEITER SCHLUSSRIEGEL: accel-ppp weist eine neue Sitzung ab,
+           deren Tunneladresse bereits einer bestehenden Sitzung
+           zugewiesen ist [Q].
+           AUSWEICHWEG: Ohne ihn haengt "eine Nutzung je Connection" fuer
+           abweichende Schreibweisen an ANF-SC-16 allein; eine dennoch
+           entstandene zweite Sitzung erkennt der Abgleich an der Adresse
+           und beendet sie binnen eines Takts (_020 Schritt L7).
+  E-SC-11  SITZUNGSKENNUNG: Die Verwaltungsschnittstelle nennt je Sitzung
+           die Kennung, die in radacct als acctsessionid steht [Q].
+           AUSWEICHWEG: Zuordnung ueber die Connection (AD-6, Schritt
+           L4); aeltere offene Zeilen ruhen; Ereignis
+           L2TP_ADAPTER_NO_SESSION_ID.
+  E-SC-12  INSTANZKENNUNG: Fuer den Daemon ist eine Kennung lesbar, die
+           bei jedem Start wechselt und nicht aus der Uhrzeit stammt
+           (etwa die Aufrufkennung seiner Unit).
+           AUSWEICHWEG: Prozessnummer zusammen mit der Startzeit des
+           Prozesses laut Kernel (gezaehlt ab Systemstart, nicht nach
+           der Uhr). Ohne jede Kennung entfaellt nur der Grund
+           SYSTEM_RESTART; geschlossen wird unveraendert nach den
+           Geister-Regeln.
+  E-SC-13  CLASS: accel-ppp sendet das Attribut Class der Zusage in den
+           Abrechnungsmeldungen der Sitzung unveraendert zurueck.
+           AUSWEICHWEG: keine Freigabe bei Accounting-Start; die Sperre
+           laeuft nach ihrer TTL ab. Kein Schutzverlust; eine
+           Wiedereinwahl unmittelbar nach einer sehr kurzen Sitzung
+           wartet hoechstens die TTL.
+  E-SC-14  ENDE-VERMERK: Der ip-down-Pfad laeuft bei jedem regulaeren
+           Sitzungsende und beginnt, BEVOR die Sitzung aus der Liste des
+           Daemons verschwindet [Q]. NICHT vorausgesetzt wird, dass die
+           Stop-Meldung dann schon in radacct steht - sie wird
+           unabhaengig davon gesendet [Q].
+           AUSWEICHWEG: Karenz ab der ersten Beobachtung: Eine Zeile wird
+           erst geschlossen, wenn ihre Sitzung in zwei Lesungen im
+           Abstand von mindestens vpn_ghost_stop_grace_seconds nicht
+           gelistet war; die Aussperrzeit steigt um hoechstens einen
+           Takt des Abgleichs.
+  E-SC-15  ZEITEN IN radacct: acctstarttime, acctupdatetime und
+           acctstoptime tragen die Zeit, zu der der AAA-Dienst die
+           Meldung angenommen hat [Q] - auch fuer nachgespielte
+           Meldungen (P-h ist herstellbar).
+           AUSWEICHWEG: Zeiten nachgespielter Meldungen liegen um die
+           Dauer der Stoerung zu spaet; betroffen sind Ereigniszeiten und
+           last_counter_seen_at, nicht Buchung und SimUse. Das
+           Mindestalter (G-2) wirkt dann nur strenger.
+  E-SC-16  ZEITSIGNAL: Die Zeitbasis stellt lokal lesbar bereit, ob die
+           Systemzeit abgeglichen ist; nach einem Start ist das Signal
+           erst gesetzt, wenn der Abgleich tatsaechlich erfolgte.
+           AUSWEICHWEG: keiner mit gleichem Schutz. Ohne Signal ruhen
+           Periodenwechsel und Rueckgaben (U-5), bis der Betreiber die
+           Zeit fuer einen Lauf bestaetigt; nichts geht verloren, die
+           Entlastung der Kunden zum Monatswechsel verzoegert sich.
 
 ================================================================================
 7) VERBLEIB DER INVARIANTEN AUS SM_SESSION
@@ -315,7 +491,7 @@ ZWECK:
   SES-03        SZ-1, vier Schichten (_030 Abschnitt 1); die erneute
                 Pruefung vor dem Eintrag lebt als Nachpruefung P5 fort
                 (_030 Abschnitt 4)
-  SES-04, -05,  Vorbedingungen von SV-1 und Regel S-3 (_020)
+  SES-04, -05,  Vorbedingungen von SV-1 und Regeln S-3, S-5 (_020)
   SES-06, -06b
   SES-07, -08   Regeln zu den Hinweisfeldern (nie verringern, nie Zukunft)
   SES-09        Vorbedingung b von SV-1; Zulassungswaechter (L7)
@@ -333,7 +509,7 @@ ZWECK:
   SES-23        INV-39 (BASE-010); _020 Abschnitt 8
   SES-24        J1; Sperren laufen selbst ab (_030, _040)
   SES-25        angepasst: Freigabe nach dem Schreiben der radacct-Zeile
-                (_030 Abschnitt 4)
+                und nur durch den Halter (_030 Abschnitt 4)
   SES-26        last_runtime_seen_at nur bei beobachteter Aktivitaet
                 (_020 Abschnitt 2)
 

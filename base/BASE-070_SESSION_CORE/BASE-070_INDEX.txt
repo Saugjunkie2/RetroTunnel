@@ -2,8 +2,8 @@
 BASE-070 — SESSION CORE (INDEX)
 ================================================================================
 DATEI: BASE-070_INDEX.txt
-VERSION: v1.0
-DATUM: 2026-11-13
+VERSION: v1.1
+DATUM: 2026-11-14
 STATUS: ACTIVE (Konzeptstand; keine Implementierung, kein Praxistest)
 
 ================================================================================
@@ -77,7 +77,7 @@ STATUS: ACTIVE (Konzeptstand; keine Implementierung, kein Praxistest)
   BASE-070_INDEX.txt                                 Dieses Dokument
   BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt    Schutzziele, Begriffe,
                                                      Komponenten,
-                                                     DEC-SC-01..21
+                                                     DEC-SC-01..24
   BASE-070_020_RUNTIME_ACTIVITY_UND_SIGNALVERTRAG.txt
                                                      runtime_activity,
                                                      Episoden, SV-1..SV-3,
@@ -107,11 +107,11 @@ STATUS: ACTIVE (Konzeptstand; keine Implementierung, kein Praxistest)
                                                      Rechte, Status,
                                                      Ereignisse
   BASE-070_080_OWNER_GRENZEN.txt                     Besitz, Grenzregeln,
-                                                     ANF-SC-01..15,
-                                                     E-SC-01..09, Verbleib
+                                                     ANF-SC-01..16,
+                                                     E-SC-01..16, Verbleib
                                                      der SES-Invarianten
-  BASE-070_090_INVARIANTEN.txt                       SC-01..SC-61
-  BASE-070_095_TESTS.txt                             T-SC-01..T-SC-80
+  BASE-070_090_INVARIANTEN.txt                       SC-01..SC-71
+  BASE-070_095_TESTS.txt                             T-SC-01..T-SC-95
 
   entwuerfe/ENTWURF_IPV6_ALLOKATOR.txt               Vorstudie (nicht
                                                      normativ, KR-01);
@@ -145,8 +145,9 @@ STATUS: ACTIVE (Konzeptstand; keine Implementierung, kein Praxistest)
   Laeufe      vpn-session-janitor, vpn-quota-period (Zeitgeber fest, Takt
               aus Settings); vpn-l2tp-sync (Runner BASE-030)
   Werkzeuge   vpn-session-check, vpn-session-kill
-  Pfade       /run/retrotunnel/session/, /run/vpn-sessions/,
-              /var/lib/vpn-accounting/
+  Pfade       /run/retrotunnel/session/ (mit ended/, sync-request/),
+              /run/vpn-sessions/, /var/lib/vpn-accounting/ (mit
+              hardcut-audit/)
   Bereitschaft SESSION_CORE_READY (Socket antwortet); KEINE Voraussetzung
               fuer die Tunnel-Dienste
   Einzelheiten: BASE-070_070 Abschnitt 2.
@@ -155,8 +156,11 @@ STATUS: ACTIVE (Konzeptstand; keine Implementierung, kein Praxistest)
 6) ZUSAGEN IM UEBERBLICK
 ================================================================================
 
-  - Nie zwei Tunnel einer Connection; nie eine Uebernahme (SC-12, SC-13).
+  - Nie zwei Tunnel einer Connection; nie eine Uebernahme - unabhaengig
+    von der Schreibweise des Anmeldenamens (SC-12, SC-13, SC-62).
   - Aussperren durch Leichen ist begrenzt (SC-27).
+  - Geschlossen wird nur die Zeile einer Sitzung, die belegt nicht lebt
+    (SC-23, SC-24).
   - Verbrauch wird genau einmal gebucht; eine Datenbankstoerung allein
     verliert nichts (SC-35, SC-39); Messgrenzen sind benannt (SC-40).
   - Der Monatswechsel ist atomar und protokolliert (SC-42, SC-43).
@@ -164,6 +168,8 @@ STATUS: ACTIVE (Konzeptstand; keine Implementierung, kein Praxistest)
     Quarantaene gesperrt (SC-47, SC-50).
   - Ein Hard-Cut beendet die Laufzeit oder meldet ehrlich sein Scheitern
     (SC-31).
+  - Kein Lauf greift selbsttaetig in Massen ein; Unumkehrbares geschieht
+    nur bei bestaetigter Systemzeit (SC-70, SC-66).
 
 ================================================================================
 7) PANEL-CONSUMABILITY (R-17)
@@ -210,7 +216,16 @@ STATUS: ACTIVE (Konzeptstand; keine Implementierung, kein Praxistest)
   _050 Abschnitt 9, _060 Abschnitt 8). Maschinell geprueft ist allein die
   formale Konsistenz (Nummerierung, Verweise, Rueckverfolgung) durch
   qa/pruefe_register.py. Kein Test dieses Moduls wurde ausgefuehrt; die
-  Annahmen E-SC-01 bis E-SC-09 sind nicht praktisch bestaetigt.
+  Annahmen E-SC-01 bis E-SC-16 sind nicht praktisch bestaetigt.
+
+  GEGENPRUEFUNG: Die Fassung v1.0 wurde am 2026-11-13 von zwei
+  unabhaengigen Pruefern gelesen (27 Befunde; Berichte unter
+  governance/pruefungen/, Register BF-0013 bis BF-0039). Die Fassung v1.1
+  arbeitet diese Befunde und zwei weitere aus dem Abgleich der
+  Nachlieferung ein (BF-0040, BF-0041). Aussagen der Pruefer ueber das
+  Verhalten fremder Software stammen aus dem Lesen oeffentlichen
+  Quelltexts und sind am Zielsystem nicht bestaetigt; sie stehen als
+  Annahmen in BASE-070_080 Abschnitt 6.
 
 ================================================================================
 CHANGELOG

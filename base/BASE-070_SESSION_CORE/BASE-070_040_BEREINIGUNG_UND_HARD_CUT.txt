@@ -244,7 +244,8 @@ ZWECK:
         Zukunft liegt (BASE-070_030 K-2; Ereignis RT_CLOCK_ANOMALY).
         Reine Hygiene; der Erwerb entfernt beides selbst.
     J2  VERWAISTE HINWEISE (L2TP): Connection mit runtime_active_since
-        NOT NULL, ohne offene radacct-Zeile ihres Anmeldenamens und ohne
+        NOT NULL, ohne offene radacct-Zeile (Anmeldename oder
+        Tunneladresse, BASE-070_020 Abschnitt 1) und ohne
         nicht abgeschlossenen Buchungsstand: Episode nach SV-2 beenden
         (Grund OTHER, t_end = last_runtime_seen_at). Fuer WireGuard ist das
         Aufgabe des Controllers (Fall B); der Lauf fasst WG-Hinweise nicht
@@ -259,10 +260,12 @@ ZWECK:
     J4  ADRESSEN: abgelaufene Quarantaene-Eintraege loeschen; widerrufene
         Connections nach Ablauf ihrer Quarantaene physisch loeschen
         (BASE-070_060 Abschnitt 6).
-    J5  BUCHUNGSSTAENDE: Nachzuegler buchen (Vergleich der abgeschlossenen
-        Zeilen innerhalb der Aufbewahrung mit radacct); abgeschlossene
-        Eintraege nach Ablauf ihrer Aufbewahrung loeschen (BASE-070_050
-        Abschnitt 3).
+    J5  BUCHUNGSSTAENDE: Nachzuegler buchen (Vergleich der Staende, die
+        innerhalb von vpn_l2tp_late_acct_window_days abgeschlossen
+        wurden, mit radacct); SICHERHEITSNETZ: geschlossene
+        radacct-Zeilen ohne Buchungsstand nachbuchen (BASE-070_050
+        Abschnitt 3). Der Lauf loescht KEINE Buchungsstaende: Ein Stand
+        lebt so lange wie seine radacct-Zeile (A-5).
     J6  POOL-STATISTIK UND DRIFT-WAECHTER: Fuellstaende berechnen,
         Schwellenwechsel melden (BASE-070_060 Abschnitt 7); Ableitung der
         Adressen aus Rolle und Slot pruefen (BASE-070_060 Abschnitt 4).
@@ -447,8 +450,8 @@ ZWECK:
     (Statusdatei).
   - Hard-Cut je Connection als ADMIN-Aktion mit Ergebniscode; bei
     FAIL_KILL deutliche Fehlermeldung, keine Erfolgsanzeige.
-  - Live-Auskunft je Connection (LIVE/NOT_LIVE/UNKNOWN) ueber den
-    privilegierten Auftragsweg.
+  - Live-Auskunft je Connection (LIVE/NOT_LIVE/TRANSITION/UNKNOWN) ueber
+    den privilegierten Auftragsweg.
   - Live-Liste aller lebenden Sitzungen beider Tunnel (list() der
     Adapter) ueber denselben Weg, nur fuer ADMIN und in der Haeufigkeit
     begrenzt. Sie nennt connection_ref, Tunneltyp und Beginn, keine

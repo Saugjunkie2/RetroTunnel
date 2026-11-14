@@ -77,7 +77,20 @@ ZWECK:
                        Operationen list, probe, kill (BASE-070_040).
                        Runner: BASE-030 (L2TP), BASE-040 (WireGuard).
   Sonde                Operation probe des Adapters; Antwort LIVE,
-                       NOT_LIVE oder UNKNOWN.
+                       NOT_LIVE, TRANSITION oder UNKNOWN.
+  Zugehoerigkeit       Eine L2TP-Laufzeitsitzung gehoert zu einer
+                       Connection, wenn ihr Anmeldename ODER ihre
+                       Tunneladresse uebereinstimmt (BASE-070_020).
+  Sitzungskennung      Kennung einer Laufzeitsitzung im Daemon; bei L2TP
+                       das Gegenstueck zu radacct.acctsessionid.
+  Instanzkennung       Kennung eines Daemon-Prozesses, die bei jedem
+                       Start wechselt und nicht aus der Uhrzeit stammt.
+  Karenz               Kurze Frist nach einem beobachteten regulaeren
+                       Ende, in der die Bereinigung der Stop-Meldung den
+                       Vortritt laesst.
+  Notwert              Im Settings-Katalog hinterlegter Wert, den die
+                       Aufloesung liefert, wenn ein Key fehlt oder
+                       ungueltig ist (TRUTH_MODEL Abschnitt 4).
   Geist                Protokollzeile oder Hinweis, der eine Nutzung
                        behauptet, die laut Laufzeit nicht besteht.
   Sperre (Guard)       Zeile in vpn_session_locks: kurzlebiger Mutex je
@@ -162,6 +175,9 @@ DEC-SC-02  LAUFZEIT-WAHRHEIT JE TUNNEL
   bleibt als Spiegel fuer Hooks und Diagnose (BASE-030), ist aber kein
   Lebendbeweis mehr: Bei accel-ppp gibt es - anders als bei pppd - eine
   zentrale, abfragbare Sitzungstabelle.
+  Eine Protokollzeile wird ihrer Laufzeitsitzung ueber die
+  Sitzungskennung zugeordnet, eine Laufzeitsitzung ihrer Connection ueber
+  Anmeldename ODER Tunneladresse (DEC-SC-22).
 
 DEC-SC-03  EPISODEN SIND PROJEKTION, EIGENE EREIGNISTABELLE
   Beginn, Ende und Endpunktwechsel werden in log_runtime_activity
@@ -199,11 +215,13 @@ DEC-SC-05  L2TP: EPISODEN AUS DEM ABGLEICH, KEINE KORRELATION IM HOOK
 DEC-SC-06  SIMUSE IN VIER SCHICHTEN, KEINE UEBERNAHME
   (1) Wahrheitspruefung im Anmeldepfad: Sonde und radacct.
   (2) Sperre: schliesst das Fenster zwischen Zusage und sichtbarer
-      Wahrheit; die Protokollpruefung wird unter der Sperre wiederholt.
+      Wahrheit; die Pruefung von Protokoll und Zulassungsstand wird
+      unter der Sperre wiederholt.
   (3) Bereinigung: verhindert Aussperren durch Geister.
   (4) Schlussriegel im Daemon: accel-ppp weist eine zweite Sitzung
-      desselben Logins selbst ab (single-session=deny); WireGuard laesst
-      je Peer technisch nur einen Endpunkt zu.
+      desselben Logins selbst ab (single-session=deny) und ebenso eine
+      neue Sitzung mit bereits zugewiesener Tunneladresse; WireGuard
+      laesst je Peer technisch nur einen Endpunkt zu.
   Schicht (4) ERSETZT die bisherige Vorgabe single-session=replace
   (LT-35). Begruendung: "replace" beendet im Wettlauf die BESTEHENDE
   Sitzung zugunsten der neuen und verletzt damit genau dann SZ-2 (und
@@ -224,23 +242,38 @@ DEC-SC-07  EIN SPERRVERTRAG, ZWEI VERWENDUNGEN
   Schritten (Abgelaufenes loeschen, dann einfuegen), NICHT als "Einfuegen
   oder Aktualisieren": Dessen Rueckgabewert ist je nach Verbindungsoption
   des Datenbanktreibers nicht eindeutig (BASE-070_030 Abschnitt 4).
+  Der Halter ist je Vorgang ein frischer Zufallswert; freigeben kann nur,
+  wer ihn kennt. Beim Admission-Guard traegt ihn die Zusage im Attribut
+  Class, und die Start-Meldung der zugelassenen Sitzung bringt ihn
+  zurueck. Der AAA-Dienst erreicht die Tabelle nur ueber zwei
+  gespeicherte Routinen.
 
-DEC-SC-08  SONDE MIT DREI ANTWORTEN
-  LIVE, NOT_LIVE, UNKNOWN. UNKNOWN wird nie wie NOT_LIVE behandelt: Bei
-  UNKNOWN wird nichts geschlossen, und der Anmeldepfad entscheidet streng
-  nach radacct. Der Schlussriegel deckt den Rest.
+DEC-SC-08  SONDE MIT VIER ANTWORTEN
+  LIVE, NOT_LIVE, TRANSITION, UNKNOWN. UNKNOWN wird nie wie NOT_LIVE
+  behandelt: Bei UNKNOWN wird nichts geschlossen, und der Anmeldepfad
+  entscheidet streng nach radacct. Der Schlussriegel deckt den Rest.
+  TRANSITION (nur Sitzungen im Auf- oder Abbau) ist eine eigene Antwort:
+  Es wird nichts geschlossen und voruebergehend abgelehnt, weil der
+  Daemon eine neue Sitzung in diesem Augenblick abwiese; haengt der
+  Zustand, wird die Sitzung nach einer Frist beendet.
 
 DEC-SC-09  BEREINIGUNG DREIFACH, NUR FUER BELEGT TOTES
   On-Demand im Anmeldepfad, periodisch, und nach Daemon- bzw. Systemstart.
   Geschlossen wird ausschliesslich, was laut Laufzeit nicht lebt. Die
   Bereinigung ist "best effort", die SimUse-Pruefung streng (Zwei-Stufen-
   Modell aus B169).
+  Auf allen drei Wegen gilt DIESELBE, an die Sitzung gebundene
+  Schliessbedingung mit Mindestalter und Karenz; einen Sonderweg nach
+  Neustarts gibt es nicht. Ein Neustart des Daemons wird an seiner
+  Instanzkennung erkannt, nicht an einem Vergleich von Uhrzeiten.
 
 DEC-SC-10  HARD-CUT: LAUFZEIT ZUERST
   vpn-session-kill beendet die Laufzeit ueber den Adapter und stoesst
   danach den Abgleich an. Das Loeschen einer Sperre oder das Schliessen
   einer Protokollzeile allein ist kein Hard-Cut und als Verwaltungs-
-  handlung nicht vorgesehen (D012).
+  handlung nicht vorgesehen (D012). Der Hard-Cut trifft jede Sitzung der
+  Connection; "nicht aktiv" meldet er nur nach einer Lesung, die keine
+  zeigt; ohne Datenbank traegt er sein Protokoll nach.
 
 DEC-SC-11  L2TP-VERBRAUCH AUS radacct MIT BUCHUNGSSTAND
   Gebucht wird die Differenz zwischen dem in radacct gemeldeten Gesamt-
@@ -264,7 +297,9 @@ DEC-SC-13  QUOTA-PERIODE: KALENDERMONAT, WECHSEL ALS COMPARE-AND-SET
   Nullstellen, neue Grenzen) mit Vergleich auf das alte Periodenende.
   Buchungen sind immer relativ (quota_used = quota_used + Delta). Damit
   ist jede Verschraenkung von Buchung und Wechsel korrekt (D004-E08,
-  INV-QUOTA-RESET-ATOMARITY).
+  INV-QUOTA-RESET-ATOMARITY). Der Wechsel wirkt unumkehrbar und haengt
+  allein an der Uhr; er laeuft deshalb nur bei bestaetigter Systemzeit
+  (DEC-SC-19).
 
 DEC-SC-14  BASE-070 MISST, ES BEWERTET NICHT
   Ob eine Quota ausgeschoepft ist und welche Folge das hat, entscheiden
@@ -279,7 +314,9 @@ DEC-SC-15  ADRESSVERGABE: FREIMENGE, ZUFALL, POOL-SPERRE
   die UNIQUE-Bedingung auf den Adressen bleibt letzte Verteidigung.
   Gegenueber "zufaellig probieren mit begrenzten Versuchen" (B064/B061)
   ist das Ergebnis exakt: "kein Slot frei" ist ein Befund, kein
-  Versuchsabbruch.
+  Versuchsabbruch. Voraussetzung ist, dass die Pool-Sperre die erste
+  Anweisung der Transaktion ist und die Belegung danach als aktueller
+  Stand gelesen wird.
 
 DEC-SC-16  QUARANTAENE EINHEITLICH, AUCH OHNE CONNECTION-ZEILE
   Eine Adresse ist gesperrt, solange (a) irgendeine Connection-Zeile sie
@@ -295,7 +332,8 @@ DEC-SC-16  QUARANTAENE EINHEITLICH, AUCH OHNE CONNECTION-ZEILE
   Faelle, in denen keine Zeile die Adresse mehr traegt.
 
 DEC-SC-17  LAUFZEITMARKEN STATT SETTINGS
-  Maschinenzustand (Generationen, Zeitpunkte letzter erfolgreicher Laeufe)
+  Maschinenzustand (Generationen, Instanzkennungen, Zeitpunkte letzter
+  Laeufe, zuletzt gemeldete Stufen)
   steht in vpn_runtime_marks. Settings bleiben das, was der Betreiber
   einstellt. Damit haben auch die bisher ortlosen Gesundheitsmarken
   (policy_reconcile_last_ok_at, wg_accounting_last_ok_at, ...) eine
@@ -312,6 +350,14 @@ DEC-SC-19  EINE UHR FUER FRISTEN
   Datenbankzeit verglichen (NOW() des Servers), nie mit der Uhr des
   aufrufenden Prozesses. Ereigniszeiten (source_event_at) stammen aus der
   Laufzeit.
+  Die Datenbankzeit ist die Systemzeit und kann falsch gehen. Deshalb:
+  (a) Alle Datenbankverbindungen laufen mit Weltzeit; die
+      Geschaeftszeitzone wirkt nur in der Periodenrechnung.
+  (b) Unumkehrbare, allein zeitgesteuerte Vorgaenge (Periodenwechsel,
+      Rueckgabe von Adressen, physisches Loeschen) laufen nur, wenn die
+      Zeitbasis die Uhr als abgeglichen meldet.
+  (c) Zeitwerte in der Zukunft sind eine Anomalie und fuehren nie zu
+      vorzeitiger oder verlaengerter Wirkung.
 
 DEC-SC-20  OEFFENTLICHE ADRESSEN NUR IM EREIGNISPROTOKOLL
   Die oeffentliche Gegenstelle eines Kunden steht ausschliesslich in
@@ -330,6 +376,42 @@ DEC-SC-21  VERBRAUCHSVERLAUF ALS TAGESREIHE, GESCHRIEBEN BEIM BUCHEN
   das einzige Aggregat fuer das Budget (D004-E05). Verworfen: Auswertung
   aus radacct (fehlt fuer WireGuard, andere Aufbewahrung) und eine
   Zeitreihe je Buchungslauf (hohe Datenmenge ohne benannten Bedarf).
+  Die Buchung hat Vorrang vor der Statistik: Scheitert allein die
+  Tagesreihe, wird ohne sie gebucht und der Ausfall gemeldet.
+
+DEC-SC-22  ZUORDNUNG UEBER ZWEI MERKMALE, EINE SCHREIBWEISE
+  "Eine Nutzung je Connection" darf nicht an der Schreibweise einer
+  Zeichenkette haengen. Deshalb (a) laesst der Anmeldedienst nur den
+  Namen zu, der dem gespeicherten Zeichen fuer Zeichen gleicht, und alle
+  Stellen vergleichen byteweise; (b) gehoert eine Laufzeitsitzung zu
+  einer Connection, wenn ihr Anmeldename ODER ihre Tunneladresse
+  uebereinstimmt - die Adresse stammt allein aus fixed_ip und ist je
+  Connection eindeutig; (c) sichert der Daemon mit zwei Riegeln, ueber
+  den Namen und ueber die Adresse. Anlass: Befund BF-0013 der
+  Gegenpruefung (abweichende Schreibweisen umgingen Sonde, Geister-Regel,
+  Schlussriegel und Hard-Cut).
+
+DEC-SC-23  KEIN SELBSTTAETIGER MASSENEINGRIFF
+  Laeufe dieses Moduls melden Abweichungen; sie greifen nur einzeln und
+  begrenzt ein. Der Drift-Waechter der Adressen aendert nichts (die
+  Reparatur ist eine Verwaltungshandlung je Connection). Der Abgleich
+  beendet oberhalb einer Schwelle keine Sitzung, der Bereinigungslauf
+  gibt oberhalb einer Schwelle keine Adresse zurueck. Grund: Eine grosse
+  Zahl gleichartiger Abweichungen zeigt in aller Regel einen Fehler der
+  Lesung, der Uhr oder der Daten - nicht viele einzelne Faelle. Ein
+  selbsttaetiger Eingriff wuerde den Fehler zum Schaden machen (SZ-9).
+  Der Schutz haengt dabei nie am Eingriff: Unberechtigter Verkehr bleibt
+  ueber die Policy gesperrt, Adressen bleiben laenger gesperrt.
+  Ersetzt die selbsttaetige Reparatur aus dem Vorgaenger (B064 5.5);
+  Befund BF-0028.
+
+DEC-SC-24  SETTINGS OHNE EIGENEN RUECKFALLWEG
+  Das Modul liest Settings nur ueber die Aufloesung des Settings-Kerns
+  und haelt keine eigenen Rueckfallwerte. Fuer seine Keys beantragt es im
+  Katalog die Fehlerklasse FAIL_SAFE_HARDCAP mit dem Vorschlagswert als
+  Notwert (TRUTH_MODEL Abschnitte 3 und 4, SF-02). Jede Nutzung eines
+  Notwerts wird gemeldet. Keine Zulassung haengt an einem Setting dieses
+  Moduls. Befund BF-0041.
 
 ================================================================================
 6) DAMIT GESCHLOSSENE OFFENE PUNKTE

@@ -433,16 +433,30 @@ ZWECK:
         Sitzung, die nach Ablauf der Schwelle weiter ohne Protokollzeile
         ist, beendet wird (Ende-Grund POLICY_FAIL_CLOSED) - fuer den Fall,
         dass unabgerechneter Verkehr schwerer wiegt als ein Abbruch.
-        Beendet wird dabei nie mehr als
-        vpn_l2tp_unaccounted_kill_max_per_run Sitzungen je Lauf; darueber
-        bleibt es beim Alarm (eine Stoerung der Abrechnung darf nicht
-        alle Sitzungen kosten).
+        MENGENBREMSE: Sind in einem Lauf mehr Sitzungen betroffen als
+        vpn_l2tp_kill_hold_threshold, wird KEINE beendet; es bleibt beim
+        Alarm (Ereignis L2TP_KILL_HELD). Eine solche Menge hat ihre
+        Ursache nicht in der einzelnen Sitzung, sondern in der
+        Abrechnung - sie darf nicht alle Sitzungen kosten.
     L7  LAUFZEITSITZUNG OHNE BERECHTIGUNG: Gehoert eine gelistete Sitzung
         zu keiner Connection, fuehren ihr Name und ihre Adresse zu
         verschiedenen Connections (S-5) oder ist ihre Connection DISABLED
         bzw. widerrufen: kill() dieser Sitzung, Ereignis
         L2TP_ORPHAN_SESSION bzw. RT_IDENTITY_MISMATCH (Zulassungswaechter,
         Gegenstueck zu BASE-040_050 Abschnitt 3 Schritt B2).
+        MEHRFACHSITZUNG: Sind fuer EINE Connection mehrere Sitzungen im
+        Zustand "aktiv" gelistet, haben beide Schlussriegel versagt.
+        Ereignis RT_DUPLICATE_SESSION; alle bis auf die AELTESTE werden
+        beendet (kill() mit Sitzungskennung) - die bestehende Nutzung
+        bleibt, die hinzugekommene endet (SZ-2).
+        MENGENBREMSE: Waeren in einem Lauf nach diesem Schritt mehr
+        Sitzungen zu beenden als vpn_l2tp_kill_hold_threshold, beendet
+        der Lauf KEINE und meldet L2TP_KILL_HELD (CRITICAL). Eine solche
+        Menge deutet auf einen Fehler der Lesung oder der Zuordnung,
+        nicht auf einzelne Sitzungen. Der Verkehr nicht berechtigter
+        Connections bleibt dabei gesperrt: Er haengt an der Policy
+        (BASE-080), nicht am Bestehen der Sitzung. Das Beenden ist dann
+        eine Betreiberhandlung.
     L8  MELDEVERZUG: Lebende Sitzung, deren radacct-Zeile seit mehr als
         l2tp_radacct_stale_threshold_seconds nicht fortgeschrieben wurde:
         Drift L2TP_ACCT_STALLED (Alarm). Keine Beendigung.
@@ -507,10 +521,11 @@ ZWECK:
     Alter des Hinweises.
   - Verlauf der Episoden aus log_runtime_activity (Beginn, Ende, Grund,
     Dauer); Gegenstelle nur fuer ADMIN.
-  - Live-Zustand (LIVE/NOT_LIVE/UNKNOWN) nur ueber die privilegierte
-    Einzelabfrage des Adapters (BASE-070_040), nie aus SQL.
+  - Live-Zustand (LIVE/NOT_LIVE/TRANSITION/UNKNOWN) nur ueber die
+    privilegierte Einzelabfrage des Adapters (BASE-070_040), nie aus SQL.
   - Driftzaehler L2TP_UNACCOUNTED, L2TP_ACCT_STALLED, L2TP_ORPHAN_SESSION,
-    RT_ADDRESS_MISMATCH aus der Statusdatei (BASE-070_070).
+    L2TP_ACCT_UNTRACKED, RT_ADDRESS_MISMATCH, RT_IDENTITY_MISMATCH,
+    RT_DUPLICATE_SESSION aus der Statusdatei (BASE-070_070).
 
 ================================================================================
 CHANGELOG

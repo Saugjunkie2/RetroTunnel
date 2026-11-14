@@ -33,13 +33,13 @@ ZWECK:
          Ausnahme: Die Marke l2tp_sync_last_radacctid steuert, welche
          Zeilen als neu gelten; fehlt sie, ist das ein Alarm
          (BASE-070_050 Abschnitt 3).
-    M-7  Eine Zeitmarke, die in der Zukunft der Datenbankzeit liegt, ist
-         eine Anomalie (die Uhr wurde zurueckgestellt): Der Leser
-         behandelt den Lauf als FAELLIG und meldet RT_CLOCK_ANOMALY.
     M-5  Neue Marken werden hier eingetragen, bevor sie benutzt werden.
     M-6  Eine Marke belegt keinen Lebendzustand eines Tunnels (SZ-4); sie
          sagt nur, wann ein Lauf zuletzt erfolgreich war bzw. welche
          Generation zuletzt verarbeitet wurde.
+    M-7  Eine Zeitmarke, die in der Zukunft der Datenbankzeit liegt, ist
+         eine Anomalie (die Uhr wurde zurueckgestellt): Der Leser
+         behandelt den Lauf als FAELLIG und meldet RT_CLOCK_ANOMALY.
 
   VERZEICHNIS DER MARKEN:
     Marke                          Schreiber                 Bedeutung
@@ -145,6 +145,10 @@ ZWECK:
          Zukunft liegt. Andernfalls ruhen sie ohne Wirkung; Ereignis
          SESSION_TIME_UNCONFIRMED (ALERT). Alles andere - Abgleich,
          Buchung, Bereinigung von Geistern und Sperren - laeuft weiter.
+         Fehlt das Signal dauerhaft, kann der Betreiber die Zeit fuer
+         EINEN Lauf von Hand bestaetigen (privilegierter Auftragsweg,
+         erneute Anmeldung, protokolliert mit Akteur). Die Pruefung auf
+         Marken in der Zukunft bleibt davon unberuehrt.
     U-6  WELTZEIT: Alle Datenbankverbindungen dieses Moduls laufen mit
          Weltzeit als Sitzungszeitzone; Zeitpunkte werden als Weltzeit
          uebergeben. Dasselbe wird vom AAA-Dienst verlangt (ANF-SC-04),
@@ -232,7 +236,7 @@ ZWECK:
   l2tp_radacct_stale_threshold_seconds     900        Regel K-b  D004-E09
   vpn_l2tp_unaccounted_action              ALARM      ALARM,     neu
                                                       KILL
-  vpn_l2tp_unaccounted_kill_max_per_run    5          1..100     neu
+  vpn_l2tp_kill_hold_threshold             10         1..500     neu
   vpn_runtime_seen_refresh_seconds         60         10..600    neu
   vpn_janitor_interval_seconds             300        60..3600   belegt
   vpn_boot_janitor_delay_seconds           90         30..600    belegt
@@ -384,7 +388,8 @@ ZWECK:
                            verworfen}, drift: {L2TP_UNACCOUNTED,
                            L2TP_ACCT_STALLED, L2TP_ORPHAN_SESSION,
                            L2TP_ACCT_COUNTER_REGRESSION,
-                           L2TP_ACCT_UNTRACKED, RT_IDENTITY_MISMATCH},
+                           L2TP_ACCT_UNTRACKED, RT_IDENTITY_MISMATCH,
+                           RT_DUPLICATE_SESSION}, beenden_zurueckgestellt,
                            letzter_lauf_at, letzter_lauf_ok_at
     status-janitor.json    generated_at, sperren_gueltig je Zweck,
                            sperren_entfernt, hinweise_bereinigt,
@@ -432,6 +437,13 @@ ZWECK:
                                            einer Sitzung fuehren zu
                                            verschiedenen Connections;
                                            Sitzung wurde beendet
+  RT_DUPLICATE_SESSION           CRITICAL  mehrere aktive Sitzungen
+                                           einer Connection; alle bis
+                                           auf die aelteste beendet
+  L2TP_KILL_HELD                 CRITICAL  der Abgleich haette mehr
+                                           Sitzungen beendet, als die
+                                           Schwelle erlaubt; KEINE wurde
+                                           beendet
   L2TP_SESSION_STUCK             ALERT     Sitzung haengt im Auf- oder
                                            Abbau; wurde beendet
   L2TP_ADAPTER_NO_SESSION_ID     ALERT     Adapter nennt keine
@@ -490,7 +502,8 @@ ZWECK:
                                            aelter als drei Takte
   SESSION_SETTING_FALLBACK       WARN      Key fehlt, ist ungueltig oder
                                            verletzt eine Konsistenzregel;
-                                           Rueckfallwert in Gebrauch
+                                           Notwert des Katalogs in
+                                           Gebrauch
 
   Ereignisse, die eine Connection betreffen, tragen connection_ref, nie
   Anmeldenamen oder oeffentliche Adressen. Ist die Datenbank nicht
