@@ -30,11 +30,13 @@ ZWECK:
                      framedipaddress c.fixed_ip.
     AKTIV(c)     :=  LIVE(c).
 
-    EINE SCHREIBWEISE: Anmeldenamen werden ueberall byteweise verglichen -
-    in der Anmeldepruefung, in radacct, im Adapter und im Daemon. Der
-    Anmeldedienst laesst nur zu, wenn der gesendete Name dem gespeicherten
-    Zeichen fuer Zeichen gleicht; er kuerzt und wandelt nichts
-    (ANF-SC-16). Die Tunneladresse ist das zweite, davon unabhaengige
+    EINE SCHREIBWEISE: Wo ein Anmeldename ZUORDNET oder ZULAESST - in der
+    Anmeldepruefung, in radacct, im Adapter -, wird er byteweise
+    verglichen. Der Anmeldedienst laesst nur zu, wenn der gesendete Name
+    dem gespeicherten Zeichen fuer Zeichen gleicht; er kuerzt und wandelt
+    nichts (ANF-SC-16). Groeber gleichsetzen darf allein ein Schlussriegel
+    - und nur, um ABZUWEISEN (ANF-SC-16 c).
+    Die Tunneladresse ist das zweite, davon unabhaengige
     Merkmal: Sie stammt allein aus fixed_ip und ist je Connection
     eindeutig. "Eine Nutzung je Connection" haengt damit nicht an der
     Schreibweise einer Zeichenkette.
@@ -106,8 +108,8 @@ ZWECK:
 
   Feld               L2TP_IPSEC                   WIREGUARD
   ------------------ ---------------------------- --------------------------
-  vpn_connection_id  ueber den Anmeldenamen aus   aus dem SOLL-Abbild des
-                     der Auth-Tabelle; danach aus Controllers
+  vpn_connection_id  nach der Zuordnungsregel     aus dem SOLL-Abbild des
+                     (_050 Regel A-3); danach aus Controllers
                      dem Buchungsstand
   tunnel_type        L2TP_IPSEC                   WIREGUARD
   client_ipv4        radacct.framedipaddress      vpn_connections.fixed_ip
@@ -175,14 +177,22 @@ ZWECK:
       a) Connection-Zeile existiert, tunnel_type stimmt, Adressen und
          Zuordnung stimmen (S-3, S-5).
       b) op_status IN (ACTIVE, RESTRICTED) UND revoked_at IS NULL.
-         Sonst: kein Beginn; Ereignis RT_ACTIVITY_NOT_ALLOWED; Hard-Cut
+         Ist die Connection DISABLED oder widerrufen oder fehlt ihre
+         Zeile: kein Beginn; Ereignis RT_ACTIVITY_NOT_ALLOWED; Hard-Cut
          der Sitzung (S-6) bzw. vpn-policy-apply (Fail-Closed). Eine
          gesperrte Connection kann keine Episode haben.
+         Ist die Zeile NICHT AUSWERTBAR (Wert ausserhalb des
+         Wertevorrats, widerspruechliche Felder; BASE-040_030 Abschnitt
+         1, BASE-080 DEC-PA-22): kein Beginn und KEIN Beenden; Ereignis
+         RT_STATE_UNDETERMINED (ALERT). Die bestehende Laufzeit bleibt,
+         wie sie ist, bis die Zeile berichtigt ist.
     NACHTRAEGLICHER BEGINN (Abgleich Schritt L5; die Abrechnungssitzung
     ist bereits beendet): Die Vorbedingungen werden NICHT geprueft, und
     es gibt keinen Hard-Cut. Der Beginn wird als Tatsache der
-    Vergangenheit mit den Daten der Zeile vermerkt; Schritt 3 entfaellt
-    (es gibt keine laufende Episode, auf die ein Hinweis zeigen duerfte).
+    Vergangenheit mit den Daten der Zeile vermerkt; die Schritte 2 und 3
+    entfallen: Es gibt keine laufende Episode, auf die ein Hinweis zeigen
+    duerfte, und eine inzwischen laufende NEUERE Episode bleibt
+    unberuehrt.
     t_begin wird VOR dem Schreiben nach W-5 begrenzt; Ereignis und Hinweis
     tragen denselben, begrenzten Wert.
     Transaktion:
@@ -190,11 +200,15 @@ ZWECK:
          Existiert der Eintrag bereits, endet SV-1 erfolgreich OHNE
          weitere Wirkung (Idempotenz).
       2  Ist eine ANDERE Episode als offen vermerkt
-         (runtime_active_since NOT NULL und ungleich t_begin), wird sie
-         zuvor nach SV-2 beendet. Die andere Episode ist die, deren
-         Beginn-Eintrag als source_event_at den Wert von
-         runtime_active_since traegt; ihr t_end ist last_runtime_seen_at;
-         der Grund kommt aus dem Kontext des Runners, sonst SUPERSEDED.
+         (runtime_active_since NOT NULL und ungleich t_begin) UND liegt
+         ihr Beginn VOR t_begin, wird sie zuvor nach SV-2 beendet. Die
+         andere Episode ist die, deren Beginn-Eintrag als source_event_at
+         den Wert von runtime_active_since traegt; ihr t_end ist
+         last_runtime_seen_at; der Grund kommt aus dem Kontext des
+         Runners, sonst SUPERSEDED.
+         Liegt ihr Beginn NACH t_begin, ist die vermerkte Episode die
+         juengere: Sie bleibt, und Schritt 3 entfaellt (der Hinweis zeigt
+         weiter auf sie).
       3  UPDATE vpn_connections
             SET runtime_active_since = :t_begin,
                 last_runtime_seen_at = GREATEST(
@@ -310,11 +324,17 @@ ZWECK:
   SERVICE_STOP             Controller             WG-Stop durch Betreiber
   CONNECTION_DISABLED      Hard-Cut-Ausloeser     Wechsel nach DISABLED
   CONNECTION_ROLE_CHANGE   Hard-Cut-Ausloeser     T-09
+  CONNECTION_ADDRESS_REPAIR Hard-Cut-Ausloeser    Adress-Reparatur
+                                                  (_060 Abschnitt 4)
   AUTH_KEY_ROTATED         Hard-Cut-Ausloeser     Schluessel- bzw.
                                                   Kennwortwechsel
   ADMIN_HARDCUT            vpn-session-kill       Betreiberhandlung
   POLICY_FAIL_CLOSED       Runner                 Beendet, weil Policy nicht
                                                   hergestellt werden konnte
+  SESSION_GUARD            L2TP-Abgleich          vom Abgleich beendet:
+                                                  haengend, unabgerechnet,
+                                                  ohne Berechtigung oder
+                                                  mehrfach (Schritt L7a)
   SUPERSEDED               SV-1                   aeltere Episode ohne
                                                   gemeldetes Ende
   OTHER                    Runner                 nicht zuordenbar
@@ -324,23 +344,31 @@ ZWECK:
     User-Request -> USER_DISCONNECT; Lost-Carrier, Lost-Service, Port-Error
     -> LINK_LOST; Idle-Timeout -> IDLE_TIMEOUT; Session-Timeout ->
     SESSION_TIMEOUT; NAS-Reboot, NAS-Error, Admin-Reboot -> SYSTEM_RESTART;
-    Admin-Reset -> ADMIN_HARDCUT; Janitor-Ghost -> JANITOR_GHOST; alles
-    andere -> OTHER.
+    Admin-Reset -> ADMIN_HARDCUT; Janitor-Ghost -> JANITOR_GHOST;
+    Janitor-Restart -> SYSTEM_RESTART; alles andere -> OTHER.
+    ('Janitor-Ghost' und 'Janitor-Restart' schreibt allein die
+    Bereinigung; kein Daemon sendet sie.)
   GRUND-HINWEIS (im Buchungsstand, _050 Abschnitt 3; mit Zeitpunkt):
     H-a  Ein Hinweis eines Hard-Cut-Ausloesers (ADMIN_HARDCUT,
-         CONNECTION_DISABLED, CONNECTION_ROLE_CHANGE, AUTH_KEY_ROTATED,
-         POLICY_FAIL_CLOSED) hat Vorrang vor der Zuordnung, wenn das Ende
-         hoechstens vpn_hardcut_hint_valid_seconds nach seinem Setzen
-         liegt. Ein aelterer Hinweis ist verfallen und wird nicht
-         angewandt.
+         CONNECTION_DISABLED, CONNECTION_ROLE_CHANGE,
+         CONNECTION_ADDRESS_REPAIR, AUTH_KEY_ROTATED, POLICY_FAIL_CLOSED,
+         SESSION_GUARD) hat Vorrang vor der Zuordnung, wenn das Ende in
+         sein FENSTER faellt: nicht frueher als ein Meldeabstand
+         (Interim-Intervall) VOR seinem Setzen und hoechstens
+         vpn_hardcut_hint_valid_seconds DANACH. Ausserhalb des Fensters
+         ist er verfallen und wird nicht angewandt - ebenso ein Hinweis,
+         dessen Zeitpunkt in der Zukunft der Datenbankzeit liegt.
     H-b  Ein Hinweis der Bereinigung (JANITOR_GHOST, SYSTEM_RESTART) gilt
          nur, wenn auch die Bereinigung die Zeile geschlossen hat
-         (acctterminatecause traegt ihren Wert). Hat inzwischen eine
-         echte Stop-Meldung die Zeile ueberschrieben, gelten deren Grund
-         und Zeit.
-    H-c  Ein vorhandener Hinweis wird nie von der Bereinigung
-         ueberschrieben. Wer einen Hinweis setzt und die Laufzeit dann
-         NICHT beendet (FAILED, NOT_FOUND), nimmt ihn zurueck.
+         (acctterminatecause traegt einen ihrer eigenen Werte) und er
+         hoechstens vpn_hardcut_hint_valid_seconds vor dem Schliessen
+         gesetzt wurde. Hat inzwischen eine echte Stop-Meldung die Zeile
+         ueberschrieben, gelten deren Grund und Zeit.
+    H-c  Ein GUELTIGER Hinweis wird nie ueberschrieben - weder von der
+         Bereinigung noch von einem zweiten Hard-Cut. Ein VERFALLENER
+         Hinweis wird durch den neuen ersetzt. Wer einen Hinweis setzt
+         und die Laufzeit dann NICHT beendet (FAILED, NOT_FOUND), nimmt
+         ihn zurueck.
 
 ================================================================================
 7) L2TP-ABGLEICH (Vertrag fuer den Runner BASE-030)
@@ -356,13 +384,26 @@ ZWECK:
   /run/retrotunnel/session/sync-request/ und endet. Jeder Lauf
   bearbeitet zum Schluss die inzwischen hinterlegten Merker in einer
   Nachrunde mit NEUER Laufzeitlesung und entfernt sie. Laeufe fuer eine
-  einzelne Connection schreiben keine Marke dieses Abschnitts.
+  einzelne Connection schreiben keine Marke dieses Abschnitts ; sie
+  fuehren nur L1, L2, L4 und L5 fuer diese Connection aus und beenden
+  keine Sitzung.
 
   REIHENFOLGE (normativ):
+    L0  BEGINN: Einzel-Lock erwerben. Die Marke l2tp_sync_last_run_at
+        pruefen (liegt sie in der Zukunft: RT_CLOCK_ANOMALY, BASE-070_070
+        Regel U-5) und SOFORT auf jetzt setzen - der Lauf gilt als
+        begonnen, auch wenn er spaeter abbricht. Der Lauf misst seine
+        Dauer mit der monotonen Uhr UND mit der Systemzeit; weichen beide
+        um mehr als 2 s voneinander ab (die Uhr wurde im Lauf verstellt),
+        schliesst dieser Lauf keine Zeile und beendet keine Sitzung
+        (RT_CLOCK_ANOMALY).
     L1  LAUFZEIT LESEN: S := list() des Adapters mit Lesezeit t_s, dazu die
-        Instanzkennung des Daemons (BASE-070_040 Abschnitt 1) und der
-        Zustand des Abrechnungspuffers des AAA-Dienstes (leer oder nicht
-        leer). Bei Fehler oder Zeitlimit: S := UNBEKANNT.
+        Instanzkennung des Daemons (BASE-070_040 Abschnitt 1) und die
+        PUFFERAUSKUNFT des AAA-Dienstes: leer, oder die Sitzungskennungen
+        der noch nicht nachgespielten Meldungen (BASE-070_040 Regel
+        G-8 a). Der Lauf legt die Auskunft fuer die On-Demand-Pruefung ab
+        (/run/retrotunnel/session/buffer-index). Bei Fehler oder Zeitlimit
+        des Adapters: S := UNBEKANNT.
     L2  DANACH DATENBANK LESEN (nur indexgestuetzte Zugriffe, kein
         Durchsuchen der ganzen Tabelle): offene radacct-Zeilen dieses NAS;
         neue Zeilen (Kennung groesser als die Marke
@@ -370,9 +411,10 @@ ZWECK:
         Buchungsstand; dazu Buchungsstaende, die Zuordnung von
         Anmeldename und Adresse zur Connection und die Marke
         l2tp_daemon_instance.
-        FUER JEDE NEUE ZEILE wird sofort ein Buchungsstand angelegt - auch
-        wenn sie bereits geschlossen ist oder ihre Sitzung nicht als
-        lebend gilt - und die Marke l2tp_sync_last_radacctid in DERSELBEN
+        FUER JEDE NEUE ZEILE wird sofort ein Buchungsstand angelegt, falls
+        er noch fehlt - auch wenn sie bereits geschlossen ist oder ihre
+        Sitzung nicht als lebend gilt - und die Marke
+        l2tp_sync_last_radacctid in DERSELBEN
         Transaktion fortgeschrieben, nie ueber die hoechste Kennung mit
         Buchungsstand hinaus (_050 Abschnitt 3, Regel A-4).
         Den Vergleich bereits abgeschlossener Zeilen (Nachzuegler) und
@@ -380,39 +422,46 @@ ZWECK:
         Bereinigungslauf aus (_050 Abschnitt 3).
     L3  DAEMON-NEUSTART: Weicht die Instanzkennung von der Marke ab, hat
         der Daemon neu gestartet. Dann erhalten alle offenen Zeilen dieses
-        NAS, deren Sitzung in S nicht gelistet ist, den Grund-Hinweis
-        SYSTEM_RESTART (nur wo noch kein Hinweis steht); die Marke wird in
-        derselben Transaktion fortgeschrieben. GESCHLOSSEN wird hier
-        nichts: Das geschieht in L4 c nach denselben Regeln wie fuer
+        NAS, deren Sitzung in S nicht gelistet ist und deren Beginn mehr
+        als das Mindestalter vor t_s liegt, den Grund-Hinweis
+        SYSTEM_RESTART (nur wo kein gueltiger Hinweis steht); die Marke
+        wird in derselben Transaktion fortgeschrieben. GESCHLOSSEN wird
+        hier nichts: Das geschieht in L4 c nach denselben Regeln wie fuer
         jeden Geist. Erkannt wird der Neustart an der Instanz, nicht an
-        einem Vergleich von Uhrzeiten.
-    L4  JE OFFENE ZEILE r (aelteste zuerst), Connection c. Fehlt ihr
-        Buchungsstand, wird er angelegt (er haelt c fest). "r in S"
-        heisst: Eine in S gelistete Sitzung traegt die Sitzungskennung
-        von r (radacct.acctsessionid). Nennt der Adapter ausnahmsweise
-        keine Sitzungskennungen (AD-6), heisst es: Eine zu c gehoerige
-        Sitzung ist gelistet; fuehrt radacct dann mehrere offene Zeilen
-        fuer c, gilt die juengste als die der gelisteten Sitzung, und die
-        aelteren RUHEN (kein Beginn, kein Schliessen), bis keine Sitzung
-        von c mehr gelistet ist.
+        einem Vergleich von Uhrzeiten. Schliesst die On-Demand-Pruefung
+        eine solche Zeile, BEVOR dieser Schritt lief, erkennt sie den
+        Neustart selbst an der Instanzkennung (BASE-070_040 Regel G-5).
+    L4  JE OFFENE ZEILE r (aelteste zuerst), Connection c nach der
+        Zuordnungsregel (_050 Regel A-3). Fehlt ihr Buchungsstand, wird er
+        angelegt (er haelt c fest). "r in S" heisst: Eine in S gelistete
+        Sitzung traegt die Sitzungskennung von r (radacct.acctsessionid)
+        UND ihr Anmeldename oder ihre Adresse passt zu r - eine nach
+        einem Neustart wiederverwendete Kennung allein genuegt nicht.
+        Nennt der Adapter ausnahmsweise keine Sitzungskennungen (AD-6),
+        heisst es: Eine zu c gehoerige Sitzung ist gelistet; fuehrt
+        radacct dann mehrere offene Zeilen fuer c, gilt die juengste als
+        die der gelisteten Sitzung, und die aelteren RUHEN (kein Beginn,
+        kein Schliessen), bis keine Sitzung von c mehr gelistet ist.
+        IN JEDEM UNTERFALL wird gebucht, solange die Zeile offen ist
+        (_050): Die gemeldeten Zaehler gelten unabhaengig von der Sonde.
+        Im Buchungsstand steht, seit wann die Sitzung von r nicht
+        gelistet ist (not_listed_since; geloescht, sobald sie wieder
+        gelistet ist).
         a) S bekannt, r in S im Zustand "aktiv"      -> LEBEND
              SV-1, falls der Beginn noch nicht gemeldet ist
-             Buchung (_050)
              last_runtime_seen_at fortschreiben (Abschnitt 2)
         b) S bekannt, r in S in anderem Zustand      -> abwarten
-           (Auf- oder Abbau). Haelt der Zustand laenger an als
-           vpn_l2tp_transition_max_seconds: Ereignis L2TP_SESSION_STUCK
-           und kill() DIESER Sitzung; danach gilt c bzw. d.
+           (Auf- oder Abbau; die Frist fuer haengende Sitzungen fuehrt
+           Schritt L6a)
         c) S bekannt, r nicht in S, und die Regeln
            G-1 bis G-3 und G-8 erlauben es (_040
            Abschnitt 2: Mindestalter gegen t_s,
-           keine Karenz, Puffer leer)                -> GEIST
+           keine Karenz, keine Meldung der Sitzung
+           im Puffer bzw. Wartegrenze erreicht)      -> GEIST
              Zeile schliessen, weiter mit L5
         d) S bekannt, r nicht in S, Regeln (noch)
            nicht erfuellt                            -> abwarten
-        e) S UNBEKANNT                               -> nichts schliessen;
-             Buchung trotzdem (die gemeldeten Zaehler gelten unabhaengig
-             von der Sonde)
+        e) S UNBEKANNT                               -> nichts schliessen
     L5  JE GESCHLOSSENE, NICHT ABGESCHLOSSENE ZEILE: Schlussbuchung;
         nachtraeglicher Beginn nach SV-1, falls er nie gemeldet wurde
         (sehr kurze Sitzung); SV-2 mit Grund (Abschnitt 6); Buchungsstand
@@ -431,37 +480,65 @@ ZWECK:
         aufgelaufene Verbrauch gebucht (kumulative Zaehler). Der Betreiber
         kann mit vpn_l2tp_unaccounted_action = KILL festlegen, dass eine
         Sitzung, die nach Ablauf der Schwelle weiter ohne Protokollzeile
-        ist, beendet wird (Ende-Grund POLICY_FAIL_CLOSED) - fuer den Fall,
-        dass unabgerechneter Verkehr schwerer wiegt als ein Abbruch.
-        MENGENBREMSE: Sind in einem Lauf mehr Sitzungen betroffen als
-        vpn_l2tp_kill_hold_threshold, wird KEINE beendet; es bleibt beim
-        Alarm (Ereignis L2TP_KILL_HELD). Eine solche Menge hat ihre
-        Ursache nicht in der einzelnen Sitzung, sondern in der
-        Abrechnung - sie darf nicht alle Sitzungen kosten.
-    L7  LAUFZEITSITZUNG OHNE BERECHTIGUNG: Gehoert eine gelistete Sitzung
-        zu keiner Connection, fuehren ihr Name und ihre Adresse zu
-        verschiedenen Connections (S-5) oder ist ihre Connection DISABLED
-        bzw. widerrufen: kill() dieser Sitzung, Ereignis
-        L2TP_ORPHAN_SESSION bzw. RT_IDENTITY_MISMATCH (Zulassungswaechter,
-        Gegenstueck zu BASE-040_050 Abschnitt 3 Schritt B2).
-        MEHRFACHSITZUNG: Sind fuer EINE Connection mehrere Sitzungen im
-        Zustand "aktiv" gelistet, haben beide Schlussriegel versagt.
-        Ereignis RT_DUPLICATE_SESSION; alle bis auf die AELTESTE werden
-        beendet (kill() mit Sitzungskennung) - die bestehende Nutzung
+        ist, beendet wird - fuer den Fall, dass unabgerechneter Verkehr
+        schwerer wiegt als ein Abbruch. Eine solche Sitzung ist KANDIDAT
+        der Klasse UNABGERECHNET; beendet wird erst in L7a.
+    L6a HAENGENDE SITZUNG: JEDE gelistete Sitzung in einem
+        Uebergangszustand (Auf- oder Abbau) - mit oder ohne
+        Protokollzeile -, deren Zustand laenger anhaelt als
+        vpn_l2tp_transition_max_seconds: Ereignis L2TP_SESSION_STUCK;
+        KANDIDAT der Klasse HAENGEND. Seit wann eine Sitzung im Uebergang
+        beobachtet wird, haelt der Lauf je Sitzungskennung unter
+        /run/retrotunnel/session/observed/ fest (monotone Uhr; der
+        Eintrag entfaellt, sobald die Sitzung aktiv oder fort ist).
+    L7  LAUFZEITSITZUNG OHNE BERECHTIGUNG (Zulassungswaechter, Gegenstueck
+        zu BASE-040_050 Abschnitt 3 Schritt B2): Gehoert eine gelistete
+        Sitzung zu keiner Connection (L2TP_ORPHAN_SESSION), fuehren ihr
+        Name und ihre Adresse zu keiner oder zu verschiedenen Connections
+        (S-5; RT_IDENTITY_MISMATCH) oder ist ihre Connection DISABLED
+        bzw. widerrufen: KANDIDAT der Klasse UNBERECHTIGT. Ist die Zeile
+        der Connection nicht auswertbar, wird die Sitzung NICHT beendet
+        (SV-1 b; RT_STATE_UNDETERMINED).
+        MEHRFACHSITZUNG: Sind fuer EINE Connection mehrere BERECHTIGTE
+        Sitzungen im Zustand "aktiv" gelistet (Kandidaten der Klasse
+        UNBERECHTIGT zaehlen nicht mit), haben beide Schlussriegel
+        versagt. Ereignis RT_DUPLICATE_SESSION; alle bis auf die AELTESTE
+        sind KANDIDATEN der Klasse MEHRFACH - die bestehende Nutzung
         bleibt, die hinzugekommene endet (SZ-2).
-        MENGENBREMSE: Waeren in einem Lauf nach diesem Schritt mehr
-        Sitzungen zu beenden als vpn_l2tp_kill_hold_threshold, beendet
-        der Lauf KEINE und meldet L2TP_KILL_HELD (CRITICAL). Eine solche
-        Menge deutet auf einen Fehler der Lesung oder der Zuordnung,
-        nicht auf einzelne Sitzungen. Der Verkehr nicht berechtigter
-        Connections bleibt dabei gesperrt: Er haengt an der Policy
-        (BASE-080), nicht am Bestehen der Sitzung. Das Beenden ist dann
-        eine Betreiberhandlung.
+    L7a BEENDEN - EINE BREMSE FUER DEN GANZEN LAUF: n sei die Zahl aller
+        Kandidaten aus L6, L6a und L7. BEVOR die erste Sitzung beendet
+        wird, prueft der Lauf:
+          n > vpn_l2tp_kill_hold_threshold                          ODER
+          n + (Beendigungen des Abgleichs in den letzten 3600 s)
+              > vpn_l2tp_kill_hold_per_hour
+        Trifft eines zu, beendet der Lauf KEINE Sitzung und meldet
+        L2TP_KILL_HELD (CRITICAL) mit den Zahlen je Klasse; die
+        Einzelereignisse tragen den Vermerk "gehalten". Eine solche Menge
+        deutet auf einen Fehler der Lesung, der Zuordnung oder der
+        Abrechnung, nicht auf einzelne Sitzungen (DEC-SC-23). Das Beenden
+        ist dann eine Betreiberhandlung: Freigabe fuer EINEN Lauf ueber
+        den privilegierten Auftragsweg (Klasse C).
+        Sonst wird jeder Kandidat beendet - je Sitzung in dieser Folge:
+        Ende-Vermerk schreiben (BASE-070_040 Regel G-8 b), Grund-Hinweis
+        SESSION_GUARD setzen (wo eine Zeile besteht), kill() mit der
+        Sitzungskennung. Scheitert kill(), wird der Hinweis
+        zurueckgenommen, das Ereignis traegt FAILED, und der naechste
+        Lauf versucht es erneut. Die Zeitpunkte der Beendigungen haelt
+        der Lauf fuer das Stundenfenster fest
+        (/run/retrotunnel/session/kill-window, monotone Uhr).
+        WAS DIE BREMSE NICHT DECKT (offen ausgewiesen): Fuer nicht
+        berechtigte Connections haengt der Schutz nicht am Beenden - jede
+        ordentliche Sperrung traegt einen Auftrag, und ihre Freigabe ist
+        entzogen (BASE-080). Bei einer Mehrfachsitzung oder einer
+        Abweichung der Zuordnung an einer BERECHTIGTEN Connection haengt
+        er am Beenden: Haelt die Bremse, besteht die Verletzung fort, bis
+        der Betreiber eingreift - gemeldet als CRITICAL.
     L8  MELDEVERZUG: Lebende Sitzung, deren radacct-Zeile seit mehr als
         l2tp_radacct_stale_threshold_seconds nicht fortgeschrieben wurde:
         Drift L2TP_ACCT_STALLED (Alarm). Keine Beendigung.
-    L9  Marken setzen: l2tp_sync_last_run_at immer, l2tp_sync_last_ok_at
-        nur nach einem Lauf ohne Fehler; Statusdatei fortschreiben.
+    L9  ABSCHLUSS: Marke l2tp_sync_last_ok_at nur nach einem Lauf ohne
+        Fehler (die Marke "zuletzt begonnen" steht seit L0);
+        Statusdatei fortschreiben.
 
   WARUM L1 VOR L2: Schritt c misst gegen die Lesezeit t_s, nicht gegen die
   Uhrzeit der Auswertung. Eine Zeile, deren Sitzung erst nach t_s
@@ -525,7 +602,11 @@ ZWECK:
     privilegierte Einzelabfrage des Adapters (BASE-070_040), nie aus SQL.
   - Driftzaehler L2TP_UNACCOUNTED, L2TP_ACCT_STALLED, L2TP_ORPHAN_SESSION,
     L2TP_ACCT_UNTRACKED, RT_ADDRESS_MISMATCH, RT_IDENTITY_MISMATCH,
-    RT_DUPLICATE_SESSION aus der Statusdatei (BASE-070_070).
+    RT_DUPLICATE_SESSION, RT_STATE_UNDETERMINED und der Zustand der
+    Mengenbremse (L2TP_KILL_HELD mit Zahlen je Klasse) aus den
+    Statusdateien (BASE-070_070).
+  - Handlung "Beenden fuer einen Lauf freigeben" (Klasse C), wenn die
+    Mengenbremse haelt.
 
 ================================================================================
 CHANGELOG

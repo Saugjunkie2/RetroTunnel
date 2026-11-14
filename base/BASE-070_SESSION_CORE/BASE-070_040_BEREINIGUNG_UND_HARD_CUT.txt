@@ -29,9 +29,12 @@ ZWECK:
                        Tunneladresse, Zustand und Beginn; dazu die
                        Instanzkennung des Daemons bzw. die
                        Interface-Generation. Oder: FEHLER.
-    probe(c)           LIVE | NOT_LIVE | TRANSITION | UNKNOWN fuer die
+    probe(c [, sid])   LIVE | NOT_LIVE | TRANSITION | UNKNOWN fuer die
                        Connection c, dazu die zu c gehoerigen gelisteten
-                       Sitzungen (Sitzungskennung, Zustand, Referenz)
+                       Sitzungen (Sitzungskennung, Zustand, Referenz) und
+                       die Instanzkennung des Daemons. Eine Sitzung im
+                       AUFBAU mit der Kennung sid zaehlt nicht mit: Sie
+                       ist die des anfragenden Anmeldeversuchs.
     kill(c [, sid])    KILLED | NOT_FOUND | FAILED. Beendet ALLE zu c
                        gehoerigen Sitzungen bzw. genau die Sitzung sid.
 
@@ -68,8 +71,9 @@ ZWECK:
           Ereignis L2TP_ADAPTER_NO_SESSION_ID wird gemeldet.
     AD-7  INSTANZKENNUNG: eine Kennung, die sich bei jedem Start des
           Daemons aendert und NICHT aus einer Uhrzeit abgeleitet ist
-          (zum Beispiel die Aufrufkennung der Unit). An ihr erkennt der
-          Abgleich einen Neustart (Schritt L3).
+          (zum Beispiel die Aufrufkennung der Unit). An ihr erkennen
+          der Abgleich (Schritt L3) und die On-Demand-Pruefung (Regel
+          G-5) einen Neustart.
 
   L2TP (Runner BASE-030): Quelle ist die Sitzungstabelle von accel-ppp ueber
     dessen lokale Verwaltungsschnittstelle. Zugehoerigkeit zur Connection
@@ -79,7 +83,8 @@ ZWECK:
       NOT_LIVE    KEINE zugehoerige Sitzung ist gelistet, gleich in
                   welchem Zustand
       TRANSITION  es sind nur zugehoerige Sitzungen im Auf- oder Abbau
-                  gelistet
+                  gelistet (ohne die Sitzung des anfragenden Versuchs,
+                  sofern ihre Kennung mitgegeben wurde)
       UNKNOWN     die Laufzeit ist nicht sicher lesbar (AD-1)
     kill() beendet hart ueber die Sitzungskennung, sonst ueber die
     Tunneladresse - nie allein ueber den Namen: Ein Beenden ueber den
@@ -89,6 +94,9 @@ ZWECK:
     BASE-070_020 Abschnitt 1; TRANSITION kommt nicht vor. kill() ist
     Entfernen und - bei unveraendertem SOLL - Wiedereintragen des Peers
     ueber den WG-Treiber von vpn-policy-apply (BASE-040_030 Abschnitt 5).
+    Ist das SOLL nicht auswertbar (UNBESTIMMT), fuehrt kill() nichts aus
+    und meldet FAILED mit dem Vermerk STATE_UNDETERMINED: Der Weg zum
+    Entzug ist dann die Sperrung der Connection.
 
 ================================================================================
 2) GEISTER SCHLIESSEN (G-REGELN)
@@ -102,7 +110,8 @@ ZWECK:
     G-1  EINE SCHLIESSBEDINGUNG, AN DIE SITZUNG GEBUNDEN: Voraussetzung
          ist eine Laufzeitlesung, in der KEINE gelistete Sitzung - gleich
          in welchem Zustand - die Sitzungskennung der Zeile traegt
-         (radacct.acctsessionid). Nennt der Adapter keine
+         (radacct.acctsessionid) UND nach Anmeldename oder Adresse zu ihr
+         passt (BASE-070_020 Schritt L4). Nennt der Adapter keine
          Sitzungskennungen (AD-6), gilt stattdessen: Keine zur Connection
          der Zeile gehoerige Sitzung ist gelistet. Bei UNKNOWN bzw.
          FEHLER wird nicht geschlossen. Die Bedingung gilt fuer JEDEN
@@ -121,7 +130,11 @@ ZWECK:
          die Beobachtung "nicht gelistet" in zwei aufeinanderfolgenden
          Laeufen des Abgleichs das Mindestalter (Ereignis
          RT_CLOCK_ANOMALY); die On-Demand-Pruefung schliesst solche
-         Zeilen nicht.
+         Zeilen nicht. Das Gedaechtnis dafuer ist das Feld
+         not_listed_since des Buchungsstands (BASE-070_050 Abschnitt 3):
+         Es ist gesetzt, seit ein Lauf die Sitzung der Zeile nicht
+         gelistet sah, und wird geloescht, sobald sie wieder gelistet
+         ist.
     G-3  Nur Zeilen des eigenen NAS.
     G-4  Geschlossen wird mit dem letzten belegten Lebenszeichen, nicht mit
          der Feststellungszeit:
@@ -131,15 +144,19 @@ ZWECK:
                   acctsessiontime = <Differenz dazu>,
                   acctterminatecause = :ursache
             WHERE radacctid = :rid AND acctstoptime IS NULL
-         :ursache ist 'Janitor-Ghost' (Geist) bzw. 'NAS-Reboot'
-         (Neustart). Der eigene Wert macht in radacct selbst sichtbar,
-         dass nicht der Daemon, sondern die Bereinigung geschlossen hat.
+         :ursache ist 'Janitor-Ghost' (Geist) bzw. 'Janitor-Restart'
+         (Neustart). Beide Werte sendet kein Daemon: Sie machen in radacct
+         selbst sichtbar, dass die Bereinigung geschlossen hat.
     G-5  Vor dem Schliessen wird im Buchungsstand der Grund-Hinweis
-         JANITOR_GHOST hinterlegt - NUR wenn dort noch keiner steht. Ein
-         Hinweis aus einem Hard-Cut oder aus Schritt L3 (SYSTEM_RESTART)
-         bleibt (BASE-070_020 Abschnitt 6, H-c). Ereignis und
-         Schlussbuchung erzeugt der L2TP-Abgleich (Schritt L5), nicht der
-         Schliessende.
+         hinterlegt - NUR wenn dort kein gueltiger steht (BASE-070_020
+         Abschnitt 6, H-c): SYSTEM_RESTART, wenn die Instanzkennung der
+         Laufzeitlesung von der Marke l2tp_daemon_instance abweicht (der
+         Daemon hat seit dem letzten Abgleich neu gestartet), sonst
+         JANITOR_GHOST. Der Grund haengt damit nicht davon ab, ob der
+         Abgleich oder die On-Demand-Pruefung zuerst schliesst. Ein
+         Hinweis aus einem Hard-Cut oder aus Schritt L3 bleibt. Ereignis
+         und Schlussbuchung erzeugt der L2TP-Abgleich (Schritt L5), nicht
+         der Schliessende.
     G-6  Trifft spaeter doch eine echte Stop-Meldung ein, ueberschreibt sie
          die Zeile (sie ist genauer). Die Buchung folgt den Zaehlern
          (_050). Ist das Ende dann noch nicht gemeldet, gelten Grund und
@@ -148,19 +165,37 @@ ZWECK:
          SESSION_GHOST_LATE_STOP gezaehlt.
     G-7  Schliessen ist idempotent (Bedingung acctstoptime IS NULL).
     G-8  KARENZ: Nicht geschlossen wird,
-           a) solange der Abrechnungspuffer des AAA-Dienstes nicht leer
-              ist - eine Stop-Meldung kann darin liegen -, und
+           a) solange der Abrechnungspuffer des AAA-Dienstes eine Meldung
+              DIESER Abrechnungssitzung enthaelt - es kann ihre
+              Stop-Meldung sein. PUFFERAUSKUNFT: Der Abgleich liest in L1,
+              welche Sitzungskennungen im Puffer liegen, und legt das
+              unter /run/retrotunnel/session/buffer-index ab; die
+              On-Demand-Pruefung benutzt die Ablage, wenn sie hoechstens
+              zwei Takte des Abgleichs alt ist. Ist die Auskunft je
+              Sitzung nicht verfuegbar, gilt: solange der Puffer nicht
+              leer ist.
+              In beiden Faellen HOECHSTENS
+              vpn_ghost_buffer_wait_max_seconds (Vorschlag 300), gerechnet
+              ab dem Zeitpunkt, seit dem die Sitzung nicht gelistet ist
+              (not_listed_since). Danach wird geschlossen; eine spaete
+              Stop-Meldung behandelt G-6. So blockiert ein Eintrag, der
+              sich nicht nachspielen laesst, keine Anmeldung auf Dauer
+              (SZ-3).
            b) solange fuer die Connection ein ENDE-VERMERK vorliegt, der
               juenger ist als vpn_ghost_stop_grace_seconds (Vorschlag
-              10): Die Sitzung hat soeben regulaer geendet, ihre
-              Stop-Meldung ist unterwegs.
+              10): Die Sitzung hat soeben geendet, ihre Stop-Meldung ist
+              unterwegs.
          Der Ende-Vermerk ist eine Datei unter
-         /run/retrotunnel/session/ended/ (nur root schreibbar), die der
-         ip-down-Pfad anlegt (ANF-SC-03) und der Bereinigungslauf nach
-         Ablauf entfernt. Ohne Vermerk (Absturz des Daemons, kein Hook)
-         gibt es keine Karenz - dann kommt auch keine Stop-Meldung.
-         Der Zustand des Puffers ist ohne Datenbank lesbar
-         (BASE-070_050 Abschnitt 8).
+         /run/retrotunnel/session/ended/ (nur root schreibbar). Ihn
+         schreibt der ip-down-Pfad als ERSTEN Schritt (ANF-SC-03) und
+         JEDER, der eine Sitzung selbst beendet, VOR dem kill() (Hard-Cut
+         Schritt K4, Abgleich Schritt L7a). Er traegt als Inhalt die
+         Betriebszeit des Systems (monotone Uhr); sein Alter wird gegen
+         dieselbe Uhr gerechnet, nicht gegen die Systemzeit. Der
+         Bereinigungslauf entfernt ihn nach Ablauf. Ohne Vermerk (Absturz
+         des Daemons, kein Hook) gibt es keine Karenz - dann kommt auch
+         keine Stop-Meldung.
+         Der Puffer ist ohne Datenbank lesbar (BASE-070_050 Abschnitt 8).
 
   SCHREIBRECHT: Geister schliesst der DB-User system. radacct bleibt Tabelle
   des AAA-Kerns (BASE-020); das Schliessen ist die einzige Aenderung, die
@@ -178,9 +213,12 @@ ZWECK:
   vpn-sessiond (Dienst, root, systemd-ueberwacht):
     Socket   /run/retrotunnel/session/check.sock
              Besitzer root, Gruppe des AAA-Dienstes, Modus 0660
-    Anfrage  eine Zeile:  CHECK <vpn_connection_id>
-             (nur Ziffern, hoechstens 20 Zeichen; alles andere wird ohne
-             Auswertung mit UNKNOWN beantwortet)
+    Anfrage  eine Zeile:  CHECK <vpn_connection_id> [<Sitzungskennung>]
+             (Connection: nur Ziffern, hoechstens 20 Zeichen;
+             Sitzungskennung des anfragenden Versuchs, falls die
+             Anmeldeanfrage sie traegt: hoechstens 64 Zeichen aus
+             Ziffern, Buchstaben, Punkt und Bindestrich; alles andere
+             wird ohne Auswertung mit UNKNOWN beantwortet)
     Antwort  eine Zeile:  LIVE | NOT_LIVE | TRANSITION | UNKNOWN
 
     ABLAUF JE ANFRAGE:
@@ -193,11 +231,14 @@ ZWECK:
           Sondenlaufs, aus dem es stammt (G-2). Ein Geist, der erst
           danach das Mindestalter erreicht, wird vom naechsten Sondenlauf
           oder vom Abgleich geschlossen.
+          Fenster und Gueltigkeit rechnet der Dienst mit der monotonen
+          Uhr, nicht mit der Systemzeit: Eine verstellte Uhr verlaengert
+          kein zwischengespeichertes Ergebnis.
           Gleichzeitig bearbeitete Anfragen sind begrenzt; darueber:
           UNKNOWN. Je Anfrage gibt es hoechstens einen Sondenlauf.
       O2  Connection lesen: tunnel_type, Anmeldename und fixed_ip. Nicht
           lesbar, nicht vorhanden oder nicht L2TP_IPSEC: UNKNOWN.
-      O3  probe(c).
+      O3  probe(c, Sitzungskennung des Versuchs).
             LIVE        -> Antwort LIVE
             TRANSITION  -> Antwort TRANSITION, nichts schliessen
             UNKNOWN     -> Antwort UNKNOWN, nichts schliessen
@@ -214,7 +255,8 @@ ZWECK:
     Zwischenspeicher nur im Arbeitsspeicher.
 
   vpn-session-check (Hilfsprogramm, unprivilegiert):
-    Aufruf mit genau einem Argument (Ziffern). Verbindet sich mit dem
+    Aufruf mit einem oder zwei Argumenten (Connection; Sitzungskennung
+    des Versuchs). Verbindet sich mit dem
     Socket, sendet die Anfrage, gibt die Antwortzeile aus. Jeder Fehler
     (Socket fehlt, Zeitlimit, unerwartete Antwort) ergibt UNKNOWN. Das
     Programm startet nichts und liest keine Konfiguration mit Geheimnissen.
@@ -239,10 +281,16 @@ ZWECK:
   endet der Lauf ohne Wirkung. Jeder Schritt ist fuer sich idempotent; das
   Scheitern eines Schritts verhindert die uebrigen nicht.
 
+    J0  BEGINN: Einzel-Lock erwerben. Die Marke
+        session_janitor_last_run_at pruefen (liegt sie in der Zukunft:
+        RT_CLOCK_ANOMALY, BASE-070_070 Regel U-5) und SOFORT auf jetzt
+        setzen - der Lauf gilt als begonnen, auch wenn er spaeter
+        abbricht.
     J1  SPERR-LEICHEN: Sperren mit expires_at <= NOW() loeschen, ebenso
-        Sperren, deren Ablauf weiter als die groesste Obergrenze in der
-        Zukunft liegt (BASE-070_030 K-2; Ereignis RT_CLOCK_ANOMALY).
-        Reine Hygiene; der Erwerb entfernt beides selbst.
+        Sperren, deren Ablauf weiter in der Zukunft liegt als die
+        Obergrenze IHRES Zwecks (BASE-070_030 K-2; Ereignis
+        RT_CLOCK_ANOMALY). Reine Hygiene; der Erwerb entfernt beides
+        selbst.
     J2  VERWAISTE HINWEISE (L2TP): Connection mit runtime_active_since
         NOT NULL, ohne offene radacct-Zeile (Anmeldename oder
         Tunneladresse, BASE-070_020 Abschnitt 1) und ohne
@@ -255,29 +303,38 @@ ZWECK:
         gelistet ist UND die mehr als das Mindestalter VOR t_s zuletzt
         geschrieben wurden - nie eine Datei, die nach t_s geschrieben
         wurde (sie gehoert einer neuen Sitzung). Bei FEHLER des Adapters:
-        nichts entfernen. Abgelaufene Ende-Vermerke und liegengebliebene
-        Merker fuer den Abgleich entfernen.
-    J4  ADRESSEN: abgelaufene Quarantaene-Eintraege loeschen; widerrufene
-        Connections nach Ablauf ihrer Quarantaene physisch loeschen
-        (BASE-070_060 Abschnitt 6).
+        nichts entfernen. Abgelaufene Ende-Vermerke, liegengebliebene
+        Merker fuer den Abgleich und Beobachtungen zu Sitzungen, die
+        nicht mehr gelistet sind (observed/), entfernen.
+    J4  ADRESSEN: offene Quarantaenefristen nachtragen; abgelaufene
+        Quarantaene-Eintraege loeschen; widerrufene Connections nach
+        Ablauf ihrer Quarantaene physisch loeschen (BASE-070_060
+        Abschnitt 6).
     J5  BUCHUNGSSTAENDE: Nachzuegler buchen (Vergleich der Staende, die
         innerhalb von vpn_l2tp_late_acct_window_days abgeschlossen
         wurden, mit radacct); SICHERHEITSNETZ: geschlossene
-        radacct-Zeilen ohne Buchungsstand nachbuchen (BASE-070_050
-        Abschnitt 3). Der Lauf loescht KEINE Buchungsstaende: Ein Stand
-        lebt so lange wie seine radacct-Zeile (A-5).
+        radacct-Zeilen ohne Buchungsstand nachbuchen - nur unterhalb der
+        Marke, erst nach einer Wartezeit und nur unterhalb der
+        Mengenschwelle (BASE-070_050 Abschnitt 3). Der Lauf loescht KEINE
+        Buchungsstaende: Ein Stand lebt so lange wie seine radacct-Zeile
+        (A-5).
     J6  POOL-STATISTIK UND DRIFT-WAECHTER: Fuellstaende berechnen,
         Schwellenwechsel melden (BASE-070_060 Abschnitt 7); Ableitung der
         Adressen aus Rolle und Slot pruefen (BASE-070_060 Abschnitt 4).
     J7  QUOTA-PERIODE NACHHOLEN: faellige Periodenwechsel ausfuehren, falls
         der eigene Lauf sie versaeumt hat (BASE-070_050 Abschnitt 5).
-    J8  HARD-CUT-PROTOKOLL NACHTRAGEN: Eintraege, die ein Hard-Cut ohne
-        Datenbank im Spool hinterlegt hat (Abschnitt 6, K7), in
+    J8  HARD-CUT-PROTOKOLL NACHTRAGEN: Eintraege, die ein Hard-Cut im
+        Spool hinterlassen hat (Abschnitt 6, K4 und K7), in
         log_connection_lifecycle schreiben und danach aus dem Spool
-        entfernen.
-    J9  Marken setzen: session_janitor_last_run_at immer (sie steuert
-        die Faelligkeit), session_janitor_last_ok_at nur, wenn alle
-        Schritte fehlerfrei waren; Statusdatei fortschreiben.
+        entfernen. Jeder Eintrag traegt eine eigene Kennung; steht ein
+        Eintrag mit dieser Kennung schon im Protokoll, wird er nicht
+        erneut geschrieben, nur entfernt (wiederholungsfest). Ein
+        Eintrag ohne Ergebnis (das Werkzeug brach nach K4 ab) wird mit
+        dem Ergebnis "unbekannt" nachgetragen.
+    J9  ABSCHLUSS: session_janitor_last_ok_at nur, wenn alle Schritte
+        fehlerfrei waren (die Marke "zuletzt begonnen" steht seit J0; ein
+        Schritt, der nach Regel U-5 RUHT, gilt nicht als Fehler);
+        Statusdatei fortschreiben.
 
   Geister schliesst im Regelbetrieb der L2TP-Abgleich in seinem deutlich
   kuerzeren Takt; der Bereinigungslauf ist dafuer nicht zustaendig.
@@ -291,8 +348,8 @@ ZWECK:
     - Offene radacct-Zeilen aus der Zeit vor dem Start schliesst der
       L2TP-Abgleich nach den Geister-Regeln, sobald Daemon und Datenbank
       verfuegbar sind. Ueber die Instanzkennung erhalten sie den Grund
-      SYSTEM_RESTART (Schritt L3). Das Mindestalter gilt auch hier; eine
-      feste Wartezeit gibt es nicht.
+      SYSTEM_RESTART (Schritt L3 bzw. Regel G-5). Das Mindestalter gilt
+      auch hier; eine feste Wartezeit gibt es nicht.
     - WireGuard: Der Controller erkennt die neue Interface-Generation,
       bucht den Snapshot nach und beendet verwaiste Episoden
       (BASE-040_060 Abschnitt 5, BASE-040_050 Fall B).
@@ -317,7 +374,10 @@ ZWECK:
   AUFRUF:   vpn-session-kill <vpn_connection_id> [--reason <GRUND>]
             [--actor <Kennung>]
   GRUENDE:  ADMIN_HARDCUT (Vorgabe), CONNECTION_DISABLED,
-            CONNECTION_ROLE_CHANGE, AUTH_KEY_ROTATED, POLICY_FAIL_CLOSED
+            CONNECTION_ROLE_CHANGE, CONNECTION_ADDRESS_REPAIR,
+            AUTH_KEY_ROTATED, POLICY_FAIL_CLOSED
+            (SESSION_GUARD setzt allein der L2TP-Abgleich, der den Kern
+            K4, K5 als Bibliothek benutzt.)
 
   ABLAUF (Reihenfolge ist normativ: Laufzeit zuerst, dann Abgleich):
     K1  Eingabe pruefen (nur Ziffern; Grund aus der Liste).
@@ -325,7 +385,7 @@ ZWECK:
         (Anmeldename und fixed_ip bzw. PublicKey).
         Datenbank nicht erreichbar:
           L2TP       Merkmale aus dem Laufzeit-Spiegel (/run/vpn-sessions/,
-                     Eintrag mit dieser VPN_CONNECTION_ID); K3 und K4
+                     Eintrag mit dieser VPN_CONNECTION_ID); K3 und K4 c
                      entfallen. FEHLT der Eintrag, endet das Werkzeug mit
                      TEMPFAIL_DB - ohne positive Zuordnung gibt es kein
                      "nicht aktiv". Der Spiegel ist nur fuer root
@@ -336,9 +396,17 @@ ZWECK:
                      Interfaces, BASE-040_060 Abschnitt 4)
     K3  Sperre erwerben (Zweck HARDCUT). Belegt: begrenzt wiederholen,
         sonst TEMPFAIL_LOCKED.
-    K4  Grund-Hinweis mit Zeitpunkt hinterlegen (L2TP: im Buchungsstand
-        der offenen Abrechnungssitzung). Ein vorhandener Hinweis eines
-        anderen Hard-Cuts bleibt.
+    K4  VOR DEM BEENDEN:
+        a) Nur bei ADMIN_HARDCUT: die Protokoll-Absicht mit eigener
+           Kennung, Zeit und Akteur im Spool
+           /var/lib/vpn-accounting/hardcut-audit/ anlegen. Gelingt das
+           nicht, endet das Werkzeug OHNE zu beenden: kein
+           Verwaltungs-Hard-Cut ohne gesichertes Protokoll.
+        b) Ende-Vermerk schreiben (Regel G-8 b).
+        c) Grund-Hinweis mit Zeitpunkt hinterlegen (L2TP: im Buchungsstand
+           der Zeilen, deren Sitzung laut Laufzeitlesung besteht; sonst
+           der juengsten offenen). Ein GUELTIGER Hinweis eines anderen
+           Hard-Cuts bleibt; ein verfallener wird ersetzt (H-c).
     K5  LAUFZEIT BEENDEN: kill(c) des Adapters - alle zu c gehoerigen
         Sitzungen; Ergebnis
           KILLED     weiter
@@ -352,12 +420,12 @@ ZWECK:
         die Zeile nicht als Geist, solange die Karenz laeuft (G-8): Die
         Stop-Meldung des Daemons traegt Endzeit und Zaehler.
     K7  Nur bei ADMIN_HARDCUT: Eintrag SESSION_HARDCUT in
-        log_connection_lifecycle (actor, actor_detail, Ergebnis). Ist die
-        Datenbank nicht erreichbar, wird der Eintrag mit Zeit, Akteur und
-        Ergebnis im Spool /var/lib/vpn-accounting/hardcut-audit/
-        hinterlegt und vom Bereinigungslauf nachgetragen (J8). Bei den
-        uebrigen Gruenden dokumentiert das ausloesende Lifecycle-Ereignis
-        den Vorgang.
+        log_connection_lifecycle (actor, actor_detail mit der Kennung aus
+        K4 a, Ergebnis); danach den Spool-Eintrag entfernen. Ist die
+        Datenbank nicht erreichbar, wird der Spool-Eintrag um das
+        Ergebnis ergaenzt und vom Bereinigungslauf nachgetragen (J8). Bei
+        den uebrigen Gruenden dokumentiert das ausloesende
+        Lifecycle-Ereignis den Vorgang.
     K8  Sperre freigeben.
 
   ERGEBNISSE: OK_KILLED | OK_NOT_ACTIVE | TEMPFAIL_LOCKED | TEMPFAIL_DB |
@@ -372,7 +440,8 @@ ZWECK:
           (BASE-110) mit numerischer Kennung und festem Grund
           ADMIN_HARDCUT; die Handlung verlangt erneute Anmeldung
           (Klasse C).
-    HC-3  Wiederholtes Ausfuehren ist unschaedlich (OK_NOT_ACTIVE).
+    HC-3  Wiederholtes Ausfuehren ist unschaedlich (OK_NOT_ACTIVE; ohne
+          Datenbank und ohne Spiegel-Eintrag: TEMPFAIL_DB).
     HC-4  Ein Hard-Cut entzieht keinen Zugang: Das Geraet kann sich neu
           verbinden. Wer den Zugang entziehen will, setzt die Connection
           auf DISABLED; der Hard-Cut ist dann Folge, nicht Mittel.
@@ -384,13 +453,15 @@ ZWECK:
           abweichender Schreibweise des Namens. OK_NOT_ACTIVE setzt eine
           Lesung voraus, die keine solche Sitzung zeigt.
     HC-7  Jeder Verwaltungs-Hard-Cut wird protokolliert - sofort oder,
-          bei gestoerter Datenbank, nachgetragen (K7). Ein Hard-Cut ohne
-          Protokoll gilt als Fehler des Werkzeugs.
+          bei gestoerter Datenbank, nachgetragen (K7). Er wird nicht
+          ausgefuehrt, bevor seine Protokoll-Absicht gesichert ist
+          (K4 a); das Nachtragen ist wiederholungsfest (J8).
 
   AUFRUFER: das Panel (ADMIN_HARDCUT); vpn-policy-apply bei Wechsel nach
   DISABLED, Rollenwechsel und fehlgeschlagener Policy-Herstellung
   (BASE-080); der Rotationsvorgang (BASE-040_040); der Kennwortwechsel
-  einer L2TP-Connection (BASE-010, ANF-SC-01). Diese Aufrufer koennen
+  einer L2TP-Connection (BASE-010, ANF-SC-01); die Adress-Reparatur
+  (BASE-080_060); der L2TP-Abgleich (Schritt L7a). Diese Aufrufer koennen
   den Kern des Werkzeugs (K4, K5) auch als Bibliothek innerhalb ihrer
   eigenen Sperre verwenden; die Reihenfolge "Laufzeit zuerst" gilt immer.
 

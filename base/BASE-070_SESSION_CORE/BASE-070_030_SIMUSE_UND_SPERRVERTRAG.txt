@@ -62,9 +62,11 @@ ZWECK:
     K-2  Jede Sperre laeuft ab. Es gibt keine Sperre ohne expires_at und
          keinen Ablauf jenseits der Obergrenze des jeweiligen Zwecks.
          Eine Sperre, deren Ablauf weiter in der Zukunft liegt als die
-         groesste Obergrenze aller Zwecke, kann nicht gueltig entstanden
-         sein (die Uhr wurde verstellt). Sie gilt als abgelaufen und
-         wird beim Erwerb und vom Bereinigungslauf entfernt.
+         Obergrenze IHRES Zwecks (fester Grenzwert des TTL-Keys:
+         Zulassungssperre 60 s, alle uebrigen Zwecke 300 s), kann nicht
+         gueltig entstanden sein (die Uhr wurde verstellt). Sie gilt als
+         abgelaufen und wird beim Erwerb und vom Bereinigungslauf
+         entfernt.
     K-3  Eine abgelaufene Sperre ist wirkungslos; sie darf von jedem
          Erwerber entfernt werden.
     K-4  Verglichen wird ausschliesslich mit der Datenbankzeit (NOW()).
@@ -85,9 +87,13 @@ ZWECK:
     E1  DELETE FROM vpn_session_locks
          WHERE vpn_connection_id = :id
            AND (expires_at <= NOW()
-                OR expires_at > NOW() + INTERVAL :obergrenze SECOND)
-        (:obergrenze ist die groesste zulaessige TTL aller Zwecke; der
-        zweite Teil setzt K-2 durch.)
+                OR expires_at > NOW() + INTERVAL
+                   (CASE purpose WHEN 'L2TP_ADMISSION' THEN :grenze_adm
+                                 ELSE :grenze_op END) SECOND)
+        (:grenze_adm und :grenze_op sind die festen OBERGRENZEN der beiden
+        TTL-Keys - 60 s und 300 s -, nicht die eingestellten Werte: Ein
+        gesenktes Setting darf eine rechtmaessig gehaltene Sperre nicht
+        entfernen. Der zweite Teil setzt K-2 durch.)
     E2  INSERT INTO vpn_session_locks
                (vpn_connection_id, purpose, holder, acquired_at, expires_at)
         VALUES (:id, :purpose, :holder, NOW(),
@@ -143,17 +149,25 @@ ZWECK:
   Schritte 2.2 bis 2.4 halten fest, mit welchem Stand sie geprueft haben:
   op_status, revoked_at, fixed_ip und den Credential-Stand
   (credential_version der Auth-Zeile). P5 vergleicht dagegen.
+  EINE LESUNG: Kennwort-Hash, credential_version, op_status, revoked_at,
+  fixed_ip und die Adresse der Zusage stammen aus EINER Lesung der
+  Datenbank. Geprueft und festgehalten wird genau dieser Stand - nie ein
+  Zaehler aus einer spaeteren Abfrage zu einem Hash aus einer frueheren.
 
   P1  ON-DEMAND-PRUEFUNG
-      Aufruf vpn-session-check fuer die vpn_connection_id (_040 Abschnitt
-      3). Ergebnis LIVE, NOT_LIVE, TRANSITION oder UNKNOWN. Zeitlimit
+      Aufruf vpn-session-check fuer die vpn_connection_id und - soweit
+      die Anmeldeanfrage sie traegt - die Sitzungskennung DIESES Versuchs
+      (_040 Abschnitt 3; die eigene, noch im Aufbau stehende Sitzung
+      zaehlt nicht als Uebergang).
+      Ergebnis LIVE, NOT_LIVE, TRANSITION oder UNKNOWN. Zeitlimit
       vpn_cleanup_timeout_seconds; jedes Scheitern des Aufrufs gilt als
       UNKNOWN. Bei NOT_LIVE hat der Dienst belegte Geister bereits
       geschlossen.
   P2  LIVE                          -> REJECT R_SIMUSE_ACTIVE
       TRANSITION (es sind nur       -> REJECT R_SIMUSE_GUARD_BUSY
-      Sitzungen der Connection im      (voruebergehend: Der Daemon wiese
-      Auf- oder Abbau gelistet)        eine neue Sitzung jetzt ab)
+      ANDERE Sitzungen der             (voruebergehend: Der Daemon wiese
+      Connection im Auf- oder          eine neue Sitzung jetzt ab)
+      Abbau gelistet)
   P3  WAHRHEIT LAUT PROTOKOLL
       Existiert in radacct fuer diesen NAS eine Zeile mit acctstoptime IS
       NULL, deren Anmeldename dem der Connection gleicht ODER deren
@@ -239,7 +253,9 @@ ZWECK:
   und die Entscheidungslogik bleibt aus der Ablaufsprache des
   AAA-Dienstes heraus (AAA-27). Reihenfolge und Bedeutung der Schritte
   und die Leseeigenschaft der Nachpruefung sind Teil des Vertrags der
-  Routine (Nachzug der Rechte: ANF-SC-02).
+  Routine (Nachzug der Rechte: ANF-SC-02). Dass eine Routine die
+  Anweisungen E1 und E2 je fuer sich festschreiben kann, ist eine
+  gefuehrte Annahme (E-SC-18).
 
   KEINE SPERRLISTEN-WIRKUNG: Die Ablehnungen R_SIMUSE_ACTIVE und
   R_SIMUSE_GUARD_BUSY setzen gueltige Zugangsdaten voraus. Sie sind keine
@@ -385,8 +401,11 @@ ZWECK:
                                                                    Sperr-Rest
 
   ZUSAGEN ZUM AUSSPERREN (SZ-3):
-    Sperr-Leiche                  hoechstens die TTL des Zwecks - auch nach
-                                  einer verstellten Uhr (K-2, E1)
+    Sperr-Leiche                  hoechstens die TTL des Zwecks; nach
+                                  einer verstellten Uhr hoechstens die
+                                  OBERGRENZE der TTL ihres Zwecks
+                                  (Zulassung 60 s, Umbauten 300 s; K-2,
+                                  E1)
     Geist, Sonde arbeitet         keine Wartezeit (On-Demand), sofern die
                                   Zeile aelter ist als
                                   vpn_ghost_min_age_seconds; sonst dieses
@@ -396,16 +415,20 @@ ZWECK:
     Sitzung hat soeben regulaer   hoechstens die Karenz
     geendet, Stop-Meldung fehlt   vpn_ghost_stop_grace_seconds; danach wie
     noch                          "Geist"
-    Abrechnungspuffer nicht leer  bis der Puffer nachgespielt ist (so
-    (nach einer Datenbank-        lange wird kein Geist geschlossen);
-    stoerung)                     Alarm, wenn das laenger dauert als
-                                  vpn_l2tp_buffer_drain_alert_seconds
+    Meldung DIESER Sitzung liegt  bis sie nachgespielt ist, hoechstens
+    noch im Abrechnungspuffer     vpn_ghost_buffer_wait_max_seconds;
+    (nach einer Datenbank-        danach wird der Geist geschlossen (ein
+    stoerung)                     spaeter Stop: _040 Regel G-6). Andere
+                                  Connections sind nicht betroffen
     Geist, vpn-sessiond steht     hoechstens Takt des L2TP-Abgleichs plus
                                   Mindestalter
     Sitzung haengt im Auf- oder   hoechstens
     Abbau                         vpn_l2tp_transition_max_seconds plus
                                   Takt des Abgleichs; dann wird sie
-                                  beendet
+                                  beendet - mit oder ohne Protokollzeile.
+                                  Haelt die Mengenbremse des Abgleichs
+                                  (_020 Schritt L7a): bis zur Freigabe
+                                  durch den Betreiber; CRITICAL
     Verwaltungsschnittstelle des  unbegrenzt, solange die Stoerung anhaelt
     Daemons gestoert (Fall G)     (Fail-Closed); Alarm
                                   SESSION_PROBE_UNAVAILABLE
