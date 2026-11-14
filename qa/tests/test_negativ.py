@@ -210,6 +210,56 @@ class Arbeitspakete(Basis):
         self.schreibe(PAKETE, ap)
         self.erwarte_fehler("ERLEDIGT, aber Ergebnis fehlt")
 
+    # --- Kopplung an PRIORITAETENLISTE.txt (massgeblich; 00_MANIFEST 6a, KR-07) -------------------------
+
+    def liste_aendern(self, alt, neu):
+        p = os.path.join(self.tmp, "PRIORITAETENLISTE.txt")
+        with open(p, encoding="utf-8") as f:
+            s = f.read()
+        self.assertEqual(s.count(alt), 1, f"Fixture passt nicht mehr zur PRIORITAETENLISTE: {alt!r}")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(s.replace(alt, neu))
+
+    def test_paket_ohne_eintrag_in_der_liste(self):
+        ap = self.lade(PAKETE)
+        ap["pakete"].append({"id": "AP-TEST-E", "titel": "e", "haengt_ab_von": [], "status": "OFFEN"})
+        self.schreibe(PAKETE, ap)
+        self.erwarte_fehler("AP-TEST-E: bezug fehlt")
+
+    def test_register_fuehrt_eigenen_stand(self):
+        ap = self.lade(PAKETE)
+        ap["pakete"][0]["hinweis"] = "Stand: fast fertig"
+        self.schreibe(PAKETE, ap)
+        self.erwarte_fehler("Feld hinweis ist nicht zulaessig")
+
+    def test_status_nur_in_der_liste_geaendert(self):
+        self.liste_aendern("M2-060 [WAITING] BASE-060_DNS_CORE", "M2-060 [DONE] BASE-060_DNS_CORE")
+        self.erwarte_fehler("passt nicht zu PRIORITAETENLISTE M2-060 [DONE]")
+
+    def test_liste_ohne_indexzeile(self):
+        self.liste_aendern("  -> Index: AP-K060\n", "")
+        self.erwarte_fehler("nennt als Index nichts statt AP-K060")
+
+    def test_liste_nennt_paket_ohne_registereintrag(self):
+        with open(os.path.join(self.tmp, "PRIORITAETENLISTE.txt"), "a", encoding="utf-8") as f:
+            f.write("\nM9-998 [WAITING] Testpaket\n  -> Index: AP-GIBTESNICHT\n")
+        self.erwarte_fehler("Index AP-GIBTESNICHT hat im Register keinen Eintrag")
+
+    def test_abhaengigkeit_steht_nicht_in_der_liste(self):
+        ap = self.lade(PAKETE)
+        for p in ap["pakete"]:
+            if p["id"] == "AP-K060":
+                p["haengt_ab_von"] = ["AP-K050", "AP-K100"]
+        self.schreibe(PAKETE, ap)
+        self.erwarte_fehler("Abhaengigkeit AP-K100 (M2-100) steht nicht im Eintrag M2-060")
+
+    def test_zwei_pakete_mit_demselben_bezug(self):
+        ap = self.lade(PAKETE)
+        ap["pakete"].append({"id": "AP-TEST-F", "titel": "f", "bezug": "M2-060", "haengt_ab_von": [],
+                             "status": "OFFEN"})
+        self.schreibe(PAKETE, ap)
+        self.erwarte_fehler("bezug M2-060 bereits von AP-K060 belegt")
+
 
 class Verbesserungen(Basis):
     def test_freeze_ohne_analyse(self):

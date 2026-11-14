@@ -34,6 +34,9 @@ PRIO_MAP = {"DONE": {"ERLEDIGT"}, "ACTIVE": {"IN_ARBEIT"}, "NEXT": {"OFFEN", "IN
             "WAITING": {"OFFEN", "BLOCKIERT"}, "DEFERRED": {"OFFEN", "BLOCKIERT"}, "LAUFEND": {"IN_ARBEIT", "OFFEN"}}
 
 
+AP_FELDER = {"id", "titel", "bezug", "haengt_ab_von", "status", "ergebnis"}
+PRIO_TAGS = {"DONE", "ACTIVE", "NEXT", "WAITING", "DEFERRED", "LAUFEND"}
+
 QUELLEN = ("RT", "XPN", "NL")
 NL_PRAEFIX = "nachlieferung/"
 
@@ -198,25 +201,69 @@ class Pruefung:
             zustand[n] = 2
         for n in by:
             dfs(n, [])
-        # Abgleich mit PRIORITAETENLISTE (bestehendes Register)
-        pl = os.path.join(self.root, "PRIORITAETENLISTE.txt")
-        tags = {}
-        if os.path.exists(pl):
-            with open(pl, encoding="utf-8", errors="replace") as fh:
-                for line in fh:
-                    m = re.match(r"^(M\d-[0-9A-Z]+|QS-\d+)\s+\[([A-Z]+)\]", line)
-                    if m:
-                        tags[m.group(1)] = m.group(2)
+        # Abgleich mit PRIORITAETENLISTE.txt. Die Liste ist MASSGEBLICH (00_MANIFEST 6a, KR-07); dieses Register
+        # ist ihr maschinenlesbarer Index und darf weder eigene Pakete noch einen eigenen Stand fuehren.
+        liste = self.lies_prioritaetenliste()
+        bezuege = {}
         for p in pakete:
+            for k in sorted(set(p) - AP_FELDER):
+                self.err(f"ARBEITSPAKETE {p.get('id')}: Feld {k} ist nicht zulaessig (Stand, Hinweise und Quellen "
+                         f"stehen nur in PRIORITAETENLISTE.txt)")
             b = p.get("bezug")
             if not b:
+                self.err(f"ARBEITSPAKETE {p.get('id')}: bezug fehlt (jedes Paket muss ein Eintrag der "
+                         f"PRIORITAETENLISTE sein)")
                 continue
-            if b not in tags:
+            if b in bezuege:
+                self.err(f"ARBEITSPAKETE {p['id']}: bezug {b} bereits von {bezuege[b]} belegt")
+            bezuege[b] = p["id"]
+            e = liste.get(b)
+            if not e:
                 self.err(f"ARBEITSPAKETE {p['id']}: bezug {b} nicht in PRIORITAETENLISTE.txt gefunden")
-            elif p.get("status") not in PRIO_MAP.get(tags[b], set()):
+                continue
+            if p.get("status") not in PRIO_MAP.get(e["tag"], set()):
                 self.err(f"ARBEITSPAKETE {p['id']}: status {p.get('status')} passt nicht zu "
-                         f"PRIORITAETENLISTE {b} [{tags[b]}]")
+                         f"PRIORITAETENLISTE {b} [{e['tag']}]")
+            if e["index"] != [p["id"]]:
+                self.err(f"ARBEITSPAKETE {p['id']}: Eintrag {b} der PRIORITAETENLISTE nennt als Index "
+                         f"{e['index'] or 'nichts'} statt {p['id']}")
+            for d in p.get("haengt_ab_von") or []:
+                db = (by.get(d) or {}).get("bezug")
+                if db and not re.search(rf"(?<![A-Z0-9-]){re.escape(db)}(?![0-9A-Z])", e["text"]):
+                    self.err(f"ARBEITSPAKETE {p['id']}: Abhaengigkeit {d} ({db}) steht nicht im Eintrag {b} "
+                             f"der PRIORITAETENLISTE")
+        for kennung, e in liste.items():
+            for i in e["index"]:
+                if (by.get(i) or {}).get("bezug") != kennung:
+                    self.err(f"PRIORITAETENLISTE {kennung}: Index {i} hat im Register keinen Eintrag mit bezug {kennung}")
         return by
+
+    def lies_prioritaetenliste(self):
+        """Eintraege der PRIORITAETENLISTE.txt: Kennung -> {tag, index, text}. Ein Eintrag beginnt mit
+        'M2-040 [ACTIVE] ...' am Zeilenanfang und endet am naechsten Eintrag oder an einer Trennlinie."""
+        pl = os.path.join(self.root, "PRIORITAETENLISTE.txt")
+        eintraege, akt = {}, None
+        if not os.path.exists(pl):
+            self.err("PRIORITAETENLISTE.txt fehlt")
+            return eintraege
+        with open(pl, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                m = re.match(r"^(M\d-[0-9A-Z]+|QS-\d+)\s+\[([A-Z]+)\]", line)
+                if m:
+                    akt = m.group(1)
+                    if akt in eintraege:
+                        self.err(f"PRIORITAETENLISTE: Kennung {akt} mehrfach vergeben")
+                    if m.group(2) not in PRIO_MAP and m.group(2) not in PRIO_TAGS:
+                        self.err(f"PRIORITAETENLISTE {akt}: unbekanntes Status-Tag [{m.group(2)}]")
+                    eintraege[akt] = {"tag": m.group(2), "index": [], "text": line}
+                elif re.match(r"^(={10,}|-{10,})", line):
+                    akt = None
+                elif akt:
+                    eintraege[akt]["text"] += line
+                    mi = re.search(r"Index:\s*(AP-[A-Z0-9]+)", line)
+                    if mi:
+                        eintraege[akt]["index"].append(mi.group(1))
+        return eintraege
 
     def pruefe_fundstelle(self, wer, fs, commits):
         # ZIEL:<pfad>[:<zeile>]@<commit> = Datei des Arbeitsstands (Zielrepository) an einem genannten Commit.

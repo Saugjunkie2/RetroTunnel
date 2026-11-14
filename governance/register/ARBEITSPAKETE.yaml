@@ -1,309 +1,255 @@
-# Arbeitspakete des Betreiberauftrags 2026-11-11 (abhängigkeitssortiert).
-# status: OFFEN | IN_ARBEIT | ERLEDIGT | BLOCKIERT
-# "bezug" verweist auf bestehende Kennungen der PRIORITAETENLISTE.txt (M2-…, M3-…, M4-…);
-# deren Status-Tag dort und der Status hier müssen übereinstimmen (qa prüft das).
-# "quellen" nennt die für das Paket VOLLSTÄNDIG zu lesenden Quellen (RT = RetroTunnel, XPN = xp-vpn-stack).
-schema: arbeitspakete/1
+# Maschinenlesbarer INDEX der Arbeitspakete. MASSGEBLICH ist PRIORITAETENLISTE.txt (00_MANIFEST 6a, KR-07):
+# Reihenfolge, Stand, naechster Schritt und Quellen je Paket stehen NUR dort. Dieser Index fuehrt keinen eigenen
+# Stand; er dient der maschinellen Pruefung (Abhaengigkeiten, Zyklen, Ergebnisdateien) und als Ziel der
+# Querverweise aus Befund-, Quellen- und Mitteilungsregister.
+#   id             Schluessel des Pakets; steht in der Liste in der Zeile "Index: AP-..." des Eintrags
+#   titel          Kurzname wie in der Liste (nur zur Lesbarkeit)
+#   bezug          Kennung desselben Pakets in PRIORITAETENLISTE.txt (M2-..., M3-..., M4-..., QS-...)
+#   status         OFFEN | IN_ARBEIT | ERLEDIGT | BLOCKIERT - Spiegel des Status-Tags der Liste
+#   haengt_ab_von  jede Abhaengigkeit muss im Listeneintrag genannt sein
+#   ergebnis       Dateien, die bei ERLEDIGT existieren muessen
+# Andere Felder sind nicht zulaessig; qa/pruefe_register.py erzwingt den Gleichstand mit der Liste.
+schema: arbeitspakete/2
 ausgangs_commit_rt: 10f3fde68a667fd7168b19da478571f97819b74b
 ausgangs_commit_xpn: 6bb5f1c447a0e4b79315ee276b377c8bea637cea
 pakete:
-# ---------------------------------------------------------------- Phase S: Einrichtung
+# ---------------------------------------------------------------- Einrichtung und Steuerung
 - id: AP-S01
-  titel: Eingangs- und Berechtigungsprüfung
+  titel: "Eingangs- und Berechtigungsprüfung"
+  bezug: QS-02
   haengt_ab_von: []
   status: ERLEDIGT
   ergebnis: [governance/UMGEBUNGSPRUEFUNG.yaml]
 - id: AP-S02
-  titel: Dauerhaften Arbeitszustand anlegen (Register, Status, Fortsetzung, Regel-Arbeitskopie)
+  titel: "Auftragsebene und maschinenlesbare Register anlegen"
+  bezug: QS-03
   haengt_ab_von: [AP-S01]
   status: ERLEDIGT
-  ergebnis: [governance/README.txt, governance/STATUS.yaml, governance/FORTSETZUNG.md, governance/register/]
+  ergebnis: [governance/README.txt, governance/STATUS.yaml, governance/register/]
 - id: AP-S03
-  titel: QA-Werkzeuge (Register-/Quellen-/Trace-Validatoren) mit Negativtests und CI-Workflow
+  titel: "Prüfwerkzeuge mit Negativtests und CI-Lauf"
+  bezug: QS-04
   haengt_ab_von: [AP-S02]
   status: ERLEDIGT
   ergebnis: [qa/pruefe_register.py, qa/quelleninventar.py, qa/tests/test_negativ.py, .github/workflows/konzept-qa.yml]
-  nachweis: "Lokal 28 Tests OK; CI-Lauf 43102611759 (Commit 0428f26) success. Erweiterung um weitere Prüfungen erfolgt mit den Modulen."
 - id: AP-S04
-  titel: Einmalige gebündelte Betreiber-Einrichtungsanfrage (externe Regelreferenz, Selbstfreigabe-Sperre)
+  titel: "Einmalige Einrichtungsanfrage an den Betreiber"
+  bezug: QS-05
   haengt_ab_von: [AP-S01, AP-S03]
   status: ERLEDIGT
   ergebnis: [governance/BETREIBER_EINRICHTUNGSANFRAGE.md, governance/register/BETREIBERMITTEILUNGEN.yaml]
-  hinweis: >-
-    Anfrage am 2026-11-11 gestellt; vom Betreiber am 2026-11-13 beantwortet (BM-0002): keine zweite Identität.
-    Das Paket ist als ANFRAGE erledigt. Es wurde KEINE Schutzeinrichtung geschaffen und kein Wirksamkeitsnachweis
-    erbracht; G4 bleibt NICHT_ERFUELLBAR_OHNE_BETREIBERAKTION (Folge für AP-P06/AP-P07 siehe dort).
 - id: AP-S05
-  titel: Automatische Wiederaufnahme prüfen und, soweit funktionsfähig nachgewiesen, einrichten
+  titel: "Automatische Wiederaufnahme prüfen"
+  bezug: QS-06
   haengt_ab_von: [AP-S02]
   status: IN_ARBEIT
-  hinweis: >-
-    Geplante Aufgabe eingerichtet (trig_016TCErUz8LqpGu3rkrbt6bb, alle 3 h); Auslösung und Zustellung nachgewiesen
-    (UP-11). Eine Wiederaufnahme ohne Nutzeraktion ist NICHT nachgewiesen: neun zugestellte Auslösungen zwischen
-    2026-11-12 07:19Z und 2026-11-13 06:13Z blieben ohne Wirkung (UP-11, Nachtrag). Das Paket bleibt offen, bis
-    eine Auslösung nachweislich ohne Nutzer-Nachricht zu einem Commit geführt hat oder die Grenze endgültig feststeht.
 - id: AP-S06
-  titel: Konsolidierung der Projektsteuerung (Root-Dokumente des Betreibers als maßgebliche Steuerung; governance/ und qa/ als dienende Hilfsmittel)
+  titel: "Konsolidierung der Projektsteuerung"
+  bezug: QS-07
   haengt_ab_von: [AP-S02]
   status: IN_ARBEIT
-  hinweis: 'Betreiberanweisung BM-0015 vom 2026-11-14, Vorrang vor der Modularbeit. Reihenfolge: A Bestandsaufnahme, B vollständiges eigenes Lesen der Root-Dokumente, C Zuordnung der Zuständigkeiten, D Umsetzung in den Dateien und Prüfmechanismen, E Qualitätskontrolle und Bericht. Zwischenstand der unterbrochenen Arbeit: AP-K080.'
-# ---------------------------------------------------------------- Phase Q: Quellenbasis (Q1/Q2)
+# ---------------------------------------------------------------- Quellenbasis und Rueckverfolgung
 - id: AP-Q01
-  titel: RetroTunnel-Bestand vollständig lesen; Register der nativen Kennungen; Konsistenzbefunde
+  titel: "RetroTunnel-Bestand vollständig lesen"
+  bezug: QS-08
   haengt_ab_von: [AP-S02]
   status: IN_ARBEIT
-  quellen: ["RT: alle Dateien des Baseline-Commits (Lesestatus im Quelleninventar)"]
 - id: AP-Q02
-  titel: XPN-Querschnittsquellen lesen und zuordnen (Master, Glossar, Regeln, Block-Index, Changelog, Decisions, Blöcke zu bereits vorhandenen RT-Modulen, Anweisungen/, ZIP-Schnappschüsse, entfernte Dateien der Historie)
+  titel: "XPN-Querschnittsquellen lesen und zuordnen"
+  bezug: QS-09
   haengt_ab_von: [AP-S03]
   status: OFFEN
-  quellen: ["XPN: Root-Dokumente, decisions/D001–D012, blocks/B010 B020 B030 B040 B050 B055 B056 B070 B080 B090 B290 B310 B344, Anweisungen/, templates/, *.zip, git-Historie (entfernte Pfade)"]
-  hinweis: Modulbezogene XPN-Blöcke werden im jeweiligen Modulpaket (AP-K…/AP-M…) vollständig gelesen und zugeordnet.
 - id: AP-Q03
-  titel: Fehlende Pflichtquellen behandeln (D004, sql-first NORM-01…07, peak_mode_v2, Plans, B052, B345 u. a.) — Rekonstruktion aus vorhandenen Fundstellen oder begründete Neuentscheidung
+  titel: "Fehlende Pflichtquellen behandeln"
+  bezug: QS-10
   haengt_ab_von: [AP-Q01]
   status: IN_ARBEIT
-  hinweis: >-
-    D004 als gekennzeichnete Rekonstruktion geschrieben (decisions/). Seit 2026-11-13 liegen Nachlieferungen des
-    Betreibers vor (BM-0012, BM-0014; Quelle NL, 95 Dateien unter nachlieferung/): sql-first (32), peak_mode_v2 (17),
-    Plans (2), Webpanel-Sammelstelle (30), B052, B345 und die XPN-Entscheidungen D001-D012 in abweichender Fassung.
-    Erledigt: Inventur, Werkzeugerweiterung, B052 und B345 vollständig gelesen. Offen: vollständiges Lesen der
-    übrigen 93 Dateien (Leselauf mit Extrakten läuft), Abgleich mit D004 (Rekonstruktion), BASE-040/050/070 und dem
-    Entwurf BASE-080, Rückverfolgung. Weiter ohne Quelle und über Rekonstruktion zu behandeln: Original D004,
-    ENTWURF_IPV6_VISUELLE_KODIERUNG_v2, identity_schema/, Vollscan-Proof, Briefing 2026-05-25, implementation/PHASE_PLAN.
 - id: AP-Q04
-  titel: Nachzug der im Changelog (v1.5–v2.1.15) dokumentierten Entscheidungen in die bestehenden Moduldateien BASE-000…030, model/, decisions/ (BF-0010); Abgleich mit ggf. nachgelieferten Originaldateien
+  titel: "Nachzug der Changelog-Entscheidungen in die Moduldateien"
+  bezug: QS-11
   haengt_ab_von: [AP-Q01]
   status: OFFEN
-  quellen: ["RT: 03_CHANGELOG.txt vollständig, alle Moduldateien BASE-000…030"]
-# ---------------------------------------------------------------- Phase K: Kern-Module (M2)
+# ---------------------------------------------------------------- Kern-Module (M2)
 - id: AP-K040
-  titel: BASE-040_TUNNEL_WIREGUARD ausarbeiten
+  titel: "BASE-040_TUNNEL_WIREGUARD"
   bezug: M2-040
   haengt_ab_von: [AP-Q01, AP-Q03]
   status: IN_ARBEIT
   ergebnis: [base/BASE-040_TUNNEL_WIREGUARD/BASE-040_INDEX.txt, governance/register/trace/NEU_BEGRUENDET.yaml]
-  hinweis: >-
-    Alle 11 Moduldateien in Fassung v1.2 (DEC-WT-01..12, WT-01..57, T-WT-01..63, ANF-WT-01..18); Rückverfolgung
-    maschinell geprüft. Nachzug vom 2026-11-14 aus der Gegenprüfung BASE-070 (Commit 0959a54) und aus der Nachprüfung
-    der Behebung (Commit 53920eb): Einzel-Snapshot mit Epoche und genau einem Nachbucher (BF-0046), Soll-Funktion
-    dreiwertig bis in die Add-Sequenz (BF-0049, BF-0040), Tagesreihe ohne Wirkung auf Buchung und Grace-Automat auch bei
-    Sperre (BF-0031), eingefrorene Peers gebucht, Remove-Sequenz räumt die tatsächlichen Adressen des Peers. Diese
-    zweite Nachbesserung ist nicht unabhängig nachgeprüft. Offen: Fehlerverhalten der Settings (LKG) gegen TRUTH_MODEL
-    prüfen (BF-0041), Beantwortung der ANF-WT in den Nachbarmodulen, Abschluss von AP-Q01/AP-Q03.
-  quellen: ["RT: BASE-020 (WG-Vertrag), BASE-005, BASE-010, Entwurf IPv6-Dualstack-Config", "XPN: B040, B059 (Kontrast), B100"]
 - id: AP-K050
-  titel: BASE-050_FIREWALL_CORE ausarbeiten
+  titel: "BASE-050_FIREWALL_CORE"
   bezug: M2-050
   haengt_ab_von: [AP-K040]
   status: IN_ARBEIT
   ergebnis: [base/BASE-050_FIREWALL_CORE/BASE-050_INDEX.txt]
-  hinweis: >-
-    Alle 11 Moduldateien geschrieben (DEC-FW-01..20, FW-01..51, T-FW-01..70, ANF-FW-01..12, E-FW-01..12);
-    Rückverfolgung 441 Records maschinell geprüft, 10 neu begründete Invarianten; ANF-WT-01..06 beantwortet;
-    BF-0006 und BF-0011 behoben. Abschluss erst nach AP-K040 (Abhängigkeit) und Beantwortung der ANF-FW in den
-    Nachbarmodulen.
-  quellen: ["RT: NETWORK_MODEL, SM_POLICY_RESTRICT, BASE-030 (LT-18/19), Entwürfe Firewall", "XPN: B060, B061, B063, B100, B110, B120, B130, B140, B300, docs/nft_service_ip_scopes.txt"]
 - id: AP-K060
-  titel: BASE-060_DNS_CORE ausarbeiten (inkl. Zeitbasis/NTP laut PH3)
+  titel: "BASE-060_DNS_CORE"
   bezug: M2-060
   haengt_ab_von: [AP-K050]
   status: OFFEN
-  quellen: ["RT: BASE-005_030, BASE-020 (WG-DNS-Vertrag), BASE-030 (LT-41)", "XPN: B200, B210, B260"]
 - id: AP-K070
-  titel: BASE-070_SESSION_CORE ausarbeiten (SM_SESSION auflösen, IP-Allokation)
+  titel: "BASE-070_SESSION_CORE"
   bezug: M2-070
   haengt_ab_von: [AP-K040, AP-Q03]
   status: IN_ARBEIT
   ergebnis: [base/BASE-070_SESSION_CORE/BASE-070_INDEX.txt]
-  hinweis: >-
-    Alle 11 Moduldateien in Fassung v1.2 (DEC-SC-01..24, SC-01..73, T-SC-01..109, ANF-SC-01..16, E-SC-01..21);
-    SM_SESSION vollständig aufgelöst; ANF-WT-09/10 beantwortet; BF-0012 entschieden (Nachzug AP-Q04); VB-0016..0021.
-    Modul unter maschineller Modulprüfung. Unabhängige Gegenprüfung am 2026-11-13 (27 Befunde, BF-0013..BF-0039, dazu
-    BF-0040..BF-0042 aus eigenem Abgleich), eingearbeitet als v1.1. Unabhängige NACHPRÜFUNG der Behebung am 2026-11-14
-    (zwei Prüfer, Stand 0364b46): 22 von 30 behoben, 8 teilweise, 0 unbehoben; 30 neue Fehler (8 mittel, 22 niedrig) ->
-    BF-0043..BF-0052. Reste und neue Fehler eingearbeitet als v1.2 (Commits d70b9d0, 6fff3a5, 9af8d91, 53920eb);
-    Auswertung: governance/pruefungen/BASE-070_BEHEBUNGSPLAN.md. v1.2 ist maschinell und durch Selbstprüfung geprüft,
-    nicht erneut unabhängig - eine gezielte dritte Prüfrunde für die acht mittleren neuen Befunde und die acht Reste
-    steht aus. Offen ferner: Beantwortung der ANF-SC in den Nachbarmodulen, Abschluss von AP-K040 und AP-Q03.
-  quellen: ["RT: SM_SESSION, BASE-020, BASE-030_050, Entwurf IPv6-Allokator", "XPN: B064, B165, B167, B168, B169, B170, B171, D012"]
 - id: AP-K080
-  titel: BASE-080_POLICY_APPLY_CORE ausarbeiten (SM_POLICY_RESTRICT auflösen)
+  titel: "BASE-080_POLICY_APPLY_CORE"
   bezug: M2-080
   haengt_ab_von: [AP-K050, AP-K070]
   status: IN_ARBEIT
-  hinweis: >-
-    Entwurfsstand vom 2026-11-14 (Kopfzeile aller Dateien: IN ARBEIT): _010 Architektur und Entscheidungen (DEC-
-    PA-01..22), _020 Bewertung und Lifecycle-Lauf, _030 Herstellung für ein Einzelziel, _040 Abgleich und Siegel, _050
-    Auftragsbuch, Auslöser, Nebenläufigkeit, _060 Umbauten, _070 Helfer, Betrieb, Beobachtbarkeit, _080 Owner-Grenzen
-    (ANF-PA-01..16, E-PA-01..08), _090 Invarianten PA-01..PA-67. Aus eigener Durchsicht nachgebessert: Zeitschutz des
-    Bewerters mit Ruhezeit, Mengenbremse auch für Einzelziele ohne Auftrag, Herkunft der Aufträge, Reihenfolge des
-    Auftragslaufs. OFFEN: _095 Tests (alle Fälle T-POL abdecken), Index, Verbleib-Tabelle in _080 Abschnitt 8 an die
-    Kennungen angleichen, VB-0024 (Mengenbremse des Abgleichs) registrieren, Eintrag in MODULPRUEFUNG.yaml,
-    Rückverfolgung (SM_POLICY_RESTRICT vollständig, XPN B166/D009/D011, NL B052/B345, SM_CONNECTION-Evaluator),
-    Lesestände, danach unabhängige Gegenprüfung. Arbeitsnotizen des Entwurfs liegen nur im flüchtigen
-    Arbeitsverzeichnis; maßgeblich ist der Modultext.
-  quellen: ["RT: SM_POLICY_RESTRICT, SM_CONNECTION, BASE-010_050/_070/_080, BASE-030_040, BASE-020_020, D002", "XPN: B166, B150, B063, D009, D011", "NL: B052, B345, D009, D011"]
 - id: AP-K090
-  titel: BASE-090_SETTINGS_CORE ausarbeiten
+  titel: "BASE-090_SETTINGS_CORE"
   bezug: M2-090
   haengt_ab_von: [AP-Q01, AP-Q03]
   status: OFFEN
-  quellen: ["RT: TRUTH_MODEL, BASE-000", "XPN: B057"]
 - id: AP-K100
-  titel: BASE-100_POLICY_CORE ausarbeiten
+  titel: "BASE-100_POLICY_CORE"
   bezug: M2-100
   haengt_ab_von: [AP-Q01]
   status: OFFEN
-  quellen: ["RT: D003, DOMAIN_MODEL §5–§6", "XPN: B030, B057, B058"]
 - id: AP-K110
-  titel: BASE-110_WEBSTACK_CORE ausarbeiten (inkl. E-Mail-Versandinfrastruktur)
+  titel: "BASE-110_WEBSTACK_CORE"
   bezug: M2-110
-  haengt_ab_von: [AP-K060]
+  haengt_ab_von: []
   status: OFFEN
-  quellen: ["RT: BASE-005, Entwürfe BASE-110, docs/MAIL_ABSENDERLOGIK.txt", "XPN: B220, D001, B285"]
 - id: AP-KQC
-  titel: Qualitäts-Check nach M2 (Timer-/Job-Gesamtübersicht in BASE-005_070)
+  titel: "Qualitäts-Check nach M2-Abschluss"
   bezug: M2-QC
   haengt_ab_von: [AP-K040, AP-K050, AP-K060, AP-K070, AP-K080, AP-K090, AP-K100, AP-K110]
   status: OFFEN
-# ---------------------------------------------------------------- Phase M: Erweiterungsmodule (M3)
+# ---------------------------------------------------------------- Erweiterungsmodule (M3)
 - id: AP-M002
-  titel: MOD-002_RESTRICTED_MODE ausarbeiten
+  titel: "MOD-002_RESTRICTED_MODE"
   bezug: M3-010
   haengt_ab_von: [AP-K050, AP-K080]
   status: OFFEN
-  quellen: ["XPN: B150"]
 - id: AP-M001
-  titel: MOD-001_ONBOARDING ausarbeiten (SM_ONBOARDING auflösen)
+  titel: "MOD-001_ONBOARDING"
   bezug: M3-020
   haengt_ab_von: [AP-K110, AP-M002]
   status: OFFEN
-  quellen: ["RT: SM_ONBOARDING", "XPN: B155, D008, Anweisungen/entwurf/claimd_process_entwurf.txt"]
 - id: AP-M003
-  titel: MOD-003_QOS ausarbeiten
+  titel: "MOD-003_QOS"
   bezug: M3-030
   haengt_ab_von: [AP-K040, AP-K070, AP-K080]
   status: OFFEN
-  quellen: ["XPN: B160, B190"]
 - id: AP-M005
-  titel: MOD-005_FAIL2BAN ausarbeiten
+  titel: "MOD-005_FAIL2BAN"
   bezug: M3-040
   haengt_ab_von: [AP-K050]
   status: OFFEN
-  quellen: ["RT: BASE-020_070", "XPN: B340, B341, B342, B343, D010, D011"]
 - id: AP-M004
-  titel: MOD-004_BLOCKPAGE_CA ausarbeiten
+  titel: "MOD-004_BLOCKPAGE_CA"
   bezug: M3-050
   haengt_ab_von: [AP-K060, AP-K110]
   status: OFFEN
-  quellen: ["RT: entwuerfe/blockpage-override", "XPN: B230, B240, B250, D004 (Altkanon), D006"]
 - id: AP-M006
-  titel: MOD-006_PANEL_FEATURES ausarbeiten
+  titel: "MOD-006_PANEL_FEATURES"
   bezug: M3-060
   haengt_ab_von: [AP-K110, AP-K090, AP-K100]
   status: OFFEN
-  quellen: ["RT: Entwürfe BASE-110 (Admin-Dashboard, Panel-Zentrale, Credential-Zugriff)", "XPN: B270, B280, B285, D003 (Altkanon), D007"]
 - id: AP-M007
-  titel: MOD-007_LOGGING_MONITORING ausarbeiten
+  titel: "MOD-007_LOGGING_MONITORING"
   bezug: M3-070
   haengt_ab_von: [AP-K090, AP-K070]
   status: OFFEN
-  quellen: ["XPN: B180, B330"]
 - id: AP-M008
-  titel: MOD-008_BACKUP_DR ausarbeiten (inkl. Update-/Upgrade-/Rollback-Management)
+  titel: "MOD-008_BACKUP_DR"
   bezug: M3-080
   haengt_ab_von: [AP-KQC]
   status: OFFEN
-  quellen: ["XPN: B320"]
 - id: AP-M009
-  titel: MOD-009_PEAK_MODE ausarbeiten
+  titel: "MOD-009_PEAK_MODE"
   bezug: M3-090
-  haengt_ab_von: [AP-M003, AP-Q03]
+  haengt_ab_von: [AP-M003, AP-K070, AP-Q03]
   status: OFFEN
-  hinweis: Historische Quelle entwuerfe/peak_mode_v2/ (17 Dateien) ist in keinem der beiden Repositories vorhanden (BF-0003).
 - id: AP-M010
-  titel: MOD-010_PLANS ausarbeiten
+  titel: "MOD-010_PLANS"
   bezug: M3-100
   haengt_ab_von: [AP-M003, AP-M002, AP-K100, AP-Q03]
   status: OFFEN
-  hinweis: Historische Quelle entwuerfe/Plans/ ist in keinem der beiden Repositories vorhanden (BF-0003).
-# ---------------------------------------------------------------- Phase A: Decisions, Proofs, Implementierungsplan (M4)
+# ---------------------------------------------------------------- Decisions, Proofs, Implementierungsplan (M4) und Gesamtschau
 - id: AP-A01
-  titel: Entscheidungsregister/ADRs vervollständigen (decisions/), inkl. aller Neu- und Ersetzungsentscheidungen dieses Auftrags
+  titel: "Architecture Decision Records (decisions/)"
   bezug: M4-01
   haengt_ab_von: [AP-KQC, AP-Q04]
   status: OFFEN
 - id: AP-A02
-  titel: Proofs/Abnahmekataloge je Modul und phasenweise (proofs/), XPN B310 zuordnen
+  titel: "Tests / Acceptance (proofs/)"
   bezug: M4-02
   haengt_ab_von: [AP-KQC, AP-M001, AP-M002, AP-M003, AP-M004, AP-M005, AP-M006, AP-M007, AP-M008, AP-M009, AP-M010]
   status: OFFEN
 - id: AP-A03
-  titel: Implementierungs-, Integrations- und Abnahmeplan (Arbeitspakete, Reihenfolge, Risiken, Testfälle) inkl. Installation, Migration, Upgrade/Rollback
+  titel: "Implementierungs-, Integrations- und Abnahmeplan"
   bezug: M4-03
   haengt_ab_von: [AP-A02]
   status: OFFEN
 - id: AP-A04
-  titel: Build-/Betriebsleitfäden als Konzeptartefakt (Operator-/Benutzerabläufe, Runbooks)
+  titel: "Build-Guides (implementation/guides/)"
   bezug: M4-04
   haengt_ab_von: [AP-A03]
   status: OFFEN
 - id: AP-A05
-  titel: Bedrohungsmodell und Sicherheitsinvarianten-Gesamtschau
+  titel: "Bedrohungsmodell und Gesamtschau der Sicherheitsinvarianten"
+  bezug: QS-12
   haengt_ab_von: [AP-KQC]
   status: OFFEN
 - id: AP-A06
-  titel: Root-Dokumente konsolidieren (MANIFEST, GLOSSARY, RULES, PHASE_PLAN, README, model/-Auflösung, Self-Containment QS-01)
+  titel: "Schlussabgleich der Steuerungsdokumente, Auflösung von model/, Self-Containment"
+  bezug: QS-13
   haengt_ab_von: [AP-A01]
   status: OFFEN
-# ---------------------------------------------------------------- Phase V: Verbesserungsanalyse und Freeze
+# ---------------------------------------------------------------- Funktionsanalyse und Freeze
 - id: AP-V01
-  titel: Systematische Funktions-/Verbesserungsanalyse (fehlende Fähigkeiten, wesentliche Verbesserungen, Einstufung)
+  titel: "Systematische Funktions- und Verbesserungsanalyse"
+  bezug: QS-14
   haengt_ab_von: [AP-Q01, AP-Q02]
   status: OFFEN
   ergebnis: [governance/register/VERBESSERUNGEN.yaml]
 - id: AP-V02
-  titel: Integration der notwendigen und wesentlich vorteilhaften Verbesserungen in die Module
+  titel: "Notwendige und wesentlich vorteilhafte Verbesserungen in die Module einarbeiten"
+  bezug: QS-15
   haengt_ab_von: [AP-V01]
   status: OFFEN
 - id: AP-V03
-  titel: Begründeter Funktions-Freeze; Roadmap für optionale Ideen
+  titel: "Begründeter Funktions-Freeze; Roadmap für Optionales"
+  bezug: QS-16
   haengt_ab_von: [AP-V02, AP-A06]
   status: OFFEN
-# ---------------------------------------------------------------- Phase P: Prüfung und Abschluss
+# ---------------------------------------------------------------- Pruefung und Abschluss
 - id: AP-P01
-  titel: Q4 Gegenbeispiel-/Szenarioanalyse und maschinelle Konsistenzprüfungen über das Gesamtkonzept
+  titel: "Gegenbeispiel- und Szenarioanalyse, maschinelle Konsistenzprüfung über das Gesamtkonzept"
+  bezug: QS-17
   haengt_ab_von: [AP-V03]
   status: OFFEN
 - id: AP-P02
-  titel: Abschlusskandidaten einfrieren (Commit/Tree, Quellenstände) — Fachstatus PRUEFBEREIT
+  titel: "Abschlusskandidaten einfrieren"
+  bezug: QS-18
   haengt_ab_von: [AP-P01]
   status: OFFEN
 - id: AP-P03
-  titel: Vollaudit 1 (eigener Kontext, eigenständige Quellenprüfung, gesamter Scope)
+  titel: "Vollaudit 1"
+  bezug: QS-19
   haengt_ab_von: [AP-P02]
   status: OFFEN
 - id: AP-P04
-  titel: Vollaudit 2 (eigener Kontext, anderer Gegenprüfungs-Schwerpunkt, gesamter Scope)
+  titel: "Vollaudit 2"
+  bezug: QS-20
   haengt_ab_von: [AP-P02]
   status: OFFEN
 - id: AP-P05
-  titel: Q6 Technische Endkontrolle (Evidenzidentitäten, Kandidatenintegrität, Schutzrechte)
+  titel: "Technische Endkontrolle"
+  bezug: QS-21
   haengt_ab_von: [AP-P03, AP-P04]
   status: OFFEN
 - id: AP-P06
-  titel: Gate-Entscheidung G1–G4 (FREIGEGEBEN nur bei nachgewiesen geschützter Freigabe, sonst FACHLICH_FERTIG_FREIGABE_BLOCKIERT)
+  titel: "Gate-Entscheidung G1 bis G4"
+  bezug: QS-22
   haengt_ab_von: [AP-P05, AP-S04]
   status: OFFEN
-  hinweis: >-
-    Stand 2026-11-13 (BM-0002): Mangels Schutzeinrichtung ist für G4 nur das Ergebnis "nicht erfüllt" erreichbar;
-    der Hauptarchitekt kann höchstens FACHLICH_FERTIG_FREIGABE_BLOCKIERT feststellen (Betreiberregeln §10.13).
 - id: AP-P07
-  titel: Geschützter Merge nach main und inhaltliche Verifikation des übernommenen Stands
+  titel: "Übernahme und inhaltliche Verifikation des Stands"
+  bezug: QS-23
   haengt_ab_von: [AP-P06]
   status: OFFEN
-  hinweis: >-
-    Stand 2026-11-13 (BM-0002): Ein Merge durch den Hauptarchitekten ist ohne G4 unzulässig (OP-B14). Übernimmt der
-    Betreiber Pull Request 1 selbst nach main, prüft der Hauptarchitekt anschließend nur den Inhalt von main gegen
-    den Kandidaten (§8, K8) und dokumentiert das Ergebnis; FREIGEGEBEN wird dadurch nicht gesetzt.
