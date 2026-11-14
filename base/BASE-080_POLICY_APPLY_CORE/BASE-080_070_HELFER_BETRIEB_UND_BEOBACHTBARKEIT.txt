@@ -7,9 +7,9 @@ STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
 ZWECK:
   Die registrierten Helfer anderer Owner ; Units, Werkzeuge und Pfade
   (Plattform-Contract) ; Settings dieses Moduls ; Datenbankrechte ;
-  Statusdateien, Ereignisse und das Verhalten bei Stoerungen im
-  Ueberblick. Setzt DEC-PA-17, DEC-PA-20 und DEC-PA-21 um und loest
-  OPEN-POL-04 und OPEN-POL-05.
+  Statusdateien, Ereignisse, das Verhalten bei Stoerungen im Ueberblick
+  und die Eingriffspfade des Betreibers. Setzt DEC-PA-17, DEC-PA-20,
+  DEC-PA-21 und DEC-PA-23 um und loest OPEN-POL-04 und OPEN-POL-05.
 
 ================================================================================
 1) REGISTRIERTE HELFER
@@ -179,6 +179,7 @@ ZWECK:
   vpn_policy_eval_gap_hold_seconds          3600       300..86400 neu
   vpn_policy_eval_max_irreversible_per_run  25         1..10000   neu
   vpn_policy_eval_restrict_alert_per_run    100        1..100000  neu
+  vpn_policy_eval_hold_max_seconds          86400      60..604800 neu
 
   FEHLERKLASSE UND NOTWERT JE KEY (TM = aus TRUTH_MODEL Abschnitt 7.1
   uebernommen ; sonst Antrag an BASE-090):
@@ -199,6 +200,7 @@ ZWECK:
   vpn_policy_eval_gap_hold_seconds          HARDCAP  600      kleiner
   vpn_policy_eval_max_irreversible_per_run  HARDCAP  1        kleiner
   vpn_policy_eval_restrict_alert_per_run    HARDCAP  100      kleiner
+  vpn_policy_eval_hold_max_seconds          HARDCAP  86400    -
 
     "Strenger" heisst bei den Bremsen (Mengen, Zeitluecke): Der Lauf
     haelt frueher an und ueberlaesst die Entscheidung dem Betreiber. Das
@@ -290,6 +292,7 @@ ZWECK:
                             letzter_lauf_ok_at, kandidaten je Art,
                             uebergaenge je Art, eingaben_unbekannt,
                             zurueckgestellt: {anzahl, bedingung},
+                            halt: {seit, restzeit, anstehend je Art},
                             notwerte_in_gebrauch, dauer
 
   Eine Statusdatei, die aelter ist als das Dreifache des Takts ihres
@@ -311,6 +314,11 @@ ZWECK:
                                                      Ruhezeit laeuft ab
                                                      hier (BASE-080_020
                                                      Abschnitt 7, U-2 b)
+    policy_eval_hold_since         vpn-policy-eval   Beginn eines Halts der
+                                   (--hold,          Bewertung ; fehlt,
+                                   --resume ; Ablauf wenn keiner besteht
+                                   im Lauf --all)    (BASE-080_020
+                                                     Abschnitt 11)
     policy_reconcile_last_run_at   vpn-policy-apply  Beginn des letzten
                                                      Abgleichs, der V1
                                                      erreicht hat
@@ -384,6 +392,12 @@ ZWECK:
                                              Einschraenkungen in einem
                                              Lauf
   POLICY_EVAL_OVERDUE              ALERT     Bewerter laeuft nicht
+  POLICY_EVAL_HOLD_SET             ALERT     Bewertung vom Betreiber
+                                             angehalten bzw. Halt erneuert
+  POLICY_EVAL_HOLD_RELEASED        INFO      Halt aufgehoben ; Ruhezeit
+                                             beginnt
+  POLICY_EVAL_HOLD_EXPIRED         ALERT     Halt nach Fristablauf
+                                             beendet ; Ruhezeit beginnt
   POLICY_HELPER_FAILED             ALERT     Helfer meldet TEMPFAIL oder
                                              FAIL
   POLICY_SETTING_FALLBACK          WARN      Notwert des Katalogs in
@@ -451,9 +465,79 @@ ZWECK:
   - Handlungen des privilegierten Auftragswegs: Zustand einer Connection
     jetzt herstellen ; jetzt abgleichen ; Bewertung jetzt ; Freigabe
     zurueckgestellter Uebergaenge bzw. einer zurueckgestellten
-    Massenkorrektur (Klasse C) ; Rollenwechsel (Klasse C).
+    Massenkorrektur (Klasse C) ; Bewertung anhalten und fortsetzen
+    (Klasse C) ; Rollenwechsel (Klasse C).
   - Keine Bearbeitung von Sets, Auftraegen, Marken oder Status am
-    Werkzeug vorbei.
+    Werkzeug vorbei ; kein Anhalten von Auftragslauf oder Abgleich
+    (Abschnitt 9).
+
+================================================================================
+9) EINGRIFFSPFADE DES BETREIBERS (DEC-PA-23 ; 04_PHASE_PLAN K-PH6-05)
+================================================================================
+
+  Jeder Automatismus dieses Moduls hat einen Weg, ihn anzustossen, ihn
+  anzuhalten und - wo er selbst etwas zurueckstellt - ihn zu ueberstimmen.
+  "Panel" heisst hier: Handlung des privilegierten Auftragswegs (BASE-110).
+
+  BEWERTUNG (vpn-policy-eval, Lauf --all)
+    anstossen     "Bewertung jetzt" je Connection oder Customer (Panel)
+    anhalten      Halt der Bewertung (Panel, Klasse C ; BASE-080_020
+                  Abschnitt 11) - befristet
+    ueberstimmen  zurueckgestellte unumkehrbare Uebergaenge freigeben:
+                  --release-held, auf Wunsch mit --confirm-time (Panel,
+                  Klasse C ; BASE-080_020 Abschnitt 7)
+
+  AUFTRAGSLAUF (vpn-policy-apply --pending) UND AUFSICHT
+    anstossen     "Zustand jetzt herstellen" je Connection (Panel)
+    anhalten      nur am System (unten)
+    ueberstimmen  entfaellt: Der Lauf stellt nichts zurueck ; ein Auftrag
+                  laesst sich nicht loeschen (BASE-080_050 Regel W-1)
+
+  ABGLEICH (vpn-policy-apply --reconcile-all)
+    anstossen     "jetzt abgleichen" (Panel)
+    anhalten      nur am System (unten)
+    ueberstimmen  zurueckgestellte Massenkorrektur freigeben:
+                  --confirm-mass-close <Zahl> (Panel, Klasse C ;
+                  BASE-080_040 Regel M-5)
+
+  EINZELNE CONNECTION (kein Automatismus, aber der Notaus)
+    Verwaltungs-Einschraenkung (nicht ADMIN) bzw. Sperren ; Aufheben und
+    Wiederherstellen (BASE-080_060 Abschnitte 4, 8).
+
+  ALLES SCHLIESSEN
+    vpn-fw-load lockdown: Zustand RIEGEL der Firewall (BASE-050_070).
+    Dieses Modul schreibt dann nichts (Code 8) ; nach "recover" folgt der
+    Abgleich.
+
+  DURCHSETZUNG ANHALTEN - NUR AM SYSTEM:
+  Auftragslauf, Aufsicht und Abgleich haben KEINEN Halt im Panel und
+  keinen im Werkzeug. Der Betreiber haelt sie an, indem er als root den
+  Zeitgeber des Laufs stoppt und seine Unit sperrt. Was dann gilt:
+    - Auftragslauf steht: Auftraege sammeln sich ; Sperrungen und
+      Einschraenkungen erreichen den Kernel nur noch ueber direkte
+      Aufrufe ("Zustand jetzt herstellen", Hooks, Hard-Cut) und den
+      Abgleich ; nicht freigegebene L2TP-Sitzungen bleiben gesperrt,
+      werden aber nicht mehr nach Fristablauf beendet. Alarme:
+      POLICY_PENDING_OVERDUE, POLICY_OUTBOX_STUCK.
+    - Abgleich steht: Abweichungen ohne Auftrag bleiben ; ein Siegel
+      bleibt bestehen (WireGuard geschlossen). Alarm:
+      POLICY_RECONCILE_OVERDUE.
+    - Die Alarme stehen, solange angehalten ist ; sie lassen sich nicht
+      abbestellen.
+    - Wiederanlauf: Der Auftragslauf arbeitet das Buch ab (schliessende
+      Auftraege zuerst) ; der Abgleich ist faellig, weil seine Marke alt
+      ist.
+  WARUM KEIN SCHALTER: Eine angehaltene Durchsetzung macht
+  festgeschriebene Sperrungen wirkungslos. Wer das will, muss am System
+  handeln und sieht dort die Alarme ; aus dem Panel ist es nicht
+  erreichbar (wie "Auftrag loeschen" und "Siegel loesen", Abschnitt 8).
+
+  ZURUECKSETZEN: Dieses Modul haelt ausser Auftragsbuch und Marken keinen
+  eigenen Zustand. Ein Abgleich stellt den Kernel-Zustand vollstaendig
+  neu her ; ein Auftrag der Art GESAMT fordert ihn an. Marken werden
+  nicht von Hand bearbeitet (BASE-070_070 Regel M-1) ; eine verlorene
+  Marke behandelt der Leser als "noch nie" - beim Bewerter beginnt damit
+  die Ruhezeit (BASE-080_020 Abschnitt 7, U-2 a).
 
 ================================================================================
 CHANGELOG

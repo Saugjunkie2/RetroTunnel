@@ -1,0 +1,881 @@
+================================================================================
+BASE-080 — TESTS UND VALIDIERUNG (Policy-Apply-Kern)
+================================================================================
+DATEI: BASE-080_095_TESTS.txt
+STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
+
+BELEGSTAND ALLER TESTS: GEPLANT. Keiner dieser Tests wurde ausgefuehrt; es
+existiert keine Implementierung. Die Tests sind Abnahmekriterien fuer die
+spaetere Umsetzung (Definition of Done von BASE-080).
+
+TESTARTEN:
+  [K]  Konzept-/Konfigurationspruefung (Review, statische Pruefung)
+  [L]  Labortest an einer Implementierung (isolierte Testumgebung)
+  [E]  Empirischer Test an Zielplattform, realen Daemons oder realen
+       Clients (Annahmen und Ausweichwege: BASE-080_080 Abschnitt 6)
+
+PROOF-ANKER (04_PHASE_PLAN):
+  RT-PH6-PROOF-05 (Eingriff des Betreibers in
+                   jeden Automatismus)          -> T-PA-13, T-PA-53,
+                                                   T-PA-80, T-PA-81
+  RT-PH8-PROOF-01, RT-PH8-PROOF-02 (Anteil
+                   dieses Moduls: Mitgliedschaft
+                   im Sperr-Set, Fluss-Schnitt) -> T-PA-31, T-PA-38,
+                                                   T-PA-48
+  RT-PH8-PROOF-03 (Wirkzeit eines
+                   Statuswechsels)              -> T-PA-60
+  RT-PH8-PROOF-04 (Kontingent erschoepft:
+                   eingeschraenkt)              -> T-PA-16
+  RT-PH8-PROOF-07 (ADMIN wird nie
+                   eingeschraenkt)              -> T-PA-05
+Die Platzhalter "T-PA-XX" des Phasenplans fuer BASE-080 werden durch diese
+Kennungen ersetzt (Nachzug AP-A06). Was eine eingeschraenkte Connection
+erreicht, pruefen die Tests von BASE-050 und BASE-060; hier wird geprueft,
+DASS und WANN ihr Zustand im Kernel steht.
+
+KENNUNG: T-PA gehoert diesem Modul (Praefix der Invarianten: PA).
+BASE-010_095 fuehrt zwei aeltere Tests gleicher Kennung (T-PA-01, T-PA-02:
+Sicht des Panels auf Zugangsdaten); sie werden im Nachzug umbenannt
+(BASE-080_080 ANF-PA-01 g) und sind bis dahin mit ihrem Modul zu nennen.
+Der Phasenplan verwendet "T-PA-XX" ausserdem als Platzhalter fuer MOD-006;
+MOD-006 erhaelt beim Schreiben eine eigene Kennung.
+
+Soweit nicht anders angegeben, wird jeder Labortest fuer L2TP UND
+WireGuard ausgefuehrt, wo der Fall beide betrifft. Die Testfaelle des
+Vorgaengers (T-POL-01 bis T-POL-26, T-POL-INV-01) sind vollstaendig
+uebernommen; ihr Verbleib steht in BASE-080_080 Abschnitt 8.
+
+================================================================================
+BEWERTUNG
+================================================================================
+
+  T-PA-01  [K] Rechte und Programme: vpn-policy-eval laeuft unter einem
+            eigenen Systembenutzer ohne root-Rechte und ohne Zugriff auf
+            Sets, Peers, conntrack, Schnittstellen und Laufzeit-Adapter;
+            sein Programmtext enthaelt keinen Aufruf einer
+            Kernel-Schnittstelle. Der Programmtext von vpn-policy-apply
+            enthaelt keine Anweisung, die op_status, op_reason_code, ein
+            Fristfeld oder ein anderes fachliches Feld von vpn_connections
+            schreibt; ist der empfohlene eigene Datenbankzugang der
+            Herstellung eingerichtet, fehlt ihm dieses Recht. [PA-01, PA-02]
+
+  T-PA-02  [L] Uebergang nur ueber die Routine: Jeden Uebergang des
+            Bewerters ausloesen (T-02, T-03, T-05 als Freigabe und als
+            Grundwechsel, T-04 und T-06 nach claim_deadline, T-06
+            Finalisierung, Widerruf, Tombstone): Felder, Zeitstempel, genau
+            ein Lifecycle-Ereignis und der Auftrag stehen nach dem Commit;
+            ein erzwungener Fehler nach dem Lifecycle-Ereignis verwirft
+            alles - weder Status noch Ereignis noch Auftrag sind
+            geschrieben. [PA-02, PA-09, PA-46]
+
+  T-PA-03  [K, L] Quellen: Die Tabelle der sechs Quellen gegen
+            vpn_reason_registry pruefen: Jeder Einschraenkungsgrund hat
+            genau eine Quelle. Einen zusaetzlichen Grund nur in die Registry
+            eintragen: Kein Lauf setzt ihn. Der Programmtext des Bewerters
+            enthaelt keine Limits, Plaene und Preise; er liest die
+            Auskuenfte A-1 und A-2. [PA-03]
+
+  T-PA-04  [L] Determinismus und Rangfolge: Eine Connection mit drei aktiven
+            Gruenden (Kontingent, Laufzeit, Pause) in jeder Reihenfolge der
+            Aenderungen und ueber jeden Ausloeser bewerten (Lauf,
+            Einzelaufruf, Handlung): Es gilt stets der Grund mit dem
+            niedrigsten precedence_rank. Entfaellt er: T-05 als Grundwechsel
+            auf den naechsten, restrict_finalize_at aus dem neuen Grund neu
+            bestimmt. Entfallen alle: ACTIVE mit Grund NULL. [PA-04]
+
+  T-PA-05  [L] ADMIN: Eine ADMIN-Connection mit erschoepftem Kontingent,
+            abgelaufener Laufzeit bzw. ohne Claim nach unclaimed_grace_until
+            bleibt ACTIVE. Von Hand gesetzte Tatsache (Pause,
+            Verwaltungs-Einschraenkung) an einer ADMIN-Connection:
+            POLICY_EVAL_ADMIN_FACT, sie bleibt ACTIVE. ADMIN mit von Hand
+            gesetztem Status RESTRICTED: Die Herstellung traegt keine ihrer
+            Adressen in restricted_* ein und meldet
+            POLICY_ADMIN_RESTRICTED_IGNORED. Rollenwechsel einer
+            eingeschraenkten Connection nach ADMIN: Sie ist mit dem Commit
+            ACTIVE. [PA-05]
+
+  T-PA-06  [L] Nur bei Aenderung: Den Lauf zweimal ohne geaenderte Eingaben
+            ausfuehren: Der zweite schreibt keinen Status, kein
+            Lifecycle-Ereignis und keinen Auftrag (Zeilenzahl der Tabellen
+            und revision aller Auftraege unveraendert). Die Lage eines
+            Kandidaten zwischen Kandidatenbestimmung und Zeilensperre
+            zuruecksetzen: kein Uebergang. [PA-06, PA-09]
+
+  T-PA-07  [L] Unbekannte Auskunft: Die Kontingent-Auskunft fuer eine
+            Connection nicht lesbar bzw. widerspruechlich machen: Die
+            Connection wird in diesem Lauf weder eingeschraenkt noch
+            freigegeben - auch nicht wegen eines ANDEREN Grundes, der
+            eintritt oder entfaellt; POLICY_EVAL_INPUT_UNKNOWN. Die uebrigen
+            Connections werden normal bewertet. Auskunft wieder lesbar: Der
+            naechste Lauf holt nach. [PA-07]
+
+  T-PA-08  [L] Reihenfolge je Connection: (a) Customer SUSPENDED und
+            zugleich ein neuer Grund: Sperrung mit
+            DISABLE_CUSTOMER_SUSPENDED, keine Umbewertung davor. (b) Ohne
+            Claim, claim_deadline abgelaufen, Grund aktiv:
+            DISABLE_UNCLAIMED_TIMEOUT. (c) RESTRICTED wegen Kontingent,
+            restrict_finalize_at abgelaufen, Kontingent inzwischen
+            aufgefuellt: T-05 nach ACTIVE, KEINE Finalisierung. (d)
+            Grundwechsel bei abgelaufener Frist des alten Grundes:
+            Grundwechsel mit neuer Frist, keine Finalisierung in diesem
+            Durchgang. (e) Gleicher Grund, Frist abgelaufen: T-06 mit
+            auto_finalize_to_reason_code. [PA-08]
+
+  T-PA-09  [L] Atomar je Connection: Die Uebergangsroutine fuer EINE
+            Connection scheitern lassen: Ihre Transaktion ist vollstaendig
+            verworfen, die uebrigen Kandidaten sind bearbeitet;
+            policy_eval_last_run_at ist gesetzt, policy_eval_last_ok_at
+            nicht; der naechste Lauf wiederholt. Den Lauf durch das
+            Zeitlimit abbrechen: Abgeschlossene Connections sind gueltig,
+            der Rest folgt im naechsten Lauf. [PA-09]
+
+  T-PA-10  [K, L] Bewertungskern in fremder Transaktion: T-08 fuer eine
+            Connection mit erschoepftem Kontingent: Ergebnis RESTRICTED mit
+            dem hoechstprioren Grund, nicht ACTIVE. T-01 fuer eine
+            Connection mit abgelaufener Laufzeit: RESTRICTED; ohne aktiven
+            Grund: ACTIVE. Pause, Reaktivieren, Verwaltungs-Einschraenkung
+            setzen und aufheben: Das Ergebnis gilt mit dem Commit der
+            Handlung, ohne dass ein Lauf stattfindet. Der Kern existiert im
+            Programmtext genau einmal. [PA-10]
+
+  T-PA-11  [L] Unumkehrbares nur bei bestaetigter Zeit und unter der Grenze:
+            (a) Zeitsignal entziehen: Faellige claim_deadline,
+            restrict_finalize_at und restore_until fuehren zu KEINEM
+            Uebergang; POLICY_EVAL_HELD nennt Zahl und Bedingung;
+            Einschraenkungen, Freigaben und Kaskaden laufen. (b)
+            Datenbankzeit und Systemzeit 10 s auseinander: ebenso. (c) 26
+            faellige unumkehrbare Uebergaenge bei Grenze 25: keiner wird
+            ausgefuehrt, auch nicht die ersten 25. (d) Einzelaufruf fuer
+            eine faellige Connection bei entzogenem Zeitsignal: kein
+            Uebergang. [PA-11]
+
+  T-PA-12  [L] Ruhezeit: (a) Marke policy_eval_last_run_at loeschen:
+            Anomalie; policy_eval_time_anomaly_at ist gesetzt; unumkehrbare
+            Uebergaenge ruhen trotz regelmaessiger Laeufe fuer
+            vpn_policy_eval_gap_hold_seconds und laufen danach. (b) Uhr zwei
+            Tage vorstellen (Zeit gilt als synchron): nichts Unumkehrbares;
+            Uhr innerhalb der Ruhezeit berichtigen: Keine Frist ist
+            ausgeloest, zwischenzeitliche Einschraenkungen hebt der naechste
+            Lauf auf. (c) Uhr zurueckstellen: negativer Abstand, Anomalie.
+            (d) Marke policy_eval_time_anomaly_at in die Zukunft setzen:
+            selbst eine Anomalie, die Ruhezeit beginnt neu. (e) In einer
+            Luecke einen Einzelaufruf ausfuehren: Er schreibt keine Marke;
+            der naechste Lauf --all erkennt die Luecke. [PA-12, PA-66]
+
+  T-PA-13  [L] Freigabe durch den Betreiber: 26 zurueckgestellte
+            Uebergaenge, --release-held --max 30: Genau EIN Lauf fuehrt sie
+            aus; das Lifecycle-Log nennt den Akteur; der naechste Lauf haelt
+            wieder. --max 10: keiner wird ausgefuehrt. Mit --confirm-time
+            bei fehlendem Zeitsignal, zu grossem Abstand zur Marke bzw.
+            laufender Ruhezeit: Der Lauf fuehrt aus. Bei abweichender
+            Datenbank- und Systemzeit und bei negativem Abstand zur Marke:
+            abgelehnt, kein Uebergang. [PA-13]
+
+  T-PA-14  [L] Kaskaden: Customer mit fuenf Connections (ACTIVE, RESTRICTED,
+            zwei DISABLED, beide Tunnel) auf SUSPENDED setzen: ACTIVE und
+            RESTRICTED werden DISABLED mit DISABLE_CUSTOMER_SUSPENDED - je
+            Connection eine Transaktion mit Auftrag; die gesperrten bleiben
+            unveraendert. Auf DELETED setzen: Tombstone fuer ALLE fuenf
+            (Widerruf, Auth-Zeile geloescht). Die Handlung nach dem
+            Schreiben des Customer-Status abbrechen: Der naechste Lauf
+            findet die Connections. Kaskade bei entzogenem Zeitsignal und
+            mit mehr Connections als der Grenze fuer Unumkehrbares: laeuft.
+            Sperrung des Customers aufheben: Keine Connection wird
+            selbsttaetig wiederhergestellt. [PA-14]
+
+  T-PA-15  [L] Widerruf: DISABLED mit einem Grund AFTER_RESTORE_WINDOW und
+            abgelaufenem restore_until: Widerruf (revoked_at,
+            quarantine_until, restore_until NULL) mit Auftrag. Grund
+            MANUAL_ONLY mit beliebig alter Sperrung: nie. restore_until
+            NULL: nie. Bereits widerrufen: kein zweites Mal. [PA-15]
+
+  T-PA-16  [L, E] Kontingent: Eine Connection schoepft ihr Kontingent aus
+            (je Tunnel): Die Zeit vom Ueberschreiten laut Buchung bis zur
+            Wirkung im Kernel liegt innerhalb von Messlatenz,
+            Bewertungstakt, Raster des Auftragslaufs und Dauer der
+            Herstellung; der bis dahin fliessende Verkehr ist gebucht.
+            Periodenwechsel: Der Bewerter laeuft, die Connection wird frei.
+            Nach einer Datenbankstoerung: Alle Connections sind neu
+            bewertet. Planwechsel auf ein niedrigeres, bereits
+            ueberschrittenes Limit: RESTRICTED mit dem Commit. BASE-080
+            enthaelt dabei keinen Wert eines Limits. [PA-16, PA-03]
+
+  T-PA-17  [L] Bewerter ohne Datenbank: Datenbank stoppen: Der Lauf endet
+            ohne Wirkung und ohne Entscheidung; die Unit startet auch ohne
+            Datenbank. Nach der Rueckkehr werden alle Connections bewertet.
+            [PA-17, PA-61]
+
+================================================================================
+HERSTELLUNG
+================================================================================
+
+  T-PA-18  [K] Ein Schreiber: Alle Programme, Units, Hooks und Wege des
+            Panels auflisten, die restricted_*, allowed_l2tp_v4,
+            connect_pending_*, das Peer-Set, conntrack oder die
+            Verkehrsformung aendern: allein vpn-policy-apply (mit Treiber
+            und Helfern in seinem Prozess). Die Hooks von BASE-030 und die
+            Laeufe anderer Module enthalten keinen solchen Aufruf und keine
+            eigene Logik der Durchsetzung. [PA-18]
+
+  T-PA-19  [L] Kernel-Lock: Zwei gleichzeitige Aufrufe fuer verschiedene
+            Connections bei kuenstlich verlaengerter Herstellung: Der zweite
+            wartet und laeuft danach. Wartezeit ueber
+            vpn_policy_lock_wait_seconds: Ergebnis 5, keine Teilwirkung, der
+            Auftrag bleibt. Den Halter hart beenden: Der Lock ist sofort
+            frei. [PA-18, PA-51]
+
+  T-PA-20  [L] Zustandsbasiert und wiederholbar: (a) Denselben Aufruf
+            zweimal bei gleichem SQL: identischer Kernel-Zustand; der zweite
+            fuehrt keine Schreiboperation aus (Zaehler der Set-, Peer- und
+            conntrack-Aufrufe: 0). (b) Bereits eingeschraenkte Connection
+            erneut herstellen: kein Fluss-Schnitt, kein Beenden. (c) Ein Set
+            von Hand aendern und ohne Aenderung in SQL aufrufen: Der Zustand
+            ist wiederhergestellt. (d) Zwei Statuswechsel, Aufrufe
+            vertauscht und verspaetet: Der Endzustand entspricht SQL. (e)
+            Hinweisfelder, Aktivitaetsereignisse und Zeilen in
+            vpn_session_locks veraendern: kein Einfluss auf das Ergebnis.
+            [PA-19]
+
+  T-PA-21  [L] Offline: Aufruf fuer eine L2TP-Connection ohne Sitzung,
+            einmal ACTIVE, einmal RESTRICTED: Ergebnis 0, keine
+            Kernel-Aenderung; die eingeschraenkte Connection steht NICHT in
+            restricted_v4. [PA-27, PA-19]
+
+  T-PA-22  [L] Eingaben: Kennung mit Buchstaben, mit 21 Stellen, negativ;
+            Schnittstelle "ppp", "eth0", "ppp123456"; Anmeldename mit
+            unzulaessigen Zeichen bzw. ueberlang; Adresse ausserhalb der
+            Rollen-Netze; unbekannter Schalter; ueberzaehliges Argument:
+            jeweils Ergebnis 3 ohne Wirkung. Umgebungsvariablen des Daemons
+            setzen, ohne sie als Argument zu uebergeben: Nichts wird
+            uebernommen. [PA-20]
+
+  T-PA-23  [L] Ergebniscodes: Je Code einen Fall erzeugen (0 hergestellt und
+            offline; 2 Datenbank; 3 Eingabe; 4 Set-Schreiben scheitert; 5
+            Lock; 6 nicht auswertbar; 7 Lock-Datei fehlt; 8 RIEGEL):
+            Rueckgabe, Protokoll und Statusdatei stimmen ueberein; bei 2, 3,
+            5 und 8 ist der Kernel-Zustand vorher und nachher gleich
+            (vollstaendiger Vergleich); kein Ergebnis ungleich 0 erscheint
+            als Erfolg, der Auftrag bleibt offen. Ein Einzelziel liefert nie
+            1. --customer-id mit einem scheiternden Ziel: 1, die uebrigen
+            Ziele sind hergestellt. [PA-21]
+
+  T-PA-24  [L] Herstellung ohne Datenbank: Datenbank stoppen; Aufruf fuer
+            eine eingeschraenkte und fuer eine gesperrte Connection mit
+            Laufzeit: Ergebnis 2; Sets, Peers, Freigaben und conntrack sind
+            unveraendert; kein Ersatzzustand "eingeschraenkt", keine
+            Herstellung aus gemerkten Werten. Eine vor dem Ausfall
+            festgeschriebene, noch nicht hergestellte Sperrung wird nach der
+            Rueckkehr hergestellt. [PA-22]
+
+  T-PA-25  [L] Zulaessig ohne Datenbank: (a) Datenbank nach der Annahme der
+            Anmeldung und vor dem Hook stoppen: keine Freigabe; die Sitzung
+            wird SOFORT beendet (kill des Adapters fuer genau diese
+            Sitzung); kein Paket wird weitergeleitet. (b) Sitzungsende ohne
+            Datenbank: Die Elemente der nicht mehr bestehenden Schnittstelle
+            sind entfernt. (c) Hook unterdruecken und Datenbank stoppen: Die
+            Aufsicht beendet die Sitzung nach vpn_connect_gate_ttl_seconds.
+            [PA-22, PA-30, PA-31]
+
+  T-PA-26  [L] Zustand der Firewall: Notfall-Riegel laden bzw. Regelwerk
+            entfernen: Jeder Aufruf (Einzelziel, Sitzungsbeginn,
+            Auftragslauf, Abgleich, Helfer) endet mit Ergebnis 8, ohne ein
+            Set zu schreiben; Auftraege bleiben. Nach "recover" (VERSIEGELT)
+            ist das Schreiben erlaubt und der Abgleich folgt. [PA-23]
+
+  T-PA-27  [K, L] Soll-Funktion: Wahrheitstabelle ueber op_status,
+            revoked_at, Zahl der Auth-Zeilen (0, 1, 2), Adressen (vorhanden,
+            fehlend) und access_role: Ergebnis wie BASE-080_030 Abschnitt 4.
+            DISABLED und Widerruf verweigern auch bei fehlender Adresse oder
+            Auth-Zeile (nie "nicht auswertbar"). Customer SUSPENDED bei
+            Connection ACTIVE: zugelassen. Erschoepftes Kontingent bei
+            op_status ACTIVE: nicht eingeschraenkt. Fuer WireGuard-Zeilen
+            stimmt das Ergebnis mit der Soll-Funktion des Treibers ueberein
+            (BASE-040 T-WT-15). [PA-24]
+
+  T-PA-28  [L] Nicht auswertbar: (a) op_status ausserhalb des Wertevorrats
+            bei bestehendem Peer bzw. bestehender Sitzung: Ergebnis 6,
+            POLICY_STATE_UNDETERMINED; Peer, Freigabe und Mitgliedschaften
+            sind unveraendert - nichts eingefuegt, nichts entfernt, nichts
+            beendet. (b) ACTIVE ohne Auth-Zeile, mit zwei Auth-Zeilen, ohne
+            Adresse: ebenso. (c) Andere Connections werden im selben Lauf
+            hergestellt. (d) Neue L2TP-Sitzung mit nicht auswertbarer Zeile:
+            keine Freigabe, die Sitzung wird beendet. (e) Das Werkzeug
+            traegt bei Ergebnis 6 keinen Auftrag ein. [PA-25]
+
+  T-PA-29  [L, E] Policy vor Freigabe (L2TP): Die Herstellung zwischen
+            Policy-Schritt und Freigabe um 10 s verzoegern: In dieser Zeit
+            wird kein Paket der Sitzung weitergeleitet, auch nicht zu
+            Namensaufloesung oder Portal. Fuer eine eingeschraenkte
+            Connection steht die Adresse in restricted_v4, BEVOR das Element
+            in allowed_l2tp_v4 eingetragen wird (Reihenfolge der
+            Transaktionen). Prozess zwischen beiden Schritten hart beenden:
+            Die Sitzung bleibt gesperrt; die Wiederholung vollendet.
+            [PA-26, PA-34]
+
+  T-PA-30  [K, L] Policy vor Freigabe (WireGuard): Add-Sequenz fuer eine
+            ACTIVE-Connection: Gate, Policy, Peer, Pruefung, Gate geloest;
+            danach stehen die Adressen weder in restricted_* noch in
+            connect_pending_*. RESTRICTED: Beide Adressen stehen im
+            Sperr-Set, bevor der Peer eingetragen ist. Der Policy-Schritt
+            scheitert: kein Peer, Ergebnis 4. vpn-policy-apply enthaelt kein
+            eigenes Gate-Verfahren; die Sequenz ist die des Treibers
+            (BASE-040 T-WT-12 bis T-WT-14). [PA-26, PA-28]
+
+  T-PA-31  [L] Mitgliedschaft im Sperr-Set: WireGuard RESTRICTED: fixed_ip
+            in restricted_v4 und fixed_ipv6 in restricted_v6, geschrieben in
+            EINER Transaktion. L2TP RESTRICTED mit Sitzung: nur
+            restricted_v4, restricted_v6 unberuehrt. Freigabe der
+            Connection: Die Adressen sind entfernt, ohne Fluss-Schnitt, und
+            der Client hat wieder vollen Zugang. Sitzungsende: Die Adresse
+            ist aus restricted_v4 entfernt. [PA-27]
+
+  T-PA-32  [L] Peer laesst sich nicht entfernen: Das Entfernen bei einer
+            Sperrung scheitern lassen: Die Adressen stehen sofort in
+            connect_pending_*; Ergebnis 4; POLICY_RUNTIME_KILL_FAILED
+            (CRITICAL); der Verkehr des Peers wird verworfen; der Auftrag
+            bleibt und ist im naechsten Durchgang wieder faellig; nach
+            gelungenem Entfernen wird das Gate-Element als harmloser Rest
+            entfernt. [PA-28, PA-33]
+
+  T-PA-33  [L] Zuordnung einer L2TP-Sitzung: (a) --l2tp-up mit dem
+            Anmeldenamen einer ANDEREN Connection als der, der die Adresse
+            gehoert: Ergebnis 6, keine Freigabe, die Sitzung wird beendet.
+            (b) Anmeldename in anderer Gross-/Kleinschreibung: byteweise
+            ungleich, wie (a). (c) Schnittstelle mit einer Adresse ohne
+            L2TP-Connection (Adresse in Quarantaene; Adresse einer
+            WireGuard-Connection): nie freigegeben, beendet,
+            POLICY_L2TP_UNKNOWN_ADDRESS. (d) Zwei Schnittstellen mit
+            derselben Adresse: alle Freigaben entfernt, alle Sitzungen
+            beendet, POLICY_L2TP_DUPLICATE_ADDRESS, Ergebnis 6. (e)
+            Regelfall: genau ein Element (Index, Adresse), eingetragen als
+            letzter Schritt. [PA-29, PA-25]
+
+  T-PA-34  [L] Sitzung auf fremder Adresse: Nach einem Adresswechsel besteht
+            laut Adapter eine Sitzung mit dem Anmeldenamen der Connection
+            auf der ALTEN Adresse: Freigabe entfernt, Sitzung beendet (Grund
+            aus dem Auftrag), alte Adresse aus restricted_v4 und conntrack
+            geraeumt. Gehoert die fremde Adresse einer anderen Connection:
+            Deren Sperr-Set und Formung bleiben unberuehrt. Adapter nicht
+            erreichbar: Geraeumt wird ueber die alten Adressen des Auftrags.
+            [PA-29, PA-48]
+
+  T-PA-35  [L] Beginn gelingt nicht: (a) Connection zwischen Anmeldung und
+            Hook sperren: keine Freigabe, Sitzung beendet. (b) Lock ueber
+            die Wartezeit belegt, Notfall-Riegel, Set-Schreiben scheitert:
+            keine Freigabe; die Sitzung bleibt GESPERRT; das Werkzeug traegt
+            einen Auftrag der Herkunft RETRY ein; entfaellt die Ursache,
+            gibt der Auftragslauf innerhalb eines Rasters frei. (c) Ursache
+            bleibt: Nach vpn_connect_gate_ttl_seconds wird die Sitzung
+            beendet (POLICY_L2TP_UNRELEASED_ENDED). (d) In keinem Fall
+            erreicht die Sitzung Portal oder Namensaufloesung; es gibt
+            keinen Ersatzzustand. [PA-30]
+
+  T-PA-36  [L] Aufsicht: (a) Hook des Sitzungsbeginns unterdruecken: Der
+            Auftragslauf gibt die Sitzung im naechsten Durchgang frei. (b)
+            Weder Adapter noch Spiegel nennen einen Beginn: Das Alter zaehlt
+            ab der ersten Sichtung. (c) Nach "recover" im Zustand
+            VERSIEGELT: Keine Sitzung wird wegen Fristablaufs beendet, bevor
+            der Abgleich die Freigaben wiederhergestellt hat; die Frist
+            beginnt mit dem Loesen des Siegels. [PA-30, PA-50]
+
+  T-PA-37  [L] Sitzungsende und Reihenfolge der Hooks: (a) Den Hook des
+            Endes der alten Sitzung NACH dem Hook des Beginns der neuen
+            Sitzung derselben Connection ausfuehren: Die Freigabe der neuen
+            bleibt; entfernt wird nur das Element mit dem Index der
+            beendeten Schnittstelle. (b) Sitzungsende ohne Argumente und
+            ohne Spiegel: Ergebnis 0; die Reste raeumt der Abgleich. (c)
+            Sitzungsende doppelt: ohne Folgen. [PA-31]
+
+  T-PA-38  [L, E] Fluss-Schnitt: Client mit laufender Uebertragung und
+            offener Verbindung zu einem lokalen Dienst;
+            Verwaltungs-Einschraenkung setzen: Die Uebertragung endet nach
+            Commit, Wartezeit auf den Lock und Schnitt; conntrack enthaelt
+            keinen Eintrag mit einer Tunneladresse der Connection - beide
+            Familien, beide Richtungen; POLICY_HARDCUT mit hard_cut = flush.
+            Protokoll: Vorzustand gelesen, Set geschrieben, conntrack
+            geloescht - in dieser Reihenfolge. Danach sind nur die Ziele des
+            eingeschraenkten Zustands erreichbar (Regeln: BASE-050). [PA-32]
+
+  T-PA-39  [L] Fluss-Schnitt, Rueckfall: Das conntrack-Werkzeug entfernen
+            bzw. das Loeschen scheitern lassen: Die Laufzeit wird beendet
+            (L2TP: Hard-Cut-Kern; WireGuard: Remove und Wiedereintrag); der
+            Verkehr endet; hard_cut = session_kill. Auch das Beenden
+            scheitern lassen: Ergebnis 4, POLICY_HARDCUT_FAILED (CRITICAL),
+            der Auftrag bleibt offen; nirgends ein Erfolg. [PA-32, PA-21]
+
+  T-PA-40  [L] Fluss-Schnitt familienweise und Merkmal: (a) WireGuard, IPv4
+            steht schon im Sperr-Set, IPv6 fehlt: IPv6 wird ergaenzt und
+            conntrack fuer BEIDE Familien geloescht. (b) Beide stehen schon:
+            kein Schnitt. (c) Prozess nach dem Schreiben des Sets hart
+            beenden: Der Auftrag traegt "Schnitt ausstehend"; die
+            Wiederholung fuehrt den Schnitt aus, obwohl die Adresse schon im
+            Set steht. (d) Entfernen aus dem Set: kein Schnitt. (e)
+            Connection ist bei der Wiederholung nicht mehr eingeschraenkt:
+            Der Schnitt entfaellt. [PA-32, PA-48]
+
+  T-PA-41  [L] Laufzeit zuerst (L2TP): Connection mit Sitzung sperren:
+            Protokoll in der Reihenfolge Freigabe entfernt, Hard-Cut-Kern
+            (Grund CONNECTION_DISABLED), Sperr-Set, conntrack und Formung
+            geraeumt, L2TP-Abgleich angestossen. Adapter meldet FAILED: Die
+            Freigabe bleibt entzogen, kein Paket wird weitergeleitet,
+            Ergebnis 4, POLICY_RUNTIME_KILL_FAILED; das Raeumen der Sets
+            wird nicht als Beenden gemeldet. Widerruf: gleiche Abfolge.
+            [PA-33]
+
+  T-PA-42  [L] Laufzeit zuerst (WireGuard): Sperrung: Remove-Sequenz des
+            Treibers (letzte Buchung, Peer entfernt, conntrack, Sets,
+            Pruefung, Ende an BASE-070); danach weder Peer noch
+            Mitgliedschaft (BASE-040 T-WT-18). [PA-33, PA-28]
+
+  T-PA-43  [L] Abbruch an jeder Stelle: Fuer jede Abfolge aus BASE-080_030
+            Abschnitt 10 den Prozess nach jedem Schritt hart beenden: Der
+            Zwischenzustand laesst nie Verkehr zu, den der Zielzustand nicht
+            zulaesst (Paketprobe); der Auftragslauf vollendet die Abfolge.
+            [PA-34]
+
+  T-PA-44  [K, L] Sperren: Waehrend aller Aufrufarten entsteht keine Zeile
+            in vpn_session_locks durch vpn-policy-apply. Ein Umbau haelt
+            seine Sperre und ruft das Werkzeug: keine Verklemmung. Der
+            Programmtext erwirbt Sperren nur in der Folge Sperre der
+            Datenbank, Einzel-Lock des Laufs, Kernel-Lock, Zeilensperren.
+            [PA-35]
+
+================================================================================
+ABGLEICH UND SIEGEL
+================================================================================
+
+  T-PA-45  [L] Verpasster Anstoss und Eingriff von Hand: (a) Den Status
+            einer Connection am Auftragsbuch vorbei in SQL auf RESTRICTED
+            setzen: Der Abgleich fuegt die Adressen ein und fuehrt den
+            Fluss-Schnitt aus - spaetestens nach
+            vpn_reconcile_interval_seconds zuzueglich des Rasters. (b) Von
+            Hand ein Element aus restricted_v4 entfernen bzw. einfuegen,
+            eine Freigabe entfernen, einen Peer eintragen bzw. entfernen:
+            Der Abgleich stellt den Stand von SQL und Laufzeit wieder her.
+            [PA-36]
+
+  T-PA-46  [L] Abgleich entscheidet nichts und erledigt nichts: Connection
+            mit erschoepftem Kontingent, aber op_status ACTIVE: Der Abgleich
+            schraenkt nicht ein und schreibt keinen Status. Offene Auftraege
+            - auch solche, deren Zustand der Abgleich hergestellt hat -
+            stehen nach dem Abgleich noch im Buch und werden vom
+            Auftragslauf erledigt. [PA-37, PA-47]
+
+  T-PA-47  [L] Abschnitte und Reihenfolge: Abgleich bei grossem Bestand: Der
+            Kernel-Lock wird je Abschnitt hoechstens
+            vpn_reconcile_section_seconds gehalten (laengste Haltedauer laut
+            Statusdatei); ein Einzelauftrag waehrend des Abgleichs kommt
+            innerhalb seiner Wartezeit zum Zug. Protokoll: alle
+            schliessenden Handlungen vor allen oeffnenden, gesperrte und
+            widerrufene Connections zuerst. Eine Connection zwischen
+            "Schliessen" und "Oeffnen" sperren: Das Oeffnen unterbleibt.
+            [PA-38, PA-51]
+
+  T-PA-48  [L] Sperr-Set exakt: (a) Die Adresse einer eingeschraenkten
+            Connection mit Laufzeit fehlt (IPv4, IPv6 oder beide): im
+            Abschnitt "Schliessen" eingefuegt, mit Fluss-Schnitt. (b)
+            Ueberzaehlige Adresse (Connection ohne Laufzeit; von Hand
+            eingefuegt; keiner Connection zuzuordnen): im Abschnitt
+            "Oeffnen" entfernt; das fremde Element ist gemeldet
+            (POLICY_FOREIGN_SET_ELEMENT). (c) Dieselbe IPv6-Adresse in
+            anderer Schreibweise: als gleich erkannt. (d) Keine Adresse
+            einer ADMIN-Connection im Soll. [PA-39]
+
+  T-PA-49  [L, E] Kein Fenster: Dauerverkehr eines eingeschraenkten Clients
+            bei Abgleich in Schleife: Zu keinem Zeitpunkt fehlt seine
+            Adresse in restricted_v4 bzw. restricted_v6 (Mitschnitt der
+            Set-Aenderungen: kein Leeren ohne Wiedereintrag in derselben
+            Transaktion); kein Paket erreicht ein Ziel ausserhalb des
+            eingeschraenkten Zustands. [PA-39]
+
+  T-PA-50  [L] Freigaben exakt: Reste herstellen - Element einer nicht mehr
+            bestehenden Schnittstelle (Sitzung beendet; Daemon neu
+            gestartet), Element mit unpassender Adresse, zwei Elemente je
+            Adresse, Element einer nicht zugelassenen Connection: Der
+            Abgleich entfernt alle im Abschnitt "Schliessen". Fehlende
+            Freigabe einer zugelassenen Sitzung: im Abschnitt "Oeffnen"
+            hergestellt, Policy zuvor. [PA-40]
+
+  T-PA-51  [L] Gate-Reste: (a) Element in connect_pending_*, kein Peer
+            fuehrt die Adresse - gleich ob eine Sitzung besteht und wie alt
+            das Element ist: entfernt. (b) Ein Peer fuehrt die Adresse, die
+            Connection ist zugelassen: Der Treiber vollendet die
+            Add-Sequenz. (c) Ein Peer fuehrt die Adresse, die Connection ist
+            nicht zugelassen (Entfernen scheitert weiter): Das Element
+            BLEIBT - auch weit jenseits von vpn_connect_gate_ttl_seconds;
+            CONNECT_PURGE_DEFERRED zuerst WARN, danach ALERT; das Entfernen
+            wird in jedem Lauf erneut versucht. (d) Ein Peer fuehrt die
+            Adresse, die Zeile ist nicht auswertbar bzw. die Datenbank nicht
+            lesbar: Das Element bleibt. (e) Element einer in diesem Lauf
+            begonnenen Add-Sequenz: nicht angefasst. [PA-41]
+
+  T-PA-52  [L] Siegel: (a) "recover" bei bestehenden Peers, darunter
+            eingeschraenkte, ein Peer einer gesperrten und einer einer nicht
+            auswertbaren Connection: Der Abgleich baut restricted_* auf,
+            entfernt den nicht zugelassenen Peer, setzt fuer den nicht
+            auswertbaren ein Gate-Element, weist die Vorbedingung am erneut
+            gelesenen Kernel Peer fuer Peer nach und loest das Siegel;
+            POLICY_UNSEALED. Bis dahin wird kein Paket eines Peers
+            weitergeleitet. (b) Das Einfuegen eines Soll-Mitglieds scheitern
+            lassen: Das Siegel bleibt, der Abgleich bleibt faellig. (c)
+            Regelwerk waehrend des Laufs neu laden: kein Loesen mit dem
+            alten Nachweis; der Lauf gilt als nicht fehlerfrei; sofort neuer
+            Abgleich. (d) Ein Einzelauftrag zwischen Nachweis und Loesen: Er
+            wartet. (e) Kein Aufruf und keine Handlung loest das Siegel ohne
+            Nachweis. [PA-42]
+
+  T-PA-53  [L] Mengenbremse: 30 von 200 Connections mit Laufzeit am
+            Auftragsbuch vorbei in SQL sperren (Schwellen 20 und 10
+            Prozent): (a) Der Abgleich entfernt keinen dieser Peers und
+            beendet keine dieser Sitzungen; Marke policy_mass_hold_since;
+            POLICY_RECONCILE_MASS_HOLD mit Zahl und Aufteilung; Ergebnis 1.
+            (b) Eine ordentliche Sperrung im selben Lauf wird ausgefuehrt.
+            (c) Einfuegen in restricted_*, Gate, Hygiene und Oeffnen laufen.
+            (d) Einzelaufruf fuer eines der 30 Ziele (wie der
+            Zulassungswaechter des Controllers): Ergebnis 6, der Peer
+            bleibt. (e) Ein Auftrag der Herkunft RETRY aendert daran nichts.
+            (f) 15 Ziele bzw. 30 von 1.000: keine Bremse. (g) Mehr
+            betroffene L2TP-Sitzungen als vpn_l2tp_kill_hold_threshold:
+            Bremse. (h) --confirm-mass-close mit falscher Zahl: abgelehnt;
+            mit der gemeldeten: EIN Lauf schliesst, die Marke ist entfernt.
+            (i) Ursache in SQL beheben: Der naechste Lauf entfernt die
+            Marke. (j) Im Zustand VERSIEGELT erhalten die zurueckgestellten
+            Peers vor dem Loesen des Siegels ein Gate-Element. (k)
+            Sitzungsbeginn einer nicht zugelassenen Connection waehrend der
+            Bremse: verweigert. [PA-43]
+
+  T-PA-54  [L] Fehlerfreiheit und Anforderungen: (a) Ein Schritt scheitert
+            fuer EIN Ziel: Ergebnis 1, die uebrigen Ziele sind berichtigt;
+            policy_reconcile_last_ok_at unveraendert. (b) Anforderung
+            waehrend eines laufenden Abgleichs anlegen: Sie bleibt und
+            fuehrt zu einem weiteren Lauf; die vor dem Beginn vorhandenen
+            werden nur nach fehlerfreiem Lauf entfernt. (c) Zwei Abgleiche
+            zugleich starten: Der zweite endet sofort ohne Wirkung. (d)
+            Datenbank faellt im Lauf aus: Ergebnis 2, Erreichtes bleibt,
+            keine Marke. (e) Die Marken tragen den Beginn des Laufs.
+            [PA-44, PA-66]
+
+  T-PA-55  [L, E] Nach Stoerungen: (a) Systemstart: Siegel, leere Sets; der
+            Startabgleich loest das Siegel und traegt die Peers ueber das
+            Gate ein; POLICY_READY. Datenbank beim Start nicht erreichbar:
+            Das Siegel bleibt; der Auftragslauf wiederholt den Abgleich mit
+            wachsendem Abstand bis hoechstens 60 s. (b) "recover" bei
+            bestehenden Sitzungen und Peers: Sperr-Sets neu aufgebaut,
+            Siegel geloest, alle Freigaben wiederhergestellt -
+            eingeschraenkte zuerst; keine Sitzung beendet. (c) Rueckkehr der
+            Datenbank: erst der Bewerter, dann der Abgleich; eine
+            Connection, deren Kontingent waehrend der Stoerung erschoepft
+            wurde, wird nicht erst geoeffnet. (d) WireGuard- Schnittstelle
+            neu gestartet: Abgleich angefordert, Peers ueber das Gate. (e)
+            L2TP-Daemon neu gestartet: Die Freigaben der beendeten Sitzungen
+            sind entfernt. [PA-45]
+
+================================================================================
+AUFTRAGSBUCH UND NEBENLAEUFIGKEIT
+================================================================================
+
+  T-PA-56  [L] Auftrag in der Transaktion: Fuer jeden Schreibweg aus
+            BASE-080_050 Abschnitt 3 (Anlage, T-02 bis T-08, Tombstone,
+            Widerruf, Rollenwechsel, Adress-Reparatur, Rotation,
+            Kennwortwechsel, vorzeitige Loeschung): Nach dem Commit steht
+            genau ein Auftrag mit den genannten Merkmalen; wird die
+            Transaktion verworfen, steht keiner; ist das Auftragsbuch nicht
+            schreibbar, scheitert die Aenderung als Ganzes. Wechsel nur des
+            Grundes, Claim ohne Statuswechsel, Buchung, Hinweisfeld: kein
+            Auftrag. Zwei Aenderungen vor der Herstellung: EIN Auftrag mit
+            erhoehtem Zaehler; die Merkmale sind nach Regel Q-3
+            verschmolzen. [PA-46]
+
+  T-PA-57  [L] Erledigen: (a) Ein Auftrag ist nur nach Ergebnis 0 geloescht.
+            (b) Waehrend einer kuenstlich verlaengerten Herstellung den
+            Status erneut aendern: Der Zaehler steigt, das Loeschen trifft
+            nicht, der Auftrag wird erneut bearbeitet; der Endzustand ist
+            der letzte Stand von SQL. (c) Zwei Fortschreibungen mit gleichem
+            Zeitstempel: Der Vergleich ueber den Zaehler erkennt sie. (d)
+            Kein anderes Programm loescht Auftraege (Rechte, Programmtext).
+            (e) Ein direkter Aufruf erledigt den Auftrag ebenso. [PA-47]
+
+  T-PA-58  [L] Kein Zielzustand im Auftrag: Einschraenken und vor der
+            Herstellung wieder freigeben: Die Herstellung liest SQL frisch
+            und schraenkt nicht ein. Eine Datensicherung mit Auftraegen
+            eines alten Stands zurueckspielen: Kein Auftrag stellt einen
+            ueberholten Zustand her. Auftrag mit alten Adressen und
+            Laufzeit-Schnitt fuer eine gesperrte Connection: Es wird nur
+            geraeumt und beendet, nichts geoeffnet. [PA-48]
+
+  T-PA-59  [L] Wiederholung und Reihenfolge: (a) Einen Auftrag dauerhaft
+            scheitern lassen (Ergebnis 4): Der Abstand waechst bis
+            vpn_policy_retry_max_seconds; der Auftrag wird nie geloescht;
+            POLICY_OUTBOX_STUCK nach der Schwelle (schliessend: CRITICAL),
+            danach hoechstens einmal je vpn_policy_outbox_alert_seconds. (b)
+            Schliessender Auftrag nach Ergebnis 4, 5 oder 8: im naechsten
+            Durchgang wieder faellig; nach 6 oder 7: mit Abstand. (c) 50
+            dauerhaft scheiternde schliessende Auftraege und ein neuer
+            Auftrag: Der neue wird im naechsten Durchgang bearbeitet. (d)
+            Eine Fortschreibung setzt die Zahl der Versuche auf 0. [PA-49]
+
+  T-PA-60  [L, E] Wirkzeit: Eine Sperrung festschreiben und den ausloesenden
+            Prozess unmittelbar nach dem Commit beenden: Die Wirkung im
+            Kernel tritt nach hoechstens einem Raster des Auftragslaufs
+            zuzueglich Wartezeit auf den Lock und Dauer der Herstellung ein
+            (Messreihe, Verteilung dokumentiert). Mit direktem Aufruf: Dauer
+            der Herstellung. Ebenso fuer Einschraenkung (mit Fluss-Schnitt)
+            und Freigabe. [PA-50]
+
+  T-PA-61  [K, L] Lock-Datei und Lock: (a) Lock-Datei fehlt, ist keine
+            regulaere Datei bzw. gehoert nicht root: Ergebnis 7 ohne
+            Wirkung; das Werkzeug legt sie nicht an. (b) Kein Programm
+            loescht oder ersetzt sie im Betrieb. (c) Eine Zeile von aussen
+            gesperrt halten und die Herstellung starten: Sie wartet unter
+            dem Kernel-Lock nicht auf die Zeilensperre. (d) Kein Programm
+            ruft vpn-policy-apply, waehrend es den Kernel-Lock haelt; beim
+            Loesen des Siegels wird der gehaltene Lock an vpn-fw-load
+            uebergeben und endet erst mit dem letzten Halter. (e) Haengender
+            Halter: Zeitlimit; die Dienstverwaltung beendet ihn; der Lock
+            ist frei. [PA-51]
+
+  T-PA-62  [K, L] Rechte am Auftragsbuch: DB-User radius: kein Zugriff.
+            DB-User webpanel: nur Lesen ueber die Sicht ohne Adressen;
+            Einfuegen, Aendern und Loeschen scheitern. DB-User system: alle
+            Rechte. Die Spalten enthalten keine Geheimnisse. [PA-52]
+
+  T-PA-63  [L] Kein Ausloeser: E-Mail-Bestaetigung eines Customers,
+            Anmeldung am Panel, Beginn und Ende einer Aktivitaetsepisode
+            (WireGuard-Client verstummt und meldet sich wieder): kein
+            Auftrag, kein Aufruf, keine Aenderung an Sets, Peers und
+            Freigaben. Der Peer bleibt nach dem Ende der Episode eingetragen
+            und - falls eingeschraenkt - im Sperr-Set. [PA-53]
+
+================================================================================
+UMBAUTEN
+================================================================================
+
+  T-PA-64  [L] Muster und Abbruch (Rollenwechsel, Kennwortwechsel, Rotation,
+            Adress-Reparatur): (a) Abbruch vor dem Commit: nichts geaendert.
+            (b) Prozess nach dem Commit beenden: Der Auftragslauf vollendet
+            die Herstellung innerhalb eines Rasters. (c) Protokoll: Der
+            Commit liegt vor dem ersten Laufzeit- bzw. Fluss-Schnitt; die
+            Sperre wird erst nach der Herstellung freigegeben, gleich mit
+            welchem Ergebnis. (d) Sperre nicht erhaeltlich: Der Umbau endet
+            ohne Wirkung; bereits erhaltene Sperren sind zurueckgegeben. (e)
+            Anmeldung waehrend des Umbaus: abgewiesen. [PA-54]
+
+  T-PA-65  [L] Rollenwechsel: Customer mit vier Connections (WireGuard
+            ACTIVE, L2TP RESTRICTED mit Sitzung, DISABLED, L2TP ACTIVE ohne
+            Sitzung): (a) Alle erhalten Rolle, Slot und Adressen neu - oder
+            keine: Bei zu kleinem Zielpool bricht die Transaktion ab, auch
+            wenn die Vorpruefung bestanden war; die Meldung nennt benoetigte
+            und freie Zahl. (b) Die alten Adressen stehen ab dem Commit in
+            Quarantaene. (c) Laufzeit auf den alten Adressen ist beendet;
+            Freigabe, Sperr-Set und conntrack der alten Adressen sind
+            geraeumt - auch wenn der Umbau nach dem Commit abbricht. (d)
+            DISABLED: neue Adresse, kein Schnitt. (e) Grund der
+            Einschraenkung, quota_used und Periode bleiben. (f) Zielrolle
+            ADMIN: Die eingeschraenkte Connection ist mit dem Commit ACTIVE.
+            (g) Wechsel zurueck: andere Adressen. (h) vpn-role-change lehnt
+            jede Eingabe ausserhalb des festen Schemas ab.
+            [PA-55, PA-05, PA-48]
+
+  T-PA-66  [L] Schluesselrotation: Nach der Herstellung besteht kein Peer
+            mit dem alten Schluessel; laut Protokoll ist der alte Peer
+            entfernt, BEVOR der neue eingetragen ist; Ende-Grund
+            AUTH_KEY_ROTATED; ein Handshake mit dem alten Schluessel
+            scheitert (BASE-040 T-WT-34). Abbruch nach dem Commit: Der
+            Auftragslauf vollendet. [PA-56]
+
+  T-PA-67  [L] Kennwortwechsel: (a) Bei bestehender Sitzung wechseln: Die
+            Bestaetigung ist ausgeliefert, bevor die Sitzung endet;
+            Ende-Grund AUTH_KEY_ROTATED. (b) Die Herstellung aufhalten, mit
+            dem neuen Kennwort neu verbinden, dann nachholen: Die neue
+            Sitzung bleibt, eine vor dem Wechsel begonnene wird beendet. (c)
+            Der Adapter nennt keinen Beginn: Die Sitzung gilt als vorher
+            begonnen und wird beendet. (d) Anmeldung mit dem alten Kennwort
+            nach dem Commit: abgewiesen (BASE-070 SC-63). [PA-56, PA-48]
+
+  T-PA-68  [K, L] Adress-Reparatur: je Connection mit Sperre; die bisherige
+            Adresse steht in Quarantaene (DRIFT_REPAIR); der Auftrag traegt
+            die alten Adressen und den Laufzeit-Schnitt; Laufzeit auf der
+            alten Adresse ist beendet (Grund CONNECTION_ADDRESS_REPAIR). Die
+            Handlung nimmt genau eine Kennung an. [PA-57]
+
+  T-PA-69  [L] Profil nach Herstellung: Rollenwechsel, Rotation bzw.
+            Adress-Reparatur einer WireGuard-Connection bei kuenstlich
+            verzoegerter Herstellung: Der Vermerk "Profil faellig" steht mit
+            dem Commit; das Profil wird nicht zugestellt, solange der
+            Auftrag offen ist. Umbau nach dem Commit abbrechen: Der Vermerk
+            bleibt und wird abgearbeitet. [PA-58]
+
+  T-PA-70  [L] Wiederherstellung: WireGuard: Nach dem Commit wird der Peer
+            ueber das Gate eingetragen; bei Ergebnis RESTRICTED stehen die
+            Adressen im Sperr-Set, bevor das erste Paket fliesst; der
+            Auftrag traegt keinen Fluss-Schnitt. L2TP: keine
+            Kernel-Aenderung; das Geraet meldet sich neu an. [PA-10, PA-26]
+
+================================================================================
+HELFER, BETRIEB, BEOBACHTBARKEIT, GRENZEN
+================================================================================
+
+  T-PA-71  [K, L] Helfer: (a) Verzeichnis und Dateien sind nur fuer root
+            schreibbar; ein Helfer aus einem anderen Ort oder aus der
+            Datenbank wird nicht geladen. (b) Unbekannter Name, unbekannte
+            Operation, Argument ausserhalb des Schemas, freier Text:
+            Ergebnis 3, der Helfer laeuft nicht. (c) Der Helfer laeuft unter
+            dem Kernel-Lock des Werkzeugs und endet am Zeitlimit. (d)
+            Vergleich aller nicht zugewiesenen Objekte vor und nach jeder
+            Operation: unveraendert. (e) IPv4 und IPv6 einer Aenderung in
+            einer Transaktion. (f) Nach "recover" stellt "sync" die Sets der
+            Helfer wieder her - der Sperr-Helfer im Abschnitt "Schliessen",
+            die Verwaltungsfreigabe im Abschnitt "Oeffnen". (g) TEMPFAIL
+            bzw. FAIL: POLICY_HELPER_FAILED; der Abgleich endet mit 1; nie
+            ein Erfolg. [PA-59]
+
+  T-PA-72  [L] Verkehrsformung: Der Formungs-Helfer wird vor Freigabe bzw.
+            Peer-Eintrag gerufen, beim Abbau nach dem Entzug (Protokoll).
+            Sein Fehler: Ergebnis 4, die Connection ist nicht geoeffnet.
+            Formungsreste nach dem Verlust eines Peers: Der Abgleich ruft
+            "sync" im Abschnitt "Hygiene"; die Reste sind entfernt. [PA-60]
+
+  T-PA-73  [K, L] Units und Takt: Ein Takt-Setting aendern: Es wirkt ohne
+            neue Unit-Datei. Kein Tunnel-Dienst haengt von einer Unit dieses
+            Moduls ab; keine Unit dieses Moduls verlangt die Datenbank als
+            Startbedingung; jede hat ein Zeitlimit. vpn-policy-apply laeuft
+            als root, vpn-policy-eval unter seinem eigenen Benutzer.
+            [PA-61, PA-01]
+
+  T-PA-74  [L] Settings: (a) Einen Key loeschen bzw. ungueltig setzen: Es
+            gilt der Notwert des Katalogs, POLICY_SETTING_FALLBACK; der
+            Programmtext enthaelt keinen eigenen Rueckfallwert. (b) Jede
+            Regel KP-a bis KP-f verletzen: Notwerte fuer die Keys dieses
+            Moduls bzw. POLICY_SETTING_CONFLICT bei fremdem Key. (c) Die
+            Keys der Bremsen loeschen: Mit dem Notwert 1 halten schon zwei
+            Faelle an - nichts Unumkehrbares, nichts in Massen. [PA-62]
+
+  T-PA-75  [K, L] Statusdateien und Ereignisse: Nach einem Testlauf mit
+            bekannten Namen und Adressen alle Statusdateien und Ereignisse
+            durchsuchen: kein Anmeldename, keine Tunneladresse eines Kunden,
+            keine oeffentliche Adresse; Connections nur als connection_ref.
+            Ohne Datenbank: Ereignisse im Journal und im
+            datenbankunabhaengigen Alarmweg. Jedes Ereignis der Stufe
+            CRITICAL nennt, was geschlossen bleibt und was der Betreiber tun
+            kann. Dauerhaft scheiterndes Ziel: hoechstens eine Meldung je
+            vpn_policy_outbox_alert_seconds. Statusdateien werden atomar
+            ersetzt. [PA-63]
+
+  T-PA-76  [K, L] Panel: Der Webprozess kann vpn-policy-apply,
+            vpn-policy-eval und vpn-role-change nicht ausfuehren (keine
+            entsprechende Berechtigung; der Versuch scheitert). Der
+            privilegierte Auftragsweg nimmt nur das feste Schema an
+            (numerische Kennungen, feste Werte); freier Text und
+            zusaetzliche Argumente werden abgelehnt. Der DB-User webpanel
+            kann weder Auftragsbuch noch Marken noch Status schreiben. Unter
+            den Handlungen gibt es weder "Auftrag loeschen" noch "Siegel
+            loesen" noch ein Anhalten von Auftragslauf oder Abgleich.
+            [PA-64, PA-68]
+
+  T-PA-77  [L] Lese-Helfer: --show waehrend ein Abgleich den Kernel-Lock
+            haelt: Die Antwort kommt ohne Warten. Die Ausgabe enthaelt SOLL,
+            IST, offenen Auftrag und letzten Ergebniscode mit Zeit - kein
+            Schluesselmaterial und keine oeffentliche Adresse.
+            Kernel-Zustand und Datenbank sind danach unveraendert. [PA-65]
+
+  T-PA-78  [K, L] Weltzeit und Marken: Alle Datenbanksitzungen des Moduls
+            laufen mit Weltzeit; Zeitzone des Systems und der Datenbank
+            verstellen: Die Fristen werden gleich ausgewertet. Nach
+            laengerem Betrieb liegt keine Marke dieses Moduls in der
+            Zukunft. Einen Lauf kuenstlich verlaengern: Seine Marke traegt
+            den Beginn. [PA-66]
+
+  T-PA-79  [K] Grenzen: Das Modul und seine Programme enthalten keine Regel
+            der Firewall, keine eigene Peer-Mechanik, keinen Statusuebergang
+            ausser dem Aufruf der Routinen von BASE-010, keinen Grund
+            ausserhalb der Registry und kein Limit. Die Tabelle "BASE-080
+            OWNT NICHT" stimmt mit den Owner-Modulen ueberein.
+            [PA-67, PA-03]
+
+  T-PA-80  [L] Halt der Bewertung: (a) --hold: Marke policy_eval_hold_since,
+            POLICY_EVAL_HOLD_SET. Kontingent erschoepfen, einen Grund
+            entfallen lassen, eine Frist ablaufen lassen: Der Lauf fuehrt
+            keinen dieser Uebergaenge aus und zaehlt sie als anstehend. (b)
+            Customer sperren: Die Kaskade laeuft. (c) "Bewertung jetzt" mit
+            Akteur: Der Uebergang findet statt; derselbe Aufruf ohne Akteur:
+            keiner. Reaktivieren durch den Kunden: wirkt mit dem Commit. (d)
+            Eine Sperrung waehrend des Halts wird im Kernel hergestellt;
+            Auftragslauf und Abgleich arbeiten. (e) --release-held waehrend
+            des Halts: abgelehnt. (f) --resume: Marke entfernt,
+            POLICY_EVAL_HOLD_RELEASED; der naechste Lauf holt die
+            umkehrbaren Uebergaenge nach, die unumkehrbaren erst nach der
+            Ruhezeit. (g) Ablauf nach vpn_policy_eval_hold_max_seconds: Der
+            naechste Lauf beendet den Halt, POLICY_EVAL_HOLD_EXPIRED,
+            Ruhezeit. (h) Erneutes --hold: neuer Beginn. Marke in der
+            Zukunft: Der Halt besteht und ist gemeldet. (i) Ohne Datenbank:
+            --hold und --resume scheitern ohne Wirkung. [PA-68, PA-12]
+
+  T-PA-81  [K, L] Eingriffspfade: Je Automatismus die Wege aus BASE-080_070
+            Abschnitt 9 ausfuehren. Anstossen: "Bewertung jetzt", "Zustand
+            jetzt herstellen", "jetzt abgleichen". Ueberstimmen: Freigabe
+            zurueckgestellter Uebergaenge und einer zurueckgestellten
+            Massenkorrektur. Anhalten am System: Zeitgeber des Auftragslaufs
+            stoppen und Unit sperren: POLICY_PENDING_OVERDUE steht; eine
+            Sperrung wirkt weiter ueber den direkten Aufruf; die Hooks
+            wirken; nach dem Wiederanlauf ist das Buch abgearbeitet.
+            Abgleich anhalten: POLICY_RECONCILE_OVERDUE; ein Siegel bleibt
+            geschlossen. Notfall-Riegel: Ergebnis 8 fuer jeden Schreibweg.
+            [PA-68, PA-50]
+
+================================================================================
+GESAMTPRUEFUNG UND ANNAHMEN
+================================================================================
+
+  T-PA-82  [L] Invarianten-Pruefer: Ein Pruefprogramm vergleicht nach JEDER
+            Operation der Labortests SQL und Kernel: (1) Jede Adresse in
+            restricted_* gehoert einer eingeschraenkten Connection mit
+            Kernel-Repraesentation und umgekehrt; keine ADMIN-Adresse. (2)
+            Jedes Element in allowed_l2tp_v4 gehoert zu einer bestehenden
+            Schnittstelle einer zugelassenen Connection - genau eines je
+            Adresse. (3) Fuer keine nicht zugelassene Connection besteht ein
+            Peer ohne Gate-Element oder eine Freigabe. (4) Jedes Element in
+            connect_pending_* gehoert zu einem Peer oder zu einer laufenden
+            Sequenz. (5) Zu jeder Abweichung zwischen SQL und Kernel besteht
+            ein offener Auftrag oder eine Meldung. Jede Verletzung ist ein
+            Testfehler. [PA-27, PA-39, PA-40, PA-41, PA-05, PA-33, PA-46]
+
+  T-PA-83  [E] Annahme E-PA-01: Eine Aenderung an restricted_v4 und
+            restricted_v6 in einer Transaktion wird gemeinsam wirksam. Ein
+            neu eingetragenes Element wirkt ab dem naechsten Paket auch auf
+            einen bestehenden Fluss Richtung Internet - vor dem Loeschen der
+            conntrack-Eintraege. [PA-27, PA-32]
+
+  T-PA-84  [E] Annahme E-PA-02: conntrack-Eintraege lassen sich je
+            Tunneladresse gezielt loeschen - als Quelle und als Ziel, im
+            Hin- und im Rueckweg, fuer beide Familien; das Werkzeug ist
+            vorab pruefbar; Dauer bei der Zielgroesse gemessen. [PA-32]
+
+  T-PA-85  [E] Annahme E-PA-03: Index, Name und Gegenstellen-Adresse der
+            ppp-Schnittstellen sind bei gestopptem Daemon aus dem Kernel
+            lesbar. 1.000 Sitzungen auf- und abbauen: Wird ein Index
+            wiederverwendet, greift die Pruefung "genau ein Element je
+            Adresse" bei jedem Sitzungsbeginn. [PA-29, PA-40]
+
+  T-PA-86  [E] Annahme E-PA-05: accel-ppp ruft die Hooks je Sitzung mit
+            Schnittstelle, Anmeldename und Adresse. Den Hook des Beginns 30
+            s verzoegern: Bis zur Freigabe wird kein Paket der Sitzung
+            weitergeleitet. Ob sich die Hooks aufeinanderfolgender Sitzungen
+            ueberholen, wird beobachtet und dokumentiert. [PA-30, PA-31]
+
+  T-PA-87  [E] Annahme E-PA-06 (Leistung): Abgleich bei 5.000 Peers und 300
+            L2TP-Sitzungen: Dauer je Abschnitt, Gesamtdauer, laengste
+            Haltedauer des Locks. Auftragslauf im Raster: Dauer eines
+            Durchgangs ohne Auftraege und mit 500 Auftraegen. Bewerter bei
+            5.000 Connections ohne und mit 1.000 Kandidaten. [PA-38, PA-50]
+
+  T-PA-88  [E] Annahmen E-PA-04 und E-PA-07: Der Kernel-Lock laesst sich an
+            einen Kindprozess uebergeben und endet erst mit dem letzten
+            Halter. Der Adapter nennt den Beginn einer Sitzung so genau,
+            dass "vor dem Kennwortwechsel begonnen" entscheidbar ist; die
+            Abweichung wird gemessen. [PA-51, PA-56]
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

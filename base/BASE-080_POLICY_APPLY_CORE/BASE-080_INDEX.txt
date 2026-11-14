@@ -1,0 +1,231 @@
+================================================================================
+BASE-080 — POLICY APPLY CORE (INDEX)
+================================================================================
+DATEI: BASE-080_INDEX.txt
+VERSION: v1.0
+DATUM: 2026-11-14
+STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
+
+================================================================================
+1) ZWECK
+================================================================================
+
+  BASE-080 ist der Policy-Kern von RetroTunnel. Er sorgt dafuer, dass der
+  Zustand jeder Connection in SQL richtig BEWERTET ist (ACTIVE,
+  RESTRICTED, DISABLED mit dem zutreffenden Grund) und dass genau dieser
+  Zustand im Kernel HERGESTELLT ist - bei jedem Verbindungsaufbau, bei
+  jedem Statuswechsel und durch regelmaessigen ABGLEICH.
+
+  Leitsatz: SQL SAGT, WAS GILT - DIESES MODUL BRINGT ES IN DEN KERNEL UND
+  HAELT ES DORT. Erst die Policy, dann die Freigabe; erst die Freigabe
+  entziehen, dann raeumen; im Zweifel bleibt geschlossen, was geschlossen
+  ist, und bestehen, was besteht.
+
+  Das Modul loest model/state_machines/SM_POLICY_RESTRICT.txt vollstaendig
+  auf und uebernimmt den in SM_CONNECTION benannten Policy-Evaluator und
+  die Fristenlaeufe.
+
+================================================================================
+2) SCOPE UND ABGRENZUNG
+================================================================================
+
+  IN SCOPE:
+  - Bewertung: Bedingungsquellen, Zielzustand, Reihenfolge je Connection,
+    Bewertungskern, Lauf, Schutz vor unumkehrbaren Massenfolgen, Halt der
+    Bewertung
+  - Herstellung fuer ein Einzelziel: Aufrufe, Ergebniscodes, Soll-Funktion,
+    Abfolgen fuer WireGuard und L2TP, Fluss-Schnitt, Beenden nicht
+    zugelassener Laufzeit, nicht auswertbare Lage
+  - Abgleich aller Connections, Hygiene der Gate-Reste, Mengenbremse,
+    Vorbedingung und Loesen des Siegels
+  - Auftragsbuch, Auftragslauf, Ausloeser, Sperren und ihre Reihenfolge
+  - Umbauten: Rollenwechsel, Kaskaden, Wiederherstellung, Rotation,
+    Kennwortwechsel, Adress-Reparatur
+  - Registrierte Helfer, Units, Settings, Rechte, Status, Ereignisse,
+    Eingriffspfade des Betreibers
+
+  NICHT IN SCOPE (Owner anderswo):
+  - Statusmodell, Uebergaenge, Gruende, Fristfelder, Lifecycle-Log -> BASE-010
+  - Anmeldepruefung                                               -> BASE-020
+  - accel-ppp, Hooks als Programme, Laufzeit-Spiegel              -> BASE-030
+  - Peer-Sequenzen, WG-Treiber, Controller                        -> BASE-040
+  - Regelwerk, Sets, Zustaende der Firewall, Siegel               -> BASE-050
+  - Zeitbasis                                                     -> BASE-060
+  - Sperrvertrag, Laufzeit-Adapter, Hard-Cut-Kern, Allokator,
+    Quarantaene, Marken-Tabelle                                   -> BASE-070
+  - Settings-Katalog                                              -> BASE-090
+  - Limits, Kontingente, Plaene                                   -> BASE-100,
+                                                                     MOD-010
+  - Panel, privilegierter Auftragsweg                             -> BASE-110,
+                                                                     MOD-006
+  - Verkehrsformung, Sperrliste, Meldewege, Sicherung             -> MOD-003,
+                                                                     MOD-005,
+                                                                     MOD-007,
+                                                                     MOD-008
+
+  ABDECKUNG DER PLANUNG (PRIORITAETENLISTE M2-080):
+    vpn-policy-apply, Ergebniscodes         _030 Abschnitte 1 bis 3
+    ein Schreiber, ein Lock                 _050 Abschnitt 6
+    Abgleich ("FLUSH+REBUILD")              _040 Abschnitt 3 - angepasst:
+                                            Angleichen in EINER
+                                            Transaktion, nie ein leeres
+                                            Sperr-Set
+    Hard-Cut                                _030 Abschnitte 7, 8
+    Aufloesung von SM_POLICY_RESTRICT       _080 Abschnitt 8
+    Freigabe nach dem Verbindungsaufbau     _030 Abschnitte 5, 6 -
+    (WireGuard: Gate loesen ; L2TP:         angepasst: Massgeblich ist der
+    Eintrag in allowed_l2tp_v4) ; bei       Bestand am Kernel (Peer bzw.
+    Scheitern kein offener Weg              Schnittstelle), nicht eine
+                                            Abrechnungsmeldung oder ein
+                                            Handshake ; Beenden nach
+                                            DEC-PA-07
+
+================================================================================
+3) DATEIEN IN DIESEM ORDNER
+================================================================================
+
+  BASE-080_INDEX.txt                                 Dieses Dokument
+  BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt    Schutzziele, Begriffe,
+                                                     Komponenten,
+                                                     DEC-PA-01..23
+  BASE-080_020_BEWERTUNG_UND_LIFECYCLE_LAUF.txt      vpn-policy-eval:
+                                                     Quellen, Zielzustand,
+                                                     Ablauf, Kern, Lauf,
+                                                     Zeitschutz, Halt
+  BASE-080_030_HERSTELLUNG_EINZELZIEL.txt            vpn-policy-apply:
+                                                     Rahmen, Codes,
+                                                     Soll-Funktion,
+                                                     WireGuard, L2TP,
+                                                     Fluss-Schnitt
+  BASE-080_040_ABGLEICH_UND_SIEGEL.txt               Abgleich, Gate-Reste,
+                                                     Siegel, Mengenbremse
+  BASE-080_050_AUFTRAGSBUCH_TRIGGER_UND_NEBENLAEUFIGKEIT.txt
+                                                     vpn_policy_outbox,
+                                                     Auftragslauf,
+                                                     Ausloeser, Sperren,
+                                                     Wiederholung
+  BASE-080_060_UMBAUTEN_ROLLENWECHSEL_UND_KASKADEN.txt
+                                                     Muster der Umbauten,
+                                                     vpn-role-change,
+                                                     Kaskaden
+  BASE-080_070_HELFER_BETRIEB_UND_BEOBACHTBARKEIT.txt
+                                                     Helfer, Units,
+                                                     Settings, Rechte,
+                                                     Status, Ereignisse,
+                                                     Eingriffspfade
+  BASE-080_080_OWNER_GRENZEN.txt                     Besitz, Grenzregeln,
+                                                     ANF-PA-01..16,
+                                                     E-PA-01..08, Verbleib
+                                                     der POL-Invarianten
+  BASE-080_090_INVARIANTEN.txt                       PA-01..PA-68
+  BASE-080_095_TESTS.txt                             T-PA-01..T-PA-88
+
+================================================================================
+4) TABELLEN DIESES MODULS
+================================================================================
+
+  Tabelle                Zweck                               Datei
+  ---------------------- ----------------------------------- --------
+  vpn_policy_outbox      Auftragsbuch (je Ziel ein Auftrag)  _050
+
+  Das Modul schreibt ausserdem seine Marken in vpn_runtime_marks (Tabelle
+  und Regeln: BASE-070_070). Es fuehrt keine eigene Tabelle fuer Status,
+  Sitzungen oder Mitgliedschaften: Der Status steht in vpn_connections
+  (BASE-010), der Bestand im Kernel.
+
+================================================================================
+5) PLATTFORM-CONTRACT (KURZFASSUNG)
+================================================================================
+
+  Werkzeuge   vpn-policy-apply (root), vpn-policy-eval (eigener Benutzer,
+              ohne Kernel-Zugriff), vpn-role-change
+  Laeufe      vpn-policy-pending (Auftragslauf), vpn-policy-reconcile
+              (Abgleich), boot-reconcile (Startabgleich), vpn-policy-eval
+              (Bewerter) - Zeitgeber fest, Takt aus Settings
+  Pfade       /run/vpn-policy-apply.lock (Kernel-Lock),
+              /run/retrotunnel/policy/ (Statusdateien, Anforderungen des
+              Abgleichs, Einzel-Locks),
+              /usr/local/lib/retrotunnel/policy-helpers/
+  Bereitschaft POLICY_READY (ein fehlerfreier Abgleich seit dem Start und
+              Zustand BETRIEB der Firewall) ; KEINE Voraussetzung fuer
+              andere Dienste
+  Einzelheiten: BASE-080_070 Abschnitt 2.
+
+================================================================================
+6) ZUSAGEN IM UEBERBLICK
+================================================================================
+
+  - Kein Verkehr vor hergestellter Policy - fuer beide Tunnel und jeden
+    Weg (PA-26, PA-30).
+  - Ein Schreiber, ein Lock ; jede Herstellung ist wiederholbar (PA-18,
+    PA-19).
+  - Kein Statuswechsel geht verloren: Auftrag in der Transaktion der
+    Aenderung, Wirkung im Kernel nach einem Raster (PA-46, PA-50).
+  - Einschraenkung und Sperrung wirken sofort, auch auf bestehende Fluesse
+    (PA-32, PA-33).
+  - Fehlendes Wissen oeffnet nichts und schaltet nichts um (PA-22, PA-25).
+  - Nichts Unumkehrbares und nichts in Massen aus einem Einzelfehler
+    (PA-11, PA-43).
+  - Ein Gate laeuft nie ab ; das Siegel wird nur mit Nachweis geloest
+    (PA-41, PA-42).
+  - ADMIN-Connections werden nie eingeschraenkt (PA-05).
+  - Jeder Automatismus hat einen Eingriffspfad des Betreibers (PA-68).
+
+================================================================================
+7) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  Je Detaildatei ein Abschnitt "Panel-Consumability". Zusammengefasst
+  liefert BASE-080 dem Panel: je Connection alle aktiven Gruende mit
+  Fristen und Zielzustand, SOLL und IST im Kernel, den offenen Auftrag
+  ("Aenderung noch nicht im Netz wirksam") ; die Betriebsseite mit
+  Statusdateien, Marken und Alarmen ; die Handlungen des privilegierten
+  Auftragswegs (Zustand jetzt herstellen, jetzt abgleichen, Bewertung
+  jetzt, Freigaben, Halt der Bewertung, Rollenwechsel). Das Panel
+  bearbeitet weder Sets noch Auftraege, Marken oder Status.
+
+================================================================================
+8) VORGAENGER UND AUFGELOESTE DOKUMENTE
+================================================================================
+
+  RetroTunnel:
+    model/state_machines/SM_POLICY_RESTRICT.txt        vollstaendig
+    (DEPRECATED)                                       aufgeloest
+    model/state_machines/SM_CONNECTION.txt 4.6, 4.9,   Policy-Evaluator
+    5.4                                                uebernommen
+    BASE-010_070 (Uebergaenge), BASE-010_080           Runner und
+                                                       Bewertungskern ;
+                                                       Nachzug AP-Q04
+    BASE-030_040 (Hooks, Stand vor diesem Modul)       ersetzt durch
+                                                       DEC-PA-07 ; Nachzug
+                                                       AP-Q04
+    BASE-005 (boot-reconcile, Zeitgeber, PF-18)        Vertrag erfuellt
+    04_PHASE_PLAN (PH6, PH8)                           Proof-Anker in
+                                                       _095
+  Vorgaenger xp-vpn-stack und Nachlieferung:
+    B150 (Zustaende), B166 (Policy-Apply), D009 (Connect Gating), D011,
+    B052 (Datenbankausfall, nicht eindeutiger Zustand), B345
+    (Schreibwege)
+  Die Einordnung jeder Vorgaenger-Aussage (uebernommen, angepasst,
+  ersetzt, nicht anwendbar) steht in den Rueckverfolgungs-Records unter
+  governance/register/trace/.
+
+================================================================================
+9) BELEGSTAND
+================================================================================
+
+  Dokumentiert und in einer Selbstpruefung logisch durchgegangen
+  (Abbruchstellen: _030 Abschnitt 10 ; Wettlaeufe: _050 Abschnitt 6).
+  Maschinell geprueft ist allein die formale Konsistenz (Nummerierung,
+  Verweise, Rueckverfolgung) durch qa/pruefe_register.py. Kein Test dieses
+  Moduls wurde ausgefuehrt ; die Annahmen E-PA-01 bis E-PA-08 sind nicht
+  praktisch bestaetigt.
+
+  GEGENPRUEFUNG: steht aus. Die Fassung v1.0 ist noch von keinem
+  unabhaengigen Pruefer gelesen.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

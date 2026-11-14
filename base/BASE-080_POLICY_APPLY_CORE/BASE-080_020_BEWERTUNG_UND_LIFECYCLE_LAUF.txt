@@ -219,19 +219,28 @@ ZWECK:
   AUFRUFE:
     vpn-policy-eval --all                      Lauf im Bewertungstakt
     vpn-policy-eval --connection-id <id>       eine Connection (E1 bis E8)
+        [--actor <Kennung>]
     vpn-policy-eval --customer-id <id>         alle Connections eines
-                                               Customers (Kaskade)
+        [--actor <Kennung>]                    Customers (Kaskade)
     vpn-policy-eval --explain <id>             nur lesend: alle aktiven
                                                Gruende, Fristen, Ziel
     vpn-policy-eval --release-held --max <n>   Freigabe zurueckgestellter
         --actor <Kennung> [--confirm-time]     Uebergaenge (Abschnitt 7)
+    vpn-policy-eval --hold --actor <Kennung>   Bewertung anhalten bzw.
+    vpn-policy-eval --resume --actor <Kennung> fortsetzen (Abschnitt 11)
   Eingaben werden streng geprueft (nur Ziffern bzw. feste Schalter).
+  --actor nennt, fuer wessen HANDLUNG der Aufruf laeuft (Verwaltung oder
+  Kunde) ; ihn setzt der privilegierte Auftragsweg bzw. der Schreibweg
+  der Handlung. Ein Aufruf OHNE Akteur ist ein Automatismus (Zeitgeber,
+  Periodenwechsel, selbsttaetige Folgeaufrufe).
 
   LAUF --all (Takt vpn_policy_eval_interval_seconds, Vorschlag 60):
     BL1  Einzel-Lock des Bewerters (kein Kernel-Lock); Zeitlimit.
     BL2  Datenbank nicht erreichbar: Ende ohne Wirkung (DEC-PA-18).
     BL3  ZEITPRUEFUNG nach Abschnitt 7: bestimmt, ob unumkehrbare
-         Uebergaenge in diesem Lauf erlaubt sind.
+         Uebergaenge in diesem Lauf erlaubt sind. HALT nach Abschnitt
+         11: Besteht er, fuehrt der Lauf nur Kaskaden (E2) aus und
+         zaehlt die uebrigen Kandidaten nach Art.
     BL4  KANDIDATEN mengenweise bestimmen (Abschnitt 2, A-3):
            a) Connections von Customern mit Status SUSPENDED oder DELETED,
               die noch nicht entsprechend gesperrt sind
@@ -307,6 +316,8 @@ ZWECK:
   Marken, OHNE sie zu schreiben (die Marken schreibt allein der Lauf
   --all ; ein Einzelaufruf darf eine Luecke nicht verdecken). U-3 gilt
   je Aufruf fuer die Summe seiner unumkehrbaren Uebergaenge.
+  Das Ende eines Halts der Bewertung BEGINNT eine Ruhezeit (Abschnitt 11,
+  Regel HL-5) ; es beendet nie eine.
 
   IST EINE BEDINGUNG NICHT ERFUELLT:
     - KEINER der unumkehrbaren Uebergaenge dieses Laufs wird ausgefuehrt
@@ -325,7 +336,10 @@ ZWECK:
   privilegierten Auftragsweg (Klasse C, erneute Anmeldung). Sie gilt fuer
   EINEN Lauf, traegt eine Obergrenze und den Akteur, setzt U-3 aus und
   wird im Lifecycle-Log der betroffenen Connections ueber actor_detail
-  kenntlich.
+  kenntlich. Uebersteigt die Zahl der faelligen unumkehrbaren Uebergaenge
+  die Obergrenze, fuehrt auch dieser Lauf keinen aus (wie U-3). Solange
+  die Bewertung angehalten ist (Abschnitt 11), wird die Freigabe
+  abgelehnt: erst fortsetzen, dann freigeben.
   Mit dem Zusatz --confirm-time bestaetigt der Betreiber ausserdem die
   Systemzeit (wie BASE-070_070 Regel U-5). Dann gelten fuer diesen Lauf
   auch als erfuellt: das fehlende Signal der Zeitbasis (U-1), ein zu
@@ -395,6 +409,11 @@ ZWECK:
                                   bestehende Zustaende bleiben; Handlungen
                                   mit Bewertungskern (Abschnitt 5) wirken
                                   weiter
+  Bewertung angehalten            kein Fehler: keine Uebergaenge aus
+  (Abschnitt 11)                  Fristen und Gruenden ; Kaskaden und
+                                  Handlungen wirken ; der gespeicherte
+                                  Zustand wird durchgesetzt ; nach dem
+                                  Ende laeuft die Ruhezeit
 
 ================================================================================
 10) PANEL-CONSUMABILITY (R-17)
@@ -407,8 +426,77 @@ ZWECK:
     Uebergaenge je Art, UNBEKANNTE Auskuenfte, zurueckgestellte
     unumkehrbare Uebergaenge mit Anlass (Statusdatei, BASE-080_070).
   - Handlungen: "Bewertung jetzt" fuer eine Connection oder einen
-    Customer; Freigabe zurueckgestellter Uebergaenge (Klasse C).
+    Customer; Freigabe zurueckgestellter Uebergaenge (Klasse C);
+    Bewertung anhalten und fortsetzen (Klasse C ; Abschnitt 11).
   - Keine Bearbeitung von op_status oder Grund am Bewerter vorbei.
+
+================================================================================
+11) HALT DER BEWERTUNG DURCH DEN BETREIBER (DEC-PA-23)
+================================================================================
+
+  ZWECK: Der Betreiber unterbindet weitere AUTOMATISCHE Entscheidungen,
+  ohne die Durchsetzung des gespeicherten Zustands aufzugeben - etwa wenn
+  Plan-Daten, Buchung oder Uhr zweifelhaft sind (POLICY_EVAL_MASS_RESTRICT,
+  POLICY_EVAL_HELD) oder vor einem Eingriff in die Daten.
+
+  AUFRUFE (privilegierter Auftragsweg, Klasse C):
+    vpn-policy-eval --hold --actor <Kennung>      setzen bzw. erneuern
+    vpn-policy-eval --resume --actor <Kennung>    aufheben
+
+  REGELN:
+    HL-1  DER HALT ist die Marke policy_eval_hold_since (Beginn,
+          Datenbankzeit). Er besteht, solange die Marke steht und seit
+          ihr weniger als vpn_policy_eval_hold_max_seconds vergangen sind.
+          Liegt die Marke in der Zukunft (die Uhr wurde zurueckgestellt),
+          besteht er ebenfalls ; die Lage wird gemeldet, und der
+          Betreiber hebt ihn auf oder erneuert ihn.
+    HL-2  WAS RUHT: Solange der Halt besteht, fuehrt kein Lauf --all und
+          kein Aufruf --connection-id oder --customer-id OHNE Akteur einen
+          Uebergang aus den Schritten E3 bis E7 aus - weder einschraenken
+          noch freigeben, weder Fristablauf noch Widerruf. Die Kandidaten
+          werden weiter bestimmt und nach Art gezaehlt (Statusdatei:
+          angehalten, anstehend).
+    HL-3  WAS WEITERLAEUFT:
+          a) Kaskaden aus dem Customer-Status (E2): Sie folgen einer
+             ausdruecklichen Verwaltungshandlung - auch ihr Netz im Lauf
+             (BL4 a).
+          b) Der Bewertungskern in der Transaktion einer Handlung
+             (Abschnitt 5) und Aufrufe MIT Akteur ("Bewertung jetzt" fuer
+             eine Connection oder einen Customer ; Folgeaufruf einer
+             Handlung): Das sind Handlungen, keine Automatismen. Fuer
+             ihre unumkehrbaren Uebergaenge gilt Abschnitt 7 unveraendert.
+          c) Die Herstellung (BASE-080_030 bis _050): Der gespeicherte
+             Zustand wird durchgesetzt wie sonst.
+    HL-4  DER HALT IST BEFRISTET: Er endet durch --resume oder von selbst
+          nach vpn_policy_eval_hold_max_seconds ; das Ende stellt der
+          naechste Lauf --all fest (Ereignis POLICY_EVAL_HOLD_EXPIRED).
+          Ein erneutes --hold setzt den Beginn neu. Einen unbefristeten
+          Halt gibt es nicht: Ein vergessener Halt wuerde Kontingente und
+          Fristen auf Dauer ausser Kraft setzen.
+    HL-5  NACH DEM HALT LAEUFT DIE RUHEZEIT: Mit dem Ende des Halts -
+          gleich auf welchem Weg - wird die Marke entfernt und
+          policy_eval_time_anomaly_at auf jetzt gesetzt (Abschnitt 7,
+          U-2 b). Umkehrbare Uebergaenge holt der naechste Lauf nach ;
+          unumkehrbare folgen erst nach der Ruhezeit oder mit der
+          Freigabe nach Abschnitt 7.
+    HL-6  SICHTBAR UND ZUGEORDNET: Setzen, Erneuern, Aufheben und Ablauf
+          sind Ereignisse (POLICY_EVAL_HOLD_SET, POLICY_EVAL_HOLD_RELEASED,
+          POLICY_EVAL_HOLD_EXPIRED) ; den Akteur fuehrt das Protokoll des
+          privilegierten Auftragswegs. Solange der Halt besteht, zeigt die
+          Statusdatei ihn mit Beginn, Restzeit und der Zahl der
+          anstehenden Uebergaenge je Art.
+    HL-7  OHNE DATENBANK laesst sich der Halt weder setzen noch aufheben ;
+          der Bewerter entscheidet dann ohnehin nichts (BL2).
+
+  WAS DER HALT NICHT IST: kein Wartungsmodus und kein Notaus. Er schliesst
+  nichts und oeffnet nichts. Eine eingeschraenkte Connection bleibt
+  eingeschraenkt, auch wenn ihr Grund waehrend des Halts entfaellt ; der
+  Betreiber gibt sie ueber "Bewertung jetzt" frei. Ein Kunde, der selbst
+  handelt (Reaktivieren, Kontingent auffuellen), ist nicht betroffen: Sein
+  Aufruf traegt einen Akteur.
+  Der Notaus fuer eine einzelne Connection ist die Verwaltungs-
+  Einschraenkung bzw. das Sperren (BASE-080_060 Abschnitt 8) ; die
+  Uebersicht aller Eingriffspfade steht in BASE-080_070 Abschnitt 9.
 
 ================================================================================
 CHANGELOG
