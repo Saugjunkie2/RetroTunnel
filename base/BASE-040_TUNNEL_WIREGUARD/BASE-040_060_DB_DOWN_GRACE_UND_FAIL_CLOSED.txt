@@ -42,10 +42,12 @@ ZWECK:
   Buchungslauf (BASE-040_050 F6: nicht erreichbar, Zeitlimit) und
   TEMPFAIL_DB aus vpn-policy-apply.
   NICHT als Fehler zaehlen Fehler einzelner Anweisungen im Buchungslauf
-  (eine Connection, die Tagesreihe) und wiederholbare Abbrueche
-  (Verklemmung, Wartezeit auf eine Sperre): Sie sagen nichts ueber die
-  Erreichbarkeit der Datenbank. Sonst koennte eine fehlerhafte
-  Statistik-Tabelle ueber die Stoerzeit awg0 fuer alle Kunden stoppen.
+  (eine Connection; die Tagesreihe - auch eine Sperre oder ein Wartelimit
+  an ihrer Anweisung) und wiederholbare Abbrueche (Verklemmung, Wartezeit
+  auf eine Sperre, zwischenzeitlich geaenderte Zeile): Sie sagen nichts
+  ueber die Erreichbarkeit der Datenbank. Sonst koennte eine fehlerhafte
+  oder gesperrte Statistik-Tabelle ueber die Stoerzeit awg0 fuer alle
+  Kunden stoppen.
   Die Probe schreibt nichts in die DB.
 
 ================================================================================
@@ -149,14 +151,42 @@ ZWECK:
     (Zugangsentzug vor Verbrauchsgenauigkeit); Ereignis WG_ACCOUNTING_LOSS.
     Groessenschranke: ein Datensatz je Peer; die Sicherheitsgrenze
     SPOOL_HARD_MAX_BYTES (BASE-005_040) gilt zusaetzlich.
-    EINZEL-SNAPSHOT: Dasselbe Format mit genau EINEM Peer schreibt der
-    WG-Treiber, wenn die Schlussbuchung vor dem Entfernen eines Peers
-    nicht gelingt (BASE-040_030 Schritt R1); der Dateiname traegt
-    zusaetzlich die vpn_connection_id.
+    EINZEL-SNAPSHOT: Schreibt der WG-Treiber unter dem
+    Single-Writer-Lock, wenn die Schlussbuchung vor dem Entfernen eines
+    Peers nicht gelingt (BASE-040_030 Schritt R1). Dasselbe Format mit
+    genau EINEM Peer, zusaetzlich die vpn_connection_id (auch im
+    Dateinamen) und die counter_epoch der Connection, wie der Treiber sie
+    zuletzt gelesen hat. Der Zaehlerstand wird unmittelbar vor dem
+    Entfernen frisch gelesen.
 
-  NACHBUCHEN (durch den Controller, vor jeder anderen Buchung; fuer den
-  Einzel-Snapshot EINER Connection auch durch den WG-Treiber unmittelbar
-  vor deren Wiedereintrag, BASE-040_030 Schritt A4):
+  NACHBUCHEN EINES EINZEL-SNAPSHOTS - genau EIN Nachbucher: der WG-Treiber
+  unter dem Single-Writer-Lock. Der Controller fasst Einzel-Snapshots
+  nicht an. Nachgebucht wird
+    - unmittelbar vor dem Wiedereintrag der Connection (BASE-040_030
+      Schritt A4 0),
+    - im Abgleich fuer alle uebrigen Einzel-Snapshots - auch die
+      gesperrter Connections, die keinen Peer mehr erhalten,
+    - auf Aufruf des Controllers VOR dem Generationswechsel.
+  REGELN:
+    ES-1  NUR BEI GLEICHER EPOCHE: Weicht counter_epoch der Connection
+          von der des Snapshots ab, gehoert er zu einem abgeschlossenen
+          Zaehlerlauf: verwerfen mit Ereignis WG_SNAPSHOT_STALE (ALERT).
+    ES-2  NIE UEBER DEN RESET-ZWEIG: je Richtung
+            delta  = max(0, Snapshot - Cursor)
+            Cursor := max(Cursor, Snapshot)
+          Hat ein anderer Bucher den Cursor schon ueber den Snapshot
+          hinaus fortgeschrieben, ist das Delta 0 - nie der ganze
+          Zaehlerstand.
+    ES-3  Buchung nach SV-4: Vergleich auf den gelesenen Stand
+          (Cursorwerte und Epoche), mit Tagesreihe.
+    ES-4  Die Datei wird erst NACH dem Commit geloescht. Der Cursor einer
+          Connection wird nicht genullt (A4 a, Generationswechsel),
+          solange ein Einzel-Snapshot von ihr im Spool liegt.
+    ES-5  Fehlt die Connection-Zeile inzwischen, wird der Snapshot mit
+          Ereignis verworfen; es gibt nichts mehr zu buchen.
+
+  NACHBUCHEN DES GESAMT-SNAPSHOTS (durch den Controller, vor jeder
+  anderen Buchung):
     Nachbuchen ist eine Buchung nach SV-4 (BASE-070_050 Abschnitt 4):
     dieselbe Implementierung wie der Buchungslauf - mit Tagesreihe und
     mit dem Vergleich auf die gelesenen Cursorwerte und die Epoche.
@@ -169,9 +199,13 @@ ZWECK:
       - Stimmt sie nicht ueberein, gehoert der Snapshot zu einer bereits
         abgeschlossenen Generation: verwerfen mit Ereignis.
       - Datei erst NACH dem Commit loeschen.
-  GENERATIONSWECHSEL (nach dem Nachbuchen, vor dem ersten Peer-Add):
+  GENERATIONSWECHSEL (nach dem Nachbuchen beider Arten, vor dem ersten
+  Peer-Add):
     In EINER Transaktion: alle WG-Cursor auf 0, counter_epoch + 1,
     Laufzeitmarke wg_interface_generation := neue Generation.
+    Ausgenommen sind Connections, von denen noch ein Einzel-Snapshot im
+    Spool liegt (ES-4): Ihren Cursor nullt der Treiber nach dem
+    Nachbuchen, unmittelbar vor ihrem Wiedereintrag.
 
   START-AKTION (DB stabil):
     T1  systemctl start awg-quick@awg0 (Gating gegen nftables wirkt)

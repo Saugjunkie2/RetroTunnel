@@ -98,7 +98,8 @@ ZWECK:
                        oder "all"             (nur lesend)
 
   RECHTE: Ausfuehrung als root. Aufrufer: Provisioning-/Lifecycle-Jobs
-  (SYSTEM), Reconcile-Timer, Panel ueber sudo-Helfer mit validierten
+  (SYSTEM), Reconcile-Timer, Panel ueber den privilegierten Auftragsweg
+  (BASE-110; nie aus dem Webprozess) mit validierten
   Argumenten (nur numerische vpn_connection_id bzw. fester Modus),
   vpn-wg-controller (nur wg_ensure fuer eine Connection oder
   --reconcile-all nach Interface-Start).
@@ -124,8 +125,12 @@ ZWECK:
 
   Vorbedingung: Single-Writer-Lock gehalten; DB erreichbar.
 
-  A1  SQL lesen (konsistenter Lesestand): Connection + Auth-Row. soll(c)
-      muss PRESENT sein, sonst Wechsel in die Remove-Sequenz.
+  A1  SQL lesen (konsistenter Lesestand): Connection + Auth-Row.
+        soll(c) = PRESENT     weiter mit A2
+        soll(c) = ABSENT      Wechsel in die Remove-Sequenz
+        soll(c) = UNBESTIMMT  Abbruch OHNE Wirkung: Ergebnis
+                              STATE_UNDETERMINED; ein vorhandener Peer
+                              bleibt, wie er ist (Abschnitt 1)
   A2  GATE SETZEN: fixed_ip in connect_pending_v4, fixed_ipv6 in
       connect_pending_v6 eintragen (eine nft-Transaktion). Die Elemente
       tragen KEIN Timeout: ein automatisch ablaufendes Gate waere Fail-Open.
@@ -137,7 +142,8 @@ ZWECK:
          einer frueheren Schlussbuchung (R1), wird er ZUERST nachgebucht
          (BASE-040_060 Abschnitt 5). Gelingt das nicht, unterbleibt der
          Eintrag (TEMPFAIL_DB): Nach dem Nullen des Cursors waere der
-         Snapshot nicht mehr richtig zuzuordnen.
+         Snapshot nicht mehr richtig zuzuordnen. Schritt a) laeuft erst,
+         wenn KEIN Einzel-Snapshot dieser Connection mehr im Spool liegt.
       a) UPDATE vpn_connections SET last_known_rx_bytes = 0,
          last_known_tx_bytes = 0, counter_epoch = counter_epoch + 1
          WHERE id = :id AND (last_known_rx_bytes <> 0 OR
@@ -184,15 +190,21 @@ ZWECK:
       Controllers hat inzwischen geschrieben -, wird neu gelesen und neu
       gerechnet, hoechstens wg_final_booking_max_attempts mal.
       Gelingt die Buchung so nicht oder ist die DB nicht erreichbar, wird
-      der Zaehlerstand des Peers in den Snapshot-Spool geschrieben
-      (BASE-040_060 5) - BEVOR R2 den Peer entfernt. Der Cursor wird hier
-      NICHT genullt; das geschieht erst unmittelbar vor einem erneuten
-      Eintrag (A4a).
-  R2  PEER ENTFERNEN.
-  R3  FLOWS BEENDEN: conntrack-Eintraege mit fixed_ip bzw. fixed_ipv6 als
-      Quelle ODER Ziel loeschen (IPv4 und IPv6).
-  R4  SETS BEREINIGEN: fixed-IPs aus connect_pending und restricted
-      entfernen, soweit der SQL-Zustand sie dort nicht mehr verlangt.
+      der Zaehlerstand des Peers FRISCH gelesen und - mit der zuletzt
+      gelesenen Epoche - als EINZEL-SNAPSHOT in den Spool geschrieben
+      (BASE-040_060 5), unmittelbar BEVOR R2 den Peer entfernt. Der Cursor
+      wird hier NICHT genullt; das geschieht erst unmittelbar vor einem
+      erneuten Eintrag (A4a).
+  R2  PEER ENTFERNEN. Zuvor merkt sich der Treiber die AllowedIPs, die
+      der Peer laut Kernel TATSAECHLICH fuehrt.
+  R3  FLOWS BEENDEN: conntrack-Eintraege mit den tatsaechlichen Adressen
+      des entfernten Peers UND mit fixed_ip bzw. fixed_ipv6 der
+      Connection als Quelle ODER Ziel loeschen (IPv4 und IPv6). Nach
+      einem Adresswechsel sind das verschiedene Adressen (BASE-080
+      ANF-PA-07).
+  R4  SETS BEREINIGEN: dieselben Adressen aus connect_pending und
+      restricted entfernen, soweit der SQL-Zustand sie dort nicht mehr
+      verlangt.
   R5  VERIFIZIEREN: kein Peer mit PUBKEY; kein Peer mit den fixed-IPs.
   R6  EREIGNIS: Aktivitaetsende mit Grund (Abschnitt 5) an BASE-070.
 
@@ -218,13 +230,19 @@ ZWECK:
   T-05 Re-Evaluation                    ACTIVE oder RESTRICTED keine; Policy
   T-04/T-06/T-07 -> DISABLED            op_status              Remove, Grund
                                                                CONNECTION_DISABLED
-  T-08 Restore                          ACTIVE oder RESTRICTED Add, sofern Auth-
-                                                               Row vorhanden
+  T-08 Restore                          ACTIVE oder RESTRICTED Add; fehlt die
+                                                               Auth-Row: SOLL
+                                                               UNBESTIMMT, kein
+                                                               Peer, ALERT
   T-09 Rollenwechsel (D002)             access_role, ip_slot,  Remove (alte IPs),
                                         fixed_ip, fixed_ipv6   dann Add (neue
                                                                IPs); neues Profil;
                                                                Grund CONNECTION_
                                                                ROLE_CHANGE
+  Adress-Reparatur (BASE-070_060 4)     ip_slot, fixed_ip,     wie T-09; neues
+                                        fixed_ipv6             Profil; Grund
+                                                               CONNECTION_
+                                                               ADDRESS_REPAIR
   Schluesselrotation (BASE-040_040 5)   wg_public_key, PSK     Remove (alter
                                                                Key), Add (neuer
                                                                Key); Grund
@@ -275,7 +293,9 @@ ZWECK:
       nft-Transaktion setzen.
   S6  POLICY-ZUSTAND: vollstaendiger Neuaufbau der dynamischen Sets durch
       BASE-080 (FLUSH+REBUILD), wobei connect_pending aus S5 erhalten bleibt.
-  S7  EINTRAGEN in Buendeln (awg addconf), je Buendel Verifikation.
+  S7  EINTRAGEN in Buendeln (awg addconf), je Buendel Verifikation. Vor
+      dem Eintragen gilt je Peer Schritt A4: einen Einzel-Snapshot der
+      Connection nachbuchen (0), dann den Cursor nullen (a).
   S8  GATE LOESEN nur fuer verifizierte Peers; fuer fehlgeschlagene bleibt
       das Gate gesetzt und der Peer wird entfernt.
   S9  Ergebniszaehler protokollieren; Health-Indikator
@@ -321,6 +341,11 @@ ZWECK:
                                              loest
     nach R1  gebucht, Peer noch da        -> konsistent (normale Buchung);
                                              naechster Lauf setzt fort
+    nach R1  nicht gebucht, Einzel-       -> ein spaeterer Bucher kann den
+             Snapshot im Spool, Peer         Cursor ueber den Snapshot
+             noch da                         hinaus fortschreiben; das
+                                             Nachbuchen zaehlt dann nichts
+                                             doppelt (BASE-040_060 5)
     nach A4a Cursor 0, Peer fehlt         -> konsistent (fuer fehlende Peers
                                              wird nicht gebucht)
     nach R2  Peer weg, Flows im conntrack -> ohne Peer kein Tunnelverkehr;
@@ -364,12 +389,23 @@ ZWECK:
   WG_PEER_STATE_           soll(c) = UNBESTIMMT              KEINE Aenderung
   UNDETERMINED             (Abschnitt 1)                     am Peer; ALERT,
                                                              bis die Zeile
-                                                             berichtigt ist
+                                                             berichtigt ist;
+                                                             gebucht wird
+                                                             weiter
   WG_IFACE_DRIFT           Interface-Parameter weichen ab    ALERT, kein
                                                              Auto-Neustart
 
   Jedes Drift-Ereignis wird protokolliert (ohne Schluesselmaterial; der
   PublicKey darf genannt werden) und ist im Panel sichtbar.
+
+  RESTRISIKO DES EINFRIERENS (offen ausgewiesen): Ein eingefrorener Peer
+  traegt weiter Verkehr. Sein Verbrauch wird weiter gebucht (BASE-040_050
+  Schritt F1), aber eine Einschraenkung oder Sperrung laesst sich fuer
+  eine nicht auswertbare Zeile nicht ableiten. Das Einfrieren hat keine
+  Frist: Der ALERT wiederholt sich, bis die Zeile berichtigt oder die
+  Connection gesperrt ist (Sperrung und Widerruf gelten immer, Abschnitt
+  1). Betrifft es viele Zeilen zugleich, haelt die Mengenbremse des
+  Abgleichs (BASE-080_040 Abschnitt 7).
 
 ================================================================================
 9) LAUFZEIT-ADAPTER WIREGUARD (Schnittstelle BASE-070_040 Abschnitt 1)
@@ -395,6 +431,10 @@ ZWECK:
                 (Abschnitt 5, "Admin-Hard-Cut ohne Statuswechsel").
                 KILLED nach bestandener Pruefung R5; NOT_FOUND, wenn kein
                 Peer der Connection vorhanden war; FAILED sonst.
+                Ist soll(c) = UNBESTIMMT, fuehrt kill(c) NICHTS aus und
+                meldet FAILED mit dem Vermerk STATE_UNDETERMINED: nichts
+                umschalten. Der Weg zum Entzug ist dann die Sperrung der
+                Connection.
 
   Der Adapter laeuft unter dem Single-Writer-Lock, soweit er aendert
   (kill); list und probe lesen nur. Er gibt keine Schluessel und keine

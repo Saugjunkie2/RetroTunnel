@@ -85,7 +85,11 @@ PEER-LIFECYCLE
 
   T-WT-15  [L] SOLL-Matrix: alle Kombinationen aus op_status, revoked_at,
             Auth-Row vorhanden/fehlend ergeben genau den erwarteten
-            Peer-Zustand. [WT-09, WT-15]
+            Peer-Zustand: DISABLED oder Widerruf - ABSENT, gleich ob eine
+            Auth-Row besteht; zugelassener Status ohne Auth-Row -
+            UNBESTIMMT (ein vorhandener Peer bleibt, keiner wird
+            eingetragen). Der Einzel-Apply bricht bei UNBESTIMMT ab und
+            wechselt nicht in die Remove-Sequenz. [WT-09, WT-15]
 
   T-WT-16  [L] AllowedIPs entsprechen den DB-Werten fuer die Testvektoren
             USER Slot 2, 42, 256, 4094 und VIP Slot 5 (IPv4 /32 und IPv6
@@ -108,7 +112,8 @@ PEER-LIFECYCLE
   T-WT-62  [L] Nicht auswertbare Zeile: op_status einer Connection mit
             eingetragenem Peer auf einen Wert ausserhalb des Wertevorrats
             setzen (ebenso: zugelassener Status ohne Tunneladresse;
-            zweite Auth-Row): Einzel-Apply und Massenabgleich lassen den
+            ohne Auth-Row; zweite Auth-Row): Einzel-Apply und
+            Massenabgleich lassen den
             Peer unveraendert, Ergebnis STATE_UNDETERMINED, Ereignis
             WG_PEER_STATE_UNDETERMINED; der Massenabgleich gilt nicht als
             fehlerfrei. Dieselbe Zeile ohne eingetragenen Peer: Es wird
@@ -116,9 +121,11 @@ PEER-LIFECYCLE
             verfaelschen: Kein Peer wird entfernt. Eine Connection mit
             op_status DISABLED daneben, eine weitere mit zugelassenem
             Status und gesetztem revoked_at: Ihre Peers werden entfernt
-            (Verweigern geht vor). Nach Berichtigung der Zeile stellt der
-            naechste Lauf den SOLL-Zustand her. (Kennung nachgetragen.)
-            [WT-53, WT-09]
+            (Verweigern geht vor). Der eingefrorene Peer wird weiter
+            gebucht; ein Verwaltungs-Hard-Cut fuer ihn fuehrt nichts aus
+            (FAILED mit Vermerk STATE_UNDETERMINED). Nach Berichtigung
+            der Zeile stellt der naechste Lauf den SOLL-Zustand her.
+            (Kennung nachgetragen.) [WT-53, WT-09]
 
   T-WT-21  [L] Massenabgleich waehrend laufender Uebertragung eines
             unveraenderten Peers: keine Unterbrechung, Handshake-Zeit
@@ -251,7 +258,29 @@ CONTROLLER UND VERBRAUCH
             UPDATE EINER Connection scheitern lassen: Alle anderen werden
             gebucht. Eine Verklemmung mit einer anderen Transaktion
             erzwingen: Der Lauf wird einmal wiederholt und zaehlt nicht
-            als Datenbankstoerung. (Kennung nachgetragen.) [WT-55]
+            als Datenbankstoerung. log_usage_daily laenger als das
+            Zeitlimit sperren: Jeder Lauf bucht quota_used ohne
+            Tagesreihe; der Grace-Automat erhaelt keinen Fehler.
+            vpn_quota_timezone unlesbar machen: gleiches Ergebnis.
+            (Kennung nachgetragen.) [WT-55]
+
+  T-WT-63  [L] Einzel-Snapshot: (a) Die Schlussbuchung scheitern lassen,
+            waehrend ein Buchungslauf zwischen Lesen und Schreiben steht;
+            den Lauf fortsetzen (er schreibt den Cursor ueber den
+            Snapshot hinaus), dann nachbuchen: quota_used entspricht
+            genau dem uebertragenen Verkehr - kein Reset-Zweig. (b)
+            Controller-Start und Wiedereintrag zugleich: Der Controller
+            fasst den Einzel-Snapshot nicht an; es gibt genau eine
+            Nachbuchung. Das Loeschen der Datei nach dem Commit scheitern
+            lassen: Der Cursor wird nicht genullt und der Peer nicht
+            eingetragen, bis die Datei fort ist. Einzel-Snapshot mit
+            abweichender Epoche: verworfen (WG_SNAPSHOT_STALE).
+            Einzel-Snapshot einer gesperrten Connection: Der Abgleich
+            bucht ihn nach. Generationswechsel bei vorhandenem
+            Einzel-Snapshot: Der Cursor dieser Connection bleibt bis zum
+            Nachbuchen. Rollenwechsel: conntrack und Sets werden fuer die
+            Adressen geraeumt, die der entfernte Peer tatsaechlich
+            fuehrte. (Kennung nachgetragen.) [WT-57, WT-54, WT-16]
 
   T-WT-61  [L] Buchungslauf auf Anforderung: Das Signal loest sofort einen
             Lauf aus; die Marke wg_accounting_last_ok_at wird

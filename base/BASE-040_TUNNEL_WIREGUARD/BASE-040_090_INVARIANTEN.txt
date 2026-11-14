@@ -4,7 +4,7 @@ BASE-040 — INVARIANTEN (WireGuard-Tunnel)
 DATEI: BASE-040_090_INVARIANTEN.txt
 STATUS: ACTIVE
 
-Harter Vertrag. Jede Verletzung ist ein Fehler. Kennungen WT-01..WT-56
+Harter Vertrag. Jede Verletzung ist ein Fehler. Kennungen WT-01..WT-57
 (WT = WireGuard-Tunnel; bewusst NICHT "WG-xx", weil WG-01..05 und
 WG-GRACE-01..05 bereits Vertragsklauseln in BASE-020_040 bezeichnen).
 Herkunft je Invariante: Rueckverfolgungs-Records unter
@@ -75,7 +75,9 @@ PEER-ZUSTAND
   WT-53  Ist der SOLL-Zustand einer Connection UNBESTIMMT, wird ihr Peer
          weder eingetragen noch entfernt noch ersetzt, und kein Gate wird
          geloest; der Zustand wird gemeldet, bis die Zeile berichtigt
-         ist. Ein fehlerhafter Datenbestand entfernt nie alle Peers.
+         ist. Ein fehlerhafter Datenbestand entfernt nie alle Peers. Der
+         Verbrauch eines solchen Peers wird weiter gebucht; ein Hard-Cut
+         ohne Statuswechsel fuehrt fuer ihn nichts aus.
          (Kennung nachgetragen; steht sachlich beim SOLL-Zustand.)
 
   WT-10  AllowedIPs eines Peers sind exakt fixed_ip/32 und fixed_ipv6/128,
@@ -88,14 +90,19 @@ PEER-ZUSTAND
   WT-14  In keinem Fehler- oder Abbruchfall der Add-Sequenz entsteht der
          Zustand "Peer vorhanden, Policy nicht hergestellt, Gate offen".
 
-  WT-15  RESTRICTED entfernt den Peer nie. Bei DISABLED, Widerruf oder
-         fehlender Auth-Row ist der Peer ABSENT; die Durchsetzung erfolgt
-         mit dem ausloesenden Apply, spaetestens in der Frist aus WT-19.
+  WT-15  RESTRICTED entfernt den Peer nie. Bei DISABLED oder Widerruf ist
+         der Peer ABSENT; die Durchsetzung erfolgt mit dem ausloesenden
+         Apply, spaetestens in der Frist aus WT-19. Fehlt bei zugelassenem
+         Status die Auth-Row, ist der SOLL-Zustand UNBESTIMMT (WT-53):
+         Der Peer wird dann weder eingetragen noch entfernt.
 
   WT-16  Hard-Cut bedeutet in dieser Reihenfolge: letzte Buchung, Peer
-         entfernen, conntrack-Eintraege beider fixed-IPs loeschen,
-         verifizieren. Scheitert die Buchung, wird trotzdem entfernt
-         (Zugangsentzug vor Verbrauchsgenauigkeit) und der Verlust gemeldet.
+         entfernen, conntrack-Eintraege der tatsaechlichen Adressen des
+         Peers und beider fixed-IPs loeschen, verifizieren. Gelingt die
+         Buchung nicht, wird der Zaehlerstand zuvor als Einzel-Snapshot
+         gesichert; sind Datenbank UND Spool nicht schreibbar, wird
+         trotzdem entfernt (Zugangsentzug vor Verbrauchsgenauigkeit) und
+         der Verlust gemeldet.
 
   WT-17  Der zu entfernende Peer wird ueber den PublicKey der Auth-Row UND
          ueber AllowedIPs (fixed-IPs der Connection) bestimmt. Eine bereits
@@ -209,12 +216,23 @@ VERBRAUCHSBUCHUNG
          Nachbuchen eines Snapshots sind Buchungen derselben
          Implementierung wie der Buchungslauf - mit demselben Vergleich
          und derselben Tagesreihe. Gelingt die Schlussbuchung nicht, liegt
-         der Zaehlerstand im Spool, BEVOR der Peer entfernt wird.
+         der Zaehlerstand im Spool, BEVOR der Peer entfernt wird - ausser
+         wenn auch der Spool nicht schreibbar ist (WT-16).
+
+  WT-57  Einen Einzel-Snapshot bucht genau EIN Nachbucher nach - der
+         WG-Treiber unter dem Single-Writer-Lock -, nur bei
+         unveraenderter Epoche und nie ueber den Reset-Zweig: je Richtung
+         hoechstens die Differenz zwischen Snapshot und Cursor. Der
+         Cursor einer Connection wird nicht genullt, solange ein
+         Einzel-Snapshot von ihr im Spool liegt. Kein Nachbuchen zaehlt
+         Verkehr doppelt. (Kennung nachgetragen.)
 
   WT-55  Ein Fehler einer einzelnen Anweisung im Buchungslauf (eine
-         Connection, die Tagesreihe) und ein wiederholbarer Abbruch durch
-         die Datenbank verwerfen hoechstens die betroffene Buchung bzw.
-         fuehren zu einer Wiederholung. Sie gelten nicht als
+         Connection; die Tagesreihe - auch eine Sperre oder ein Wartelimit
+         an ihrer Anweisung oder eine nicht lesbare Zeitzone) und ein
+         wiederholbarer Abbruch durch die Datenbank (Verklemmung,
+         Wartezeit, geaenderte Zeile) verwerfen hoechstens die betroffene
+         Buchung bzw. fuehren zu einer Wiederholung. Sie gelten nicht als
          Datenbankstoerung und zaehlen nicht zur Stoerzeit des
          Grace-Automaten.
 

@@ -211,6 +211,14 @@ P-01  NORMATIVER DELTA-ALGORITHMUS (ersetzt den nicht ueberlieferten
       Alle Bucher - Buchungslauf, Schlussbuchung vor dem Entfernen eines
       Peers, Nachbuchen eines Snapshots - benutzen EINE Implementierung
       dieses Algorithmus.
+      AUSNAHME EINZEL-SNAPSHOT (BERICHTIGUNG 2026-11-14, Nachpruefung
+      Teil B N-01): Das Nachbuchen eines Einzel-Snapshots benutzt den
+      Reset-Zweig NIE. Ein Snapshot, der kleiner ist als der Cursor, ist
+      kein Zaehler-Reset - ein anderer Bucher hat den Cursor inzwischen
+      fortgeschrieben. Je Richtung gilt delta = max(0, Snapshot -
+      Cursor), Cursor := max(Cursor, Snapshot); gebucht wird nur bei
+      unveraenderter Epoche und durch genau einen Nachbucher
+      (BASE-040_060 Abschnitt 5, ES-1 bis ES-5).
       Echter Ueberlauf der 64-Bit-Kernel-Zaehler ist praktisch ausgeschlossen
       und waere vom Reset-Zweig abgedeckt; der Key wg_counter_wrap_detection
       ist deshalb entbehrlich (ERSETZT, kein Schutzzielverlust).
@@ -225,6 +233,10 @@ P-02  DB-DOWN: KERNEL-ZAEHLER ALS PUFFER + SNAPSHOT-SPOOL BEIM STOP
       davor ein Zaehler-Snapshot aller Peers dauerhaft in den Spool
       /var/lib/vpn-accounting/ geschrieben und nach DB-Rueckkehr idempotent
       nachgebucht.
+      Daneben gibt es den EINZEL-SNAPSHOT eines einzelnen Peers: Ihn
+      schreibt der WG-Treiber, wenn die Schlussbuchung vor dem Entfernen
+      dieses Peers nicht gelingt (BASE-040_030 Schritt R1) - auch ohne
+      Stop des Interface.
       Begruendung: gleiches Schutzziel (kein Verbrauchsverlust, kein Quota-
       Bypass, kein Speicher-DoS) bei strikt beschraenktem Speicher (ein
       Datensatz pro Peer) und Absturzfestigkeit. Der Settings-Key

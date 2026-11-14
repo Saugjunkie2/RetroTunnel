@@ -94,6 +94,10 @@ ZWECK:
         her: Der Peer einer gesperrten oder unbekannten Connection wird
         entfernt; ist die Zeile nicht auswertbar, bleibt er unveraendert
         und der Zustand wird gemeldet (BASE-040_030 Abschnitt 1).
+        Haelt der Abgleich eine Massenkorrektur zurueck (BASE-080_040
+        Regel M-7), liefert der Aufruf fuer einen Peer ohne Auftrag
+        Ergebnis 6: Der Peer bleibt, die Lage ist gemeldet, ein Beginn
+        wird nicht verbucht.
     B3  Beginn melden (Abschnitt 6): runtime_active_since := Handshake-Zeit,
         last_runtime_seen_at := Handshake-Zeit; Ereignis ACTIVITY_START.
     B4  Mutex freigeben (erst nach erfolgreichem Commit von B3).
@@ -180,7 +184,14 @@ ZWECK:
     F1  DB lesen: fuer alle WIREGUARD-Connections mit SOLL PRESENT
         id, wg_public_key, last_known_rx_bytes, last_known_tx_bytes,
         counter_epoch, last_counter_seen_at, runtime_active_since
-        (zugleich Erneuerung des SOLL-Abbilds, Abschnitt 2 Z3)
+        (zugleich Erneuerung des SOLL-Abbilds, Abschnitt 2 Z3).
+        Dazu die Connections mit SOLL UNBESTIMMT, deren Peer im Kernel
+        besteht (eingefroren, BASE-040_030 Abschnitt 1): Auch sie werden
+        gebucht - die Buchung aendert keinen Zugang. Ein Beginn wird fuer
+        sie nicht gemeldet (Abschnitt 3, B2).
+        Die Verbindung liest festgeschrieben und laeuft mit Weltzeit als
+        Sitzungszeitzone (BASE-070_070 Regeln U-6, U-7); bearbeitet wird
+        in aufsteigender Reihenfolge der id.
     F2  DANACH Kernel lesen: transfer, latest-handshakes
     F3  Je Connection Delta nach D004 P-01 berechnen
     F4  SCHREIBEN (Buchung nach SV-4, BASE-070_050 Abschnitt 4): EINE
@@ -204,11 +215,17 @@ ZWECK:
         Je Connection mit delta > 0 wird hinter demselben Sicherungspunkt
         die Tagesreihe log_usage_daily nach Richtung fortgeschrieben
         (BASE-070_050 Abschnitt 10); den Kalendertag bildet der Controller
-        und uebergibt ihn als Datum.
+        aus der Geschaeftszeitzone vpn_quota_timezone (gelesen ueber die
+        Aufloesung des Settings-Kerns) und uebergibt ihn als Datum. Die
+        Anweisung der Tagesreihe laeuft mit einem eigenen, kurzen
+        Wartelimit (hoechstens die Haelfte von wg_db_health_timeout_ms).
         FEHLER EINER ANWEISUNG (nicht der Verbindung):
-          - Scheitert allein die Tagesreihe, wird auf einen
+          - Scheitert allein die Tagesreihe - an ihrer Anweisung, an
+            einer Sperre oder am Wartelimit AN IHRER Anweisung, oder weil
+            die Zeitzone nicht lesbar ist -, wird auf einen
             Sicherungspunkt vor ihr zurueckgesetzt; die Buchung bleibt.
-            Ereignis USAGE_DAILY_WRITE_FAILED (BASE-070_050 B-9).
+            Ereignis USAGE_DAILY_WRITE_FAILED (BASE-070_050 B-9); der
+            Controller zaehlt den Ausfall in seiner Statusdatei.
           - Scheitert das UPDATE einer Connection, wird auf ihren
             Sicherungspunkt zurueckgesetzt; nur sie wird in diesem Lauf
             nicht gebucht. Zaehler WG_ACCT_ROW_FAILED.
@@ -218,14 +235,15 @@ ZWECK:
         verworfen und im naechsten Lauf aus frischer Lesung neu
         berechnet; Zaehler WG_ACCT_CAS_RETRY.
     F6  Erfolg: Health-Indikator wg_accounting_last_ok_at setzen.
-        FEHLER DER VERBINDUNG (DB nicht erreichbar, Zeitlimit):
-        Transaktion verwerfen, nichts im Speicher als gebucht markieren;
-        der Grace-Automat wird informiert. Kein Wiederholen in engerer
-        Taktung.
+        FEHLER DER VERBINDUNG (DB nicht erreichbar; Zeitlimit an der
+        Verbindung oder an einer Anweisung der BUCHUNG selbst - nicht an
+        der Tagesreihe): Transaktion verwerfen, nichts im Speicher als
+        gebucht markieren; der Grace-Automat wird informiert. Kein
+        Wiederholen in engerer Taktung.
         WIEDERHOLBARER ABBRUCH durch die Datenbank (Verklemmung, Wartezeit
-        auf eine Sperre): Der Lauf wird verworfen und einmal sofort
-        wiederholt; danach bleibt es beim naechsten Takt. Zaehler
-        WG_ACCT_TX_RETRY.
+        auf eine Sperre, zwischenzeitlich geaenderte Zeile): Der Lauf
+        wird verworfen und einmal sofort wiederholt; danach bleibt es
+        beim naechsten Takt. Zaehler WG_ACCT_TX_RETRY.
         Weder Fehler einzelner Anweisungen (F4) noch wiederholbare
         Abbrueche gelten als Datenbankstoerung im Sinn von BASE-040_060:
         Eine Statistik-Tabelle oder eine einzelne Zeile darf WireGuard
