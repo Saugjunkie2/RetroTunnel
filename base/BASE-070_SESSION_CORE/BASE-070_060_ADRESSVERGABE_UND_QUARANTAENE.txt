@@ -21,8 +21,9 @@ ZWECK:
 ================================================================================
 
   AV-1 ip_slot ist die Quelle; fixed_ip und fixed_ipv6 sind daraus
-       materialisiert und danach unveraenderlich (INV-30). Einzige
-       Ausnahme ist der Rollenwechsel (neue Vergabe, INV-32).
+       materialisiert und danach unveraenderlich (INV-30). Ausnahmen
+       sind allein der Rollenwechsel (neue Vergabe, INV-32) und die
+       Adress-Reparatur (Abschnitt 4).
   AV-2 Der Pool ergibt sich aus access_role, nicht aus tunnel_type
        (INV-31). L2TP_IPSEC erhaelt keine IPv6-Adresse (fixed_ipv6 NULL,
        v6_addr_policy NONE).
@@ -134,7 +135,9 @@ ZWECK:
       UNIQUE-Bedingungen auf fixed_ip und fixed_ipv6 (INV-79) wirken auf
       genau dieser Form.
     - Kein Verbraucher rechnet aus einer Adresse Slot oder Rolle zurueck;
-      wer sie braucht, liest ip_slot und access_role.
+      wer sie braucht, liest ip_slot und access_role. Einzige Ausnahme:
+      Die Adress-Reparatur bestimmt zu einer VORGEFUNDENEN Adresse Pool
+      und Slot, um ihn zu sperren (Abschnitt 4, AR2).
     - Komponenten, die Adressen aus dem Kernel lesen, vergleichen geparst
       (BASE-050_030 Abschnitt 7).
 
@@ -178,7 +181,8 @@ ZWECK:
            belegt   = alle ip_slot der Rolle in vpn_connections (jede
                       Zeile zaehlt, gleich in welchem Zustand)
            gesperrt = alle ip_slot der Rolle in vpn_ip_quarantine mit
-                      quarantine_until > NOW()
+                      quarantine_until > NOW() oder mit offener Frist
+                      (quarantine_until IS NULL)
     AL3  FREIMENGE: Normalbereich ohne belegt, gesperrt und - falls
          skip_edge_octets - Randadressen; mit Reservefreigabe zusaetzlich
          der Reservebereich.
@@ -224,10 +228,12 @@ ZWECK:
     v6_addr_policy entsprechen und ob der Slot im nutzbaren Bereich seines
     Pools liegt.
     DER WAECHTER MELDET - ER AENDERT NICHTS. Abweichung: Ereignis
-    ADDR_DRIFT (CRITICAL) je Connection, hoechstens einmal je Lauf und
-    Connection; die Statusdatei fuehrt die Zahl. Weder ip_slot noch die
-    Adressen werden geschrieben, keine Nutzung wird beendet. Welche Seite
-    falsch ist - Slot, Pool-Zeile oder Adresse -, entscheidet ein Mensch.
+    ADDR_DRIFT (CRITICAL) je Connection, wenn sie ERSTMALS festgestellt
+    wird oder sich geaendert hat; in jedem weiteren Lauf nur EIN
+    Summenereignis ADDR_DRIFT_OPEN mit der Zahl (die Statusdatei fuehrt
+    die betroffenen Connections). Weder ip_slot noch die Adressen werden
+    geschrieben, keine Nutzung wird beendet. Welche Seite falsch ist -
+    Slot, Pool-Zeile oder Adresse -, entscheidet ein Mensch.
 
   ADRESS-REPARATUR (Verwaltungshandlung, je Connection):
     Ausgefuehrt ueber den privilegierten Auftragsweg (ADMIN, erneute
@@ -235,12 +241,16 @@ ZWECK:
     den Allokator - der Allokator bleibt die einzige Schreibstelle:
       AR1  Sperre nach BASE-070_030 Abschnitt 6 (Zweck ROLE_CHANGE: Der
            Vorgang ist ein Adresswechsel).
-      AR2  Eine Transaktion: Pool sperren (AL1); den bisherigen Slot UND -
-           falls die bisher materialisierte Adresse zu einem anderen
-           Slot eines Pools gehoert - auch diesen in vpn_ip_quarantine
-           eintragen (Ursache DRIFT_REPAIR); neuen Slot nach AL2 bis AL6;
-           Lifecycle-Ereignis SLOT_CHANGE.
-      AR3  Nach dem Commit: Hard-Cut und Policy-Herstellung (BASE-080);
+      AR2  Eine Transaktion: ALLE betroffenen Pools sperren, als erste
+           Anweisung und in der festen Reihenfolge (V-2) - den Pool der
+           Connection und, falls die bisher materialisierte Adresse im
+           Netz eines ANDEREN Pools liegt, auch diesen. Dann den
+           bisherigen Slot UND - falls die bisher materialisierte Adresse
+           zu einem anderen Slot gehoert - auch diesen in
+           vpn_ip_quarantine eintragen (Ursache DRIFT_REPAIR); neuen Slot
+           nach AL2 bis AL6; Lifecycle-Ereignis SLOT_CHANGE.
+      AR3  Nach dem Commit: Hard-Cut (Ende-Grund
+           CONNECTION_ADDRESS_REPAIR) und Policy-Herstellung (BASE-080);
            fuer WireGuard ein neues Profil (BASE-040); Sperre freigeben.
     Die bisher genutzte Adresse kehrt so erst nach der Quarantaene in den
     Pool zurueck. Scheitert die Reparatur (kein Slot frei, Sperre nicht
@@ -282,14 +292,26 @@ ZWECK:
   vergebbar, solange
     (a) irgendeine Zeile in vpn_connections (r, s) traegt - aktiv,
         eingeschraenkt, gesperrt, widerrufen oder Tombstone -, ODER
-    (b) vpn_ip_quarantine (r, s) mit quarantine_until > NOW() fuehrt.
+    (b) vpn_ip_quarantine (r, s) mit quarantine_until > NOW() ODER mit
+        offener Frist (quarantine_until IS NULL) fuehrt.
 
   FRIST: vpn_quarantine_days (belegt: 365; zulaessig 30 bis 3650 - eine
   Verkuerzung, etwa auf 180 oder 90 Tage, ist eine Entscheidung des
   Betreibers). Sie gilt fuer alle Wege gleich. Der Key hat die
   Fehlerklasse FAIL_CLOSED (TRUTH_MODEL 7.2): Fehlt er oder ist er
-  ungueltig, wird keine Frist berechnet - die Wege W1 bis W4 scheitern
-  ohne Teilwirkung, und Rueckgaben ruhen (BASE-070_070 Abschnitt 3).
+  ungueltig, wird keine Frist berechnet und nichts zurueckgegeben
+  (BASE-070_070 Abschnitt 3).
+
+  OFFENE FRIST - KEIN ENTZUG SCHEITERT AN FRIST ODER UHR: Kann die Frist
+  nicht berechnet werden - der Key ist nicht lesbar, oder die Systemzeit
+  ist nicht bestaetigt (BASE-070_070 Regel U-5) -, schreiben die Wege W1
+  bis W4 ihren Eintrag MIT OFFENER FRIST (quarantine_until NULL):
+  gesperrt ohne Ende. Widerruf, Sperrung, Rollenwechsel, vorzeitige
+  Loeschung und Adress-Reparatur wirken also immer. FAIL_CLOSED schuetzt
+  die RUECKGABE einer Adresse, nicht ihren Entzug. Der Bereinigungslauf
+  traegt die Frist nach, sobald Key und Zeit es erlauben (R0); sie
+  beginnt dann mit dem Nachtrag - nie frueher. So entsteht keine Frist
+  aus einer unbestaetigten Uhr.
 
   TABELLE vpn_ip_quarantine:
 
@@ -306,7 +328,8 @@ ZWECK:
   origin_connection_ref VARCHAR(20)      NULL         Herkunft; NULL bei
                                                       EARLY_DELETE
   released_at           TIMESTAMP        NOT NULL
-  quarantine_until      TIMESTAMP        NOT NULL
+  quarantine_until      TIMESTAMP        NULL         NULL = offene Frist
+                                                      (gesperrt ohne Ende)
 
   Indices: UNIQUE(access_role, ip_slot), INDEX(quarantine_until)
   Schreiber: system. Ein abgelaufener Eintrag desselben Slots wird beim
@@ -315,7 +338,8 @@ ZWECK:
   WEGE IN DIE QUARANTAENE:
     W1  WIDERRUF AM DATENSATZ: revoked_at und quarantine_until auf der
         Connection-Zeile (BASE-010, LR-01..LR-03). Die Adresse bleibt an
-        der Zeile.
+        der Zeile. Bei offener Frist bleibt quarantine_until NULL; der
+        Widerruf selbst gilt (ANF-SC-01).
     W2  ROLLENWECHSEL: die alte Adresse (Abschnitt 5). Schliesst D002
         Risiko 2.
     W3  VORZEITIGE PHYSISCHE LOESCHUNG einer Connection (Loeschanspruch,
@@ -329,7 +353,15 @@ ZWECK:
     W4  ADRESS-REPARATUR (Abschnitt 4): der bisherige Slot und die bisher
         materialisierte Adresse.
 
-  RUECKGABE (die einzigen beiden Wege):
+  FRIST NACHTRAGEN:
+    R0  Der Bereinigungslauf (J4) setzt fuer Quarantaene-Eintraege und
+        widerrufene Connections mit OFFENER Frist: quarantine_until :=
+        NOW() + vpn_quarantine_days - nur bei bestaetigter Zeit (U-5) und
+        lesbarem Key; je Zeile eine Transaktion mit der Bedingung
+        quarantine_until IS NULL. Ereignis POOL_QUARANTINE_DATED (Zahl).
+
+  RUECKGABE (die einzigen beiden Wege; nur fuer Eintraege mit gesetzter
+  Frist):
     R1  ABLAUF EINES QUARANTAENE-EINTRAGS: Der Bereinigungslauf (J4)
         gibt Eintraege mit quarantine_until <= NOW() zurueck. Je Eintrag
         EINE Transaktion: Pool sperren (AL1); DELETE mit der Bedingung
@@ -341,7 +373,7 @@ ZWECK:
         ihrer Quarantaene. Je Zeile EINE Transaktion:
           1  Zeile sperren und Bedingung erneut pruefen:
              op_status = DISABLED, revoked_at IS NOT NULL,
-             quarantine_until <= NOW()
+             quarantine_until IS NOT NULL, quarantine_until <= NOW()
           2  Lifecycle-Ereignis CONNECTION_DELETED schreiben (INV-78: vor
              dem Loeschen), mit Slot und Adressen in metadata
           3  DELETE der Connection-Zeile. Abhaengige Zeilen: Sperren
@@ -366,8 +398,13 @@ ZWECK:
           Freigabe ist eine Betreiberhandlung ueber den privilegierten
           Auftragsweg.
     RS-3  Eine Frist, die vor ihrem eigenen Beginn endet oder weiter als
-          vpn_quarantine_days nach ihm, ist unplausibel: Der Eintrag wird
-          nicht zurueckgegeben; Ereignis POOL_QUARANTINE_IMPLAUSIBLE.
+          3650 Tage nach ihm (die OBERGRENZE von vpn_quarantine_days -
+          nicht der heute eingestellte Wert: Eine verkuerzte Frist darf
+          aeltere Eintraege nicht unplausibel machen), ist unplausibel:
+          Der Eintrag wird nicht zurueckgegeben; Ereignis
+          POOL_QUARANTINE_IMPLAUSIBLE. Einen so gemeldeten Eintrag datiert
+          der Betreiber einzeln neu oder gibt ihn frei (privilegierter
+          Auftragsweg, Klasse C, protokolliert).
 
   WAS NICHT ZURUECKKEHRT: Eine Connection, die DISABLED ist, aber NICHT
   widerrufen (Restore-Fenster offen oder Widerruf nur von Hand, LR-03),
@@ -396,8 +433,9 @@ ZWECK:
   EREIGNISSE bei Wechsel der Stufe (je Wechsel einmal): POOL_WARN,
   POOL_CRITICAL, POOL_EXHAUSTED (frei = 0), POOL_RECOVERED. Meldeweg:
   MOD-007. Die zuletzt gemeldete Stufe je Rolle steht in der Marke
-  pool_level_<rolle> (Schreiber: Bereinigungslauf, Schritt J6). Nur der
-  Lauf vergleicht und meldet; eine Berechnung auf Abruf meldet nichts.
+  pool_level_<rolle> (Schreiber: Bereinigungslauf, Schritt J6) - eine
+  von vier: GRUEN, GELB, ROT, ERSCHOEPFT (frei = 0). Nur der Lauf
+  vergleicht und meldet; eine Berechnung auf Abruf meldet nichts.
 
   BEI ERSCHOEPFUNG: Anlage und Rollenwechsel scheitern mit
   POOL_EXHAUSTED_OR_QUARANTINED und einer eindeutigen Meldung im Panel
@@ -432,6 +470,14 @@ ZWECK:
                                        Zeitabgleich; ungewoehnlich viele
                                        faellige Rueckgaben werden
                                        zurueckgestellt (RS-1, RS-2)
+  Zeit nicht bestaetigt oder           Widerruf, Rollenwechsel, Loeschung
+  vpn_quarantine_days nicht lesbar     und Reparatur wirken; die Frist
+                                       bleibt offen und wird nachgetragen
+                                       (R0); keine Rueckgabe
+  Quarantaenefrist wird verkuerzt      wirkt auf kuenftige Eintraege;
+                                       aeltere laufen nach ihrer eigenen
+                                       Frist ab (RS-3 misst gegen die
+                                       Obergrenze)
   Anlage scheitert nach der Ziehung    Rollback; Slot bleibt frei
   Rollenwechsel, Zielpool zu klein     Abbruch in RW1; nichts geaendert
   Rollenwechsel hin und zurueck        alte Adresse ist in Quarantaene; die

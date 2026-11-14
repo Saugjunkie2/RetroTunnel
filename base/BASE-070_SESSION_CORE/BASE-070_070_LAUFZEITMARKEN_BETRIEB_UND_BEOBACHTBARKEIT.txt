@@ -65,6 +65,13 @@ ZWECK:
     policy_eval_last_ok_at         vpn-policy-eval           letzter
                                    (BASE-080)                fehlerfreier
                                                              Lauf
+    policy_eval_time_anomaly_at    vpn-policy-eval           Zeitpunkt der
+                                   (BASE-080)                letzten
+                                                             Zeitanomalie
+    policy_mass_hold_since         vpn-policy-apply          Beginn einer
+                                   (BASE-080)                zurueck-
+                                                             gestellten
+                                                             Massenkorrektur
     l2tp_daemon_instance           L2TP-Abgleich (L3)        Instanzkennung
                                                              des zuletzt
                                                              gesehenen
@@ -98,6 +105,12 @@ ZWECK:
                                                              erfolgreicher
                                                              Lauf
 
+  WERT DER LAUFMARKEN: Die Marken "letzter begonnener Lauf" tragen den
+  BEGINN des Laufs und werden unmittelbar nach dem Erwerb des Einzel-Locks
+  geschrieben (U-1). Die Marken von BASE-080 tragen ebenfalls den Beginn
+  ihres Laufs (BASE-080_070 Abschnitt 5). pool_level_<rolle> fuehrt eine
+  von vier Stufen (BASE-070_060 Abschnitt 7).
+
   Damit ist die in ANF-WT-10 verlangte Tabelle definiert, und die bisher
   ortlosen Gesundheitsmarken haben eine Heimat (DEC-SC-17).
 
@@ -124,9 +137,12 @@ ZWECK:
          festen, kurzen Raster. Ob ein Lauf faellig ist, entscheidet der
          Lauf selbst aus dem Setting und seiner Marke "zuletzt begonnen"
          (nicht "zuletzt fehlerfrei": Ein dauerhaft scheiternder Schritt
-         darf den Lauf nicht in jedes Raster ziehen). Eine Marke in der
-         Zukunft gilt als faellig (M-7). So aendert ein Setting den Takt,
-         ohne dass Unit-Dateien neu erzeugt werden.
+         darf den Lauf nicht in jedes Raster ziehen). Die Marke wird
+         unmittelbar nach dem Erwerb des Einzel-Locks gesetzt, nicht am
+         Ende: Auch ein Lauf, der abbricht oder ins Zeitlimit laeuft,
+         gilt als begonnen. Eine Marke in der Zukunft gilt als faellig
+         (M-7). So aendert ein Setting den Takt, ohne dass Unit-Dateien
+         neu erzeugt werden.
     U-2  Kein Tunnel-Dienst haengt von einer Unit dieses Moduls ab; die
          Units dieses Moduls verlangen die Datenbank nicht als harte
          Startbedingung (kein Start-Deadlock, BASE-070_040 Abschnitt 5).
@@ -135,23 +151,37 @@ ZWECK:
     U-4  Alle Units laufen als root mit eingeschraenkten Rechten
          (kein Netzwerkzugriff ausser lokal, nur die benoetigten Pfade
          schreibbar); Einzelheiten der Haertung: BASE-005.
-    U-5  UNUMKEHRBARES NUR BEI BESTAETIGTER ZEIT: Drei Vorgaenge dieses
-         Moduls wirken unumkehrbar und haengen allein an der Uhr - der
-         Periodenwechsel (SV-6), die Rueckgabe abgelaufener
-         Quarantaene-Eintraege (R1) und das physische Loeschen
-         widerrufener Connections (R2). Sie laufen nur, wenn die
-         Zeitbasis die Systemzeit als synchronisiert meldet (Signal von
-         BASE-060, ANF-SC-14) UND keine Marke dieses Moduls in der
-         Zukunft liegt. Andernfalls ruhen sie ohne Wirkung; Ereignis
-         SESSION_TIME_UNCONFIRMED (ALERT). Alles andere - Abgleich,
-         Buchung, Bereinigung von Geistern und Sperren - laeuft weiter.
+    U-5  UNUMKEHRBARES NUR BEI BESTAETIGTER ZEIT: Diese Vorgaenge wirken
+         unumkehrbar und haengen allein an der Uhr - der Periodenwechsel
+         (SV-6) und die Berichtigung einer Periode (SV-6b), die Rueckgabe
+         abgelaufener Quarantaene-Eintraege (R1), das physische Loeschen
+         widerrufener Connections (R2) und das Nachtragen einer offenen
+         Quarantaenefrist (R0). Sie laufen nur, wenn
+           a) die Zeitbasis die Systemzeit als synchronisiert meldet
+              (Signal von BASE-060, ANF-SC-14), UND
+           b) die Marke "zuletzt begonnen" des EIGENEN Laufs beim
+              Laufbeginn nicht in der Zukunft lag (geprueft wird ihr
+              Wert, bevor er ueberschrieben wird).
+         Andernfalls ruhen sie in DIESEM Lauf ohne Wirkung; Ereignis
+         SESSION_TIME_UNCONFIRMED (ALERT). Das Ruhen ist kein Fehler des
+         Laufs. Bedingung b) heilt mit dem naechsten Lauf von selbst (die
+         Marke ist dann neu geschrieben); andere Marken - auch die
+         fremder Module - zaehlen nicht.
+         Alles andere - Abgleich, Buchung, Bereinigung von Geistern und
+         Sperren - laeuft weiter. KEINE FRIST AUS UNBESTAETIGTER ZEIT:
+         Vorgaenge, die eine Quarantaenefrist SCHREIBEN wuerden (Widerruf,
+         Rollenwechsel, vorzeitige Loeschung, Adress-Reparatur), wirken
+         trotzdem - mit offener Frist (BASE-070_060 Abschnitt 6).
          Fehlt das Signal dauerhaft, kann der Betreiber die Zeit fuer
          EINEN Lauf von Hand bestaetigen (privilegierter Auftragsweg,
-         erneute Anmeldung, protokolliert mit Akteur). Die Pruefung auf
-         Marken in der Zukunft bleibt davon unberuehrt.
+         erneute Anmeldung, protokolliert mit Akteur). Bedingung b)
+         bleibt davon unberuehrt.
     U-6  WELTZEIT: Alle Datenbankverbindungen dieses Moduls laufen mit
          Weltzeit als Sitzungszeitzone; Zeitpunkte werden als Weltzeit
-         uebergeben. Dasselbe wird vom AAA-Dienst verlangt (ANF-SC-04),
+         uebergeben. Dasselbe wird vom AAA-Dienst verlangt (ANF-SC-04)
+         und von jedem fremden Schreiber in Spalten dieses Moduls:
+         Controller und WG-Treiber (ANF-SC-09), Provisionierer und
+         Uebergangsroutinen (ANF-SC-01),
          damit die Zeitspalten von radacct mit NOW() vergleichbar sind.
          Die Geschaeftszeitzone vpn_quota_timezone wirkt nur in der
          Periodenrechnung und in der Tagesreihe.
@@ -176,17 +206,29 @@ ZWECK:
       check.sock                         root:<Gruppe des AAA-Dienstes> 0660
       status-<komponente>.json           0644, je Schreiber eine Datei
       *.lock                             Einzel-Locks
-      ended/                             Ende-Vermerke des ip-down-
-                                         Pfads (root 0700; _040 G-8)
+      ended/                             Ende-Vermerke (root 0700; Inhalt:
+                                         Betriebszeit des Systems; _040
+                                         G-8)
       sync-request/                      Merker fuer den L2TP-Abgleich
                                          (root 0700; _020 Abschnitt 7)
+      buffer-index                       Pufferauskunft: Sitzungskennungen
+                                         im Abrechnungspuffer (0600;
+                                         Schreiber: L2TP-Abgleich L1)
+      observed/                          Beobachtung "im Uebergang seit"
+                                         je Sitzungskennung (root 0700;
+                                         _020 Schritt L6a)
+      kill-window                        Zeitpunkte der Beendigungen des
+                                         Abgleichs, monotone Uhr (0600;
+                                         _020 Schritt L7a)
     /run/vpn-sessions/                   Laufzeit-Spiegel L2TP (BASE-030)
     /var/lib/vpn-accounting/             Spool-Bereich beider Tunnel
       wg-snapshot/                       BASE-040_060
       l2tp-acct-buffer/                  Puffer des AAA-Dienstes
                                          (ANF-SC-04)
-      hardcut-audit/                     nachzutragende Protokoll-
-                                         eintraege (root 0700; _040 K7)
+      hardcut-audit/                     Protokoll-Absichten und
+                                         nachzutragende Eintraege der
+                                         Verwaltungs-Hard-Cuts (root
+                                         0700; _040 K4, K7, J8)
 
   BEREITSCHAFT: SESSION_CORE_READY gilt, wenn der Socket von vpn-sessiond
   Anfragen beantwortet. Die Bereitschaft ist KEINE Voraussetzung fuer die
@@ -215,7 +257,8 @@ ZWECK:
       CLOSED  = Fehlerklasse FAIL_CLOSED: Es gibt keinen Ersatzwert; der
       Vorgang, der den Key braucht, findet nicht statt.
     - Fuer Keys, die TRUTH_MODEL Abschnitt 7 bereits fuehrt, gelten
-      dessen Klasse und Notwert unveraendert (Vermerk TM). Fuer die
+      dessen Klasse und Notwert unveraendert (Vermerk TM) - mit der
+      einen, unten ausgewiesenen Ausnahme der Pool-Reserve. Fuer die
       uebrigen sind Klasse und Notwert ein ANTRAG an den Katalog
       (BASE-090, ANF-SC-08) - mit der Richtung, in der ein Wert
       "strenger" ist, denn ein Notwert darf nur verschaerfen (TRUTH_MODEL
@@ -240,7 +283,8 @@ ZWECK:
   vpn_cleanup_ratelimit_window_seconds     5          1..30      belegt
   vpn_cleanup_result_ttl_seconds           5          1..120     belegt
   vpn_ghost_min_age_seconds                15         5..120     neu
-  vpn_ghost_stop_grace_seconds             10         0..60      neu
+  vpn_ghost_stop_grace_seconds             10         2..60      neu
+  vpn_ghost_buffer_wait_max_seconds        300        30..3600   neu
   vpn_l2tp_transition_max_seconds          120        30..900    neu
   vpn_l2tp_buffer_drain_alert_seconds      600        60..86400  neu
   runtime_activity_check_interval_seconds  30         10..300    D004-E09
@@ -248,6 +292,8 @@ ZWECK:
   vpn_l2tp_unaccounted_action              ALARM      ALARM,     neu
                                                       KILL
   vpn_l2tp_kill_hold_threshold             10         1..500     neu
+  vpn_l2tp_kill_hold_per_hour              30         1..5000    neu
+  vpn_l2tp_untracked_hold_threshold        20         1..10000   neu
   vpn_runtime_seen_refresh_seconds         60         10..600    neu
   vpn_janitor_interval_seconds             300        60..3600   belegt
   vpn_boot_janitor_delay_seconds           90         0..600     belegt
@@ -281,12 +327,15 @@ ZWECK:
   vpn_cleanup_result_ttl_seconds           HARDCAP  30       TM 7.6
   vpn_ghost_min_age_seconds                HARDCAP  15       groesser
   vpn_ghost_stop_grace_seconds             HARDCAP  10       groesser
+  vpn_ghost_buffer_wait_max_seconds        HARDCAP  300      - (Verfuegbark.)
   vpn_l2tp_transition_max_seconds          HARDCAP  120      - (Verfuegbark.)
   vpn_l2tp_buffer_drain_alert_seconds      HARDCAP  600      kleiner (Alarm)
   runtime_activity_check_interval_seconds  HARDCAP  30       kleiner
   l2tp_radacct_stale_threshold_seconds     HARDCAP  900      TM 7.1 (Altname)
   vpn_l2tp_unaccounted_action              HARDCAP  ALARM    siehe (c)
   vpn_l2tp_kill_hold_threshold             HARDCAP  1        kleiner
+  vpn_l2tp_kill_hold_per_hour              HARDCAP  1        kleiner
+  vpn_l2tp_untracked_hold_threshold        HARDCAP  1        kleiner
   vpn_runtime_seen_refresh_seconds         HARDCAP  60       - (Anzeige)
   vpn_janitor_interval_seconds             HARDCAP  300      TM 7.1
   vpn_boot_janitor_delay_seconds           HARDCAP  0        TM 7.1
@@ -302,15 +351,20 @@ ZWECK:
   vpn_pool_return_hold_threshold           HARDCAP  10       kleiner
 
     (a) vpn_quarantine_days fehlt oder ist ungueltig: Es wird keine Frist
-        berechnet. Widerruf, Rollenwechsel, vorzeitige Loeschung und
-        Adress-Reparatur scheitern ohne Teilwirkung; Rueckgaben ruhen
-        (die Plausibilitaet nach BASE-070_060 RS-3 ist nicht pruefbar).
-        Bereits gesetzte Fristen gelten weiter.
+        berechnet und keine Adresse zurueckgegeben. FAIL_CLOSED schuetzt
+        die RUECKGABE, nicht den Entzug: Widerruf, Rollenwechsel,
+        vorzeitige Loeschung und Adress-Reparatur WIRKEN - sie schreiben
+        ihren Eintrag mit offener Frist, die der Bereinigungslauf
+        nachtraegt, sobald der Key lesbar ist (BASE-070_060 Abschnitt 6,
+        R0). Bereits gesetzte Fristen gelten weiter.
     (b) Ohne gueltige Werte fuer Zeitzone, Reset-Modus und Geltung ist
         die Quota-Periode nicht berechenbar. Dann findet kein
         Periodenwechsel statt (Alarm wie bei jeder ueberfaelligen
         Periode), und die Anlage einer Connection scheitert. Ein
-        Ersatzwert wuerde die Monatsgrenze still verschieben.
+        Ersatzwert wuerde die Monatsgrenze still verschieben. Die
+        BUCHUNG beider Tunnel laeuft weiter; es entfaellt allein die
+        Tagesreihe, deren Kalendertag ohne Zeitzone nicht bestimmbar ist
+        (BASE-070_050 Regel B-9).
     (c) vpn_l2tp_unaccounted_action: KILL setzt strenger durch, kann bei
         einer Stoerung der Abrechnung aber Sitzungen kosten. Als Notwert
         gilt deshalb die Einstellung, die nicht eingreift (SZ-9); die
@@ -329,7 +383,11 @@ ZWECK:
     wg_counter_poll_interval_seconds         Owner BASE-040
     Zeitlimit des Daemons fuer eine Antwort  Owner BASE-030 (Regel K-d)
     des AAA-Dienstes
+    Dauer, ueber die der Daemon eine         Owner BASE-030 (Regel K-h)
+    Abrechnungsmeldung wiederholt
     Altersgrenze des L2TP-Puffers            Owner BASE-020 (Regel K-e)
+  GELTUNGSBEREICH: Alle Keys dieses Moduls gelten nur global; es gibt
+  keinen Wert je Customer oder Connection (TRUTH_MODEL 4.5).
 
   KONSISTENZREGELN:
     K-a  Obergrenzen der On-Demand-Pruefung (TRUTH_MODEL 7.6):
@@ -353,13 +411,22 @@ ZWECK:
          Sondenergebnis darf eine Sperre nicht ueberleben)
     K-g  vpn_hardcut_kill_timeout_seconds ist hoechstens die Haelfte von
          vpn_session_lock_operation_ttl_seconds
+    K-h  vpn_ghost_stop_grace_seconds ist nicht kleiner als die Dauer,
+         ueber die der L2TP-Daemon eine Abrechnungsmeldung wiederholt
+         (Zeitlimit mal Versuche; Wert von BASE-030)
+    K-i  vpn_hardcut_hint_valid_seconds ist groesser als
+         vpn_hardcut_kill_timeout_seconds + vpn_ghost_stop_grace_seconds
+         + runtime_activity_check_interval_seconds (ein ordentlich
+         beendeter Hard-Cut endet, bevor sein Hinweis verfaellt)
+    K-j  vpn_l2tp_kill_hold_threshold ist hoechstens
+         vpn_l2tp_kill_hold_per_hour
   Verletzt eine Kombination eine Regel, gelten fuer die beteiligten Keys
   DIESES Moduls die Notwerte, und der Zustand wird gemeldet
   (SESSION_SETTING_FALLBACK). Liegt die Ursache in einem fremden Key
-  (K-b, K-d, K-e), stellt das die Regel nicht her: Der Konflikt bleibt
-  als SESSION_SETTING_CONFLICT (ALERT) gemeldet, bis der Betreiber ihn
-  behebt. Die Notwerte erfuellen die Regeln K-a, K-c, K-f und K-g
-  untereinander.
+  (K-b, K-d, K-e, K-h), stellt das die Regel nicht her: Der Konflikt
+  bleibt als SESSION_SETTING_CONFLICT (ALERT) gemeldet, bis der Betreiber
+  ihn behebt. Die Notwerte erfuellen die Regeln K-a, K-c, K-f, K-g, K-i
+  und K-j untereinander.
 
   ABWEICHUNG VON EINEM BELEGTEN VORSCHLAG: D004-E09 nennt fuer
   l2tp_radacct_stale_threshold_seconds 300. Bei einem Interim-Intervall
@@ -393,8 +460,12 @@ ZWECK:
     online_window_seconds
         -> entfaellt; Aktualitaetszusage BASE-070_020 Abschnitt 2, Anzeige
            MOD-006
-    tail_reserve_slots, ip_pool_green_threshold, ip_pool_red_threshold
-        -> Spalten in vpn_pool_config
+    vpn_tail_reserve_slots, ip_pool_green_threshold,
+    ip_pool_red_threshold
+        -> Spalten in vpn_pool_config. ABWEICHUNG IM FEHLERVERHALTEN:
+           TRUTH_MODEL 7.2 fuehrt die Reserve als Setting mit Notwert 0.
+           Als Spalte gilt: Ein ungueltiger Wert ist POOL_CONFIG_INVALID
+           - keine Vergabe. Das ist strenger als der Notwert.
     QUARANTINE_DAYS           -> vpn_quarantine_days
     wg_counter_wrap_detection, wg_grace_accounting_buffer_max
         -> entfallen (D004 P-01, P-02)
@@ -453,21 +524,35 @@ ZWECK:
                            verworfen}, drift: {L2TP_UNACCOUNTED,
                            L2TP_ACCT_STALLED, L2TP_ORPHAN_SESSION,
                            L2TP_ACCT_COUNTER_REGRESSION,
-                           L2TP_ACCT_UNTRACKED, RT_IDENTITY_MISMATCH,
-                           RT_DUPLICATE_SESSION}, beenden_zurueckgestellt,
+                           RT_IDENTITY_MISMATCH, RT_DUPLICATE_SESSION,
+                           RT_STATE_UNDETERMINED}, beenden: {kandidaten
+                           je Klasse, gehalten, beendet_letzte_stunde},
+                           buchung_ruht, tagesreihe_ausfaelle,
+                           notwerte_in_gebrauch, zeit_anomalie,
                            letzter_lauf_at, letzter_lauf_ok_at
     status-janitor.json    generated_at, sperren_gueltig je Zweck,
                            sperren_entfernt, hinweise_bereinigt,
                            spiegel_entfernt, connections_geloescht,
-                           quarantaene_beendet, adress_drift, pool: je
-                           Rolle {nutzbar, reserve, belegt, quarantaene,
-                           frei, stufe}, rueckgaben_zurueckgestellt,
+                           quarantaene_beendet, fristen_offen,
+                           fristen_nachgetragen, adress_drift (Zahl und
+                           betroffene Connections), pool: je Rolle
+                           {nutzbar, reserve, belegt, quarantaene, frei,
+                           stufe}, rueckgaben_zurueckgestellt,
+                           drift: {L2TP_ACCT_UNTRACKED,
+                           L2TP_ACCT_COUNTER_REGRESSION},
+                           sicherheitsnetz_zurueckgestellt,
+                           tagesreihe_ausfaelle,
                            hardcut_nachtraege_offen, zeit_bestaetigt,
+                           notwerte_in_gebrauch, abbruch_wegen_key,
                            letzter_lauf_at, letzter_lauf_ok_at
     status-quota.json      generated_at, faellige_perioden,
                            gewechselt_gesamt, perioden_in_zukunft,
-                           zeit_bestaetigt, tagesreihe_ausfaelle,
-                           letzter_lauf_ok_at
+                           zeit_bestaetigt, notwerte_in_gebrauch,
+                           abbruch_wegen_key, letzter_lauf_ok_at
+  Jeder Zaehler steht in der Datei des Laufs, in dem er entsteht. Die
+  Ausfaelle der Tagesreihe zaehlt jeder Bucher fuer sich (Abgleich,
+  Bereinigungslauf; fuer WireGuard der Controller in seiner Statusdatei,
+  BASE-040_070).
 
   Eine Statusdatei, die aelter ist als das Dreifache des Takts ihres
   Schreibers, gilt im Panel als "Komponente antwortet nicht".
@@ -493,31 +578,49 @@ ZWECK:
   L2TP_ACCT_STALLED              WARN      Meldeverzug einer lebenden
                                            Sitzung
   L2TP_ORPHAN_SESSION            ALERT     lebende Sitzung ohne
-                                           Berechtigung; wurde beendet
+                                           Berechtigung; beendet, sofern
+                                           die Mengenbremse nicht haelt
   L2TP_ACCT_COUNTER_REGRESSION   WARN      gemeldeter Zaehler kleiner als
                                            gebuchter Stand
   RT_ADDRESS_MISMATCH            ALERT     Laufzeitadresse ungleich
                                            fixed_ip / fixed_ipv6
   RT_IDENTITY_MISMATCH           ALERT     Anmeldename und Tunneladresse
                                            einer Sitzung fuehren zu
-                                           verschiedenen Connections;
-                                           Sitzung wurde beendet
-  RT_DUPLICATE_SESSION           CRITICAL  mehrere aktive Sitzungen
-                                           einer Connection; alle bis
-                                           auf die aelteste beendet
+                                           keiner oder zu verschiedenen
+                                           Connections; beendet, sofern
+                                           die Mengenbremse nicht haelt
+  RT_DUPLICATE_SESSION           CRITICAL  mehrere berechtigte aktive
+                                           Sitzungen einer Connection;
+                                           alle bis auf die aelteste
+                                           beendet, sofern die
+                                           Mengenbremse nicht haelt
+  RT_STATE_UNDETERMINED          ALERT     Zeile der Connection nicht
+                                           auswertbar; kein Beginn, kein
+                                           Beenden
   L2TP_KILL_HELD                 CRITICAL  der Abgleich haette mehr
-                                           Sitzungen beendet, als die
-                                           Schwelle erlaubt; KEINE wurde
-                                           beendet
+                                           Sitzungen beendet, als
+                                           Schwelle oder Stundenfenster
+                                           erlauben; KEINE wurde beendet
   L2TP_SESSION_STUCK             ALERT     Sitzung haengt im Auf- oder
-                                           Abbau; wurde beendet
+                                           Abbau; beendet, sofern die
+                                           Mengenbremse nicht haelt
   L2TP_ADAPTER_NO_SESSION_ID     ALERT     Adapter nennt keine
                                            Sitzungskennungen
   L2TP_ACCT_UNTRACKED            WARN      geschlossene Protokollzeile
                                            ohne Buchungsstand gefunden
                                            und nachgebucht
+  L2TP_ACCT_UNTRACKED_MASS       CRITICAL  mehr geschlossene Zeilen ohne
+                                           Buchungsstand als die
+                                           Schwelle; NICHTS nachgebucht
   L2TP_SYNC_MARK_MISSING         ALERT     Marke der gesichteten Zeilen
                                            fehlt
+  L2TP_SYNC_STATE_LOST           CRITICAL  Marke und alle Buchungsstaende
+                                           fehlen bei vorhandenem
+                                           Protokollbestand; die Buchung
+                                           ruht
+  SESSION_GHOST_BUFFER_EXPIRED   WARN      Geist geschlossen, obwohl noch
+                                           eine Meldung der Sitzung im
+                                           Puffer lag (Wartegrenze)
   L2TP_BUFFER_NOT_DRAINED        ALERT     Abrechnungspuffer laenger als
                                            die Schwelle nicht leer
   L2TP_BUFFER_DISCARD            ALERT     Puffer hat Meldungen verworfen
@@ -548,9 +651,15 @@ ZWECK:
   POOL_RETURN_HELD               ALERT     ungewoehnlich viele faellige
                                            Rueckgaben; zurueckgestellt
   POOL_QUARANTINE_IMPLAUSIBLE    ALERT     Quarantaenefrist unplausibel
+  POOL_QUARANTINE_DATED          INFO      offene Quarantaenefristen
+                                           nachgetragen (Zahl)
   ADDR_DRIFT                     CRITICAL  Adressen passen nicht zur
                                            Ableitung aus Rolle und Slot;
-                                           NICHTS wurde geaendert
+                                           NICHTS wurde geaendert (je
+                                           Connection beim ersten
+                                           Feststellen)
+  ADDR_DRIFT_OPEN                CRITICAL  Zahl der weiter bestehenden
+                                           Abweichungen (je Lauf einmal)
   ADDR_DRIFT_UNRESOLVED          CRITICAL  Adress-Reparatur gescheitert
   QUOTA_PERIOD_SKIPPED           WARN      Wechsel ueber mehr als eine
                                            Periode
@@ -558,6 +667,8 @@ ZWECK:
                                            dem Ende der alten
   QUOTA_PERIOD_IN_FUTURE         CRITICAL  Periode einer Connection
                                            beginnt in der Zukunft
+  QUOTA_PERIOD_CORRECTED         INFO      Periode durch den Betreiber
+                                           berichtigt (SV-6b)
   USAGE_DAILY_WRITE_FAILED       ALERT     Tagesreihe konnte nicht
                                            fortgeschrieben werden;
                                            gebucht wurde trotzdem
@@ -633,7 +744,13 @@ ZWECK:
   - Betriebsseite "Sitzungskern": Inhalte der Statusdateien, Marken mit
     Alter, offene Alarme dieses Moduls.
   - Settings dieses Moduls ueber die Settings-Verwaltung (BASE-090) mit
-    Anzeige der Konsistenzregeln K-a bis K-g.
+    Anzeige der Konsistenzregeln K-a bis K-j.
+  - Handlungen des privilegierten Auftragswegs (Klasse C, mit Akteur):
+    Zeit fuer einen Lauf bestaetigen; Beenden des Abgleichs fuer einen
+    Lauf freigeben; Sicherheitsnetz fuer einen Lauf freigeben; "Bestand
+    gilt als gebucht"; Rueckgaben freigeben; unplausiblen
+    Quarantaene-Eintrag neu datieren oder freigeben; Periode berichtigen
+    (SV-6b); Adress-Reparatur; Verwaltungs-Hard-Cut.
   - Keine Bearbeitung von Marken, Sperren, Buchungsstaenden oder
     Hinweisfeldern.
 

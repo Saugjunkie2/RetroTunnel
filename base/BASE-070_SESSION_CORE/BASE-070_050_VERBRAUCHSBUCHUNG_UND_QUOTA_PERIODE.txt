@@ -55,7 +55,10 @@ ZWECK:
       Entfernen eines Peers
       (WG-Treiber, Schritt R1)
     - Nachbuchen eines Snapshots
-      (Controller beim Start)
+      (Controller beim Start und
+      beim Generationswechsel;
+      Einzel-Snapshots allein der
+      WG-Treiber)
     Kontrollierter Cursor-Reset   Cursor := 0, Epoche + 1 (D004 P-01)
     (WG-Treiber, Generations-
     wechsel)
@@ -66,6 +69,9 @@ ZWECK:
     (L2TP-Abgleich, Schritt L4 a)
     SV-6 Periodenwechsel          quota_used := 0, Periode
     (vpn-quota-period)
+    SV-6b Berichtigung einer      quota_used (um die zu Unrecht
+    Periode in der Zukunft        abgeschlossenen Staende erhoeht),
+    (Betreiberhandlung)           Periode
   SV-4 hat EINE Implementierung fuer alle drei Auspraegungen (dieselbe
   Rechnung, derselbe Vergleich, dieselbe Tagesreihe); SV-4 und SV-5
   schreiben in derselben Transaktion zusaetzlich die Tagesreihe
@@ -109,11 +115,17 @@ ZWECK:
        (Abschnitt 10), getrennt nach Richtung. Scheitert die Buchung,
        bleibt auch die Tagesreihe unveraendert.
        DIE BUCHUNG HAT VORRANG VOR DER STATISTIK: Scheitert ALLEIN das
-       Fortschreiben der Tagesreihe an einem Fehler der Anweisung (nicht
-       an der Verbindung), wird ohne sie gebucht (Sicherungspunkt vor
+       Fortschreiben der Tagesreihe - an einem Fehler der Anweisung, an
+       einer Sperre oder einem Zeitlimit AN DIESER Anweisung, oder weil
+       der Kalendertag nicht bestimmbar ist (vpn_quota_timezone fehlt
+       oder ist ungueltig) -, wird ohne sie gebucht (Sicherungspunkt vor
        der Tagesreihe), das Ereignis USAGE_DAILY_WRITE_FAILED gemeldet
-       und der Ausfall gezaehlt. Ein solcher Fehler ist keine
-       Datenbankstoerung im Sinn von BASE-040_060.
+       und der Ausfall gezaehlt. Die Anweisung der Tagesreihe laeuft
+       dazu mit einem eigenen, kurzen Wartelimit (hoechstens die Haelfte
+       des Zeitlimits des Datenbankzugriffs; Annahme E-SC-20). Als
+       Datenbankstoerung im Sinn von BASE-040_060 zaehlt nur, was die
+       Buchung selbst oder die Verbindung trifft - nie die
+       Statistik-Tabelle.
 
 ================================================================================
 3) L2TP: BUCHUNG AUS radacct (SV-5)
@@ -131,9 +143,13 @@ ZWECK:
   acctuniqueid        VARCHAR(32)       PK             wie in radacct
   vpn_connection_id   BIGINT UNSIGNED   NULL, FK       ON DELETE SET NULL;
                                                        bei erster Sichtung
-                                                       ueber den Anmelde-
-                                                       namen bestimmt und
-                                                       danach massgeblich
+                                                       nach Regel A-3
+                                                       bestimmt und danach
+                                                       massgeblich
+  identity_mismatch   TINYINT(1)        NOT NULL       Name und Adresse der
+                                        DEFAULT 0      Zeile fuehrten nicht
+                                                       zur selben
+                                                       Connection (A-3)
   started_at          TIMESTAMP         NOT NULL       acctstarttime
   booked_in_octets    BIGINT UNSIGNED   NOT NULL       bereits gebucht:
                                         DEFAULT 0      vom Client empfangen
@@ -150,6 +166,11 @@ ZWECK:
   regression_noted    TINYINT(1)        NOT NULL       Zaehler-Regression
                                         DEFAULT 0      an dieser Zeile
                                                        bereits gemeldet
+  not_listed_since    TIMESTAMP         NULL           seit wann die
+                                                       Sitzung der Zeile
+                                                       nicht gelistet ist
+                                                       (nur offene Zeilen;
+                                                       _020 Schritt L4)
   last_booked_at      TIMESTAMP         NULL
   finalized_at        TIMESTAMP         NULL           Zeile geschlossen,
                                                        gebucht, Ende
@@ -166,10 +187,20 @@ ZWECK:
          Bereinigungslauf fuer Nachzuegler und Sicherheitsnetz;
          vpn-sessiond und vpn-session-kill fuer den Grund-Hinweis). Der
          DB-User radius hat keinen Zugriff.
-    A-3  Die Zuordnung zur Connection wird bei der ersten Sichtung
-         festgehalten (Anmeldename, gegengeprueft ueber framedipaddress;
-         BASE-070_020 Abschnitt 1). Wird die Auth-Zeile spaeter geloescht
-         (Tombstone), bleiben Schlussbuchung und Ende zuordenbar.
+    A-3  ZUORDNUNG ZEILE -> CONNECTION: eine Regel, bei der ersten
+         Sichtung angewandt und im Buchungsstand festgehalten.
+           a) Anmeldename und framedipaddress fuehren zur SELBEN
+              Connection: diese.
+           b) Nur eines von beiden fuehrt zu einer Connection: diese;
+              Vermerk identity_mismatch.
+           c) Sie fuehren zu VERSCHIEDENEN Connections: die der Adresse
+              (sie bestimmte die Policy des Verkehrs); Vermerk
+              identity_mismatch.
+           d) Keines fuehrt zu einer Connection: keine (NULL); Drift
+              L2TP_ORPHAN_SESSION. Gebucht wird dann nichts.
+         Traegt die Zeile keine Adresse (E-SC-19), gilt der Name allein.
+         Wird die Auth-Zeile spaeter geloescht (Tombstone), bleiben
+         Schlussbuchung und Ende zuordenbar.
     A-4  JEDE radacct-Zeile erhaelt bei ihrer ersten Sichtung einen
          Buchungsstand - gleich, ob sie offen oder schon geschlossen ist
          und ob ihre Sitzung als lebend gilt. Der Stand entsteht in
@@ -180,7 +211,10 @@ ZWECK:
     A-5  Der Buchungsstand lebt so lange wie seine radacct-Zeile. Er wird
          nur zusammen mit ihr oder nach ihr geloescht (Loeschlauf:
          MOD-007, ANF-SC-11). Eine geschlossene radacct-Zeile OHNE
-         Buchungsstand ist deshalb immer eine nie gebuchte Zeile.
+         Buchungsstand ist deshalb eine nie gebuchte Zeile - SOLANGE die
+         Tabelle der Buchungsstaende vollstaendig ist. Geht sie verloren
+         oder wird sie geleert, gilt der Satz nicht; davor schuetzen
+         Markenbindung und Mengenschwelle des Sicherheitsnetzes.
 
   SV-5  BUCHUNG(r, s)      r = radacct-Zeile, s = ihr Buchungsstand
       t_m    = Zeit der ausgewerteten Meldung: r.acctstoptime, sonst
@@ -235,12 +269,24 @@ ZWECK:
 
   SICHERHEITSNETZ (J5): Der Bereinigungslauf sucht geschlossene
   radacct-Zeilen des eigenen NAS OHNE Buchungsstand (ueber den Index auf
-  acctstoptime, begrenzt auf die Aufbewahrung von radacct). Jede solche
-  Zeile ist nach A-5 nie gebucht worden: Er legt den Stand an, bucht,
-  meldet Beginn und Ende und zaehlt die Drift L2TP_ACCT_UNTRACKED. Das
-  faengt Zeilen, die dem Abgleich entgangen sind - etwa weil ihre
-  Kennung vergeben, ihre Transaktion aber erst nach einer hoeheren
-  Kennung bestaetigt wurde.
+  acctstoptime, begrenzt auf die Aufbewahrung von radacct) - aber nur
+  Zeilen, die der Abgleich haette sehen muessen:
+    N-a  Kennung KLEINER ODER GLEICH der Marke l2tp_sync_last_radacctid.
+         Zeilen darueber sind neu; die sichtet der Abgleich.
+    N-b  acctstoptime liegt mehr als zwei Takte des Abgleichs zurueck.
+    N-c  MENGENSCHWELLE: Findet ein Lauf mehr solche Zeilen als
+         vpn_l2tp_untracked_hold_threshold (Vorschlag 20), bucht er
+         KEINE davon und meldet L2TP_ACCT_UNTRACKED_MASS (CRITICAL).
+         Eine solche Menge bedeutet nicht "viele entgangene Zeilen",
+         sondern verlorene oder geleerte Buchungsstaende - ein
+         Nachbuchen zaehlte den ganzen Bestand ein zweites Mal. Der
+         Betreiber entscheidet: Freigabe fuer EINEN Lauf (Klasse C) oder
+         Wiederherstellen der Tabelle.
+  Fuer jede Zeile unterhalb der Schwelle: Stand anlegen, buchen, Beginn
+  und Ende melden, Drift L2TP_ACCT_UNTRACKED zaehlen. Das faengt Zeilen,
+  die dem Abgleich entgangen sind - etwa weil ihre Kennung vergeben,
+  ihre Transaktion aber erst nach einer hoeheren Kennung bestaetigt
+  wurde.
 
   AUFBEWAHRUNG UND REIHENFOLGE:
     - Eine radacct-Zeile darf erst geloescht werden, wenn ihr
@@ -252,18 +298,36 @@ ZWECK:
     - Das Fenster fuer Nachzuegler muss groesser sein als die laengste
       Verzoegerung, mit der der AAA-Dienst gepufferte Meldungen
       nachspielt.
-    - FEHLT DIE MARKE l2tp_sync_last_radacctid (nie gesetzt oder
-      verloren), ist das ein Alarm (L2TP_SYNC_MARK_MISSING), kein
-      stilles "noch nie": Der Abgleich setzt sie auf die hoechste
-      Kennung mit Buchungsstand; alles darunter ohne Stand findet das
-      Sicherheitsnetz.
+    - FEHLT DIE MARKE l2tp_sync_last_radacctid, entscheidet der Bestand:
+        radacct ist leer             Erstinbetriebnahme: Marke 0, kein
+                                     Alarm
+        Buchungsstaende sind         Alarm L2TP_SYNC_MARK_MISSING; der
+        vorhanden                    Abgleich setzt die Marke auf die
+                                     hoechste Kennung mit Buchungsstand;
+                                     alles darunter ohne Stand findet das
+                                     Sicherheitsnetz
+        KEIN Buchungsstand, aber     L2TP_SYNC_STATE_LOST (CRITICAL): Der
+        geschlossene Zeilen in       Abgleich bucht NICHTS und setzt keine
+        radacct                      Marke, bis der Betreiber entscheidet
+                                     (Klasse C): "Bestand gilt als
+                                     gebucht" oder Wiederherstellen der
+                                     Tabelle
+      "Bestand gilt als gebucht" setzt die Marke auf die hoechste
+      vorhandene Kennung; offene Zeilen erhalten einen Stand mit ihren
+      aktuellen Zaehlern als bereits gebucht. Ausgewiesener Verlust: der
+      Verkehr offener Sitzungen seit ihrer letzten Buchung vor dem
+      Verlust. Geister und SimUse werden in dieser Lage weiter
+      behandelt; es ruht allein die Buchung.
 
   MESSLATENZ UND MESSGRENZEN (offen ausgewiesen):
     Latenz      hoechstens radius_acct_interim_seconds + Takt des
                 Abgleichs (bei Datenbankstoerung zusaetzlich deren Dauer)
     Grenze 1    Endet eine Sitzung ohne Stop-Meldung (Absturz von Daemon
                 oder Host), fehlt der Verbrauch seit der letzten
-                Interim-Meldung: hoechstens ein Interim-Intervall.
+                Interim-Meldung, die die Datenbank erreicht hat:
+                hoechstens ein Interim-Intervall - zuzueglich der Zeit,
+                fuer die der Puffer Interim-Meldungen dieser Sitzung
+                verworfen hat (P-d; jeder Verwurf ist gemeldet).
     Grenze 2    Bis zur Durchsetzung einer ausgeschoepften Quota fliesst
                 Verkehr weiter: hoechstens Latenz + Bewertungstakt.
   EMPFEHLUNG: radius_acct_interim_seconds = 60 statt bisher 300. Bei
@@ -301,6 +365,21 @@ ZWECK:
       Transaktion die Tagesreihe fort (Abschnitt 10): rx = Zuwachs des
       Empfangszaehlers, tx = Zuwachs des Sendezaehlers; im Reset-Zweig
       die aktuellen Zaehlerstaende.
+    - Ein EINZEL-SNAPSHOT (Schlussbuchung, die nicht gelang) wird von
+      genau EINEM Nachbucher gebucht - dem WG-Treiber unter dem
+      Kernel-Lock -, nur bei unveraenderter Epoche und nie ueber den
+      Reset-Zweig (BASE-040_060 Abschnitt 5).
+    - Der Buchungslauf bearbeitet die Connections in aufsteigender
+      Reihenfolge ihrer Kennung, liest festgeschrieben (BASE-070_070
+      Regel U-7) und behandelt Verklemmung, Wartezeit auf eine Sperre und
+      zwischenzeitlich geaenderte Zeile gleich: als wiederholbaren
+      Abbruch, nicht als Datenbankstoerung.
+    - Gebucht wird auch fuer einen Peer, dessen Zeile nicht auswertbar
+      ist (eingefroren, BASE-040_030 Abschnitt 1): Die Buchung aendert
+      keinen Zugang.
+    - Alle Datenbankverbindungen der Bucher laufen mit Weltzeit; die
+      Geschaeftszeitzone liest der Controller ueber die Aufloesung des
+      Settings-Kerns (ANF-SC-09).
   Messgrenzen WireGuard: BASE-040_050 Abschnitt 5 und D004 R1.
 
 ================================================================================
@@ -327,14 +406,18 @@ ZWECK:
     - Fehlt einer der drei Keys (Zeitzone, Reset-Modus, Geltung) oder
       ist er ungueltig, ist die Periode nicht berechenbar: kein
       Periodenwechsel, keine Anlage (Fehlerklasse FAIL_CLOSED,
-      BASE-070_070 Abschnitt 3). Ein Ersatzwert wird nicht benutzt.
+      BASE-070_070 Abschnitt 3). Ein Ersatzwert wird nicht benutzt. Die
+      BUCHUNG laeuft weiter - ohne Tagesreihe (B-9).
     - Bei Anlage einer Connection setzt der Provisionierer die laufende
       Periode (ANF-SC-01).
 
   SV-6  PERIODENWECHSEL(c)
-    Bedingung: quota_period_end <= NOW() UND revoked_at IS NULL (eine
-    widerrufene Connection hat keine Quota-Periode mehr; sie erhaelt
-    keine Protokollzeilen).
+    Bedingung: quota_period_end <= NOW() UND revoked_at IS NULL.
+    WIDERRUFENE CONNECTION: Sie erhaelt keine neue Periode. Ihre letzte
+    Periode wird genau EINMAL abgeschlossen (Schritt 3 ohne Schritt 4),
+    sobald sie abgelaufen ist und noch keine Abschlusszeile hat - sonst
+    fehlte der Monat des Widerrufs im Periodenprotokoll. Weitere
+    Protokollzeilen erhaelt sie nicht.
     Vorbedingung des Laufs: bestaetigter Zeitabgleich (BASE-070_070
     Abschnitt 2, U-5). Ohne ihn findet kein Wechsel statt.
     Neue Grenzen: die Periode, die NOW() enthaelt. (Nach langem Stillstand
@@ -350,7 +433,8 @@ ZWECK:
          :neu_start. Sonst: kein Wechsel, Ereignis
          QUOTA_PERIOD_IMPLAUSIBLE (CRITICAL).
       3  INSERT log_quota_period (Abschluss der alten Periode mit dem
-         gelesenen quota_used)
+         gelesenen quota_used; Folgenummer seq = 0, nach einer
+         Berichtigung SV-6b die naechste freie)
       4  UPDATE vpn_connections
             SET quota_used = 0,
                 quota_period_start = :neu_start,
@@ -377,11 +461,13 @@ ZWECK:
     - Bearbeitet alle nicht widerrufenen Connections mit
       quota_period_end <= NOW() in Stapeln, jede fuer sich atomar. Auch
       DISABLED-Connections, die noch wiederherstellbar sind, erhalten
-      die neue Periode (einheitlicher Zustand nach Restore).
+      die neue Periode (einheitlicher Zustand nach Restore). Widerrufene
+      Connections erhalten nur den einmaligen Abschluss ihrer letzten
+      Periode.
     - WAECHTER: Eine Connection, deren quota_period_start in der Zukunft
       liegt, ist ein Fehlerzustand (die Uhr ging beim Wechsel vor). Der
       Lauf aendert sie nicht und meldet QUOTA_PERIOD_IN_FUTURE
-      (CRITICAL); die Berichtigung ist eine Betreiberhandlung.
+      (CRITICAL); die Berichtigung ist die Betreiberhandlung SV-6b.
     - Holt der Bereinigungslauf einen Wechsel nach (J7), geschieht das
       ohne Stichtagsbuchung; die Zuordnung an der Grenze hat dann die
       Schranke eines Buchungsintervalls.
@@ -393,6 +479,33 @@ ZWECK:
       aber verspaetete Entlastung der Kunden; Alarm, wenn eine faellige
       Periode aelter ist als vpn_quota_overdue_alert_seconds, Vorschlag
       900).
+
+  SV-6b  BERICHTIGUNG EINER PERIODE IN DER ZUKUNFT(c)
+    ANLASS: Die Uhr ging bei einem Wechsel vor. Die Connection traegt
+    eine Periode, die noch nicht begonnen hat, und ihr Verbrauch des
+    laufenden Monats steht zu Unrecht in einer oder mehreren
+    Abschlusszeilen.
+    AUSLOESER: Betreiberhandlung ueber den privilegierten Auftragsweg
+    (Klasse C, mit Akteur); nur bei bestaetigter Zeit (U-5).
+    EINE Transaktion je Connection:
+      1  Zeile sperren (wie SV-6 Schritt 1). Liegt quota_period_start
+         nicht in der Zukunft: Ende ohne Wirkung.
+      2  P := die Periode, die NOW() enthaelt (dieselbe Routine wie
+         SV-6).
+      3  S := Summe quota_used_final der geltenden Abschlusszeilen
+         dieser Connection mit period_start >= Beginn von P. Sie
+         gehoeren zum laufenden Monat.
+      4  Je solcher Zeile eine BERICHTIGUNGSZEILE schreiben: dieselbe
+         Periode, naechste Folgenummer seq, quota_used_final = 0,
+         entry_kind = CORRECTION.
+      5  UPDATE vpn_connections SET quota_used = quota_used + :S,
+         quota_period_start und quota_period_end := P.
+      6  Lifecycle-Ereignis QUOTA_PERIOD_CORRECTED (Akteur, alte und
+         neue Periode, S).
+    Der naechste regulaere Wechsel schliesst P mit der naechsten
+    Folgenummer ab. Je Periode GILT die Zeile mit der hoechsten
+    Folgenummer; so bleibt das Protokoll INSERT-only, und kein Wechsel
+    scheitert am Schluessel.
 
   WAS DEN VERBRAUCH NICHT ZURUECKSETZT: Planwechsel (D004-E08; bei
   Herabstufung gilt fuer den Restmonat sofort das neue Limit), Restore,
@@ -411,15 +524,21 @@ ZWECK:
   period_start        TIMESTAMP         NOT NULL
   period_end          TIMESTAMP         NOT NULL
   quota_used_final    BIGINT UNSIGNED   NOT NULL       Stand beim Abschluss
+  seq                 SMALLINT UNSIGNED NOT NULL       Folgenummer je
+                                        DEFAULT 0      Periode; es gilt die
+                                                       hoechste
+  entry_kind          ENUM              NOT NULL       CLOSE | CORRECTION
+                                        DEFAULT CLOSE  (SV-6b)
   closed_at           TIMESTAMP         NOT NULL
 
-  Indices: UNIQUE(connection_ref, period_start),
+  Indices: UNIQUE(connection_ref, period_start, seq),
            INDEX(vpn_connection_id, period_start)
 
-  INSERT-only, Schreiber system (SV-6). Lesen: Panel (Verbrauch
-  vergangener Monate), MOD-010. Aufbewahrung: MOD-007 (Vorschlag 24
-  Monate). Die Tabelle belegt jeden Periodenwechsel und macht ihn
-  nachpruefbar (SZ-6).
+  INSERT-only, Schreiber system (SV-6, SV-6b). Lesen: Panel (Verbrauch
+  vergangener Monate; je Periode die Zeile mit der hoechsten
+  Folgenummer), MOD-010. Aufbewahrung: MOD-007 (Vorschlag 24 Monate). Die
+  Tabelle belegt jeden Periodenwechsel und jede Berichtigung und macht
+  sie nachpruefbar (SZ-6).
 
 ================================================================================
 7) BEWERTUNG (ABGRENZUNG)
@@ -482,10 +601,12 @@ ZWECK:
          aendert die Zaehler einer bereits geschlossenen Zeile nur nach
          oben. (Die Standardabfragen des AAA-Dienstes leisten das nicht
          von selbst; ANF-SC-04.)
-    P-g  Der Zustand "leer / nicht leer" und der Fuellstand des Puffers
-         sind OHNE Datenbank lesbar (Datei oder Verzeichnis). Solange
-         der Puffer nicht leer ist, schliesst die Bereinigung keine
-         Geister (BASE-070_040 G-8).
+    P-g  Der Zustand "leer / nicht leer", der Fuellstand und die
+         Sitzungskennungen der gepufferten Meldungen sind OHNE Datenbank
+         lesbar (Datei oder Verzeichnis; PUFFERAUSKUNFT). Solange der
+         Puffer eine Meldung einer Sitzung enthaelt, schliesst die
+         Bereinigung deren Zeile nicht - hoechstens bis zur Wartegrenze
+         (BASE-070_040 G-8 a).
     P-h  ZEITEN BLEIBEN: Eine nachgespielte Meldung traegt in den
          Zeitspalten von radacct die Zeit, zu der der AAA-Dienst sie
          ANGENOMMEN hat, nicht die Zeit des Nachspielens. Beginn, Ende
@@ -530,13 +651,24 @@ ZWECK:
   radacct-Zeile entgeht dem Abgleich   Sicherheitsnetz im Bereinigungslauf
   (Kennung unter der Marke, kein       (geschlossene Zeile ohne Stand)
   Stand)
+  Buchungsstaende gehen verloren       Sicherheitsnetz haelt oberhalb der
+  oder werden geleert                  Mengenschwelle; ohne jeden Stand
+                                       ruht die Buchung
+                                       (L2TP_SYNC_STATE_LOST); nichts wird
+                                       ein zweites Mal gezaehlt; der
+                                       Betreiber entscheidet
+  Periode liegt in der Zukunft (Uhr    Waechter meldet; Berichtigung SV-6b
+  ging vor)                            stellt Periode und Verbrauch wieder
+                                       her
   Allein die Tagesreihe scheitert      Buchung ohne Tagesreihe; Meldung
                                        (B-9)
   Absturz zwischen Protokoll und       Transaktion: beides oder nichts
   Nullstellen
 
   In keinem Fall geht eine Buchung verloren oder zaehlt doppelt; unscharf
-  ist allein die Zuordnung von Verkehr im Grenzbereich.
+  ist allein die Zuordnung von Verkehr im Grenzbereich. Ausgewiesene
+  Ausnahme: der Verlust der Buchungsstaende selbst (Abschnitt 3,
+  "Bestand gilt als gebucht").
 
 ================================================================================
 10) VERBRAUCHSVERLAUF: TAGESREIHE log_usage_daily
@@ -577,7 +709,9 @@ ZWECK:
          Mitternacht kann dem Folgetag zugerechnet werden; Schranke ist
          die Messlatenz des Tunnels. Den Wert usage_date bildet die
          Anwendung mit ihren Zeitzonendaten und uebergibt ihn als Datum;
-         er wird nicht in SQL aus einer Zonenumrechnung gewonnen.
+         er wird nicht in SQL aus einer Zonenumrechnung gewonnen. Ist die
+         Zeitzone nicht lesbar, entfaellt die Tagesreihe; gebucht wird
+         trotzdem (B-9).
     T-3  Die Richtung ist die Sicht des Servers und stimmt mit den Cursorn
          (last_known_rx_bytes, last_known_tx_bytes) und mit radacct
          (acctinputoctets = rx, acctoutputoctets = tx) ueberein.
@@ -588,8 +722,9 @@ ZWECK:
          entspricht dem in dieser Periode gebuchten Verbrauch bis auf den
          Grenzbereich um Tages- und Periodenwechsel - und bis auf
          Buchungen, bei denen allein die Tagesreihe scheiterte (B-9);
-         deren Zahl und Umfang weist der Zaehler zum Ereignis
-         USAGE_DAILY_WRITE_FAILED aus.
+         deren Zahl und Umfang weisen die Zaehler der Bucher zum
+         Ereignis USAGE_DAILY_WRITE_FAILED aus (je Bucher in dessen
+         Statusdatei, BASE-070_070 Abschnitt 5).
     T-6  Es schreibt nur der DB-User system. Kunden lesen nur eigene
          Connections; Ranglisten und Summen ueber fremde Connections nur
          ADMIN (BASE-110).
