@@ -6,6 +6,10 @@ STATUS: ACTIVE
 Diese Werkzeuge prüfen ausschließlich Konzeptdokumente und Register. Sie sind
 KEIN Produktcode der VPN-Plattform und greifen auf keine Server zu.
 
+ROLLE (00_MANIFEST 6a Zeile 8): Maßstab jeder Prüfung ist REVIEW_STANDARD.txt.
+Die Werkzeuge setzen Teile davon maschinell um - Form und Gleichstand, nie
+den Inhalt. Was sie abdecken und was nicht: REVIEW_STANDARD Abschnitt 10.4.
+
 WERKZEUGE
   quelleninventar.py     Q1: Abgleich governance/register/QUELLENINVENTAR.yaml mit
                          den Baseline-Commits beider Repositories (Blob-ID, Größe,
@@ -26,6 +30,16 @@ WERKZEUGE
                          Regeländerung nur mit Regelbezug) und der Module laut
                          MODULPRUEFUNG.yaml (Invarianten lückenlos, jede von
                          mindestens einem Test geprüft, Index, Herkunft).
+                         Seit 2026-11-14 außerdem der GLEICHSTAND der
+                         Steuerung (KR-07): ARBEITSPAKETE.yaml gegen
+                         PRIORITAETENLISTE.txt (Bezug, Index-Zeile, Status,
+                         Abhängigkeiten, keine eigenen Felder); offene
+                         Befunde gegen REVIEW_TRACKER.txt Abschnitt 1d;
+                         Modulstatus im 04_PHASE_PLAN.txt gegen die Liste;
+                         Zählbereiche in den Steuerungsdokumenten gegen die
+                         Moduldateien; Inventar des Trackers gegen die
+                         Verzeichnisse; README-Version gegen den Changelog;
+                         Dateigröße (KR-03); STATUS.yaml ohne Modulstand.
   trace_zeilen.py        Trägt zu einem wörtlichen Zitat den Zeilenbereich der
                          Quelle ein (nicht gefunden oder mehrdeutig = Fehler).
   pruefe_extrakte.py     Prüft die Extrakte der Leseläufe über die Nachlieferung
