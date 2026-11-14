@@ -35,6 +35,14 @@ PRIO_MAP = {"DONE": {"ERLEDIGT"}, "ACTIVE": {"IN_ARBEIT"}, "NEXT": {"OFFEN", "IN
 
 
 AP_FELDER = {"id", "titel", "bezug", "haengt_ab_von", "status", "ergebnis"}
+STATUS_FELDER = {"schema", "checkpoint", "stand", "fachstatus", "ausfuehrungsstatus", "verweise", "identitaeten",
+                 "gates", "kandidat", "automatische_wiederaufnahme", "blockaden"}
+PRUEF_PRAEFIXE = {"WT", "T-WT", "FW", "T-FW", "SC", "T-SC", "PA", "T-PA", "DEC-WT", "DEC-FW", "DEC-SC", "DEC-PA",
+                  "ANF-WT", "ANF-FW", "ANF-SC", "ANF-PA"}
+PLAN_ZU_LISTE = {"DONE": {"DONE"}, "IN-PROGRESS": {"ACTIVE"}, "WAITING": {"WAITING", "DEFERRED", "NEXT"}}
+STEUERUNG = ["00_MANIFEST.txt", "01_GLOSSARY.txt", "02_ASSUMPTIONS_AND_RULES.txt", "04_PHASE_PLAN.txt",
+             "CLAUDE_BRIEFING.txt", "PRIORITAETENLISTE.txt", "REVIEW_STANDARD.txt", "REVIEW_TRACKER.txt",
+             "NAVIGATIONSKARTE_ALTES_KONZEPT.txt", "README.md"]
 PRIO_TAGS = {"DONE", "ACTIVE", "NEXT", "WAITING", "DEFERRED", "LAUFEND"}
 
 QUELLEN = ("RT", "XPN", "NL")
@@ -58,6 +66,7 @@ class Pruefung:
         self.fehler, self.hinweise = [], []
         self._cache = {}
         self.trace_ziele = set()
+        self.entwuerfe = set()
 
     def err(self, m):
         self.fehler.append(m)
@@ -94,6 +103,17 @@ class Pruefung:
     def pruefe_status(self, st, bf):
         if not st:
             return
+        # STATUS.yaml fuehrt nur die Auftragsebene (00_MANIFEST 6a Zeile 12): kein Modulfortschritt, keine
+        # naechsten Schritte, keine Chronik. Diese Angaben haben massgebliche Dateien im Wurzelverzeichnis.
+        for k in sorted(set(st) - STATUS_FELDER):
+            self.err(f"STATUS: Feld {k} ist nicht zulaessig (Paketstand und naechste Schritte stehen in "
+                     f"PRIORITAETENLISTE.txt, Reife in 04_PHASE_PLAN.txt, Chronik in 03_CHANGELOG.txt)")
+        for name, ziel in (st.get("verweise") or {}).items():
+            for datei in re.findall(r"[\w./-]+\.(?:txt|yaml|md)", str(ziel)):
+                if not os.path.exists(os.path.join(self.root, datei)):
+                    self.err(f"STATUS: verweise.{name} nennt eine Datei, die es nicht gibt: {datei}")
+        if not st.get("verweise"):
+            self.err("STATUS: verweise fehlt (wo Aufgaben, Review-Stand, Reife und Chronik stehen)")
         if st.get("fachstatus") not in FACHSTATUS:
             self.err(f"STATUS: unbekannter fachstatus {st.get('fachstatus')}")
         if st.get("ausfuehrungsstatus") not in AUSF:
@@ -320,6 +340,58 @@ class Pruefung:
             if b.get("status") == "BEHOBEN" and not b.get("behoben_in"):
                 self.err(f"BEFUNDE {i}: BEHOBEN ohne behoben_in (Datei/Commit der Korrektur)")
 
+    def pruefe_tracker_befunde(self, bf, pakete):
+        """REVIEW_TRACKER.txt ist massgeblich fuer den UEBERBLICK ueber offene Befunde (00_MANIFEST 6a). Abschnitt 1d
+        muss je Paket genau die offenen Einzelbefunde des Registers nennen (* = kritisch/schwerwiegend) und die
+        Gesamtzahlen richtig angeben. So kann weder das Register noch der Tracker allein fortgeschrieben werden."""
+        p = os.path.join(self.root, "REVIEW_TRACKER.txt")
+        if not os.path.exists(p):
+            self.err("REVIEW_TRACKER.txt fehlt")
+            return
+        with open(p, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+        m = re.search(r"^1d\)[^\n]*\n=+\n(.*?)(?=^={10,}\n)", text, re.M | re.S)
+        if not m:
+            self.err("REVIEW_TRACKER: Abschnitt 1d (Einzelbefunde) fehlt")
+            return
+        abschnitt = m.group(1)
+        ist, akt = {}, None
+        for line in abschnitt.splitlines():
+            mo = re.match(r"^\s+OFFEN\s+([A-Z0-9-]+):\s*(.*)$", line)
+            if mo:
+                akt = mo.group(1)
+                if akt in ist:
+                    self.err(f"REVIEW_TRACKER 1d: Paket {akt} mehrfach aufgefuehrt")
+                ist[akt] = set(mo.group(2).split())
+            elif akt and re.fullmatch(r"\s+(BF-\d{4}\*?\s*)+", line):
+                ist[akt] |= set(line.split())
+            else:
+                akt = None
+        soll, gesamt, offen = {}, 0, 0
+        for b in (bf or {}).get("befunde") or []:
+            gesamt += 1
+            if b.get("status") in BF_ERLEDIGT:
+                continue
+            offen += 1
+            bezug = (pakete.get(b.get("arbeitspaket")) or {}).get("bezug")
+            if not bezug:
+                self.err(f"BEFUNDE {b.get('id')}: offen, aber ohne Arbeitspaket mit Bezug - im REVIEW_TRACKER "
+                         f"nicht zuordenbar")
+                continue
+            stern = "*" if b.get("klasse") in ("KRITISCH", "SCHWERWIEGEND") else ""
+            soll.setdefault(bezug, set()).add(f"{b.get('id')}{stern}")
+        for k in sorted(set(soll) | set(ist)):
+            fehlt, zuviel = soll.get(k, set()) - ist.get(k, set()), ist.get(k, set()) - soll.get(k, set())
+            if fehlt:
+                self.err(f"REVIEW_TRACKER 1d: bei {k} fehlen offene Befunde des Registers: {' '.join(sorted(fehlt))}")
+            if zuviel:
+                self.err(f"REVIEW_TRACKER 1d: bei {k} stehen Befunde, die im Register nicht (so) offen sind: "
+                         f"{' '.join(sorted(zuviel))}")
+        mz = re.search(r"Zusammen (\d+) offene von (\d+) Befunden; (\d+) sind\s+geschlossen", abschnitt)
+        if not mz or [int(x) for x in mz.groups()] != [offen, gesamt, gesamt - offen]:
+            self.err(f"REVIEW_TRACKER 1d: Gesamtzahlen stimmen nicht mit dem Register ueberein "
+                     f"(Register: {offen} offen von {gesamt}, {gesamt - offen} geschlossen)")
+
     def pruefe_verbesserungen(self, vb):
         ids = set()
         eintraege = (vb or {}).get("eintraege") or []
@@ -519,13 +591,130 @@ class Pruefung:
                         self.err(f"MODUL {name}: Index-Zaehlbereich fuer {praef} passt nicht zu {len(menge)} Definitionen")
             # Rueckrichtung: jede Invariante hat Herkunft (Trace-Record) oder ist neu begruendet
             ziel_pfad = f"{pfad}/{m['inv_datei']}"
-            for i in sorted(inv_set):
-                if (ziel_pfad, i) not in self.trace_ziele and (name, i) not in neu_ids:
-                    self.err(f"MODUL {name}: Invariante {i} ohne Herkunft (kein Trace-Record, nicht in NEU_BEGRUENDET)")
+            ohne = [i for i in sorted(inv_set)
+                    if (ziel_pfad, i) not in self.trace_ziele and (name, i) not in neu_ids]
+            if m.get("entwurf"):
+                # Entwurf: alle Formpruefungen gelten; fehlende Herkunft ist ein Hinweis. Ein Entwurf kann in der
+                # PRIORITAETENLISTE nicht [DONE] sein (pruefe_steuerung) - die volle Pruefung ist damit Pflicht
+                # vor dem Abschluss.
+                self.entwuerfe.add(name)
+                if ohne:
+                    self.hinweise.append(f"MODUL {name} (ENTWURF): {len(ohne)} von {len(inv_set)} Invarianten "
+                                         f"ohne Herkunft: {', '.join(ohne)}")
+            else:
+                for i in ohne:
+                    self.err(f"MODUL {name}: Invariante {i} ohne Herkunft (kein Trace-Record, nicht in "
+                             f"NEU_BEGRUENDET)")
             for (mod, i) in neu_ids:
                 if mod == name and i not in inv_set:
                     self.err(f"NEU_BEGRUENDET: {mod} {i} ist keine definierte Invariante")
         return n
+
+    def pruefe_steuerung(self):
+        """Steuerungsdokumente (00_MANIFEST 6a) gegeneinander und gegen den Bestand:
+        (a) Modulstatus im 04_PHASE_PLAN entspricht dem Status-Tag der PRIORITAETENLISTE,
+        (b) ein Modul im Entwurf (MODULPRUEFUNG entwurf: true) ist nirgends DONE,
+        (c) Zaehlbereiche 'XX-01..XX-NN' in den Steuerungsdokumenten stimmen mit den Moduldateien ueberein,
+        (d) keine Datei der Steuerung oder des Kanons ueberschreitet 1500 Zeilen (KR-03),
+        (e) REVIEW_TRACKER fuehrt jedes Modulverzeichnis mit Inhalt und nennt keines 'EMPTY', das Dateien hat,
+        (f) README nennt die Version des Changelogs."""
+        liste = self.lies_prioritaetenliste()
+        modul_tag = {}
+        for kennung, e in liste.items():
+            mm = re.search(r"\b((?:BASE|MOD)-\d{3})_[A-Z0-9_]+", e["text"].splitlines()[0])
+            if mm:
+                modul_tag[mm.group(1)] = (kennung, e["tag"])
+        # (a) Phasenplan
+        pp = os.path.join(self.root, "04_PHASE_PLAN.txt")
+        if os.path.exists(pp):
+            with open(pp, encoding="utf-8", errors="replace") as fh:
+                zeilen = fh.read().splitlines()
+            funde = []          # (zeile, modul, status)
+            for n, z in enumerate(zeilen, 1):
+                mt = re.match(r"^  ((?:BASE|MOD)-\d{3})_[A-Z0-9_]+\s+(DONE|IN-PROGRESS|WAITING)\b", z)
+                if mt:
+                    funde.append((n, mt.group(1), mt.group(2)))
+                    continue
+                mk = re.match(r"^  ((?:BASE|MOD)-\d{3})_[A-Z0-9_]+\s+—", z)
+                if mk:
+                    for k in range(n - 1, min(n + 7, len(zeilen))):
+                        if k > n - 1 and (not zeilen[k].strip() or re.match(r"^  (?:BASE|MOD)-\d{3}_", zeilen[k])):
+                            break
+                        ms = re.search(r"\[(DONE|IN-PROGRESS|WAITING)\]\s*$", zeilen[k])
+                        if ms:
+                            funde.append((n, mk.group(1), ms.group(1)))
+                            break
+                    else:
+                        self.err(f"04_PHASE_PLAN:{n}: Modul {mk.group(1)} ohne Status-Tag")
+            for n, modul, status in funde:
+                if modul not in modul_tag:
+                    self.err(f"04_PHASE_PLAN:{n}: Modul {modul} hat keinen Eintrag in der PRIORITAETENLISTE")
+                elif modul_tag[modul][1] not in PLAN_ZU_LISTE[status]:
+                    self.err(f"04_PHASE_PLAN:{n}: {modul} steht als {status}, die PRIORITAETENLISTE fuehrt "
+                             f"{modul_tag[modul][0]} als [{modul_tag[modul][1]}]")
+        # (b) Entwuerfe sind nie DONE
+        for modul in sorted(self.entwuerfe):
+            if modul_tag.get(modul, ("", ""))[1] == "DONE":
+                self.err(f"MODUL {modul}: in MODULPRUEFUNG als Entwurf gefuehrt, in der PRIORITAETENLISTE aber [DONE]")
+        # Bestand der Module
+        bereiche, verzeichnisse = {}, {}
+        base = os.path.join(self.root, "base")
+        for d in sorted(os.listdir(base)) if os.path.isdir(base) else []:
+            mm = re.match(r"(BASE-\d{3})_", d)
+            dateien = [f for f in os.listdir(os.path.join(base, d)) if f.endswith(".txt")] \
+                if os.path.isdir(os.path.join(base, d)) else []
+            if not mm:
+                continue
+            verzeichnisse[mm.group(1)] = (d, len(dateien))
+            for f in dateien:
+                with open(os.path.join(base, d, f), encoding="utf-8", errors="replace") as fh:
+                    text = fh.read()
+                n_zeilen = len(text.splitlines())
+                if n_zeilen > 1500:
+                    self.err(f"KR-03: base/{d}/{f} hat {n_zeilen} Zeilen (Grenze 1500)")
+                for praef, nr in re.findall(r"^ {0,2}((?:T-|DEC-|ANF-)?[A-Z]{2,3})-(\d{2,3})(?=[ :.)])", text, re.M):
+                    bereiche[praef] = max(bereiche.get(praef, 0), int(nr))
+        # (c) Zaehlbereiche, (d) Laenge, je Steuerungsdokument
+        for rel in STEUERUNG:
+            p = os.path.join(self.root, rel)
+            if not os.path.exists(p):
+                self.err(f"Steuerungsdokument fehlt: {rel}")
+                continue
+            with open(p, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+            if len(text.splitlines()) > 1500:
+                self.err(f"KR-03: {rel} hat {len(text.splitlines())} Zeilen (Grenze 1500)")
+            for n, z in enumerate(text.splitlines(), 1):
+                for praef, bis in re.findall(r"\b((?:T-|DEC-|ANF-)?[A-Z]{2,3})-01\.\.(?:\1-)?(\d{2,3})\b", z):
+                    if praef in PRUEF_PRAEFIXE and praef in bereiche and int(bis) != bereiche[praef]:
+                        self.err(f"{rel}:{n}: Zaehlbereich {praef}-01..{bis} stimmt nicht mit den Moduldateien "
+                                 f"ueberein (dort bis {praef}-{bereiche[praef]:02d})")
+        # (e) REVIEW_TRACKER-Inventar gegen Verzeichnisse
+        pt = os.path.join(self.root, "REVIEW_TRACKER.txt")
+        if os.path.exists(pt):
+            with open(pt, encoding="utf-8", errors="replace") as fh:
+                tracker = fh.read()
+            for modul, (d, anzahl) in sorted(verzeichnisse.items()):
+                mi = re.search(rf"^  base/{re.escape(d)}\s+(.*)$", tracker, re.M)
+                if anzahl and not mi:
+                    self.err(f"REVIEW_TRACKER: base/{d} hat {anzahl} Dateien, fehlt aber im Inventar")
+                elif mi and anzahl and "EMPTY" in mi.group(1):
+                    self.err(f"REVIEW_TRACKER: base/{d} hat {anzahl} Dateien, wird aber als EMPTY gefuehrt")
+                elif mi and not anzahl and "EMPTY" not in mi.group(1):
+                    self.err(f"REVIEW_TRACKER: base/{d} hat keine Moduldateien, wird aber nicht als EMPTY gefuehrt")
+            for rel in STEUERUNG + ["03_CHANGELOG.txt", "MARCOS_ARBEITSWEISE.txt"]:
+                if rel != "README.md" and not re.search(rf"^  {re.escape(rel)}\s", tracker, re.M):
+                    self.err(f"REVIEW_TRACKER: Steuerungsdokument {rel} fehlt im Inventar")
+        # (f) README nennt die Changelog-Version
+        pc, pr = os.path.join(self.root, "03_CHANGELOG.txt"), os.path.join(self.root, "README.md")
+        if os.path.exists(pc) and os.path.exists(pr):
+            with open(pc, encoding="utf-8", errors="replace") as fh:
+                mv = re.search(r"^VERSION:\s*(v[\d.]+)", fh.read(), re.M)
+            with open(pr, encoding="utf-8", errors="replace") as fh:
+                readme = fh.read()
+            if mv:
+                for v in set(re.findall(r"\bv\d+\.\d+\.\d+\b", readme)) - {mv.group(1)}:
+                    self.err(f"README.md nennt {v}, der Changelog steht bei {mv.group(1)}")
 
     def lauf(self):
         st = self.lade("governance/STATUS.yaml")
@@ -541,10 +730,12 @@ class Pruefung:
         self.pruefe_umgebung(up)
         pakete = self.pruefe_pakete(ap) or {}
         self.pruefe_befunde(bf, pakete, commits)
+        self.pruefe_tracker_befunde(bf, pakete)
         self.pruefe_verbesserungen(vb)
         nb = self.pruefe_mitteilungen(bm, st, up, bf, pakete)
         n = self.pruefe_trace(commits)
         nm = self.pruefe_module()
+        self.pruefe_steuerung()
         offen = [b["id"] for b in (bf or {}).get("befunde") or []
                  if b.get("klasse") in ("KRITISCH", "SCHWERWIEGEND") and b.get("status") not in BF_ERLEDIGT]
         print(f"Fachstatus: {(st or {}).get('fachstatus')} | Arbeitspakete: {len(pakete)} | "

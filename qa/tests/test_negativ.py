@@ -153,11 +153,64 @@ class Befunde(Basis):
         self.neu(fundstellen=["RT:gibt/es/nicht.txt:1"])
         self.erwarte_fehler("Fundstelle nicht aufloesbar")
 
+    def tracker(self, funktion):
+        p = os.path.join(self.tmp, "REVIEW_TRACKER.txt")
+        with open(p, encoding="utf-8") as f:
+            alt = f.read()
+        neu = funktion(alt)
+        self.assertNotEqual(alt, neu, "Fixture passt nicht mehr zum REVIEW_TRACKER (Abschnitt 1d)")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(neu)
+
+    def tracker_zaehler(self, offen=0, geschlossen=0):
+        def f(t):
+            return re.sub(r"Zusammen (\d+) offene von (\d+) Befunden; (\d+) sind",
+                          lambda m: f"Zusammen {int(m.group(1)) + offen} offene von "
+                                    f"{int(m.group(2)) + offen + geschlossen} Befunden; "
+                                    f"{int(m.group(3)) + geschlossen} sind", t)
+        self.tracker(f)
+
     def test_fundstelle_im_arbeitsstand_wird_aufgeloest(self):
         kopf = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-        self.neu(fundstellen=[f"ZIEL:README.md:1@{kopf}"])
+        self.neu(status="BEHOBEN", behoben_in="README.md", fundstellen=[f"ZIEL:README.md:1@{kopf}"])
+        self.tracker_zaehler(geschlossen=1)
         rc, out = self.lauf()
         self.assertEqual(rc, 0, out)
+
+    # --- Kopplung an REVIEW_TRACKER.txt Abschnitt 1d (Ueberblick massgeblich dort; 00_MANIFEST 6a) --------
+
+    def test_offener_befund_fehlt_im_tracker(self):
+        self.neu(arbeitspaket="AP-K060")
+        self.tracker_zaehler(offen=1)
+        self.erwarte_fehler("bei M2-060 fehlen offene Befunde des Registers: BF-TEST")
+
+    def test_offener_befund_ohne_paket(self):
+        self.neu()
+        self.erwarte_fehler("BF-TEST: offen, aber ohne Arbeitspaket mit Bezug")
+
+    def test_befund_nur_im_register_geschlossen(self):
+        bf = self.lade(BEFUNDE)
+        offene = [b for b in bf["befunde"] if b.get("status") in ("OFFEN", "IN_ARBEIT")]
+        if not offene:
+            self.skipTest("kein offener Befund im Register")
+        offene[0]["status"], offene[0]["behoben_in"] = "BEHOBEN", "README.md"
+        self.schreibe(BEFUNDE, bf)
+        self.erwarte_fehler("stehen Befunde, die im Register nicht (so) offen sind")
+
+    def test_schwere_im_tracker_verharmlost(self):
+        def f(t):
+            kopf, _, rest = t.partition("OFFENE EINZELBEFUNDE JE PAKET")
+            return kopf + "OFFENE EINZELBEFUNDE JE PAKET" + re.sub(r"(BF-\d{4})\*", r"\1", rest, count=1)
+        bf = self.lade(BEFUNDE)
+        if not any(b.get("klasse") in ("KRITISCH", "SCHWERWIEGEND") and b.get("status") in ("OFFEN", "IN_ARBEIT")
+                   for b in bf["befunde"]):
+            self.skipTest("kein offener schwerer Befund im Register")
+        self.tracker(f)
+        self.erwarte_fehler("fehlen offene Befunde des Registers")
+
+    def test_gesamtzahlen_im_tracker_falsch(self):
+        self.tracker_zaehler(geschlossen=1)
+        self.erwarte_fehler("Gesamtzahlen stimmen nicht mit dem Register ueberein")
 
     def test_fundstelle_im_arbeitsstand_ohne_datei(self):
         kopf = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
@@ -259,6 +312,73 @@ class Arbeitspakete(Basis):
                              "status": "OFFEN"})
         self.schreibe(PAKETE, ap)
         self.erwarte_fehler("bezug M2-060 bereits von AP-K060 belegt")
+
+
+class Steuerung(Basis):
+    """Gleichstand der Steuerungsdokumente (00_MANIFEST 6a, KR-07): Jede Angabe hat EINE massgebliche Datei; wer sie
+    woanders abweichend fuehrt, muss auffallen."""
+
+    def datei(self, rel, funktion):
+        p = os.path.join(self.tmp, rel)
+        with open(p, encoding="utf-8") as f:
+            alt = f.read()
+        neu = funktion(alt)
+        self.assertNotEqual(alt, neu, f"Fixture passt nicht mehr zu {rel}")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(neu)
+
+    def test_ausgangsstand_ist_gruen(self):
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_status_fuehrt_modulfortschritt(self):
+        st = self.lade(STATUS)
+        st["naechste_schritte"] = ["BASE-060 schreiben"]
+        self.schreibe(STATUS, st)
+        self.erwarte_fehler("STATUS: Feld naechste_schritte ist nicht zulaessig")
+
+    def test_status_verweist_ins_leere(self):
+        st = self.lade(STATUS)
+        st["verweise"]["einstieg"] = "governance/GIBT_ES_NICHT.md"
+        self.schreibe(STATUS, st)
+        self.erwarte_fehler("nennt eine Datei, die es nicht gibt: governance/GIBT_ES_NICHT.md")
+
+    def test_phasenplan_widerspricht_der_liste(self):
+        self.datei("04_PHASE_PLAN.txt", lambda t: re.sub(r"(?m)^(  BASE-060_DNS_CORE\s+)WAITING( )", r"\1DONE   \2", t))
+        self.erwarte_fehler("BASE-060 steht als DONE, die PRIORITAETENLISTE fuehrt M2-060 als [WAITING]")
+
+    def test_zaehlbereich_in_der_liste_veraltet(self):
+        def f(t):
+            return re.sub(r"\bWT-01\.\.WT-(\d+)", lambda m: f"WT-01..WT-{int(m.group(1)) - 1:02d}", t, count=1)
+        self.datei("PRIORITAETENLISTE.txt", f)
+        self.erwarte_fehler("stimmt nicht mit den Moduldateien ueberein")
+
+    def test_tracker_fuehrt_geschriebenes_modul_als_leer(self):
+        self.datei("REVIEW_TRACKER.txt",
+                   lambda t: re.sub(r"(?m)^(  base/BASE-050_FIREWALL_CORE\s+).*$", r"\1□ EMPTY", t, count=1))
+        self.erwarte_fehler("base/BASE-050_FIREWALL_CORE hat")
+
+    def test_tracker_kennt_geschriebenes_modul_nicht(self):
+        self.datei("REVIEW_TRACKER.txt",
+                   lambda t: re.sub(r"(?m)^  base/BASE-050_FIREWALL_CORE\s+.*\n", "", t, count=1))
+        self.erwarte_fehler("fehlt aber im Inventar")
+
+    def test_readme_nennt_alte_version(self):
+        self.datei("README.md", lambda t: re.sub(r"\bv\d+\.\d+\.\d+\b", "v9.9.9", t, count=1))
+        self.erwarte_fehler("README.md nennt v9.9.9")
+
+    def test_steuerungsdokument_zu_lang(self):
+        self.datei("01_GLOSSARY.txt", lambda t: t + "\nzeile" * 1600)
+        self.erwarte_fehler("KR-03: 01_GLOSSARY.txt hat")
+
+    def test_entwurf_kann_nicht_done_sein(self):
+        cfg = self.lade("governance/register/MODULPRUEFUNG.yaml")
+        cfg["module"][0]["entwurf"] = True
+        self.schreibe("governance/register/MODULPRUEFUNG.yaml", cfg)
+        modul = cfg["module"][0]["modul"]
+        self.datei("PRIORITAETENLISTE.txt",
+                   lambda t: re.sub(rf"(?m)^(M2-\d+) \[[A-Z]+\] ({re.escape(modul)}_)", r"\1 [DONE] \2", t, count=1))
+        self.erwarte_fehler(f"MODUL {modul}: in MODULPRUEFUNG als Entwurf gefuehrt")
 
 
 class Verbesserungen(Basis):
