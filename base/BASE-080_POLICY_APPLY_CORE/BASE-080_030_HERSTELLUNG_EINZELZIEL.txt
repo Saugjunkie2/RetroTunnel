@@ -88,8 +88,9 @@ ZWECK:
       erlaubt das Schreiben der Sets; RIEGEL und KEIN_REGELWERK: Code 8.
   H4  SQL LESEN - erst JETZT, unter dem Lock (DEC-PA-04): Connection-Zeile
       und die zugehoerige Auth-Zeile in einem konsistenten Lesestand, dazu
-      queued_at des offenen Auftrags. Nicht lesbar: Code 2, keine
-      Wirkung (DEC-PA-18). Nicht auswertbar: Abschnitt 9.
+      Zaehler (revision) und Merkmale des offenen Auftrags. Nicht
+      lesbar: Code 2, keine Wirkung (DEC-PA-18). Nicht auswertbar:
+      Abschnitt 9.
   H5  SOLL BESTIMMEN, allein aus dem Gelesenen (Abschnitt 4).
   H6  IST BESTIMMEN, allein aus Kernel und Laufzeit: Peer, Elemente der
       Sets, Schnittstellen, laufende Sitzung (Abschnitte 5, 6).
@@ -97,8 +98,8 @@ ZWECK:
       Schritt ist fuer sich wiederholbar; IPv4 und IPv6 einer Connection
       werden in EINER Transaktion der Firewall geschrieben (G-4).
   H8  PRUEFEN UND ABSCHLIESSEN: Der erreichte Zustand wird am Kernel
-      nachgelesen. Stimmt er: Auftrag erledigen (nur wenn queued_at
-      unveraendert ist, BASE-080_050), Code 0. Sonst Code 4.
+      nachgelesen. Stimmt er: Auftrag erledigen (nur wenn sein Zaehler
+      unveraendert ist, BASE-080_050 Regel Q-4), Code 0. Sonst Code 4.
 
   ZEITLIMIT: Der gesamte Einzelauftrag endet nach
   vpn_policy_apply_timeout_seconds. Ein Abbruch durch das Zeitlimit ist
@@ -112,15 +113,21 @@ ZWECK:
 4) SOLL-FUNKTION (tunnelneutral, allein aus SQL)
 ================================================================================
 
-  ZULASSUNG
-    zugelassen(c)  :=  c.op_status IN ('ACTIVE','RESTRICTED')
-                       UND c.revoked_at IS NULL
-                       UND die Auth-Zeile des Tunnels existiert
-                       UND die Tunneladressen sind vorhanden
-                           (WireGuard: fixed_ip und fixed_ipv6;
-                            L2TP: fixed_ip)
-    Fuer WireGuard ist das die Soll-Funktion des Treibers
-    (BASE-040_030 Abschnitt 1); sie wird hier nicht neu definiert.
+  ZULASSUNG - drei Ergebnisse (wie die Soll-Funktion des WG-Treibers,
+  BASE-040_030 Abschnitt 1 ; sie wird hier nicht neu definiert, sondern
+  fuer L2TP in gleicher Form angewandt):
+    zugelassen(c)        :=  c.op_status IN ('ACTIVE','RESTRICTED')
+                             UND c.revoked_at IS NULL
+                             UND genau eine Auth-Zeile des Tunnels
+                             UND die Tunneladressen sind vorhanden
+                                 (WireGuard: fixed_ip und fixed_ipv6 ;
+                                  L2TP: fixed_ip)
+    nicht zugelassen(c)  :=  die Zeile fehlt
+                             ODER c.op_status = 'DISABLED'
+                             ODER c.revoked_at IS NOT NULL
+                             (VERWEIGERN GEHT VOR: Sperrung und Widerruf
+                             gelten, gleich was die uebrigen Felder sagen)
+    nicht auswertbar(c)  :=  jeder andere Fall (Abschnitt 9)
 
   POLICY-ZUSTAND
     eingeschraenkt(c)  :=  zugelassen(c) UND c.op_status = 'RESTRICTED'
@@ -186,6 +193,7 @@ ZWECK:
     OK_ADDED, OK_UNCHANGED, OK_REMOVED, OK_REPLACED, OK_ABSENT -> 0
     TEMPFAIL_DB                                                -> 2
     FAIL_KERNEL, FAIL_VERIFY                                   -> 4
+    STATE_UNDETERMINED                                         -> 6
 
   Die Buchungs- und Cursor-Schritte der Sequenzen (A4a, R1) gehoeren dem
   Treiber und BASE-070; sie sind die einzigen Schreibzugriffe auf die
@@ -207,9 +215,12 @@ ZWECK:
   Daemon fuehrt keinen eigenen Adressvorrat (ANF-PA-05).
 
   GEGENPROBE: Ist der Anmeldename der Sitzung bekannt (Hook-Argument,
-  Laufzeit-Spiegel /run/vpn-sessions/, list() des Adapters), muss er zur
-  selben Connection fuehren. Ein Widerspruch ist STATE_MAPPING_ERROR
-  (Abschnitt 9): keine Freigabe, die Sitzung wird beendet.
+  Laufzeit-Spiegel /run/vpn-sessions/, list() des Adapters), muss er -
+  byteweise verglichen - zur selben Connection fuehren. Ein Widerspruch
+  ist STATE_MAPPING_ERROR (Abschnitt 9): keine Freigabe, die Sitzung
+  wird beendet. Das ist dieselbe Regel wie BASE-070_020 S-5
+  (RT_IDENTITY_MISMATCH) ; dort erkennt sie der L2TP-Abgleich, hier
+  schon der Sitzungsbeginn.
 
   KEINE ZUORDNUNG: Traegt eine ppp-Schnittstelle eine Adresse, die keiner
   L2TP-Connection gehoert (auch: Adresse in Quarantaene, Adresse einer
@@ -258,7 +269,7 @@ ZWECK:
            Sitzung bleibt gesperrt (HC-5).
        C3  c.fixed_ip aus restricted_v4 entfernen ; conntrack der
            Adresse loeschen ; Formungs-Haken "entfernen".
-       C4  L2TP-Abgleich fuer den Anmeldenamen anstossen (BASE-070: Ende
+       C4  L2TP-Abgleich fuer die Connection anstossen (BASE-070: Ende
            melden, Rest buchen).
 
   L-D  MEHR ALS EINE SCHNITTSTELLE MIT DERSELBEN ADRESSE
@@ -282,6 +293,11 @@ ZWECK:
   U3  Connection ueber die Adresse bestimmen (6.1), SQL lesen (H4),
       Gegenprobe mit --login und --addr.
   U4  l2tp_ensure(c).
+  U5  AUSGABE fuer den Aufrufer: eine Zeile mit der vpn_connection_id
+      (nur Ziffern), sobald die Zuordnung feststeht. Der Hook traegt sie
+      in den Laufzeit-Spiegel ein ; er selbst liest kein SQL
+      (ANF-PA-04). Der Spiegel dient dem Hard-Cut ohne Datenbank
+      (BASE-070_040 Schritt K2).
 
   WENN DER BEGINN NICHT GELINGT (DEC-PA-07):
     Ursache                              Folge
@@ -291,8 +307,10 @@ ZWECK:
     Adresse unbekannt (6.1)              beendet
     Datenbank nicht lesbar (Code 2)      keine Freigabe ; Sitzung wird
                                          SOFORT beendet (kill() des
-                                         Adapters ueber den Namen der
-                                         Schnittstelle bzw. des Spiegels)
+                                         Adapters fuer genau diese
+                                         Sitzung: Sitzungskennung zur
+                                         Schnittstelle laut list(),
+                                         sonst ihre Tunneladresse)
     Lock, Firewall-Zustand, Kernel-      keine Freigabe ; die Sitzung
     Schritt (Codes 5, 8, 4)              bleibt GESPERRT ; Auftrag fuer die
                                          Connection wird eingetragen ;

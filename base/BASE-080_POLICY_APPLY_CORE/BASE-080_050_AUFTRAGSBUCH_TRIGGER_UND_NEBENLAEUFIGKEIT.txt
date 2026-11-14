@@ -1,0 +1,497 @@
+================================================================================
+BASE-080 — AUFTRAGSBUCH, AUSLOESER UND NEBENLAEUFIGKEIT
+================================================================================
+DATEI: BASE-080_050_AUFTRAGSBUCH_TRIGGER_UND_NEBENLAEUFIGKEIT.txt
+STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
+
+ZWECK:
+  Wie ein festgeschriebener Statuswechsel den Kernel sicher erreicht
+  (Auftragsbuch und Auftragslauf), wer die Herstellung ausloest, und wie
+  gleichzeitige Ablaeufe geordnet sind (Sperren, Reihenfolgen, Zeitlimits).
+  Setzt DEC-PA-03 und DEC-PA-04 um und loest OPEN-POL-05.
+
+================================================================================
+1) WARUM EIN AUFTRAGSBUCH
+================================================================================
+
+  Ein Statuswechsel besteht aus zwei Teilen: der Aenderung in SQL und der
+  Herstellung im Kernel. Dazwischen kann der ausloesende Prozess enden,
+  der Einzel-Lock belegt sein oder ein Kernel-Schritt scheitern. Ohne
+  weitere Vorkehrung bliebe die Aenderung bis zum naechsten Abgleich
+  wirkungslos - bei einer Sperrung wegen Missbrauchs oder nach einem
+  kompromittierten Schluessel sind das Minuten.
+
+  Das Auftragsbuch schliesst diese Luecke: Der Auftrag entsteht in
+  DERSELBEN Transaktion wie die Aenderung. Er ist damit genau dann
+  vorhanden, wenn die Aenderung gilt, und er bleibt, bis die Herstellung
+  am Kernel bestaetigt ist (SZ-3, SZ-9).
+
+  Der Abgleich bleibt als zweites Netz: Er findet auch Abweichungen, die
+  nie einen Auftrag hatten (Eingriff von Hand am Kernel, Verlust des
+  Regelwerks, Neustart).
+
+================================================================================
+2) TABELLE vpn_policy_outbox
+================================================================================
+
+  Feld                Typ               Constraint     Beschreibung
+  ------------------- ----------------- -------------- ----------------------
+  scope               ENUM              PK (1)         CONNECTION | GLOBAL
+  ref_id              BIGINT UNSIGNED   PK (2)         vpn_connection_id ;
+                                                       0 bei GLOBAL
+  revision            INT UNSIGNED      NOT NULL       Zaehler der
+                                        DEFAULT 1      Fortschreibungen
+  queued_at           TIMESTAMP(6)      NOT NULL       Zeit der JUENGSTEN
+                                                       Aenderung
+  first_queued_at     TIMESTAMP(6)      NOT NULL       Zeit der aeltesten
+                                                       noch nicht
+                                                       hergestellten
+                                                       Aenderung
+  flow_cut_pending    TINYINT(1)        NOT NULL       Fluss-Schnitt
+                                        DEFAULT 0      ausstehend
+  runtime_cut_before  TIMESTAMP(6)      NULL           Laufzeit, die VOR
+                                                       diesem Zeitpunkt
+                                                       begann, ist zu
+                                                       beenden
+  runtime_cut_reason  VARCHAR(32)       NULL           Ende-Grund dazu
+                                                       (Liste BASE-070_020
+                                                       Abschnitt 6)
+  prev_ipv4           VARCHAR(15)       NULL           Tunneladresse VOR
+  prev_ipv6           VARCHAR(45)       NULL           einem Adresswechsel
+  attempts            INT UNSIGNED      NOT NULL       gescheiterte
+                                        DEFAULT 0      Versuche
+  last_result         TINYINT UNSIGNED  NULL           letzter Ergebniscode
+  last_try_at         TIMESTAMP(6)      NULL
+  next_try_at         TIMESTAMP(6)      NOT NULL       fruehester naechster
+                                                       Versuch
+
+  Indices: PRIMARY(scope, ref_id), INDEX(next_try_at)
+
+  Kein Fremdschluessel auf vpn_connections: Ein Auftrag muss die Zeile
+  ueberleben koennen, deren Loeschung er gerade durchsetzt.
+
+  REGELN:
+    Q-1  HOECHSTENS EIN AUFTRAG JE ZIEL. Der Auftrag sagt nicht, WAS
+         geschehen ist, sondern DASS der Kernel-Zustand dieses Ziels neu
+         herzustellen ist. Mehrere Aenderungen vor der Herstellung
+         verschmelzen (Q-3).
+    Q-2  DER AUFTRAG ENTSTEHT IN DER TRANSAKTION DER AENDERUNG - nie davor
+         und nie in einer eigenen Transaktion danach. Wird die Aenderung
+         verworfen, gibt es keinen Auftrag.
+    Q-3  EINTRAGEN (eine Anweisung, in der Uebergangsroutine):
+         Einfuegen ; besteht der Auftrag schon, wird er fortgeschrieben:
+           revision           := revision + 1
+           queued_at          := jetzt
+           first_queued_at    bleibt
+           flow_cut_pending   := alt ODER neu
+           runtime_cut_before := der SPAETERE der beiden Werte
+           runtime_cut_reason := neu, falls angegeben, sonst alt
+           prev_ipv4, _ipv6   := alt, falls gesetzt, sonst neu (der
+                                 AELTESTE Stand bleibt: Er beschreibt, was
+                                 im Kernel noch stehen kann)
+           attempts := 0 ; next_try_at := jetzt
+    Q-4  ERLEDIGEN darf nur vpn-policy-apply, und nur nach der
+         Schlusspruefung am Kernel (BASE-080_030 Schritt H8):
+           DELETE ... WHERE scope = :s AND ref_id = :r
+                        AND revision = :gelesen
+         Wurde der Auftrag waehrend der Herstellung fortgeschrieben,
+         trifft das DELETE nicht ; er bleibt und wird erneut bearbeitet.
+         Verglichen wird der Zaehler, nicht die Zeit: Zwei
+         Fortschreibungen koennen denselben Zeitstempel tragen.
+    Q-5  Der Auftrag traegt KEINEN Zielzustand. Die Herstellung liest SQL
+         immer frisch (DEC-PA-02) ; ein alter Auftrag kann nie einen
+         ueberholten Zustand herstellen.
+    Q-6  Es schreibt nur der DB-User system (Uebergangsroutinen von
+         BASE-010, Bewerter, Umbauten, vpn-policy-apply). Der DB-User
+         radius hat keinen Zugriff ; der DB-User webpanel liest nur ueber
+         eine Sicht ohne Adressen.
+    Q-7  Die Tabelle enthaelt keine Geheimnisse. prev_ipv4 und prev_ipv6
+         sind Tunneladressen, keine Gegenstellen.
+
+  DIE ZUSATZFELDER - WARUM SIE NOETIG SIND, OBWOHL DIE HERSTELLUNG
+  ZUSTANDSBASIERT IST: Drei Wirkungen lassen sich aus SQL-SOLL und
+  Kernel-IST allein nicht ableiten.
+    flow_cut_pending    Bricht die Herstellung nach dem Schreiben des
+                        Sperr-Sets ab, steht die Adresse beim naechsten
+                        Versuch schon im Set ; der Vorzustand zeigt den
+                        Eintritt nicht mehr. Das Merkmal haelt fest, dass
+                        der Fluss-Schnitt noch geschuldet ist
+                        (BASE-080_030 Abschnitt 10).
+    runtime_cut_before  Ein Kennwortwechsel aendert das SOLL nicht - die
+                        Connection bleibt zugelassen -, verlangt aber das
+                        Ende der Sitzung, die unter dem alten Kennwort
+                        entstand. Der Zeitpunkt begrenzt den Schnitt auf
+                        Laufzeit, die VOR dem Wechsel begann ; eine danach
+                        entstandene Sitzung bleibt.
+    prev_ipv4, _ipv6    Nach einem Adresswechsel (Rollenwechsel,
+                        Adress-Reparatur) nennt SQL nur noch die neue
+                        Adresse. Freigabe, Sperr-Set und conntrack der
+                        ALTEN Adresse muessen trotzdem geraeumt und eine
+                        L2TP-Sitzung auf ihr beendet werden.
+  Fehlt ein Merkmal (Auftrag von einem aelteren Stand, Eintrag ohne
+  Angabe), bleibt die Herstellung richtig, nur weniger gezielt: Den
+  Fluss-Schnitt holt der Abgleich nach, eine Sitzung auf einer Adresse
+  ohne Connection beendet die Aufsicht (BASE-080_030 Abschnitt 6.1).
+
+================================================================================
+3) WER EINEN AUFTRAG SCHREIBT
+================================================================================
+
+  Jede Transaktion, die eine der folgenden Groessen aendert, traegt den
+  Auftrag der betroffenen Connection ein (Anforderung an die Owner der
+  Schreibwege: ANF-PA-01):
+
+  Aenderung                              Schreibweg (Owner)       Merkmale
+  -------------------------------------- ------------------------ -----------
+  Anlage einer Connection mit Status     Provisionierung          -
+  ACTIVE (WireGuard: Peer faellig)       (BASE-010)
+  op_status (T-02 bis T-08, Tombstone)   Uebergangsroutinen       Eintritt in
+                                         (BASE-010)               RESTRICTED:
+                                                                  flow_cut
+  revoked_at (Widerruf, LR-02)           Uebergangsroutine        -
+  access_role, ip_slot, fixed_ip,        Rollenwechsel-Kaskade,   prev_ipv4,
+  fixed_ipv6                             Adress-Reparatur         prev_ipv6
+                                         (BASE-080_060 mit
+                                         BASE-010, BASE-070)
+  wg_public_key, PresharedKey            Rotation (BASE-040_040)  -
+  Kennwort einer L2TP-Connection         Kennwortwechsel          runtime_cut
+                                         (BASE-010)               (AUTH_KEY_
+                                                                  ROTATED)
+  physische Loeschung einer Zeile, die   Loeschpfad (BASE-010)    prev_ipv4,
+  noch nicht widerrufen war (vorzeitige                           prev_ipv6
+  Loeschung)
+
+  KEIN AUFTRAG noetig: Wechsel allein des Grundes bei gleichem Status
+  (der Kernel-Zustand haengt nicht am Grund) ; Claim ohne Statuswechsel ;
+  Buchungen ; Hinweisfelder ; physische Loeschung nach abgelaufener
+  Quarantaene (die Connection ist seit Langem gesperrt und ohne
+  Kernel-Zustand).
+
+  AUFTRAG DER ART GESAMT (scope GLOBAL, ref_id 0): "Abgleich aller
+  Connections faellig". Ihn schreibt, wer etwas aendert, das viele
+  Connections zugleich betrifft und nicht ueber einzelne Auftraege
+  laeuft: Verwaltungshandlung "jetzt abgleichen", Aenderung einer
+  Einstellung mit Wirkung auf alle (zum Beispiel ein Wartungsmodus, soweit
+  ein Modul ihn definiert), Wiederherstellung einer Datensicherung
+  (MOD-008).
+
+  vpn-policy-apply SELBST traegt einen Auftrag ein, wenn ein Aufruf ohne
+  Auftrag scheitert und die Datenbank erreichbar ist (zum Beispiel
+  --l2tp-up mit Ergebnis 4, 5 oder 8): So geht auch dieser Versuch in die
+  Wiederholung.
+
+================================================================================
+4) DER AUFTRAGSLAUF (vpn-policy-apply --pending)
+================================================================================
+
+  Zeitgeber im festen Raster vpn_policy_pending_interval_seconds
+  (Vorschlag 5 s). Eigener Einzel-Lock des Laufs (nicht der Kernel-Lock):
+  Ein zweiter Lauf endet sofort. Der Lauf selbst haelt den Kernel-Lock
+  NIE durchgehend ; jeder Auftrag erwirbt ihn fuer sich (Abschnitt 6).
+
+  ABLAUF JE DURCHGANG:
+    AL1  ZUSTAND DER FIREWALL lesen. RIEGEL oder KEIN_REGELWERK: keine
+         Herstellung (Code 8) ; weiter mit AL6.
+    AL2  DATENBANK pruefen (Verbindung, eine Lesung). Nicht erreichbar:
+         weiter mit AL6 ; der Zustand "Datenbank gestoert seit" wird in der
+         Statusdatei gefuehrt. War sie beim vorigen Durchgang gestoert und
+         ist jetzt erreichbar: Anforderungsdatei des Abgleichs schreiben
+         (BASE-080_040 Abschnitt 2).
+    AL3  FAELLIGE AUFTRAEGE lesen: next_try_at <= jetzt, begrenzte Zahl je
+         Durchgang. REIHENFOLGE - ERST SCHLIESSEN:
+           1. Auftraege, deren Connection laut derselben Lesung nicht
+              zugelassen ist oder deren Zeile fehlt
+           2. Auftraege mit runtime_cut_before oder flow_cut_pending
+           3. alle uebrigen
+         innerhalb jeder Gruppe der aelteste zuerst (first_queued_at).
+    AL4  JE AUFTRAG: Herstellung fuer das Einzelziel (BASE-080_030,
+         Schritte H2 bis H8) mit den Merkmalen des Auftrags (Abschnitt 5).
+           Ergebnis 0        -> erledigen (Q-4)
+           sonst             -> attempts + 1, last_result, last_try_at ;
+                                next_try_at nach Abschnitt 7
+    AL5  AUFTRAG DER ART GESAMT: Anforderungsdatei des Abgleichs schreiben
+         und den Abgleich starten, falls keiner laeuft. Erledigt wird der
+         Auftrag, sobald policy_reconcile_last_ok_at juenger ist als sein
+         queued_at.
+    AL6  AUFSICHT OHNE DATENBANK (BASE-080_030 Abschnitt 6.5): nicht
+         freigegebene L2TP-Sitzungen pruefen, Reste beendeter Sitzungen
+         raeumen. Dieser Schritt braucht kein SQL und laeuft immer, sofern
+         der Zustand der Firewall das Schreiben erlaubt.
+    AL7  ANFORDERUNGSDATEI DES ABGLEICHS pruefen und den Abgleich starten,
+         falls angefordert und keiner laeuft ; ebenso bei jedem Durchgang,
+         solange der Zustand der Firewall VERSIEGELT ist.
+    AL8  STATUSDATEI schreiben ; Alarme nach Abschnitt 9.
+
+  EIGENSCHAFTEN:
+    - Ein Durchgang ohne faellige Auftraege kostet eine Lesung und die
+      Aufsicht AL6.
+    - Der Lauf ist wiederholbar ; ein Abbruch laesst die Auftraege, wie
+      sie sind.
+    - Ein direkter Aufruf (--connection-id) fuer ein Ziel mit offenem
+      Auftrag erledigt den Auftrag ebenso (Q-4) - der Lauf ist dann fuer
+      dieses Ziel ohne Wirkung.
+
+  ZUSAGE (SZ-3): Eine festgeschriebene Aenderung ist im ungestoerten
+  Betrieb nach hoechstens einem Raster des Auftragslaufs zuzueglich der
+  Wartezeit auf den Einzel-Lock und der Dauer der Herstellung im Kernel
+  wirksam. Der direkte Aufruf durch den Ausloeser verkuerzt das auf die
+  Dauer der Herstellung.
+
+================================================================================
+5) WIE DIE MERKMALE DES AUFTRAGS IN DIE HERSTELLUNG EINGEHEN
+================================================================================
+
+  Die Herstellung bleibt zustandsbasiert (BASE-080_030). Die Merkmale
+  ergaenzen sie um drei Handlungen, jeweils VOR der regulaeren Abfolge:
+
+  MK1  ALTE ADRESSEN (prev_ipv4, prev_ipv6 gesetzt und ungleich den
+       aktuellen Adressen der Connection):
+         L2TP       Freigabe-Elemente mit der alten Adresse entfernen ;
+                    eine Sitzung auf der alten Adresse beenden (Grund
+                    runtime_cut_reason, sonst CONNECTION_ROLE_CHANGE)
+         WireGuard  der Treiber ersetzt den Peer (AllowedIPs weichen ab) ;
+                    seine Remove-Sequenz raeumt conntrack und Sets fuer
+                    die Adressen, die der Peer TATSAECHLICH fuehrte
+                    (ANF-PA-07)
+         beide      alte Adressen aus restricted_* entfernen ; conntrack
+                    der alten Adressen loeschen
+       Die alten Adressen stehen ab dem Commit in Quarantaene
+       (BASE-070_060) ; sie koennen in dieser Zeit keiner anderen
+       Connection gehoeren.
+  MK2  LAUFZEIT-SCHNITT (runtime_cut_before gesetzt): Laufzeit der
+       Connection, die laut Adapter VOR diesem Zeitpunkt begann, wird
+       beendet (L2TP: Hard-Cut-Kern von BASE-070 fuer genau diese
+       Sitzungen ; WireGuard: Remove und Wiedereintrag). Ist der Beginn
+       einer Sitzung nicht feststellbar, gilt sie als vorher begonnen.
+       Laufzeit, die danach begann, bleibt.
+  MK3  FLUSS-SCHNITT (flow_cut_pending gesetzt): Nach dem Herstellen des
+       Policy-Zustands wird der Fluss-Schnitt ausgefuehrt, auch wenn die
+       Adresse schon im Sperr-Set stand - sofern die Connection
+       eingeschraenkt ist und eine Kernel-Repraesentation hat. Ist sie es
+       nicht mehr, entfaellt er.
+
+  Die Merkmale gelten als erfuellt, wenn die Herstellung mit Ergebnis 0
+  endet ; sie fallen mit dem Auftrag weg (Q-4).
+
+================================================================================
+6) NEBENLAEUFIGKEIT
+================================================================================
+
+  SPERREN UND IHRE REIHENFOLGE (immer in dieser Folge, nie umgekehrt):
+
+    1  Sperre in vpn_session_locks      nur Umbauten (BASE-080_060) und
+       (Owner BASE-070)                 der Hard-Cut von BASE-070
+    2  Einzel-Lock des jeweiligen       Auftragslauf, Abgleich, Bewerter
+       Laufs                            je einer ; verhindert nur doppelte
+                                        Laeufe derselben Art
+    3  Kernel-Lock                      /run/vpn-policy-apply.lock ;
+       (Einzel-Lock, R-11)              serialisiert ALLE Schreibzugriffe
+                                        auf Sets, Peers, conntrack und
+                                        Verkehrsformung - auch die von
+                                        vpn-fw-load (BASE-050_070)
+    4  Zeilensperren der Datenbank      nur innerhalb kurzer Transaktionen
+
+  REGELN:
+    NB-1  vpn-policy-apply erwirbt NIE eine Sperre in vpn_session_locks.
+          Wer einen Umbau fuehrt, haelt sie bereits, wenn er das Werkzeug
+          ruft. Den Hard-Cut-Kern von BASE-070 benutzt das Werkzeug ohne
+          dessen eigene Sperre (BASE-070_040 Abschnitt 6, "Aufrufer").
+    NB-2  Unter dem Kernel-Lock wird keine Datenbanktransaktion offen
+          gehalten, die auf eine fremde Zeilensperre warten koennte:
+          Gelesen wird ohne Sperre im festgeschriebenen Stand ; die
+          wenigen Schreibzugriffe (Erledigen, Buchung des WG-Treibers)
+          sind einzelne kurze Transaktionen mit Zeitlimit.
+    NB-3  DAS WARTEN AUF DEN KERNEL-LOCK IST BEGRENZT
+          (vpn_policy_lock_wait_seconds). Danach TEMPFAIL_LOCKED ohne
+          Wirkung ; der Auftrag bleibt.
+    NB-4  DER KERNEL-LOCK ENDET MIT DEM PROZESS. Es gibt keine
+          Sperr-Leiche und kein Aufbrechen von Hand. Gegen einen
+          haengenden Halter wirkt das Zeitlimit jeder Operation
+          (vpn_policy_apply_timeout_seconds) ; die Dienstverwaltung
+          beendet den Prozess danach hart.
+    NB-5  DER ABGLEICH HAELT DEN KERNEL-LOCK NUR ABSCHNITTSWEISE
+          (vpn_reconcile_section_seconds) und liest SQL in jedem
+          Abschnitt frisch (BASE-080_040 Abschnitt 3). Ein
+          Verbindungsaufbau wartet hoechstens einen Abschnitt.
+    NB-6  KEIN PROGRAMM RUFT vpn-policy-apply, WAEHREND ES DEN KERNEL-LOCK
+          HAELT - mit einer Ausnahme: Beim Loesen des Siegels uebergibt
+          der Abgleich den gehaltenen Lock an vpn-fw-load (BASE-080_040
+          Schritt G3, ANF-PA-08).
+    NB-7  Registrierte Helfer laufen im Prozess des Werkzeugs unter dessen
+          Lock ; sie erwerben ihn nicht selbst (BASE-080_070).
+
+  WER GLEICHZEITIG LAUFEN DARF:
+    Bewerter und Herstellung       ja - der Bewerter beruehrt den Kernel
+                                   nie ; geordnet durch Zeilensperre und
+                                   Auftrag
+    Buchungslauf des Controllers   ja - laeuft ausserhalb des Kernel-Locks
+    und Herstellung                (BASE-040_030 Abschnitt 7)
+    zwei Herstellungen             nacheinander (Kernel-Lock)
+    Herstellung und Abgleich       nacheinander je Abschnitt
+    Herstellung und vpn-fw-load    nacheinander (derselbe Kernel-Lock)
+    zwei Abgleiche                 nein (Einzel-Lock des Abgleichs)
+
+  WETTLAEUFE, DIE DER ENTWURF AUSSCHLIESST:
+    Statuswechsel waehrend einer      Die Herstellung liest SQL unter dem
+    Herstellung                       Lock ; aendert sich SQL danach,
+                                      wird der Auftrag fortgeschrieben
+                                      (neue revision) und Q-4 laesst
+                                      ihn stehen: Es folgt eine weitere
+                                      Herstellung.
+    Zwei Statuswechsel kurz           ein Auftrag (Q-3) ; die Herstellung
+    nacheinander                      sieht den letzten Stand
+    Abgleich oeffnet, was eben        Abschnitte "Oeffnen" lesen die
+    gesperrt wurde                    betroffenen Zeilen frisch
+                                      (BASE-080_040 V3)
+    Sitzungsende und neuer Beginn     l2tp_ensure prueft den Bestand am
+    derselben Connection ueberholen   Kernel, nicht die Reihenfolge der
+    sich                              Hooks (BASE-080_030 Abschnitt 6.4)
+    Anmeldung waehrend eines Umbaus   Sperre des Umbaus (BASE-070_030
+                                      Abschnitt 6)
+
+================================================================================
+7) WIEDERHOLUNG
+================================================================================
+
+  Nach einem gescheiterten Versuch wird next_try_at gesetzt:
+
+    Ergebnis                         naechster Versuch
+    -------------------------------- --------------------------------------
+    5 TEMPFAIL_LOCKED                naechster Durchgang (keine Verzoegerung)
+    2 TEMPFAIL_SQL                   naechster Durchgang nach Rueckkehr der
+                                     Datenbank
+    8 TEMPFAIL_FIREWALL              naechster Durchgang, sobald der
+                                     Zustand das Schreiben erlaubt
+    4 RUNTIME_APPLY_ERROR            wachsend: Raster mal 2 hoch attempts,
+    6 STATE_MAPPING_ERROR            hoechstens
+    7 INTERNAL_ERROR                 vpn_policy_retry_max_seconds
+
+  REGELN:
+    W-1  Ein Auftrag wird NIE aufgegeben oder geloescht, weil er zu oft
+         gescheitert ist. Er bleibt, wird gemeldet und weiter versucht.
+    W-2  SCHLIESSENDE AUFTRAEGE WARTEN NICHT: Ist die Connection des
+         Auftrags nicht zugelassen, gilt die wachsende Verzoegerung
+         nicht ; der Versuch folgt in jedem Durchgang. Eine Sperrung darf
+         nicht an einer Wartezeit haengen.
+    W-3  Jede Fortschreibung des Auftrags (Q-3) setzt attempts auf 0.
+
+================================================================================
+8) AUSLOESER
+================================================================================
+
+  Ausloeser                       Aufruf                        Art
+  ------------------------------- ----------------------------- -------------
+  L2TP-Sitzung beginnt            ip-up-Hook (BASE-030):        Pflicht
+                                  --l2tp-up
+  L2TP-Sitzung endet              ip-down-Hook: --l2tp-down     Pflicht
+  Statuswechsel, Widerruf,        Auftrag in der Transaktion ;  Pflicht ;
+  Adress- oder Schluesselwechsel  dazu direkter Aufruf          Aufruf
+                                  --connection-id durch den     beschleunigt
+                                  Ausloeser, wo er root-Rechte  nur
+                                  hat
+  Bewerter fuehrt Uebergang aus   Auftrag (ueber die            Pflicht
+                                  Uebergangsroutine)
+  Verwaltungshandlung im Panel    privilegierter Auftragsweg    Pflicht
+                                  (BASE-110): die Handlung
+                                  schreibt den Auftrag ; der
+                                  Weg ruft --connection-id
+  Hard-Cut von BASE-070           vpn-session-kill Schritt K6:  Pflicht
+                                  --connection-id
+  WG-Controller findet Peer ohne  --connection-id               Pflicht
+  Berechtigung (Admission-                                      (BASE-040_050
+  Waechter)                                                     B2)
+  WG-Schnittstelle neu gestartet  Anforderung des Abgleichs     Pflicht
+  Regelwerk neu geladen           Anforderung des Abgleichs     Pflicht
+  (vpn-fw-load recover)
+  Systemstart                     Unit des Startabgleichs       Pflicht
+  Datenbank wieder erreichbar     Auftragslauf AL2: Anforderung  Pflicht
+                                  des Abgleichs
+  Takt                            Zeitgeber: Auftragslauf,      Pflicht
+                                  Abgleich, Bewerter
+  Periodenwechsel der Quota       vpn-quota-period ruft den     Pflicht
+                                  Bewerter (--all) ; dessen     (ANF-SC-07 a)
+                                  Uebergaenge schreiben
+                                  Auftraege
+
+  KEIN AUSLOESER:
+    - Die E-Mail-Bestaetigung eines Customers (Wechsel PENDING nach
+      ACTIVE des Customers) aendert keinen Kernel-Zustand (POL-20 des
+      Vorgaengers ; BASE-010).
+    - Anmeldungen am Panel, Aenderungen an Kundendaten ohne Wirkung auf
+      eine Connection.
+    - Aktivitaetsereignisse des Sitzungskerns: Policy haengt an der
+      Connection, nicht an Beginn oder Ende einer Episode (GW-5).
+
+  DER AUFRUF IST NIE DIE EINZIGE SICHERUNG: Hinter jedem Pflicht-Aufruf
+  steht der Auftrag bzw. - wo es keinen Auftrag gibt (Hooks) - die
+  Aufsicht des Auftragslaufs (AL6) und der Abgleich.
+
+================================================================================
+9) BEOBACHTBARKEIT DES AUFTRAGSBUCHS
+================================================================================
+
+  Statusdatei /run/retrotunnel/policy/status-pending.json (je Durchgang,
+  ohne personenbezogene Daten): offene Auftraege gesamt und nach
+  last_result ; Alter des aeltesten (first_queued_at) ; schliessende
+  Auftraege offen ; Datenbank gestoert seit ; Zustand der Firewall ;
+  nicht freigegebene L2TP-Sitzungen ; Dauer des Durchgangs.
+
+  ALARME:
+    POLICY_OUTBOX_STUCK        aeltester Auftrag aelter als
+                               vpn_policy_outbox_alert_seconds (ALERT) ;
+                               ist er ein schliessender Auftrag: CRITICAL
+    POLICY_APPLY_FAILED        Ergebnis 4, 6 oder 7 fuer ein Einzelziel
+                               (ALERT ; mit connection_ref und Code)
+    POLICY_PENDING_OVERDUE     der Auftragslauf selbst laeuft nicht
+                               (Statusdatei aelter als das Dreifache des
+                               Rasters ; erkannt von der Ueberwachung,
+                               MOD-007)
+
+  Ein Auftrag ist damit zugleich Arbeitsvorrat und Fehleranzeige: Was
+  nicht hergestellt ist, steht sichtbar im Buch (SZ-9).
+
+================================================================================
+10) FEHLERBILDER
+================================================================================
+
+  Stoerung                         Verhalten
+  -------------------------------- ------------------------------------------
+  Ausloeser endet zwischen Commit  Auftrag steht ; Auftragslauf stellt her
+  und Aufruf
+  Kernel-Lock belegt               Code 5 ; naechster Durchgang
+  Datenbank faellt aus             keine Herstellung aus Auftraegen ;
+                                   Aufsicht AL6 laeuft ; nach Rueckkehr
+                                   Auftraege und Abgleich
+  Auftragslauf steht               Auftraege sammeln sich ; Alarm ; direkter
+                                   Aufruf und Abgleich wirken weiter
+  Auftrag scheitert dauerhaft      bleibt offen, wird gemeldet (W-1) ;
+                                   schliessende Auftraege ohne Wartezeit
+                                   (W-2)
+  Tabelle nicht schreibbar         die Transaktion der Aenderung scheitert
+                                   als Ganzes (Q-2): kein Statuswechsel
+                                   ohne Auftrag
+  Auftrag fuer geloeschte Zeile    Herstellung findet keine Zeile: nicht
+                                   zugelassen ; raeumt ueber prev_ipv4 und
+                                   prev_ipv6 bzw. den Peer mit diesen
+                                   Adressen ; erledigt
+  Sicherung zurueckgespielt        Auftraege des alten Stands sind
+                                   harmlos (Q-5) ; ein Auftrag der Art
+                                   GESAMT stoesst den Abgleich an
+
+================================================================================
+11) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  - Betriebsseite: Zahl und Alter offener Auftraege, je Auftrag
+    connection_ref, Alter, Zahl der Versuche, letzter Ergebniscode im
+    Klartext ; schliessende Auftraege hervorgehoben.
+  - Je Connection: "Aenderung noch nicht im Netz wirksam", solange ein
+    Auftrag offen ist.
+  - Handlung "Zustand jetzt herstellen" (privilegierter Auftragsweg).
+  - Keine Handlung "Auftrag loeschen".
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

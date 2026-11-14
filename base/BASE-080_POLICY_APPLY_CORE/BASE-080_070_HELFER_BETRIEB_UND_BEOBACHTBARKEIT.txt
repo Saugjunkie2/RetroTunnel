@@ -1,0 +1,414 @@
+================================================================================
+BASE-080 — HELFER, BETRIEB UND BEOBACHTBARKEIT
+================================================================================
+DATEI: BASE-080_070_HELFER_BETRIEB_UND_BEOBACHTBARKEIT.txt
+STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
+
+ZWECK:
+  Die registrierten Helfer anderer Owner ; Units, Werkzeuge und Pfade
+  (Plattform-Contract) ; Settings dieses Moduls ; Datenbankrechte ;
+  Statusdateien, Ereignisse und das Verhalten bei Stoerungen im
+  Ueberblick. Setzt DEC-PA-17, DEC-PA-20 und DEC-PA-21 um und loest
+  OPEN-POL-04 und OPEN-POL-05.
+
+================================================================================
+1) REGISTRIERTE HELFER
+================================================================================
+
+  Drei Aufgaben aendern Kernel-Zustand derselben Art wie dieses Modul,
+  gehoeren aber anderen Ownern. Sie laufen als Helfer INNERHALB von
+  vpn-policy-apply, damit es bei einem Schreiber und einem Lock bleibt
+  (SZ-5).
+
+  Helfer                 Owner     Objekte                  Operationen
+  ---------------------- --------- ------------------------ ----------------
+  Sperr-Helfer           MOD-005   banned_v4, banned_v6     add, del, sync
+  Helfer der             BASE-110  admin_panel_allowed_v4,  replace, sync
+  Verwaltungsfreigabe              admin_panel_allowed_v6
+  Formungs-Helfer        MOD-003   Verkehrsformung je       set, del, sync
+                                   Connection
+
+  REGELN:
+    HF-1  FESTES VERZEICHNIS: Welche Helfer es gibt, steht im Paket des
+          Werkzeugs (Verzeichnis und Dateien nur fuer root schreibbar).
+          Es gibt kein Nachladen aus einem Ort, den ein anderer Dienst
+          beschreiben kann, und keine Helfer aus der Datenbank.
+    HF-2  EIN EINGANG: Ein Helfer wird nur ueber
+            vpn-policy-apply --helper <name> <operation> [Argumente]
+          gerufen. Das Werkzeug prueft Name, Operation und Argumente
+          gegen das im Verzeichnis hinterlegte Schema, BEVOR der Helfer
+          laeuft. Freier Text wird nie durchgereicht.
+    HF-3  UNTER DEM KERNEL-LOCK, MIT ZEITLIMIT: Der Helfer erwirbt keinen
+          eigenen Lock (BASE-080_050 Regel NB-7) und laeuft hoechstens
+          die fuer ihn hinterlegte Zeit.
+    HF-4  NUR EIGENE OBJEKTE: Ein Helfer schreibt allein die Objekte, die
+          ihm das Verzeichnis zuweist. Kein Helfer aendert restricted_*,
+          allowed_l2tp_v4, connect_pending_*, Peers oder conntrack.
+    HF-5  IPv4 UND IPv6 EINER AENDERUNG IN EINER TRANSAKTION der Firewall
+          (wie G-4 in BASE-050_030).
+    HF-6  JEDER HELFER HAT "sync": den vollstaendigen Abgleich seiner
+          Objekte aus seiner Quelle in SQL. Der Abgleich dieses Moduls
+          ruft ihn (BASE-080_040 Schritte V1 e6, V3 Schritt 4, V4) - nach
+          einem Neuladen des Regelwerks sind auch diese Sets leer.
+    HF-7  ERGEBNIS: OK, TEMPFAIL (spaeter erneut) oder FAIL. Ein
+          Ergebnis ungleich OK wird gemeldet (POLICY_HELPER_FAILED) und
+          nie als Erfolg behandelt.
+    HF-8  REIHENFOLGE IM ABGLEICH: Der Sperr-Helfer laeuft im Abschnitt
+          "Schliessen", die Verwaltungsfreigabe im Abschnitt "Oeffnen" -
+          erst schliessen, dann oeffnen gilt auch hier.
+
+  DER FORMUNGS-HELFER IM ABLAUF DER HERSTELLUNG (DEC-PA-20): Er wird im
+  selben Schritt gerufen wie das Herstellen des Policy-Zustands - vor
+  der Freigabe bzw. dem Peer-Eintrag, und beim Abbau nach dem Entzug.
+  Bis MOD-003 es anders bestimmt, ist sein Fehler ein Fehler der
+  Herstellung: Die Connection wird nicht geoeffnet. MOD-003 kann fuer
+  einzelne Fehlerarten festlegen, dass die Herstellung fortfaehrt
+  (Formung ist keine Sicherheitsfunktion) ; die Entscheidung gehoert
+  dorthin, der Haken hierher.
+
+  LESE-HELFER (kein Schreiber): vpn-policy-apply --show <id> gibt SOLL
+  und IST einer Connection aus - zugelassen, eingeschraenkt, Peer bzw.
+  Schnittstelle, Freigabe, Mitgliedschaften, offener Auftrag, letzter
+  Ergebniscode mit Zeit. Ohne Kernel-Lock, ohne Schreibzugriff, ohne
+  Schluesselmaterial und ohne oeffentliche Adressen. Das Panel erreicht
+  ihn ueber den privilegierten Auftragsweg.
+
+================================================================================
+2) PLATTFORM-CONTRACT: UNITS, WERKZEUGE, PFADE
+================================================================================
+
+  UNITS (systemd):
+    Unit                           Art        Aufgabe
+    ------------------------------ ---------- ------------------------------
+    vpn-policy-pending.timer       Zeitgeber  festes Raster (Vorschlag 5 s)
+    vpn-policy-pending.service     Lauf       Auftragslauf (BASE-080_050)
+    vpn-policy-reconcile.timer     Zeitgeber  festes Raster (Vorschlag 30 s)
+    vpn-policy-reconcile.service   Lauf       Abgleich, wenn faellig
+                                              (BASE-080_040)
+    boot-reconcile.service         Lauf       Startabgleich (einmalig je
+                                              Systemstart)
+    vpn-policy-eval.timer          Zeitgeber  festes Raster (Vorschlag 30 s)
+    vpn-policy-eval.service        Lauf       Bewerter, wenn faellig
+                                              (BASE-080_020)
+
+  REGELN FUER UNITS:
+    UP-1  ZEITGEBER FEST, TAKT AUS SETTINGS (DEC-PA-21): Der Lauf
+          entscheidet aus seinem Setting und seiner Marke "zuletzt
+          begonnen", ob er faellig ist. Eine Aenderung des Takts braucht
+          keine neue Unit-Datei.
+    UP-2  KEIN TUNNEL-DIENST HAENGT VON EINER UNIT DIESES MODULS AB, und
+          keine Unit dieses Moduls verlangt die Datenbank als harte
+          Startbedingung. Ohne Datenbank enden die Laeufe ohne Wirkung ;
+          der Schutz steht durch Siegel und fehlende Freigabe.
+    UP-3  DER STARTABGLEICH laeuft nach dem Laden des Regelwerks
+          (Zustand VERSIEGELT), nach dem Start der WG-Schnittstelle und
+          des L2TP-Daemons. Gelingt er nicht (Datenbank fehlt), bleibt
+          das Siegel ; der Auftragslauf wiederholt den Abgleich
+          (BASE-080_050 Schritt AL7).
+    UP-4  vpn-policy-apply laeuft als root (Sets, Peers, conntrack,
+          Sitzungen). vpn-policy-eval laeuft OHNE root-Rechte unter
+          einem eigenen Systembenutzer ; es hat keinen Zugriff auf
+          Kernel-Schnittstellen (DEC-PA-01).
+    UP-5  Jeder Lauf hat ein Zeitlimit ; die Dienstverwaltung beendet
+          ihn danach. Der Kernel-Lock endet mit dem Prozess.
+
+  WERKZEUGE (/usr/local/bin):
+    vpn-policy-apply      Herstellung, Auftragslauf, Abgleich, Hooks,
+                          Helfer (BASE-080_030, _040, _050)
+    vpn-policy-eval       Bewerter (BASE-080_020)
+    vpn-role-change       Rollenwechsel-Kaskade (BASE-080_060)
+
+  PFADE:
+    /run/vpn-policy-apply.lock            Kernel-Lock (flock ; BASE-005)
+    /run/retrotunnel/policy/              root:root 0755
+      status-pending.json                 0644, je Lauf atomar ersetzt
+      status-reconcile.json               0644
+      status-eval.json                    0644 (Schreiber: Bewerter)
+      reconcile.request                   Anforderung des Abgleichs
+                                          (nur root schreibbar)
+      pending.lock, reconcile.lock,       Einzel-Locks der Laeufe
+      eval.lock
+      l2tp-seen/                          erste Sichtung nicht
+                                          freigegebener Sitzungen
+                                          (root 0700 ; BASE-080_030
+                                          Abschnitt 6.5)
+    /usr/local/lib/retrotunnel/           Verzeichnis und Programme der
+      policy-helpers/                     Helfer (root, nicht
+                                          beschreibbar fuer Dienste)
+
+  BEREITSCHAFT: POLICY_READY gilt, wenn seit dem Systemstart ein
+  Abgleich ohne Fehler abgeschlossen ist und der Zustand der Firewall
+  BETRIEB lautet. Sie ist keine Startbedingung fuer andere Dienste ; ihr
+  Ausbleiben ist ein Alarm.
+
+================================================================================
+3) SETTINGS
+================================================================================
+
+  Kanonische Namen, Klassen und Katalogeintraege vergibt BASE-090. Es
+  gelten dieselben Regeln wie in BASE-070_070 Abschnitt 3: Das Modul
+  liest ueber die Aufloesung des Settings-Kerns und haelt keine eigenen
+  Rueckfallwerte ; was bei fehlendem oder ungueltigem Key geschieht,
+  bestimmt die Fehlerklasse des Katalogs. model/TRUTH_MODEL.txt
+  (DEPRECATED, bis BASE-090 die Quelle) fuehrt zwei Keys dieses Moduls
+  bereits (Vermerk TM).
+
+  Key                                       Vorschlag  Grenzen    Herkunft
+  ----------------------------------------- ---------- ---------- ---------
+  vpn_reconcile_interval_seconds            300        60..3600   belegt
+  vpn_connect_gate_ttl_seconds              120        30..600    belegt
+  vpn_policy_eval_interval_seconds          60         10..600    neu
+  vpn_policy_pending_interval_seconds       5          2..60      neu
+  vpn_policy_lock_wait_seconds              10         1..60      neu
+  vpn_policy_apply_timeout_seconds          30         5..300     neu
+  vpn_policy_retry_max_seconds              300        10..3600   neu
+  vpn_policy_outbox_alert_seconds           60         10..3600   neu
+  vpn_reconcile_section_seconds             5          1..30      neu
+  vpn_reconcile_mass_close_limit            20         1..10000   neu
+  vpn_reconcile_mass_close_percent          10         1..100     neu
+  vpn_policy_eval_gap_hold_seconds          3600       300..86400 neu
+  vpn_policy_eval_max_irreversible_per_run  25         1..10000   neu
+  vpn_policy_eval_restrict_alert_per_run    100        1..100000  neu
+
+  FEHLERKLASSE UND NOTWERT JE KEY (TM = aus TRUTH_MODEL Abschnitt 7.1
+  uebernommen ; sonst Antrag an BASE-090):
+
+  Key                                       Klasse   Notwert  strenger ist
+  ----------------------------------------- -------- -------- -------------
+  vpn_reconcile_interval_seconds            HARDCAP  300      TM
+  vpn_connect_gate_ttl_seconds              HARDCAP  120      TM
+  vpn_policy_eval_interval_seconds          HARDCAP  60       kleiner
+  vpn_policy_pending_interval_seconds       HARDCAP  5        kleiner
+  vpn_policy_lock_wait_seconds              HARDCAP  10       -
+  vpn_policy_apply_timeout_seconds          HARDCAP  30       -
+  vpn_policy_retry_max_seconds              HARDCAP  300      kleiner
+  vpn_policy_outbox_alert_seconds           HARDCAP  60       kleiner
+  vpn_reconcile_section_seconds             HARDCAP  5        kleiner
+  vpn_reconcile_mass_close_limit            HARDCAP  1        kleiner
+  vpn_reconcile_mass_close_percent          HARDCAP  1        kleiner
+  vpn_policy_eval_gap_hold_seconds          HARDCAP  600      kleiner
+  vpn_policy_eval_max_irreversible_per_run  HARDCAP  1        kleiner
+  vpn_policy_eval_restrict_alert_per_run    HARDCAP  100      kleiner
+
+    "Strenger" heisst bei den Bremsen (Mengen, Zeitluecke): Der Lauf
+    haelt frueher an und ueberlaesst die Entscheidung dem Betreiber. Das
+    folgt B052: Fehlt ein Pflicht-Setting, ist die Lage nicht eindeutig -
+    dann wird nichts Unumkehrbares und nichts in Massen getan.
+
+  GEAENDERTE BEDEUTUNG EINES BELEGTEN KEYS: vpn_connect_gate_ttl_seconds
+  war die Frist, nach der ein haengendes Gate entfernt werden durfte.
+  Ein Gate laeuft hier nie ab (DEC-PA-11). Der Key ist jetzt (a) die
+  Schwelle, ab der ein haengendes WireGuard-Gate als Stoerung gilt, und
+  (b) die Frist, nach der eine nicht freigegebene L2TP-Sitzung beendet
+  wird.
+
+  FREMDE KEYS, AUF DIE DIESES MODUL BEZUG NIMMT:
+    vpn_fw_seal_alert_seconds                Owner BASE-050
+    vpn_session_lock_operation_ttl_seconds   Owner BASE-070 (Regel KP-e)
+    vpn_hardcut_kill_timeout_seconds         Owner BASE-070
+    vpn_quarantine_days                      Owner BASE-070 (Widerruf)
+
+  KONSISTENZREGELN:
+    KP-a  vpn_reconcile_section_seconds < vpn_policy_lock_wait_seconds
+          (ein wartender Einzelauftrag erhaelt den Lock innerhalb seiner
+          Wartezeit)
+    KP-b  vpn_policy_lock_wait_seconds < vpn_policy_apply_timeout_seconds
+    KP-c  4 * vpn_policy_pending_interval_seconds <=
+          vpn_connect_gate_ttl_seconds (mehrere Versuche, bevor eine
+          nicht freigegebene Sitzung beendet wird)
+    KP-d  2 * vpn_policy_eval_interval_seconds <
+          vpn_policy_eval_gap_hold_seconds (sonst hielte der Schutz vor
+          Zeitluecken im Regelbetrieb an)
+    KP-e  vpn_policy_apply_timeout_seconds <
+          vpn_session_lock_operation_ttl_seconds (ein Umbau verliert
+          seine Sperre nicht waehrend einer Herstellung)
+    KP-f  vpn_policy_retry_max_seconds <= vpn_reconcile_interval_seconds
+          (ein gescheiterter Auftrag wird mindestens so oft versucht,
+          wie der Abgleich laeuft)
+  Verletzt eine Kombination eine Regel, gelten fuer die beteiligten Keys
+  DIESES Moduls die Notwerte (POLICY_SETTING_FALLBACK). Liegt die
+  Ursache in einem fremden Key (KP-e), bleibt der Konflikt gemeldet
+  (POLICY_SETTING_CONFLICT). Die Notwerte erfuellen KP-a bis KP-d und
+  KP-f untereinander.
+
+  LESEN DER SETTINGS: je Lauf ; vpn-policy-apply fuer ein Einzelziel
+  liest die wenigen Werte, die es braucht, zusammen mit der Connection.
+  Der Hook-Pfad wartet nicht auf eine eigene Settings-Abfrage.
+
+================================================================================
+4) DATENBANKRECHTE
+================================================================================
+
+  Objekt                       radius   webpanel            system
+  ---------------------------- -------- ------------------- ---------------
+  vpn_policy_outbox            -        SELECT ueber eine   alle
+                                        Sicht ohne
+                                        Adressen
+  Uebergangsroutinen           -        -                   Ausfuehren
+  (BASE-010)
+  Auskuenfte A-1, A-2          -        -                   Lesen
+  (BASE-100, MOD-010)
+  vpn_connections, Auth-       wie      wie BASE-010        Lesen ;
+  Tabellen                     BASE-020                     Schreiben nur
+                                                            ueber die
+                                                            Routinen der
+                                                            Owner
+  vpn_runtime_marks            -        SELECT              Marken dieses
+  (BASE-070)                                                Moduls
+
+  Der Bewerter und die Herstellung benutzen den DB-User system.
+  Empfohlen (wie BASE-070 ANF-SC-02): je Komponente ein eigener Zugang -
+  der Bewerter mit dem Recht, die Uebergangsroutinen auszufuehren und zu
+  lesen ; die Herstellung mit Leserecht, dem Schreibrecht am
+  Auftragsbuch und den Rechten des WG-Treibers an Gruppe D.
+  Das Panel schreibt weder das Auftragsbuch noch einen Status direkt ;
+  seine Handlungen laufen ueber den privilegierten Auftragsweg (BASE-110).
+
+================================================================================
+5) STATUSDATEIEN
+================================================================================
+
+  /run/retrotunnel/policy/status-<lauf>.json (0644, atomar ersetzt).
+  KEINE personenbezogenen Daten, keine Tunneladressen von Kunden, keine
+  Anmeldenamen ; Connections nur als connection_ref.
+
+    status-pending.json     BASE-080_050 Abschnitt 9
+    status-reconcile.json   BASE-080_040 Abschnitt 9
+    status-eval.json        generated_at, letzter_lauf_at,
+                            letzter_lauf_ok_at, kandidaten je Art,
+                            uebergaenge je Art, eingaben_unbekannt,
+                            zurueckgestellt: {anzahl, bedingung},
+                            notwerte_in_gebrauch, dauer
+
+  Eine Statusdatei, die aelter ist als das Dreifache des Takts ihres
+  Laufs, gilt im Panel als "Lauf antwortet nicht".
+
+================================================================================
+6) EREIGNISSE
+================================================================================
+
+  Meldeweg, Aufbewahrung und Zustellung: MOD-007. Stufen: INFO, WARN,
+  ALERT, CRITICAL. Ereignisse nennen connection_ref, nie Anmeldenamen
+  oder oeffentliche Adressen ; ohne Datenbank gehen sie ins Journal und
+  in den datenbankunabhaengigen Alarmweg.
+
+  Ereignis                         Stufe     Ausloeser
+  -------------------------------- --------- ------------------------------
+  POLICY_HARDCUT                   INFO      Fluss-Schnitt ausgefuehrt
+                                             (flush oder session_kill)
+  POLICY_HARDCUT_FAILED            CRITICAL  Fluss-Schnitt und Rueckfall
+                                             gescheitert
+  POLICY_RUNTIME_KILL_FAILED       CRITICAL  Laufzeit liess sich nicht
+                                             beenden ; Freigabe bleibt
+                                             entzogen bzw. Gate gesetzt
+  POLICY_APPLY_FAILED              ALERT     Ergebnis 4, 6 oder 7 fuer ein
+                                             Einzelziel
+  POLICY_STATE_UNDETERMINED        ALERT     Lage nicht auswertbar ;
+                                             nichts geoeffnet, nichts
+                                             umgeschaltet
+  POLICY_ADMIN_RESTRICTED_IGNORED  ALERT     ADMIN-Connection mit Status
+                                             RESTRICTED vorgefunden
+  POLICY_L2TP_UNKNOWN_ADDRESS      ALERT     Sitzung mit Adresse ohne
+                                             L2TP-Connection ; beendet
+  POLICY_L2TP_DUPLICATE_ADDRESS    CRITICAL  zwei Schnittstellen mit
+                                             derselben Adresse ; beendet
+  POLICY_L2TP_UNRELEASED_ENDED     WARN      Sitzung nach Ablauf der Frist
+                                             ohne Freigabe beendet
+  POLICY_FOREIGN_SET_ELEMENT       WARN      Element in einem Set dieses
+                                             Moduls ohne Grundlage in
+                                             SQL ; entfernt
+  CONNECT_PURGE_DEFERRED           WARN,     Gate-Element bleibt, weil ein
+                                   spaeter   Peer die Adresse fuehrt
+                                   ALERT
+  POLICY_UNSEALED                  INFO      Siegel geloest
+  POLICY_RECONCILE_MASS_HOLD       CRITICAL  schliessende Korrekturen ohne
+                                             Auftrag zurueckgestellt
+  POLICY_RECONCILE_FAILED          ALERT     Abgleich wiederholt nicht
+                                             fehlerfrei
+  POLICY_RECONCILE_OVERDUE         ALERT     Marke des Abgleichs aelter
+                                             als das Doppelte des Takts
+  POLICY_OUTBOX_STUCK              ALERT /   Auftrag aelter als die
+                                   CRITICAL  Schwelle (schliessend:
+                                             CRITICAL)
+  POLICY_PENDING_OVERDUE           ALERT     Auftragslauf laeuft nicht
+  POLICY_EVAL_INPUT_UNKNOWN        WARN      Auskunft nicht lesbar ;
+                                             Connection unveraendert
+  POLICY_EVAL_ADMIN_FACT           ALERT     Einschraenkungs-Tatsache an
+                                             einer ADMIN-Connection
+  POLICY_EVAL_HELD                 ALERT     unumkehrbare Uebergaenge
+                                             zurueckgestellt
+  POLICY_EVAL_MASS_RESTRICT        ALERT     ungewoehnlich viele
+                                             Einschraenkungen in einem
+                                             Lauf
+  POLICY_EVAL_OVERDUE              ALERT     Bewerter laeuft nicht
+  POLICY_HELPER_FAILED             ALERT     Helfer meldet TEMPFAIL oder
+                                             FAIL
+  POLICY_SETTING_FALLBACK          WARN      Notwert des Katalogs in
+                                             Gebrauch
+  POLICY_SETTING_CONFLICT          ALERT     Konsistenzregel wegen eines
+                                             fremden Keys verletzt
+  POLICY_NOT_READY                 ALERT     Bereitschaft nach dem Start
+                                             nicht erreicht
+
+  Jedes Ereignis der Stufe CRITICAL benennt, was jetzt geschlossen
+  bleibt, und was der Betreiber tun kann.
+
+================================================================================
+7) VERHALTEN BEI STOERUNGEN (UEBERBLICK)
+================================================================================
+
+  Stoerung                  Neue Verbindungen    Bestand        Dieses Modul
+  ------------------------- -------------------- -------------- -------------
+  Datenbank nicht           L2TP abgelehnt       bleibt, wie    keine
+  erreichbar                (BASE-020) ; neue    der Kernel     Herstellung
+                            Sitzung ohne         steht ; WG     aus SQL ;
+                            Freigabe wird        nach Grace     Aufsicht
+                            beendet              gestoppt       laeuft
+  Regelwerk fehlt oder      keine Freigabe       gesperrt       keine
+  RIEGEL                    moeglich             (Firewall)     Schreibzugriffe
+                                                                (Code 8)
+  Regelwerk neu geladen     nach dem Abgleich    WG gesperrt    Abgleich,
+  (VERSIEGELT)                                   bis Siegel     Siegel loesen
+                                                 geloest ; L2TP
+                                                 bis Freigabe
+  Auftragslauf steht        Hook-Pfad wirkt      bleibt         Alarm ;
+                            weiter                              Aenderungen
+                                                                erst mit
+                                                                Abgleich
+  Abgleich steht            unberuehrt           bleibt         Alarm ; ein
+                                                                Siegel bleibt
+  Bewerter steht            unberuehrt           bleibt         Alarm ; keine
+                                                                Fristen, keine
+                                                                Quota-Wirkung
+  Adapter L2TP gestoert     Freigabe moeglich    bleibt         Beenden nicht
+                            (Kernel)                            moeglich:
+                                                                Freigabe
+                                                                entzogen,
+                                                                CRITICAL
+  Systemzeit nicht          unberuehrt           bleibt         unumkehrbare
+  bestaetigt                                                    Uebergaenge
+                                                                ruhen
+  Einstellung fehlt         unberuehrt           bleibt         Notwert bzw.
+                                                                Anhalten ;
+                                                                gemeldet
+
+================================================================================
+8) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  - Betriebsseite "Policy": Inhalte der drei Statusdateien, Marken mit
+    Alter, Zustand der Firewall, offene Alarme dieses Moduls.
+  - Settings dieses Moduls ueber die Settings-Verwaltung (BASE-090) mit
+    Anzeige der Konsistenzregeln KP-a bis KP-f.
+  - Handlungen des privilegierten Auftragswegs: Zustand einer Connection
+    jetzt herstellen ; jetzt abgleichen ; Bewertung jetzt ; Freigabe
+    zurueckgestellter Uebergaenge bzw. einer zurueckgestellten
+    Massenkorrektur (Klasse C) ; Rollenwechsel (Klasse C).
+  - Keine Bearbeitung von Sets, Auftraegen, Marken oder Status am
+    Werkzeug vorbei.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
