@@ -198,25 +198,36 @@ ZWECK:
 
   Kanonische Namen, Klassen und Katalogeintraege vergibt BASE-090 (D004
   P-04). Bis dahin gelten die hier genannten Namen; belegte Altnamen sind
-  als solche gekennzeichnet.
+  als solche gekennzeichnet. model/TRUTH_MODEL.txt ist als DEPRECATED
+  gekennzeichnet und geht in BASE-090 auf; bis dahin ist es die einzige
+  Quelle der Settings-Regeln und der bereits festgelegten Keys und wird
+  hier als solche zitiert.
 
-  AUFLOESUNG UND RUECKFALL NACH DEM SETTINGS-KERN (TRUTH_MODEL Abschnitte
-  3 und 4; BF-0041): Dieses Modul liest seine Settings ausschliesslich
-  ueber die Aufloesung des Settings-Kerns (wirksamer Wert, Herkunft,
-  Zustand des Keys). Es hat KEINEN eigenen Rueckfallweg.
-    - Alle Keys dieses Moduls sind Betriebsparameter (Takte, Fristen,
-      Zeitlimits, Aufbewahrung). BASE-070 beantragt fuer sie im Katalog
-      die Fehlerklasse FAIL_SAFE_HARDCAP mit dem Vorschlagswert als
-      Notwert (failsafe_value). Fehlt ein Key oder ist er ungueltig,
-      liefert die Aufloesung diesen Notwert.
+  AUFLOESUNG UND FEHLERVERHALTEN NACH DEM SETTINGS-KERN (TRUTH_MODEL
+  Abschnitte 3, 4 und 7; BF-0041): Dieses Modul liest seine Settings
+  ausschliesslich ueber die Aufloesung des Settings-Kerns (wirksamer
+  Wert, Herkunft, Zustand des Keys). Es hat KEINEN eigenen Rueckfallweg
+  und haelt keine eigenen Rueckfallwerte (SF-02).
+    - FEHLERKLASSE JE KEY: Was bei fehlendem oder ungueltigem Key
+      geschieht, bestimmt der Katalog (zweite Tabelle unten).
+      HARDCAP = Fehlerklasse FAIL_SAFE_HARDCAP: Die Aufloesung liefert
+      den Notwert (failsafe_value).
+      CLOSED  = Fehlerklasse FAIL_CLOSED: Es gibt keinen Ersatzwert; der
+      Vorgang, der den Key braucht, findet nicht statt.
+    - Fuer Keys, die TRUTH_MODEL Abschnitt 7 bereits fuehrt, gelten
+      dessen Klasse und Notwert unveraendert (Vermerk TM). Fuer die
+      uebrigen sind Klasse und Notwert ein ANTRAG an den Katalog
+      (BASE-090, ANF-SC-08) - mit der Richtung, in der ein Wert
+      "strenger" ist, denn ein Notwert darf nur verschaerfen (TRUTH_MODEL
+      4.3). Die endgueltige Festlegung trifft BASE-090.
     - KEIN STILLER DEFAULT (R-02, R-03): Jede Nutzung eines Notwerts
-      meldet das Ereignis SESSION_SETTING_FALLBACK und steht in der
-      Statusdatei, bis sie behoben ist.
+      meldet SESSION_SETTING_FALLBACK, jeder Abbruch wegen eines Keys
+      der Klasse CLOSED meldet SESSION_SETTING_BLOCKED; beides steht in
+      der Statusdatei, bis der Zustand behoben ist.
     - Ist die Datenbank nicht erreichbar, arbeiten die Laeufe ohnehin
-      nicht. vpn-sessiond, der weiter antworten muss, behaelt die zuletzt
-      aufgeloesten Werte im Arbeitsspeicher und beginnt nach einem
-      eigenen Neustart ohne Datenbank mit den Notwerten des Katalogs,
-      die ihm mit seiner Konfiguration mitgegeben sind.
+      nicht. vpn-sessiond, der weiter antworten muss, arbeitet dann mit
+      den Notwerten des Katalogs; wie sie ohne Datenbank bereitstehen,
+      legt BASE-090 fest (ANF-SC-08).
     - Keine Zulassung haengt an einem Setting dieses Moduls: Der
       Anmeldepfad lehnt bei jedem Datenbankfehler ab (BASE-070_030
       Abschnitt 4), gleich welche Werte gelten.
@@ -225,9 +236,9 @@ ZWECK:
   ---------------------------------------- ---------- ---------- ---------
   vpn_active_session_lock_ttl_seconds      20         10..60     belegt
   vpn_session_lock_operation_ttl_seconds   60         15..300    neu
-  vpn_cleanup_timeout_seconds              2          1..5       belegt
-  vpn_cleanup_ratelimit_window_seconds     5          1..60      belegt
-  vpn_cleanup_result_ttl_seconds           5          1..60      belegt
+  vpn_cleanup_timeout_seconds              2          1..2       belegt
+  vpn_cleanup_ratelimit_window_seconds     5          1..30      belegt
+  vpn_cleanup_result_ttl_seconds           5          1..120     belegt
   vpn_ghost_min_age_seconds                15         5..120     neu
   vpn_ghost_stop_grace_seconds             10         0..60      neu
   vpn_l2tp_transition_max_seconds          120        30..900    neu
@@ -239,7 +250,7 @@ ZWECK:
   vpn_l2tp_kill_hold_threshold             10         1..500     neu
   vpn_runtime_seen_refresh_seconds         60         10..600    neu
   vpn_janitor_interval_seconds             300        60..3600   belegt
-  vpn_boot_janitor_delay_seconds           90         30..600    belegt
+  vpn_boot_janitor_delay_seconds           90         0..600     belegt
   vpn_hardcut_kill_timeout_seconds         10         2..60      neu
   vpn_hardcut_hint_valid_seconds           300        30..3600   neu
   vpn_l2tp_late_acct_window_days           35         7..400     neu
@@ -258,6 +269,57 @@ ZWECK:
   vpn_runtime_activity_retention_days      180        MOD-007    neu
   vpn_usage_daily_retention_days           400        MOD-007    neu
 
+  FEHLERKLASSE UND NOTWERT JE KEY (TM = aus TRUTH_MODEL Abschnitt 7
+  uebernommen; sonst Antrag an BASE-090; Aufbewahrungs-Keys: MOD-007):
+
+  Key                                      Klasse   Notwert  strenger ist
+  ---------------------------------------- -------- -------- ---------------
+  vpn_active_session_lock_ttl_seconds      HARDCAP  20       TM 7.1
+  vpn_session_lock_operation_ttl_seconds   HARDCAP  60       - (Mutex)
+  vpn_cleanup_timeout_seconds              HARDCAP  1        TM 7.6
+  vpn_cleanup_ratelimit_window_seconds     HARDCAP  10       TM 7.6
+  vpn_cleanup_result_ttl_seconds           HARDCAP  30       TM 7.6
+  vpn_ghost_min_age_seconds                HARDCAP  15       groesser
+  vpn_ghost_stop_grace_seconds             HARDCAP  10       groesser
+  vpn_l2tp_transition_max_seconds          HARDCAP  120      - (Verfuegbark.)
+  vpn_l2tp_buffer_drain_alert_seconds      HARDCAP  600      kleiner (Alarm)
+  runtime_activity_check_interval_seconds  HARDCAP  30       kleiner
+  l2tp_radacct_stale_threshold_seconds     HARDCAP  900      TM 7.1 (Altname)
+  vpn_l2tp_unaccounted_action              HARDCAP  ALARM    siehe (c)
+  vpn_l2tp_kill_hold_threshold             HARDCAP  1        kleiner
+  vpn_runtime_seen_refresh_seconds         HARDCAP  60       - (Anzeige)
+  vpn_janitor_interval_seconds             HARDCAP  300      TM 7.1
+  vpn_boot_janitor_delay_seconds           HARDCAP  0        TM 7.1
+  vpn_hardcut_kill_timeout_seconds         HARDCAP  10       - (Regel K-g)
+  vpn_hardcut_hint_valid_seconds           HARDCAP  300      kleiner
+  vpn_l2tp_late_acct_window_days           HARDCAP  35       groesser
+  vpn_quota_timezone                       CLOSED   -        siehe (b)
+  quota_reset_mode, quota_scope            CLOSED   -        siehe (b)
+  vpn_quota_cutover_wait_seconds           HARDCAP  20       groesser
+  vpn_quota_overdue_alert_seconds          HARDCAP  900      kleiner (Alarm)
+  vpn_quarantine_days                      CLOSED   -        TM 7.2, (a)
+  vpn_pool_alloc_max_attempts              HARDCAP  1        kleiner
+  vpn_pool_return_hold_threshold           HARDCAP  10       kleiner
+
+    (a) vpn_quarantine_days fehlt oder ist ungueltig: Es wird keine Frist
+        berechnet. Widerruf, Rollenwechsel, vorzeitige Loeschung und
+        Adress-Reparatur scheitern ohne Teilwirkung; Rueckgaben ruhen
+        (die Plausibilitaet nach BASE-070_060 RS-3 ist nicht pruefbar).
+        Bereits gesetzte Fristen gelten weiter.
+    (b) Ohne gueltige Werte fuer Zeitzone, Reset-Modus und Geltung ist
+        die Quota-Periode nicht berechenbar. Dann findet kein
+        Periodenwechsel statt (Alarm wie bei jeder ueberfaelligen
+        Periode), und die Anlage einer Connection scheitert. Ein
+        Ersatzwert wuerde die Monatsgrenze still verschieben.
+    (c) vpn_l2tp_unaccounted_action: KILL setzt strenger durch, kann bei
+        einer Stoerung der Abrechnung aber Sitzungen kosten. Als Notwert
+        gilt deshalb die Einstellung, die nicht eingreift (SZ-9); die
+        Richtung "nur verschaerfen" ist hier nicht anwendbar und fuer
+        BASE-090 so zu begruenden.
+    Spalte "strenger ist": Richtung, in der ein Wert vorsichtiger wirkt
+    (spaeter schliessen, frueher anhalten, frueher alarmieren). Ein
+    Strich heisst: Der Key steuert nur Verfuegbarkeit oder Anzeige.
+
   FREMDE KEYS, AUF DIE DIESES MODUL BEZUG NIMMT:
     radius_acct_interim_seconds              Owner BASE-020/BASE-030;
                                              belegt 300, Empfehlung 60
@@ -270,8 +332,12 @@ ZWECK:
     Altersgrenze des L2TP-Puffers            Owner BASE-020 (Regel K-e)
 
   KONSISTENZREGELN:
-    K-a  vpn_cleanup_result_ttl_seconds <=
-         vpn_cleanup_ratelimit_window_seconds
+    K-a  Obergrenzen der On-Demand-Pruefung (TRUTH_MODEL 7.6):
+         vpn_cleanup_ratelimit_window_seconds <= 30,
+         vpn_cleanup_result_ttl_seconds <= 120,
+         vpn_cleanup_timeout_seconds <= 2. Das Fenster begrenzt das
+         Alter jedes zwischengespeicherten Ergebnisses; ein groesserer
+         Wert von vpn_cleanup_result_ttl_seconds bleibt ohne Wirkung.
     K-b  l2tp_radacct_stale_threshold_seconds >=
          2 * radius_acct_interim_seconds +
          runtime_activity_check_interval_seconds
@@ -282,8 +348,7 @@ ZWECK:
          der Tunnel-Daemon dem AAA-Dienst fuer eine Antwort laesst
     K-e  vpn_l2tp_late_acct_window_days ist groesser als die laengste
          zugelassene Verweildauer im L2TP-Puffer
-    K-f  vpn_cleanup_result_ttl_seconds und
-         vpn_cleanup_ratelimit_window_seconds sind kleiner als
+    K-f  vpn_cleanup_ratelimit_window_seconds ist kleiner als
          vpn_active_session_lock_ttl_seconds (ein zwischengespeichertes
          Sondenergebnis darf eine Sperre nicht ueberleben)
     K-g  vpn_hardcut_kill_timeout_seconds ist hoechstens die Haelfte von
@@ -504,6 +569,10 @@ ZWECK:
                                            verletzt eine Konsistenzregel;
                                            Notwert des Katalogs in
                                            Gebrauch
+  SESSION_SETTING_BLOCKED        ALERT     Key der Fehlerklasse
+                                           FAIL_CLOSED fehlt oder ist
+                                           ungueltig; der abhaengige
+                                           Vorgang unterbleibt
 
   Ereignisse, die eine Connection betreffen, tragen connection_ref, nie
   Anmeldenamen oder oeffentliche Adressen. Ist die Datenbank nicht
