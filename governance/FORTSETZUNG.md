@@ -44,10 +44,18 @@ braucht. Vor weiterer Modularbeit gilt für jede **neue** Lieferung: mit
 die geschriebenen Module abgleichen, Abweichungen als Befunde führen - nichts stillschweigend überschreiben.
 Weiter nicht vorhanden: Original D004, `ENTWURF_IPV6_VISUELLE_KODIERUNG_v2`, `identity_schema/`, Vollscan-Proof,
 Briefing 2026-05-25, `implementation/PHASE_PLAN.txt`, Drittreview-Dateien.
+Was die Lieferung wofür taugt, steht in `governance/arbeitsmaterial/nachlieferung/SICHTUNG.md`; die Extrakte der
+Leseagenten (30 von 95 Dateien) liegen daneben unter `extrakte/` (Zitate prüft `qa/pruefe_extrakte.py`).
 
 **Arbeitsweise seit BM-0013:** Der Betreiber hat Mehr-Agenten-Läufe ausdrücklich freigegeben. Sie werden für Lesen,
 Abgleich und unabhängige Gegenprüfung genutzt; jeder Agent schreibt seine Ergebnisse laufend in Dateien, damit ein
 Abbruch am Nutzungslimit nichts kostet. Was Agenten gelesen oder geprüft haben, wird als solches ausgewiesen.
+**Erfahrung vom 2026-11-13:** Drei bis vier gleichzeitig arbeitende Agenten verbrauchen das 5-Stunden-Fenster in
+unter einer Stunde und halten dann auch die eigene Arbeit an. Deshalb: Lesen und Schreiben selbst; Agenten nur für
+klar umrissene Prüfaufgaben, einzeln oder zu zweit, mit laufend abgelegten Ergebnissen.
+
+**Gegenprüfung BASE-070 (abgeschlossen am 2026-11-13):** Berichte und Behebungsplan in `governance/pruefungen/`;
+27 Befunde (3 kritisch, 3 hoch). Die Behebung hat Vorrang vor neuen Modulen; BASE-080 baut auf BASE-070 auf.
 
 ## Feste Grenzen
 - Kein `FREIGEGEBEN` und kein `ABGESCHLOSSEN_UND_UEBERNOMMEN`, solange G4 nicht nachweislich erfüllt ist
