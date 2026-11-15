@@ -10,6 +10,9 @@ Herkunft: maschinell aus dem Sitzungsprotokoll der Cloud-Sitzung entnommen (Werk
 Nichts ist gekürzt oder geglättet. Pfade unter /tmp/... sind Arbeitsverzeichnisse der Sitzung und
 bestehen nicht dauerhaft. Diese Datei ist KEIN Prüfbericht.
 
+Abschnitte 20 bis 30 (dritte Nachprüfung, 2026-11-15): aus den Auftragsdateien und den zwei Ablaufskripten
+übernommen; je Auftrag stehen Denkaufwand und Grund dabei (Betreiberentscheidung BM-0019 Nr. 7).
+
 Abschnitte 12 bis 19 (zweite Nachprüfung, 2026-11-15): aus den Auftragsdateien und Ablaufskripten übernommen,
 die den Prüfern übergeben wurden (die Abläufe nannten den Prüfern nur den Pfad ihrer Auftragsdatei). Einzige
 Abweichung vom Wortlaut: In Abschnitt 19 ist die Modellangabe des Ablaufskripts durch einen Platzhalter ersetzt
@@ -1132,5 +1135,845 @@ const r2 = await parallel([
 log(`Runde 2 fertig: A2 ${r2[0] ? 'mit Ergebnis' : 'OHNE Ergebnis'}, A3 ${r2[1] ? 'mit Ergebnis' : 'OHNE Ergebnis'}`)
 
 return { a1: r1[0], b: r1[1], a2: r2[0], a3: r2[1] }
+~~~~
+
+
+## 20. Dritte Nachprüfung: gemeinsame Grundlage für alle acht Prüfer
+
+- Zeitpunkt (UTC): 2026-11-15T16:49Z (Start des ersten Laufs)
+- Art: Gemeinsame Grundlage (Auftragsdatei; jeder Prüfer liest sie vor seinem Auftrag)
+- Länge: 12245 Zeichen
+
+~~~~
+PRUEFAUFTRAG - DRITTE NACHPRUEFUNG DER KONSOLIDIERUNG: GEMEINSAME GRUNDLAGE (2026-11-15)
+
+Diese Grundlage gilt fuer alle acht Pruefer der dritten Nachpruefung (E, S, T, C, D1, D2, W1, W2). Deinen eigenen
+Auftrag hast du gesondert erhalten; er nennt deine Aufgaben und deine Berichtsdatei.
+
+Du bist unabhaengiger Pruefer im Projekt RetroTunnel. Du PRUEFST - du aenderst nichts. Sprache des Berichts: Deutsch.
+
+1. KONTEXT
+
+RetroTunnel ist ein reines KONZEPT-Repository (Textdateien, kein Produktcode): das Konzept einer VPN-Plattform mit
+zwei Tunneln (L2TP/IPsec fuer alte Clients, AmneziaWG fuer neue). Seit dem 2026-11-11 stellt ein KI-Hauptarchitekt das
+Konzept im Auftrag des Betreibers (Marco) eigenstaendig fertig. Massgeblich sind im Wortlaut: der Startauftrag und die
+Betreiberregeln (governance/betreiberregeln/) und die Mitteilungen des Betreibers
+(governance/register/BETREIBERMITTEILUNGEN.yaml).
+
+Am 2026-11-14 hat der Betreiber angeordnet (Mitteilung BM-0015, dort im Wortlaut - lies sie), die Projektsteuerung auf
+seine urspruenglichen Dokumente im Wurzelverzeichnis zurueckzufuehren, dabei nichts abzuschwaechen, nichts Erarbeitetes
+zu loeschen und das Ergebnis zu kontrollieren. Seither gab es: eine unabhaengige Kontrolle (Berichte A, B, C vom
+2026-11-14; C wurde abgebrochen), ihre Einarbeitung, eine Nachpruefung (2026-11-15, Befunde F-NKO-001 bis F-NKO-029),
+deren Einarbeitung, eine zweite Nachpruefung durch vier Pruefer (Berichte A1, A2, A3, B vom 2026-11-15, Befunde
+F-NK2-...) und deren Einarbeitung durch den Hauptarchitekten in drei Commits. Am 2026-11-15 hat der Betreiber ausserdem
+gefragt, was den Abschluss dieser Konsolidierung (Paket QS-07) verhindert (BM-0017), und fuenf Regelfragen des
+Hauptarchitekten sowie den Einsatz von Unteragenten entschieden (BM-0019, 283 Zeilen - lies sie, wenn dein Auftrag
+darauf Bezug nimmt); der Hauptarchitekt hat diese Entscheidung in einem weiteren Commit eingearbeitet. Danach hat er
+zwei eigene Arbeiten nachgezogen: ein Eigenreview der Steuerungsdokumente (zwei Durchgaenge, 17 Funde, Befund BF-0116)
+und eine Messung, welche Teilbedingungen der Pruefregeln ein Test belegt (dabei sechs Luecken der Regeln gefunden und
+geschlossen, Befund BF-0117). DIESE Einarbeitungen und Arbeiten sind der Pruefgegenstand. Erfahrung aus den bisherigen
+Runden: Jede Einarbeitung hat neue Fehler erzeugt.
+
+Am 2026-11-15 hat der Betreiber ausserdem angeordnet (BM-0021, im Register im Wortlaut - lies sie): Die Konsolidierung
+wird an den BEREITS verbindlichen Abschlussbedingungen abgeschlossen; es soll keine zusaetzliche Verwaltung entstehen
+(keine neuen Pruefzyklen, Register oder Pruefsysteme, die weder eine verbindliche Regel noch ein nachgewiesener Mangel
+verlangt); fachliche Probleme der Module gehoeren in deren Arbeitspakete; nichts wird kuenstlich abgeschlossen, kein
+Befund versteckt. Diese Pruefung ist die letzte breite Runde der Konsolidierung. Fuer dich heisst das: Melde JEDEN
+tatsaechlichen Fehler am Pruefgegenstand, mit Beleg und in der Schwere, die er hat - daran aendert die Anweisung
+nichts. Schlage aber als Fix-Intention keine neuen Register, Pruefwerkzeuge, Pruefzyklen oder Verwaltungsregeln vor,
+wo eine Korrektur am Text oder an einer bestehenden Regel genuegt. Fachliche Fragen zu WireGuard, Firewall, Datenbank,
+Authentifizierung, Sessions, Policy oder DNS nennst du in einem Satz mit dem zustaendigen Paket; du arbeitest sie
+nicht aus.
+
+2. PRUEFGEGENSTAND UND UNTERLAGEN
+
+Pruefgegenstand (nur lesen): /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/gegenstand
+  Das ist eine eigene Arbeitskopie (git worktree) des Repositorys am Commit cd6b746.
+  Aenderungsserie seit dem zuletzt geprueften Stand: git diff 584a629..cd6b746
+    97cc9f7  Abgleich von model/DOMAIN_MODEL mit BASE-070/BASE-080 (anderes Arbeitspaket; nur soweit er
+             Steuerungsdokumente und Register beruehrt, Teil dieser Pruefung)
+    a475aaa  abgebrochener Zwischenstand der zweiten Nachpruefung abgelegt, Pruefauftraege im Wortlaut
+    325aca2  Pruefwerkzeuge: zwei Luecken geschlossen (Kandidaten K10, K13), Negativtests fuer jede Fehlermeldung
+    cc484ef  vier Berichte der zweiten Nachpruefung abgelegt
+    b422150  Ergebnis der zweiten Nachpruefung registriert (sieben Befunde geschlossen, BF-0105 bis BF-0113 neu)
+    98e1bb3  Einarbeitung Teil 1: Abschluss-Sperre folgt der betroffenen Datei, fuenf Altmodule wieder geoeffnet,
+             Pruefwerkzeuge nach Bericht B (03_CHANGELOG v2.8.8)
+    3efafa9  Einarbeitung Teil 2: Textbefunde der Berichte A1, A2, A3; Sammelliste der eigenen Entscheidungen;
+             Fragen an den Betreiber (03_CHANGELOG v2.8.9)
+    fae9285  Betreibermitteilungen BM-0017 bis BM-0019 erfasst; Betreiberentscheidung BM-0019 eingearbeitet
+             (03_CHANGELOG v2.9.0)
+    133e3bf  Eigenreview der Steuerungsdokumente, Durchgang 1 (BF-0116); Zaehlung je Teilbedingung der Pruefregeln
+             mit qa/abdeckung.py, sechs Luecken der Regeln geschlossen, 49 neue Tests (BF-0117; 03_CHANGELOG v2.9.1)
+    cd6b746  Betreibermitteilungen BM-0020 und BM-0021 erfasst; Durchgang 2 des Eigenreviews; Ergebnis der Messung
+             nach den Korrekturen (03_CHANGELOG v2.9.2)
+  Ausgangsstand des Repositorys vor dem Betreiberauftrag (Baseline): Commit 10f3fde.
+Vorgaenger-Repository (nur lesen, nur bei Bedarf): /home/user/xp-vpn-stack
+
+Unterlagen im Pruefgegenstand:
+- governance/pruefungen/KONSOLIDIERUNG_NACHPRUEFUNG_2_A1_URTEILE_2026-11-15.md, ..._2_A2_KANDIDATEN_UND_PRUEFFRAGEN_ABC_...,
+  ..._2_A3_PRUEFFRAGEN_DEF_UND_FREIRAUM_..., ..._2_B_PRUEFWERKZEUGE_... - die vier Berichte der zweiten Nachpruefung
+  mit den Befunden F-NK2-A-01..15, F-NK2-B-01..12, F-NK2-C-01..11, F-NK2-U-01..02. Sie sind die Pruefliste.
+- 03_CHANGELOG.txt, Eintraege v2.8.5 bis v2.9.2 - die Berichte des Hauptarchitekten. Sie sind Gegenstand der Pruefung,
+  kein Beleg.
+- REVIEW_STANDARD.txt - der Pruefmassstab (Abschnitte 1 bis 7 und 10).
+- CLAUDE_BRIEFING.txt, CLAUDE_BRIEFING_ERKENNTNISSE.txt, 00_MANIFEST.txt, PRIORITAETENLISTE.txt, REVIEW_TRACKER.txt,
+  REVIEW_TRACKER_HISTORIE.txt, 04_PHASE_PLAN.txt, 01_GLOSSARY.txt, 02_ASSUMPTIONS_AND_RULES.txt,
+  NAVIGATIONSKARTE_ALTES_KONZEPT.txt, MARCOS_ARBEITSWEISE.txt, README.md (die zwoelf Steuerungsdokumente und README).
+- governance/register/BEFUNDE.yaml (Befundregister), governance/register/ARBEITSPAKETE.yaml (Paket-Index),
+  governance/register/BETREIBERMITTEILUNGEN.yaml, governance/STATUS.yaml, governance/UMGEBUNGSPRUEFUNG.yaml.
+- qa/ (Pruefwerkzeuge), .github/workflows/konzept-qa.yml.
+
+3. REGELN
+
+- NUR LESEN. Veraendere nichts unter /home/user/RetroTunnel, nichts im Pruefgegenstand, nichts unter
+  /home/user/xp-vpn-stack. Kein git commit, kein git push, kein git stash, kein git checkout im Pruefgegenstand.
+- Im Hauptrepository /home/user/RetroTunnel koennen inzwischen weitere Aenderungen liegen; sie sind NICHT Teil der
+  Pruefung - lies dort nicht.
+- Schreiben darfst du ausschliesslich unter /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3 (Bericht, Notizen, Kopien fuer Experimente in
+  deinem eigenen Unterordner). Raeume grosse Kopien am Ende weg.
+- Wer prueft, aendert nicht: Du lieferst Befunde mit Fix-Intention, keine Patches.
+- Urteile zaehlen nur mit Beleg (Datei:Zeile im Pruefgegenstand, ausgefuehrter Befehl mit Ergebnis). Was du nicht
+  geprueft hast, nennst du ausdruecklich als nicht geprueft. Erfinde keine Lesestaende.
+- Lies die Dateien selbst; uebernimm keine Aussage aus dem Changelog ungeprueft.
+- Die Ordner nachlieferung/ und governance/arbeitsmaterial/ gehoeren nicht zum Pruefumfang.
+- Starte KEINE weiteren Agenten.
+- Bleib bei DEINEM Auftrag. Was dort unter "NICHT deine Aufgabe" steht, prueft ein anderer Pruefer; faellt dir dort
+  etwas auf, nenne es in einem Satz im Freiraum, ohne es auszuarbeiten.
+- Experimente nur auf einer eigenen Kopie (rsync gibt es nicht):
+    mkdir -p <ziel> && tar -C /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/gegenstand --exclude=.git -cf - . | tar -C <ziel> -xf -
+    python3 /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/gegenstand/qa/pruefe_register.py --root <ziel> --git /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/gegenstand --xpn /home/user/xp-vpn-stack
+  Rueckgabewert 0 = "konsistent", 1 = Fehler gemeldet. --git nennt das Repository, dessen Git-Verlauf als Vergleich
+  dient. Brauchst du einen Stand MIT Commit: git clone -q /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/gegenstand <klon> - dort darfst du committen; NIE im
+  Pruefgegenstand. Im Klon rufst du auf wie im CI: python3 qa/pruefe_register.py --root . --xpn /home/user/xp-vpn-stack
+- Die ganze Testsammlung (python3 -m unittest discover -s qa/tests, rund sechs Minuten) fuehrt NUR Pruefer W2 aus.
+  qa/abdeckung.py (ueber eine halbe Stunde) fuehrt KEIN Pruefer aus.
+
+4. PFLICHTUMFANG UND FORM DES BERICHTS (REVIEW_STANDARD Abschnitte 3, 4, 6, 9 und 10.3)
+
+PFLICHTUMFANG: Massstab ist REVIEW_STANDARD.txt - lies die Abschnitte 1 bis 7 und 10 ganz, bevor du urteilst. Wende
+auf das, was du pruefst, die acht Pruefebenen (Abschnitt 3, A bis H) an, dazu die Punkte der 10-Punkte-Checkliste
+(Abschnitt 4) und der Pattern-Bibliothek (Abschnitt 9), die auf deinen Gegenstand passen (Steuerungsdokumente,
+Register und Pruefwerkzeuge sind keine Fachmodule; nicht jeder Punkt passt). Sage im Bericht je Pruefebene in einem
+Satz, woran du sie angewendet hast oder warum sie auf deinen Gegenstand nicht anwendbar ist, und nenne die
+Checklisten-Punkte und Patterns, die du angewendet hast. Abschnitt 6, VORVERSIONS-VERGLEICH gilt: frueher gefundene
+Punkte sauber geschlossen / nur teilweise geschlossen / neue Nebenwirkungen und Propagationsfehler - und kein blosses
+Abhaken frueherer Befunde.
+
+Schreibe den Bericht LAUFEND in deine Berichtsdatei: Lege sie sofort mit dem Geruest an und ergaenze sie nach jedem
+abgeschlossenen Pruefschritt (das Nutzungslimit kann dich jederzeit unterbrechen; was nicht in der Datei steht, ist
+verloren). Erste Zeilen der Datei: Titel, Pruefgegenstand mit Commit, Datum, "Stand dieses Berichts: IN ARBEIT" -
+am Ende aendere ihn in "ABGESCHLOSSEN".
+FINDEST DU DEINE BERICHTSDATEI SCHON MIT INHALT VOR (Stand IN ARBEIT), ist ein frueherer Lauf am Nutzungslimit
+abgebrochen: Lies sie, uebernimm nur, was dort mit Beleg steht, und setze an der Stelle fort, an der sie endet.
+
+Gliederung (die acht Punkte aus Abschnitt 6; Punkt 6 PROPAGATIONS-CHECK entfaellt, weil du nichts aenderst):
+  1. GESAMTURTEIL (zwei bis acht Saetze, klar und direkt)
+  2. FAKTEN
+     2.1 Was ich gelesen und ausgefuehrt habe (je Datei: vollstaendig / Zeilenbereich / nur durchsucht; Befehle)
+     2.2 Pruefebenen A bis H, Checkliste, Patterns: angewendet woran / nicht anwendbar warum
+     2.3 Urteil je Kennung (Tabelle: Kennung | Urteil BEHOBEN / TEILWEISE BEHOBEN / NICHT BEHOBEN | Beleg). Schreibe
+         JEDE dir zugewiesene Kennung im vollen Wortlaut hin (z. B. "F-NK2-A-14"), auch wenn das Urteil BEHOBEN ist -
+         das Befundregister verweist auf diese Zeilen. (Pruefer D1 und D2 fuehren hier ihre Verbleib-Tabellen.)
+     2.4 Was bestaetigt ist (mit Beleg)
+  3. ANNAHMEN (offen benennen; "keine" ausdruecklich sagen)
+  4. SCHLUSSFOLGERUNGEN: Antworten auf die Prueffragen deines Auftrags und der Freiraum
+  5. BEFUNDE (neu): Kennung nach deinem Auftrag (F-NK3-<Buchstabe>-nn), Schwere (BLOCKER / MAJOR / MINOR / NICE nach
+     Abschnitt 6), Pruefebene (A bis H), Stelle (Datei:Zeile), Zitat, Problem, Warum relevant, Fix-Intention (Ziel,
+     Delta, Constraints), Validierung. Leere Schwereklassen ausdruecklich nennen. Findest du keine Befunde, sage das
+     mit dem Nachweis, was du geprueft hast.
+  6. WAS ICH NICHT GEPRUEFT HABE
+  7. PATCH-REIFE-STATUS (Abschnitt 6 Punkt 7): patch-reif / nicht patch-reif / patch-reif mit Notes - fuer den
+     gepruften Stand insgesamt und JE neuem Befund (patch-blockierend oder nachrangig)
+  8. KURZFASSUNG
+
+Deine Schlussantwort an den Auftraggeber: nur die Kurzfassung (Gesamturteil, Zahl der Urteile je Art, Zahl der neuen
+Befunde je Schwere, die MAJOR- und BLOCKER-Befunde in je einem Satz) und der Pfad der Berichtsdatei.
+~~~~
+
+
+## 21. Dritte Nachprüfung: Auftrag E (Betreiberentscheidungen BM-0019 und BM-0021, eigene Entscheidungen)
+
+- Zeitpunkt (UTC): 2026-11-15T16:49Z (Start des ersten Laufs)
+- Art: Auftrag an einen neuen Prüfer (Auftragsdatei)
+- Länge: 7188 Zeichen
+- Denkaufwand: erster Lauf max (höchste Stufe), am Nutzungslimit nach 40 Minuten abgebrochen; Fortsetzung xhigh. Grund der Fortsetzungsstufe: genaues Lesen und Vergleichen wie bei T und C; die höchste Stufe war höher gewählt als nötig.
+
+~~~~
+PRUEFAUFTRAG E - DRITTE NACHPRUEFUNG: EINARBEITUNG DER BETREIBERENTSCHEIDUNG BM-0019, EIGENE ENTSCHEIDUNGEN DES HAUPTARCHITEKTEN (2026-11-15)
+
+Lies ZUERST vollstaendig die gemeinsame Grundlage: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/AUFTRAG_GRUNDLAGE.md
+(Kontext, Pruefgegenstand, Regeln, Form des Berichts). Sie gilt fuer dich unveraendert.
+
+DEINE BERICHTSDATEI: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/BERICHT_E_BETREIBERENTSCHEIDUNG.md
+DEIN ARBEITSORDNER FUER KOPIEN: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/tmp_e/
+KENNUNGEN NEUER BEFUNDE: F-NK3-B-nn
+
+1. WORUM ES GEHT
+
+Der Hauptarchitekt hatte an mehreren Stellen Regeln des Betreibers enger, schwaecher oder anders gefasst und das als
+"eigene Entscheidung" ausgewiesen (Liste E-01 bis E-26: 03_CHANGELOG v2.8.9 Abschnitt 3). Fuenf Punkte hat er dem
+Betreiber als Fragen vorgelegt (v2.8.9 Abschnitt 4). Der Betreiber hat am 2026-11-15 entschieden (BM-0019 im Register
+governance/register/BETREIBERMITTEILUNGEN.yaml, im Wortlaut - lies sie GANZ, sie ist dein Massstab): fuenf Antworten,
+eine Vorgabe zur Einarbeitung (Abschnitt 6) und eine Entscheidung zum Denkaufwand der Unteragenten (Abschnitt 7). Der
+Hauptarchitekt hat das im Commit fae9285 eingearbeitet (03_CHANGELOG v2.9.0; Befund BF-0115) und in 133e3bf ergaenzt
+(03_CHANGELOG v2.9.1 Abschnitt 1, Fund KB-001). Abschnitt 6 D der
+Entscheidung verlangt eine unabhaengige Pruefung dieser Einarbeitung - das bist du.
+
+2. DEINE AUFGABEN
+
+(1) TREUE DER EINARBEITUNG. Vergleiche JEDE der Entscheidungen Nr. 1 bis 5 und Nr. 7 Satz fuer Satz mit jeder Stelle,
+    an der der Hauptarchitekt sie wiedergibt oder umsetzt: CLAUDE_BRIEFING TEIL 0 (VERFASSER; 0.2 a, b, d, e, f, i;
+    0.3 - Punkt i PFADE traegt den letzten Absatz von Nr. 1 und kam erst mit v2.9.1 dazu),
+    REVIEW_STANDARD 10.1 (zu Abschnitt 5.3 und 5.4), 10.3 (a und der Absatz MODELL UND DENKAUFWAND DER PRUEFER), 10.4
+    (KR-03), 00_MANIFEST 6a Zeile 12, KR-03 und KR-05 (a), 01_GLOSSARY (Kennung E-nn), PRIORITAETENLISTE QS-07, QS-08
+    und KRITISCHER PFAD, governance/betreiberregeln/ARBEITSKOPIE_HINWEIS.txt, governance/UMGEBUNGSPRUEFUNG.yaml UP-18,
+    BF-0115 im Befundregister, der Eintrag BM-0019 selbst (regel_bezug, auslegung, offene_mehrdeutigkeit, folgen) und
+    03_CHANGELOG v2.9.0. Je Entscheidung: Ist sie vollstaendig und zutreffend wiedergegeben? Ist etwas weggelassen,
+    abgeschwaecht, verschaerft oder umgedeutet? Steht irgendwo als Entscheidung des Betreibers, was in Wahrheit eine
+    Auslegung des Hauptarchitekten ist - oder umgekehrt? Sind die frueheren Fassungen nachvollziehbar als ueberholt
+    gekennzeichnet? Wird irgendwo eine rueckwirkende Zustimmung behauptet oder die Arbeitskopie des Startauftrags als
+    bestaetigt dargestellt? Wird die Ausnahme zu Nr. 2 irgendwo als allgemeine Regel des Betreibers dargestellt?
+(2) VERBLEIBENDE AUSLEGUNGSFRAGEN. Der Eintrag BM-0019 nennt im Feld offene_mehrdeutigkeit acht Punkte mit der jeweils
+    gewaehlten Umsetzung. Ist jede Umsetzung mit dem Wortlaut der Entscheidung vereinbar? Ist eine davon schwaecher
+    als der Wortlaut? Fehlt eine Auslegungsfrage, die sich aus dem Wortlaut ergibt?
+(3) FOLGEN (Abschnitt 6 D der Entscheidung): "Pruefe die tatsaechlichen Auswirkungen auf Startup, Wiederaufnahme,
+    Pruefzeitpunkte, Entscheidungsbefugnisse, Dokumentation und Abschlussbedingungen." Sind diese sechs Bereiche in den
+    Steuerungsdokumenten heute widerspruchsfrei geregelt - CLAUDE_BRIEFING TEIL 0 gegen Teil 2 und Teil 5 (Schritt 0
+    bis 7), REVIEW_STANDARD 10.3 gegen Regel 8 und Regel 10, PRIORITAETENLISTE (QS-07, QS-08, QS-11, M2-QC)? Suche
+    selbst nach weiteren betroffenen Stellen, die nicht angepasst sind (der Hauptarchitekt nennt seine Suche in
+    v2.9.0 Abschnitt 5).
+(4) EIGENE ENTSCHEIDUNGEN. Pruefe JEDEN Eintrag der Liste E-01 bis E-26 (v2.8.9 Abschnitt 3) und ihren Stand nach der
+    Betreiberentscheidung (v2.9.0 Abschnitt 3, mit E-27 bis E-30; v2.9.1 Abschnitt 1: E-31) gegen den Wortlaut der
+    genannten Stelle. Ordne jede
+    noch geltende eigene Entscheidung einem der drei Faelle aus BM-0019 Nr. 3 zu - A (innerhalb der erteilten
+    Autonomie), B (ausdruecklich vorbehaltene Betreiberentscheidung: duerfte ohne Zustimmung des Betreibers nicht
+    gelten), C (unklarer Widerspruch) - mit Begruendung aus Startauftrag, Betreiberregeln und BM-0015/BM-0019. Ist die
+    Liste vollstaendig: Gibt es in den Steuerungsdokumenten weitere Stellen, an denen eine Regel des Betreibers
+    (CLAUDE_BRIEFING Teil 1, 2, 5; REVIEW_STANDARD 1 bis 9; MARCOS_ARBEITSWEISE; 00_MANIFEST KR; Betreiberregeln;
+    Startauftrag) enger, schwaecher oder anders gefasst ist, ohne dass es an der Stelle als eigene Entscheidung oder
+    als Betreiberentscheidung steht? (Suche gezielt; die vollstaendige Zeile-fuer-Zeile-Sicht auf Briefing und
+    REVIEW_STANDARD hat Pruefer D1.)
+(5) DENKAUFWAND DER UNTERAGENTEN. governance/UMGEBUNGSPRUEFUNG.yaml UP-18 stuetzt sich auf Laufdaten unter
+    /root/.claude/projects/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/subagents
+    (je Agent agent-<Kennung>.meta.json und .prefix.json; Feld state.effortValue und state.model) und auf die
+    gespeicherten Ablaufskripte unter .../workflows/scripts/. Pruefe die Aussagen von UP-18 an diesen Dateien nach
+    (nur lesen). Nenne in deinem Bericht KEINE Modellbezeichnungen - schreibe "Modell der Hauptsitzung" und "anderes
+    Modell".
+(6) URTEIL JE KENNUNG (BEHOBEN / TEILWEISE BEHOBEN / NICHT BEHOBEN): F-NK2-A-15, F-NK2-C-06, und aus Bericht A3,
+    Freiraum, die Punkte 5 und 6 (schreibe "A3-Freiraum-5", "A3-Freiraum-6"); dazu je Entscheidung des Betreibers ein
+    Urteil ueber die Einarbeitung - schreibe "BM-0019-NR-1", "BM-0019-NR-2", "BM-0019-NR-3", "BM-0019-NR-4",
+    "BM-0019-NR-5", "BM-0019-NR-7" - und ein Gesamturteil "BF-0115-EINARBEITUNG".
+(6a) BM-0021 (Betreiberanweisung vom 2026-11-15, im Register im Wortlaut - lies sie ganz). Der Hauptarchitekt hat sie
+    im Commit cd6b746 erfasst: Eintrag BM-0021 (Felder auslegung und folgen, darin drei "eigene Auslegungen" a bis c),
+    PRIORITAETENLISTE QS-07 (Absatz BETREIBERANWEISUNG bei den Abschlusskriterien; Punkt 3), CLAUDE_BRIEFING TEIL 0.3
+    (Punkt VERWALTUNG BEGRENZEN), 03_CHANGELOG v2.9.2 Abschnitt 1. Gibt jede Stelle die Anweisung treu wieder? Ist
+    etwas abgeschwaecht (z. B. eine vorgeschriebene Pruefung gestrichen, eine Abschluss-Sperre gelockert, ein Befund
+    umgebucht) oder umgekehrt etwas als Wille des Betreibers ausgegeben, was eigene Auslegung ist? Sind die fuenf
+    Abschlusskriterien an QS-07 dieselben wie am Stand fae9285 (keines gestrichen, keines hinzugefuegt)? Urteil unter
+    der Kennung "BM-0021-EINARBEITUNG": TREU / NICHT TREU (mit der Stelle).
+(7) NEUE FEHLER aus dieser Einarbeitung; FREIRAUM (Pflicht): Was siehst DU, was hier nicht steht? Was wuerdest du
+    anders entscheiden? Welche Randfaelle fehlen?
+NICHT deine Aufgabe: Sperrregel und Altmodule (Pruefer S), die uebrigen Textbefunde (T), Zahlen und Register (C), der
+vollstaendige Vergleich mit dem Ausgangsstand (D1, D2), die Pruefwerkzeuge (W1, W2).
+~~~~
+
+
+## 22. Dritte Nachprüfung: Auftrag S (Abschluss-Sperre, wiedergeöffnete Altmodule)
+
+- Zeitpunkt (UTC): 2026-11-15T16:49Z (Start des ersten Laufs)
+- Art: Auftrag an einen neuen Prüfer (Auftragsdatei)
+- Länge: 5369 Zeichen
+- Denkaufwand: xhigh (zweithöchste Stufe). Grund: Urteil je Kennung am Text und an den Daten, eigene Zählungen und Gegenproben; hohe Beweistiefe, großer Kontext.
+- Bericht: KONSOLIDIERUNG_NACHPRUEFUNG_3_S_SPERRE_UND_ALTMODULE_2026-11-15.md
+
+~~~~
+PRUEFAUFTRAG S - DRITTE NACHPRUEFUNG: ABSCHLUSS-SPERRE NACH DER BETROFFENEN DATEI, WIEDERGEOEFFNETE ALTMODULE (2026-11-15)
+
+Lies ZUERST vollstaendig die gemeinsame Grundlage: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/AUFTRAG_GRUNDLAGE.md
+(Kontext, Pruefgegenstand, Regeln, Form des Berichts). Sie gilt fuer dich unveraendert.
+
+DEINE BERICHTSDATEI: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/BERICHT_S_SPERRE_UND_ALTMODULE.md
+DEIN ARBEITSORDNER FUER KOPIEN: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/tmp_s/
+KENNUNGEN NEUER BEFUNDE: F-NK3-S-nn
+
+1. WORUM ES GEHT
+
+Der schwerste Befund der zweiten Nachpruefung war F-NK2-A-14 (MAJOR; Register: BF-0105): REVIEW_STANDARD 10.2 band die
+[DONE]-Sperre an die BUCHUNG eines Befunds statt an die betroffene Datei; fuenf vor dem Auftrag abgeschlossene Module
+(BASE-000 bis BASE-030, Pakete M2-000 bis M2-030) standen [DONE], obwohl an ihren Dateien Befunde offen sind. Der
+Hauptarchitekt hat mit Commit 98e1bb3 (03_CHANGELOG v2.8.8, Abschnitte 1, 2, 4, 5) die Regel geaendert, die fuenf
+Pakete wieder geoeffnet und 17 Befunde um Sperrvermerke ergaenzt; mit 3efafa9 kam die Bestimmung "betrifft = Fundstelle
+oder Massnahme" dazu.
+
+2. DEINE AUFGABEN
+
+(1) URTEIL JE KENNUNG (BEHOBEN / TEILWEISE BEHOBEN / NICHT BEHOBEN, am Text und an den Daten geprueft):
+    F-NK2-A-14, F-NK2-A-07, F-NK2-A-11, F-NK2-A-12, F-NK2-C-02, F-NKO-018 (Rest laut Bericht A1),
+    und aus Bericht A3, Freiraum: Punkt 1, Punkt 7 a, 7 b, 7 c (schreibe sie als "A3-Freiraum-1", "A3-Freiraum-7a" ...).
+(2) DIE REGEL. Lies REVIEW_STANDARD 10.2 und 10.4 ganz, 00_MANIFEST 6a (Absatz SCHUTZ GEGEN ERNEUTES
+    AUSEINANDERLAUFEN), den Kopfkommentar von governance/register/BEFUNDE.yaml, qa/README.txt und CLAUDE_BRIEFING
+    Regel 10 (BEFUND-REGEL) und TEIL 0.2. Folgt die Sperre jetzt ueberall der betroffenen Datei? Steht irgendwo noch
+    die alte Regel? Ist die BEFUND-REGEL des Betreibers ("ALLE Befunde werden gefixt") irgendwo enger oder schwaecher
+    gefasst, ohne dass es als eigene Entscheidung dasteht? Sind Reichweite (nur eingetragene Fundstellen in
+    Modulordnern unter base/ und modules/, ohne entwuerfe/) und Ausnahme (Feld entsperrt) ehrlich als Grenze benannt?
+(3) DIE DATEN. Werte das Befundregister selbst aus (eigenes Skript):
+    a) Jeder offene Befund (status OFFEN oder IN_ARBEIT) mit einer Fundstelle in einem Modulordner: Sperrt er das
+       Paket dieses Moduls (arbeitspaket, sperrt_auch) oder steht es begruendet in entsperrt?
+    b) Die 17 neuen Sperrvermerke (git diff 584a629..3efafa9 -- governance/register/BEFUNDE.yaml zeigt sie) und die
+       zwei Ausnahmen (BF-0098, BF-0099): Ist jeder am Wortlaut des Befunds gerechtfertigt? Ist BASE-050 bei den zwei
+       Ausnahmen wirklich nur die zutreffende Vergleichsstelle?
+    c) Der Changelog v2.8.8 Abschnitt 1 sagt, der Hauptarchitekt habe alle offenen Befunde durchgesehen, deren Text
+       ein Modul nennt, dessen Paket sie nicht sperren, und vier von Hand nachgetragen (BF-0001, BF-0046, BF-0050,
+       BF-0056). Wiederhole die Suche unabhaengig: Gibt es weitere offene Befunde, deren Behebung (Massnahme, Stand)
+       eine Datei eines Moduls aendern muss, ohne dessen Paket zu sperren?
+    d) REVIEW_TRACKER Abschnitt 1d, Zeilen OFFEN und GESPERRT: Stimmen sie Kennung fuer Kennung (mit Stern fuer
+       kritisch/schwerwiegend) und in den Summen mit dem Register?
+(4) DER STATUS DER FUENF ALTMODULE. Pruefe jede Stelle: PRIORITAETENLISTE (Lesehinweis, Eintraege M2-000 bis M2-030,
+    M2-QC, QS-11, KRITISCHER PFAD), ARBEITSPAKETE.yaml (fuenf neue Eintraege; die Abhaengigkeiten jedes Pakets gegen
+    die Zeilen "Abhaengigkeit:" der Liste), REVIEW_TRACKER (Inventar, Abschnitt 2), 04_PHASE_PLAN (Phasenlisten,
+    Matrix, Summen, Fakten zu PH1 und PH5, Proof-Katalog), README (Baum, Statustabelle, Satz darunter), 01_GLOSSARY
+    (STATUS im Dateikopf). Suche in ALLEN zwoelf Steuerungsdokumenten, README, governance/README.txt, qa/README.txt
+    und governance/STATUS.yaml nach Stellen, die eines der fuenf Module weiter als abgeschlossen, DONE oder CLEAN
+    fuehren, ohne Vermerk. Gibt es konkurrierende aktuelle Statusangaben (BM-0015 Abschnitt 6 E, zweiter Punkt)?
+(5) DIE FOLGEN. Ist die Wiederoeffnung richtig und vollstaendig durchdacht? Welche Pakete koennen jetzt erst nach dem
+    Nachzug (QS-11) abschliessen - steht das da, und ist es gewollt? Reichen die Abschlussbedingungen an M2-000 bis
+    M2-030 (Nachzug, kein offener Befund, Qualitaets-Gate mit unabhaengiger Pruefung)? Mit v2.8.8 hatte der
+    Hauptarchitekt festgelegt, dass die fuenf Module fuer die Einzelpruefung vor dem Einarbeiten weiter als
+    "abgeschlossen" gelten (eigene Entscheidung E-19); mit v2.9.0 ist das gestrichen (REVIEW_STANDARD 10.3 a). Ist es
+    ueberall gestrichen, und entsteht dadurch eine Luecke?
+(6) NEUE FEHLER aus dieser Einarbeitung in allem, was du dabei liest.
+(7) FREIRAUM (Pflicht): Was siehst DU, was hier nicht steht? Was wuerdest du anders entscheiden? Welche Randfaelle
+    fehlen?
+NICHT deine Aufgabe: die Einarbeitung der Betreiberentscheidung BM-0019 und die Liste der eigenen Entscheidungen
+(Pruefer E), die Pruefwerkzeuge im Einzelnen (W1, W2), die uebrigen Textbefunde (T), Zahlen des Changelogs (C), der
+Vergleich mit dem Ausgangsstand (D1, D2).
+~~~~
+
+
+## 23. Dritte Nachprüfung: Auftrag T (Textbefunde)
+
+- Zeitpunkt (UTC): 2026-11-15T16:49Z (Start des ersten Laufs)
+- Art: Auftrag an einen neuen Prüfer (Auftragsdatei)
+- Länge: 4170 Zeichen
+- Denkaufwand: xhigh (zweithöchste Stufe). Grund: Urteil je Kennung am Text und an den Daten, eigene Zählungen und Gegenproben; hohe Beweistiefe, großer Kontext. Erster Lauf nach 12 Minuten am Nutzungslimit abgebrochen, Fortsetzung mit derselben Stufe.
+
+~~~~
+PRUEFAUFTRAG T - DRITTE NACHPRUEFUNG: TEXTBEFUNDE - STAND-VERMERKE, FOLGEPUNKTE, REVIEW_STANDARD 10.3 (2026-11-15)
+
+Lies ZUERST vollstaendig die gemeinsame Grundlage: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/AUFTRAG_GRUNDLAGE.md
+(Kontext, Pruefgegenstand, Regeln, Form des Berichts). Sie gilt fuer dich unveraendert.
+
+DEINE BERICHTSDATEI: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/BERICHT_T_TEXTBEFUNDE.md
+DEIN ARBEITSORDNER FUER KOPIEN: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/tmp_t/
+KENNUNGEN NEUER BEFUNDE: F-NK3-T-nn
+
+1. WORUM ES GEHT
+
+Bericht A2 der zweiten Nachpruefung fand elf kleinere Textbefunde (F-NK2-A-03 bis -15 ohne -01, -02, -14) und einen
+Hinweis (F-NK2-A-08). Der Hauptarchitekt hat sie mit Commit 3efafa9 eingearbeitet (03_CHANGELOG v2.8.9, Abschnitte 1
+bis 3 und 5; Register: BF-0106, BF-0107, BF-0089, BF-0094, BF-0113, BF-0114).
+
+2. DEINE AUFGABEN
+
+(1) URTEIL JE KENNUNG (BEHOBEN / TEILWEISE BEHOBEN / NICHT BEHOBEN):
+    F-NK2-A-03, F-NK2-A-04, F-NK2-A-05, F-NK2-A-06, F-NK2-A-08, F-NK2-A-09, F-NK2-A-10, F-NK2-A-13,
+    F-NKO-016 (Rest laut Bericht A1: Tracker und README zu DOMAIN_MODEL), dazu aus Bericht A2 Abschnitt 5 (b) die
+    fuenf "kleineren Saetze ohne ausdruecklichen Verbleib" (schreibe "A2-Antwort-b"), zu Kandidat K9 die
+    Abgrenzung Verbesserung/Befund (schreibe "A2-K9") und der eigene Fund des Hauptarchitekten BF-0114 (schreibe
+    "BF-0114-M2-080").
+    Pruefe jeden neuen Stand-Vermerk gegen den WORTLAUT der genannten Modulentscheidung (DEC-WT-11; DEC-SC-02, -06,
+    -23; DEC-FW-08, -11, -16; DEC-PA-11, -14; BASE-050_050 Abschnitt 5; ANF-FW-06; die Entscheidungen stehen in der
+    Datei _010 des jeweiligen Moduls unter base/): Gibt der Vermerk sie zutreffend wieder? Nennt er den Stand des
+    Moduls?
+(2) FOLGEPUNKTE (F-NK2-A-06). Die PRIORITAETENLISTE fuehrt an M2-040 (6), M2-050 (7), M2-070 (8) und M2-080 (8)
+    je eine Liste der Stand-Vermerke, die nach dem Abschluss des Moduls aufzuloesen sind. Ist jede Liste vollstaendig
+    (jeder Vermerk in CLAUDE_BRIEFING 3.1/3.2, 00_MANIFEST 3 bis 5, 01_GLOSSARY und 02_ASSUMPTIONS_AND_RULES, der
+    eine Entscheidung des Moduls nennt) und zutreffend (jede genannte Stelle gibt es)? M2-080 Punkt (9) ist neu
+    (BF-0114): richtig begruendet?
+(3) REVIEW_STANDARD 10.3 (ganz lesen) gegen CLAUDE_BRIEFING Regel 8 ab "DRITTPRUEFUNG" und Regel 10 Schritt 4 (beide
+    ganz lesen): Hat JEDER Satz aus Regel 8 und Schritt 4 einen Verbleib in 10.3 (b bis j) und ist er zutreffend
+    eingeordnet (gilt unveraendert / gilt in dieser Form / ersetzt)? Sind e und j widerspruchsfrei, auch gegen
+    00_MANIFEST Abschnitt 6 (temp_drittreviews/)? Ist h (Patch-Reife) dem Original treu, und loest der Changelog
+    v2.8.9 Abschnitt 1 die Zusage ein? (10.3 a und der Absatz MODELL UND DENKAUFWAND sind am 2026-11-15 nach einer
+    Betreiberentscheidung neu gefasst; ihre Pruefung liegt bei Pruefer E.)
+(3a) LISTE "STAND" IM GLOSSAR. Der Hauptarchitekt hat die Liste "STAND 2026-11-14 zu Eintraegen oben, die diese
+    Module neu fassen" in 01_GLOSSARY am 2026-11-15 um sechs Eintraege ergaenzt und eine Zeile berichtigt (Eigenreview,
+    Befund BF-0116, Punkt KB-011; 03_CHANGELOG v2.9.1). Pruefe JEDE Zeile der Liste gegen den Wortlaut der genannten
+    Modulentscheidung. Urteil unter der Kennung "BF-0116-KB-011": BEHOBEN / TEILWEISE BEHOBEN / NICHT BEHOBEN.
+(4) NEUE FEHLER aus dieser Einarbeitung in den Stellen, die du dabei liest (CLAUDE_BRIEFING 3.1 und 3.2, 00_MANIFEST
+    3 bis 6, REVIEW_STANDARD 10.3, PRIORITAETENLISTE M2-040 bis M2-080, 01_GLOSSARY Eintraege "Befundstatus" und
+    "Verbesserung").
+(5) FREIRAUM (Pflicht).
+NICHT deine Aufgabe: der vollstaendige Vergleich ALLER Modulentscheidungen mit Briefing und Manifest (er gehoert zum
+Abschluss der Module und zur Gesamtpruefung, nicht zu dieser Konsolidierung); die Einarbeitung der
+Betreiberentscheidung BM-0019 und die Liste der eigenen Entscheidungen, auch F-NK2-A-15 (Pruefer E); Sperrregel und
+Altmodule (S); Pruefwerkzeuge (W1, W2); Zahlen und Register (C); Vergleich mit dem Ausgangsstand (D1, D2).
+~~~~
+
+
+## 24. Dritte Nachprüfung: Auftrag C (Changelog, Zahlen, Befundregister)
+
+- Zeitpunkt (UTC): 2026-11-15T16:49Z (Start des ersten Laufs)
+- Art: Auftrag an einen neuen Prüfer (Auftragsdatei)
+- Länge: 6957 Zeichen
+- Denkaufwand: xhigh (zweithöchste Stufe). Grund: Urteil je Kennung am Text und an den Daten, eigene Zählungen und Gegenproben; hohe Beweistiefe, großer Kontext.
+
+~~~~
+PRUEFAUFTRAG C - DRITTE NACHPRUEFUNG: CHANGELOG, ZAHLEN, BEFUNDREGISTER, ANTWORT ZUM ABSCHLUSS VON QS-07 (2026-11-15)
+
+Lies ZUERST vollstaendig die gemeinsame Grundlage: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/AUFTRAG_GRUNDLAGE.md
+(Kontext, Pruefgegenstand, Regeln, Form des Berichts). Sie gilt fuer dich unveraendert.
+
+DEINE BERICHTSDATEI: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/BERICHT_C_CHANGELOG_UND_REGISTER.md
+DEIN ARBEITSORDNER FUER KOPIEN: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/tmp_c/
+KENNUNGEN NEUER BEFUNDE: F-NK3-C-nn
+
+1. WORUM ES GEHT
+
+Bericht A3 der zweiten Nachpruefung fand, dass der Bericht des Hauptarchitekten an den Betreiber an mehreren Stellen
+weiter ging als der Bestand trug (F-NK2-C-01 bis -11), und Bericht A1, dass neue Schreibregeln schon bei ihrer
+Einfuehrung verletzt wurden (F-NK2-U-01). Du pruefst die Changelog-Eintraege v2.8.6 bis v2.9.2 und die Aenderungen am
+Befundregister in der Serie 584a629..cd6b746. Ausserdem: Die vier Pruefer der zweiten Nachpruefung liefen - wie der
+Hauptarchitekt erst danach an den Laufdaten festgestellt hat - mit geringerem Denkaufwand als angenommen; sieben
+Befunde sind auf den Bericht A1 hin geschlossen worden. Diese Schliessungen pruefst du am Text nach.
+
+2. DEINE AUFGABEN
+
+(1) URTEIL JE KENNUNG (BEHOBEN / TEILWEISE BEHOBEN / NICHT BEHOBEN):
+    F-NK2-C-01, F-NK2-C-03, F-NK2-C-04, F-NK2-C-05, F-NK2-C-07, F-NK2-C-08, F-NK2-C-09, F-NK2-C-10, F-NK2-C-11,
+    F-NK2-U-01, und aus Bericht A3, Freiraum: Punkte 2, 3, 4, 7 d, 7 e, 7 f (schreibe "A3-Freiraum-2" usw.).
+(2) DIE SIEBEN SCHLIESSUNGEN. In b422150 wurden BF-0071, BF-0072, BF-0073, BF-0079, BF-0088, BF-0093 und BF-0095 als
+    BEHOBEN geschlossen, gestuetzt auf den Bericht A1. Pruefe fuer JEDEN der sieben AM TEXT DES PRUEFGEGENSTANDS
+    (nicht nur am Bericht), ob jeder Punkt, den der Befund fuehrt, wirklich behoben ist, und ob der Bericht A1 unter
+    der im Feld nachpruefung genannten Kennung genau das bestaetigt. Schreibe je Befund ein Urteil unter der Kennung
+    "BF-0071-SCHLIESSUNG" usw.: TRAEGT / TRAEGT NICHT (mit dem Punkt, der nicht behoben ist).
+(3) UEBERGABE BF-0081. Der Sammelbefund BF-0081 (F-AST-007 bis -020) ist offen, weil drei Kennungen an Moduldateien
+    haengen: F-AST-013 und F-AST-020 (gefuehrt in BF-0056) und F-AST-019 (gefuehrt in BF-0084). Pruefe: Sind die elf
+    uebrigen Kennungen behoben (Bericht der ersten Nachpruefung und Bericht A1), und fuehren BF-0056 und BF-0084 die
+    drei offenen Punkte vollstaendig, bei den Paketen, zu denen sie gehoeren? Urteil unter "BF-0081-UEBERGABE":
+    TRAEGT / TRAEGT NICHT.
+(4) ZAHLEN UND ZUSICHERUNGEN. Lies die Eintraege v2.8.6 bis v2.9.2 des 03_CHANGELOG ganz.
+    Pruefe JEDE Zahl und JEDE Zusicherung mit "jede", "alle", "an jeder Stelle" gegen den Bestand (eigene Zaehlung,
+    eigener Befehl): u. a. 249 -> 302 Tests und "56 neue, drei entfallen"; 17 Sperrvermerke (13 + 4), 2 Ausnahmen;
+    117 Befunde, 82 offen, 35 geschlossen, 23 auf QS-07; zehn Abhaengigkeitslisten; 0 DONE / 9 IN-PROGRESS / 14
+    WAITING; "18 gekennzeichnete Stellen"; "15 Treffer, alle mit Stichwort" und in REVIEW_STANDARD 10.1 "14 Treffer,
+    8 ohne Stichwort"; "19 Abschnitte, 13 Berichte"; "elf Befunde" mit geaendertem Stand; "107 Dateien, rund 27.600
+    Zeilen"; "drei Pruefrunden: 51, 29 und 40 Punkte"; aus v2.9.1 und v2.9.2: 302 -> 351 Tests ("49 neue"), "206 von
+    206 Aufrufstellen", "19 der 206 Meldungen ohne umschliessende Bedingung", "341 Mutationen an 209 Bedingungen",
+    "alle 113 Commits", die Zahlen der beiden Messungen (v2.9.2 Abschnitt 3: 341 von 341; Stufen 235 / 68 / 34 / 4
+    und nach einer Umbenennung 235 / 68 / 37 / 1), aus v2.9.2 Abschnitt 2 die Liste AM BESTAND NACHGEZAEHLT. Die
+    Messungen selbst laeufst du NICHT nach (qa/abdeckung.py, ueber eine halbe Stunde) - zaehle die err-Aufrufe und die
+    Tests (grep) und pruefe, ob ehrlich dasteht, was die Zahlen belegen. Urteil unter der Kennung "BF-0116-KB2-02"
+    (BEHOBEN / TEILWEISE BEHOBEN / NICHT BEHOBEN): Ist "70 von 357 Teilbedingungen ohne Test" jetzt an jeder Stelle
+    der Steuerungsdokumente und im Feld stand von BF-0117 als Obergrenze gekennzeichnet, und traegt die Begruendung? Ist in jedem Abschnitt "GEPRUEFT / NICHT GEPRUEFT / OFFEN" ehrlich
+    ausgewiesen, was nicht geprueft ist?
+(5) BEFUNDREGISTER. Sieh dir JEDE Aenderung an governance/register/BEFUNDE.yaml in der Serie an.
+    a) Die neuen Befunde BF-0100 bis BF-0117: Wiedergabe der Quelle (Bericht, Kennung), Klasse gegen die Einstufung
+       des Pruefers (Zuordnung in REVIEW_STANDARD 10.2), Paket, Fundstellen, Stand - sachlich richtig? Ist jeder
+       Befund der vier Berichte registriert (jede Kennung F-NK2-... kommt im Register vor)?
+    b) Der Stand der als "eingearbeitet" gefuehrten Befunde (IN_ARBEIT): Stimmt, was das Feld stand behauptet?
+       Stichprobe von mindestens zehn Aussagen am Text nachpruefen.
+(6) BERICHTIGUNGEN. v2.8.7 Abschnitt 5 und v2.8.9 Abschnitt 5 berichtigen fruehere Eintraege. Trifft jede Berichtigung
+    zu? Fehlt eine (sagt ein frueherer Eintrag v2.8.4 bis v2.8.9 noch etwas, das der Bestand nicht traegt und das
+    kein spaeterer Eintrag berichtigt)?
+(7) DIE ANTWORT AN DEN BETREIBER ZU QS-07. Der Betreiber hat gefragt (BM-0017): "Welche konkreten, noch nicht
+    erfuellten Anforderungen verhindern den Abschluss von QS-07, und welche davon gehoeren tatsaechlich zur
+    Governance-Bereinigung statt zur spaeteren Modul- oder Gesamtpruefung?" Die Antwort steht im Eintrag BM-0017
+    (Feld folgen), in 03_CHANGELOG v2.9.0 Abschnitt 4 und am Eintrag QS-07 der PRIORITAETENLISTE
+    (Abschlusskriterien). Pruefe sie am Bestand: Stimmt die Liste dessen, was den Abschluss verhindert? Stimmt die
+    Zuordnung - ist unter den Befunden, die QS-07 sperren, einer, der in Wahrheit ein Modulbefund ist, oder liegt
+    umgekehrt ein Governance-Befund bei einem Modulpaket? Ist seit dem Stand 584a629 ein Befund umgebucht worden?
+    Fehlt ein Abschlusskriterium, das aus BM-0015 (Abschnitte 6 und 9) oder BM-0019 (Abschnitt 6) folgt?
+(8) UEBRIGE STATUSANGABEN: REVIEW_TRACKER_HISTORIE (PFLEGE-Eintraege vom 2026-11-15), PRIORITAETENLISTE QS-06 bis
+    QS-11 (Stand-Absaetze), README (Version), governance/STATUS.yaml - stimmen sie gegeneinander und gegen den Bestand?
+(9) BM-0015 Abschnitt 6 E nennt sechs Pruefpunkte. Wie steht es um jeden am Stand cd6b746 - was ist belegt, was offen?
+    (Kurz, je Punkt drei bis fuenf Zeilen mit Beleg; der Abschlussbericht an den Betreiber stuetzt sich darauf.)
+(10) NEUE FEHLER aus dieser Einarbeitung; FREIRAUM (Pflicht).
+NICHT deine Aufgabe: die Einarbeitung der Betreiberentscheidung BM-0019 und die eigenen Entscheidungen, auch
+F-NK2-C-06 und A3 Freiraum 5 und 6 (Pruefer E); Sperrregel und Altmodule im Einzelnen (S); Textbefunde A2 (T);
+Pruefwerkzeuge (W1, W2); Vergleich mit dem Ausgangsstand (D1, D2).
+~~~~
+
+
+## 25. Dritte Nachprüfung: Auftrag D1 (Blickrichtung Bestand I)
+
+- Zeitpunkt (UTC): 2026-11-15T16:49Z (Start des ersten Laufs)
+- Art: Auftrag an einen neuen Prüfer (Auftragsdatei)
+- Länge: 5141 Zeichen
+- Denkaufwand: xhigh. Grund: Zeile-für-Zeile-Vergleich mit dem Ausgangsstand und Urteil über Abschwächungen; hohes Fehlerrisiko, großer Kontext.
+
+~~~~
+PRUEFAUFTRAG D1 - DRITTE NACHPRUEFUNG: BLICKRICHTUNG BESTAND I - BRIEFING, REVIEW_STANDARD, ARBEITSWEISE (2026-11-15)
+
+Lies ZUERST vollstaendig die gemeinsame Grundlage: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/AUFTRAG_GRUNDLAGE.md
+(Kontext, Pruefgegenstand, Regeln, Form des Berichts). Sie gilt fuer dich unveraendert.
+
+DEINE BERICHTSDATEI: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/BERICHT_D1_BESTAND_BRIEFING_UND_STANDARD.md
+DEIN ARBEITSORDNER FUER KOPIEN: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/tmp_d1/
+KENNUNGEN NEUER BEFUNDE: F-NK3-D-nn
+
+1. WORUM ES GEHT (Blickrichtung "Bestand")
+
+BM-0015 verlangt: kein paralleles Governance-System neben den Dokumenten des Betreibers; "Diese Konsolidierung ist kein
+Auftrag zum Loeschen nuetzlicher Nachweise ..."; "Ebenso wenig darfst du unter dem Vorwand der Vereinfachung
+Sicherheitsanforderungen, Invarianten, Testpflichten, Rueckverfolgbarkeit oder unabhaengige Abschlusspruefungen
+abschwaechen"; Pruefpunkt in Abschnitt 6 E: ob "die urspruenglichen Qualitaetsanforderungen angemessen uebernommen oder
+begruendet ersetzt wurden". Diese Blickrichtung ist bisher nur als Probe gelaufen (der vierte Pruefer der ersten
+Kontrolle wurde ohne Ergebnis abgebrochen). Du holst sie nach: Vergleiche den AUSGANGSSTAND (Commit 10f3fde, vor dem
+Betreiberauftrag) mit dem heutigen Stand fuer die dir zugewiesenen Dokumente.
+
+Arbeitsweise: git -C <gegenstand> show 10f3fde:<datei> liefert den Ausgangsstand; git -C <gegenstand> diff
+10f3fde..HEAD -- <datei> den Unterschied. Gehe JEDE entfernte oder geaenderte Zeile des Ausgangsstands durch
+(nicht nur Stichproben) und bestimme ihren Verbleib:
+  UNVERAENDERT VERSCHOBEN (wohin, Datei:Zeile) | ERGAENZT UM VERMERK (Wortlaut steht noch) | ERSETZT MIT BEGRUENDUNG
+  (wo steht die Begruendung, traegt sie) | GEAENDERT OHNE AUSWEIS | VERLOREN.
+Fuehre dazu eine Tabelle je Dokument (Abschnitt des Ausgangsstands | Verbleib | Beleg). Wo ein Dokument geteilt wurde
+(als "im Wortlaut verschoben" bezeichnet), pruefe den Wortlaut maschinell (diff der Bloecke).
+
+2. DEINE DOKUMENTE
+
+CLAUDE_BRIEFING.txt (am Ausgangsstand EINE Datei; heute zusaetzlich CLAUDE_BRIEFING_ERKENNTNISSE.txt - TEIL 5b "im
+Wortlaut verschoben"), REVIEW_STANDARD.txt, MARCOS_ARBEITSWEISE.txt (soll unveraendert sein - pruefe es).
+
+3. DEINE AUFGABEN
+
+(1) VERBLEIB jeder entfernten oder geaenderten Zeile des Ausgangsstands in diesen Dokumenten (Tabelle wie oben).
+(2) ABSCHWAECHUNG. Fuer jede Regel des Betreibers in CLAUDE_BRIEFING Teil 1 (Regeln 1 bis 10 samt Zyklus-,
+    Vollstaendigkeits- und Befund-Regel), Teil 2 (Methodik, O1 bis O9, Kontextfenster-Regel), Teil 5 (Schritte 0 bis
+    13) und REVIEW_STANDARD Abschnitte 1 bis 9: Gilt sie heute unveraendert, oder ist sie durch CLAUDE_BRIEFING TEIL 0
+    bzw. REVIEW_STANDARD Abschnitt 10 (beide vom Hauptarchitekten geschrieben) enger, schwaecher oder anders gefasst?
+    Wenn ja: Steht es dort als eigene Entscheidung des Hauptarchitekten oder als Entscheidung des Betreibers (seit
+    dem 2026-11-15 gibt es dazu die Betreiberentscheidung BM-0019 - lies sie), mit Grund, und traegt der Grund
+    (Startauftrag, Betreiberregeln, BM-0015, BM-0019)? Suche gezielt nach Regeln, die TEIL 0 / Abschnitt 10 NICHT
+    nennen, die aber durch sie faktisch ausser Kraft sind. Fuehre das Ergebnis als Tabelle: Regel des Betreibers
+    (Stelle) | gilt unveraendert / geaendert mit Ausweis (wo) / geaendert OHNE Ausweis | Beleg.
+(3) AUTORITAET. BM-0015: "Historische Arbeitsanweisungen erhalten durch das Lesen nicht automatisch eine hoehere
+    Autoritaet. Ihre fachlich weiterhin sinnvollen Anforderungen duerfen aber auch nicht pauschal ignoriert werden."
+    Ist beides eingehalten? Ist TEIL 0 / Abschnitt 10 als Zusammenfassung des Hauptarchitekten gekennzeichnet und
+    widerspricht er an keiner Stelle dem Startauftrag oder den Betreiberregeln (lies beide Arbeitskopien ganz)?
+(3a) EIGENREVIEW. Der Hauptarchitekt hat am 2026-11-15 ein Eigenreview dieser Dokumente gefuehrt (03_CHANGELOG
+    v2.9.1 Abschnitt 1 und v2.9.2; Befund BF-0116). Urteil BEHOBEN / TEILWEISE BEHOBEN / NICHT BEHOBEN fuer die
+    Punkte in deinen Dokumenten - schreibe "BF-0116-KB-001" (CLAUDE_BRIEFING TEIL 0.2 i PFADE), "BF-0116-KB-002"
+    (REVIEW_STANDARD Abschnitt 10, VERFASSER) und aus Durchgang 2 (v2.9.2 Abschnitt 2) "BF-0116-KB2-01" (Ort der
+    Liste E-nn in REVIEW_STANDARD Abschnitt 10 und in 01_GLOSSARY, PREFIX-LEGENDE), "BF-0116-KB2-04" (REVIEW_STANDARD
+    10.4, Punkt PRUEFBEREIT; Satz VERFASSER) und "BF-0116-KB2-06" (CLAUDE_BRIEFING Teil 2, Stand-Vermerk an der
+    Dateien-Uebersicht). Was hat das Eigenreview in deinen Dokumenten uebersehen?
+(4) NEUE FEHLER, die dir dabei auffallen; FREIRAUM (Pflicht).
+NICHT deine Aufgabe: die Treue der Einarbeitung von BM-0019 im Einzelnen und die Einordnung der Liste der eigenen
+Entscheidungen E-01 bis E-30 (Pruefer E - nenne aber jede Abschwaechung, die DU am Text findest); die uebrigen
+Steuerungsdokumente (D2); die Einzelbefunde der zweiten Nachpruefung (S, T, C); die Pruefwerkzeuge (W1, W2).
+~~~~
+
+
+## 26. Dritte Nachprüfung: Auftrag D2 (Blickrichtung Bestand II)
+
+- Zeitpunkt (UTC): 2026-11-15T16:49Z (Start des ersten Laufs)
+- Art: Auftrag an einen neuen Prüfer (Auftragsdatei)
+- Länge: 5299 Zeichen
+- Denkaufwand: xhigh. Grund: wie D1.
+
+~~~~
+PRUEFAUFTRAG D2 - DRITTE NACHPRUEFUNG: BLICKRICHTUNG BESTAND II - MANIFEST, GLOSSAR, REGELN, PHASENPLAN, LISTE, TRACKER, NAVIGATION, README (2026-11-15)
+
+Lies ZUERST vollstaendig die gemeinsame Grundlage: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/AUFTRAG_GRUNDLAGE.md
+(Kontext, Pruefgegenstand, Regeln, Form des Berichts). Sie gilt fuer dich unveraendert.
+
+DEINE BERICHTSDATEI: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/BERICHT_D2_BESTAND_UEBRIGE_STEUERUNG.md
+DEIN ARBEITSORDNER FUER KOPIEN: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/tmp_d2/
+KENNUNGEN NEUER BEFUNDE: F-NK3-E-nn
+
+1. WORUM ES GEHT (Blickrichtung "Bestand")
+
+BM-0015 verlangt: kein paralleles Governance-System neben den Dokumenten des Betreibers; "Diese Konsolidierung ist kein
+Auftrag zum Loeschen nuetzlicher Nachweise ..."; "Ebenso wenig darfst du unter dem Vorwand der Vereinfachung
+Sicherheitsanforderungen, Invarianten, Testpflichten, Rueckverfolgbarkeit oder unabhaengige Abschlusspruefungen
+abschwaechen"; Pruefpunkt in Abschnitt 6 E: ob "die urspruenglichen Qualitaetsanforderungen angemessen uebernommen oder
+begruendet ersetzt wurden". Diese Blickrichtung ist bisher nur als Probe gelaufen (der vierte Pruefer der ersten
+Kontrolle wurde ohne Ergebnis abgebrochen). Du holst sie nach: Vergleiche den AUSGANGSSTAND (Commit 10f3fde, vor dem
+Betreiberauftrag) mit dem heutigen Stand fuer die dir zugewiesenen Dokumente.
+
+Arbeitsweise: git -C <gegenstand> show 10f3fde:<datei> liefert den Ausgangsstand; git -C <gegenstand> diff
+10f3fde..HEAD -- <datei> den Unterschied. Gehe JEDE entfernte oder geaenderte Zeile des Ausgangsstands durch
+(nicht nur Stichproben) und bestimme ihren Verbleib:
+  UNVERAENDERT VERSCHOBEN (wohin, Datei:Zeile) | ERGAENZT UM VERMERK (Wortlaut steht noch) | ERSETZT MIT BEGRUENDUNG
+  (wo steht die Begruendung, traegt sie) | GEAENDERT OHNE AUSWEIS | VERLOREN.
+Fuehre dazu eine Tabelle je Dokument (Abschnitt des Ausgangsstands | Verbleib | Beleg). Wo ein Dokument geteilt wurde
+(als "im Wortlaut verschoben" bezeichnet), pruefe den Wortlaut maschinell (diff der Bloecke).
+
+2. DEINE DOKUMENTE
+
+00_MANIFEST.txt, 01_GLOSSARY.txt, 02_ASSUMPTIONS_AND_RULES.txt, 04_PHASE_PLAN.txt, PRIORITAETENLISTE.txt,
+REVIEW_TRACKER.txt (am Ausgangsstand EINE Datei; heute zusaetzlich REVIEW_TRACKER_HISTORIE.txt - Abschnitte 1a bis 1c
+"im Wortlaut verschoben, seither fortgeschrieben"), NAVIGATIONSKARTE_ALTES_KONZEPT.txt, README.md.
+
+3. DEINE AUFGABEN
+
+(1) VERBLEIB jeder entfernten oder geaenderten Zeile des Ausgangsstands in diesen Dokumenten (Tabelle wie oben). Bei
+    der PRIORITAETENLISTE besonders: Hat jedes Paket des Ausgangsstands heute noch seinen Eintrag mit seinem Inhalt
+    (Scope, Pflichten, Abhaengigkeiten, Altquellen)? Bei REVIEW_TRACKER: Sind die offenen Punkte der Abschnitte 1b
+    und 1c des Ausgangsstands (Vollscan- und Audit-Befunde vom Mai 2026) heute alle gefuehrt (Tracker, Historie oder
+    Befundregister)?
+(2) GELOESCHTES. git -C <gegenstand> log --diff-filter=D --name-only --format=%h 10f3fde..HEAD zeigt entfernte
+    Dateien. Ist jede Entfernung begruendet und ihr Inhalt an anderer Stelle erhalten (BM-0015: kein Loeschen
+    nuetzlicher Nachweise)?
+(3) ABSCHWAECHUNG. Sind Sicherheitsanforderungen, Invarianten, Testpflichten, Rueckverfolgbarkeit oder die
+    Abschlusspruefungen (Gates G1 bis G4, zwei Vollaudits) in diesen Dokumenten irgendwo abgeschwaecht? Sind die Ziele
+    des Betreibers ("hohe Zuverlaessigkeit und Skalierbarkeit fuer mindestens 1.000 gleichzeitige Verbindungen",
+    DP-01 bis DP-08, R-01 bis R-19, KR-01 bis KR-06) unveraendert? Wo der Hauptarchitekt Stand-Vermerke in eckigen
+    Klammern ergaenzt hat: Aendert ein Vermerk den Sinn der Aussage des Betreibers, statt nur den Stand zu nennen?
+    (KR-03 und KR-05 tragen seit dem 2026-11-15 Vermerke nach der Betreiberentscheidung BM-0019; ob sie die
+    Entscheidung treu wiedergeben, prueft Pruefer E.)
+(4) PARALLELSYSTEM. 00_MANIFEST 6a ordnet jeder Funktion der Steuerung EINE massgebliche Datei zu und nennt
+    governance/ und qa/ "dienend". Trifft das am Bestand zu: Fuehrt governance/ (STATUS.yaml, Register, README) oder
+    qa/ irgendwo einen eigenen Stand, eigene Regeln oder eigene Entscheidungen, die in keinem Dokument des
+    Wurzelverzeichnisses stehen?
+(4a) EIGENREVIEW. Der Hauptarchitekt hat am 2026-11-15 ein Eigenreview dieser Dokumente gefuehrt (03_CHANGELOG
+    v2.9.1 Abschnitt 1 und v2.9.2; Befund BF-0116). Urteil BEHOBEN / TEILWEISE BEHOBEN / NICHT BEHOBEN je Punkt in
+    deinen Dokumenten und in governance/README.txt - schreibe "BF-0116-KB-003", "-KB-004", "-KB-005", "-KB-006",
+    "-KB-007", "-KB-008", "-KB-009", "-KB-010" (KB-011 prueft T) und aus Durchgang 2 "BF-0116-KB2-03"
+    (REVIEW_TRACKER 1d, Angabe zur zweiten Nachpruefung) und "BF-0116-KB2-05" (PRIORITAETENLISTE M1-01, Verweis im
+    Vermerk). Was hat das Eigenreview in deinen Dokumenten uebersehen?
+(5) NEUE FEHLER, die dir dabei auffallen; FREIRAUM (Pflicht).
+NICHT deine Aufgabe: CLAUDE_BRIEFING, REVIEW_STANDARD, MARCOS_ARBEITSWEISE (Pruefer D1); die Einarbeitung der
+Betreiberentscheidung BM-0019 (E); die Einzelbefunde der zweiten Nachpruefung (S, T, C); die Pruefwerkzeuge im
+Einzelnen (W1, W2).
+~~~~
+
+
+## 27. Dritte Nachprüfung: Auftrag W1 (Umgehungsmatrix der abgebrochenen Prüfung C)
+
+- Zeitpunkt (UTC): 2026-11-15T16:49Z (Start des ersten Laufs)
+- Art: Auftrag an einen neuen Prüfer (Auftragsdatei)
+- Länge: 3316 Zeichen
+- Denkaufwand: high. Grund: 68 vorgegebene Fälle mechanisch nachstellen; geringe Auslegungstiefe, klare Erfolgskriterien.
+
+~~~~
+PRUEFAUFTRAG W1 - DRITTE NACHPRUEFUNG: PRUEFWERKZEUGE I - UMGEHUNGSMATRIX DER ABGEBROCHENEN PRUEFUNG C (2026-11-15)
+
+Lies ZUERST vollstaendig die gemeinsame Grundlage: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/AUFTRAG_GRUNDLAGE.md
+(Kontext, Pruefgegenstand, Regeln, Form des Berichts). Sie gilt fuer dich unveraendert.
+
+DEINE BERICHTSDATEI: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/BERICHT_W1_UMGEHUNGSMATRIX.md
+DEIN ARBEITSORDNER FUER KOPIEN: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/tmp_w1/
+KENNUNGEN NEUER BEFUNDE: F-NK3-V-nn
+
+1. WORUM ES GEHT
+
+Die erste Kontrolle der Pruefwerkzeuge (2026-11-14) wurde abgebrochen. Ihr Zwischenstand liegt unveraendert unter
+governance/pruefungen/KONSOLIDIERUNG_PRUEFUNG_C_PRUEFWERKZEUGE_2026-11-14_ABGEBROCHEN.md und enthaelt eine Matrix von
+Umgehungsversuchen (Faelle a1, a2, ... in den Abschnitten Z2 ff.) samt Fehlalarmen. Der Hauptarchitekt meldet im
+Befundregister (BF-0083): "55 der 68 nicht erkannten Faelle durch Regeln geschlossen, 2 entfallen, 11 als Grenze
+benannt (REVIEW_STANDARD 10.4); 4 Fehlalarme beseitigt". Kein Pruefer hat das je Fall fuer Fall nachgestellt. Das ist
+deine Aufgabe. Sie gehoert zum Pruefpunkt des Betreibers "ob neue QA-Pruefungen tatsaechlich die jeweils
+beanspruchten Anforderungen kontrollieren" (BM-0015 Abschnitt 6 E).
+
+2. DEINE AUFGABEN
+
+(1) Lies den abgebrochenen Bericht C ganz. Stelle JEDEN dort aufgefuehrten Fall am heutigen Stand nach (eigene Kopie je
+    Fall oder je Gruppe; baue dir dafuer ein kleines Hilfsskript unter deinem Arbeitsordner). Tabelle:
+      Fall | Veraenderung | damals (ERKANNT / NICHT ERKANNT / FEHLALARM) | heute (rc, Meldung) | Urteil
+    Urteil je Fall: GESCHLOSSEN (heute erkannt) | GRENZE BENANNT (nicht erkannt, aber REVIEW_STANDARD 10.4 oder
+    00_MANIFEST 6a nennt genau diese Grenze - zitiere die Stelle) | OFFEN (nicht erkannt und nirgends als Grenze
+    benannt) | ENTFAELLT (mit Grund) | FEHLALARM BESEITIGT / BESTEHT.
+    Passt eine Veraenderung nicht mehr zum heutigen Text (Zeile gibt es nicht mehr), bilde den Fall sinngemaess am
+    heutigen Text nach und sage das.
+(2) Zaehle: Wie viele Faelle hatte die Matrix, wie viele waren damals nicht erkannt, wie viele davon sind heute
+    GESCHLOSSEN / GRENZE BENANNT / OFFEN / ENTFAELLT? Stimmen die Zahlen in BF-0083 (55, 2, 11, 4)?
+(3) URTEIL: BF-0083 fuehrt als offen "Die Pruefung ist nie zu Ende gefuehrt worden". Schreibe als Kennung
+    "F-CPW-MATRIX" (Urteil ueber die Matrix insgesamt: BEHOBEN / TEILWEISE BEHOBEN / NICHT BEHOBEN) und je OFFENEM
+    Fall einen neuen Befund F-NK3-V-nn.
+(4) Fuehre die Pruefung C in ihrem urspruenglichen Sinn zu Ende, soweit sie in der Matrix nicht aufgeht: Lies dazu
+    00_MANIFEST 6a (Absatz SCHUTZ GEGEN ERNEUTES AUSEINANDERLAUFEN) und REVIEW_STANDARD 10.4 ganz und sage je
+    Zusicherung, ob du sie in der Matrix bestaetigt, widerlegt oder nicht geprueft hast.
+(5) FREIRAUM (Pflicht): Welche Art von Umgehung fehlt in der Matrix ganz?
+NICHT deine Aufgabe: die Experimente des Berichts B der zweiten Nachpruefung und die in der Serie 584a629..cd6b746
+neuen Regeln (Pruefer W2); die Texte (E, S, T, C); der Vergleich mit dem Ausgangsstand (D1, D2). Die ganze
+Testsammlung fuehrst du NICHT aus.
+~~~~
+
+
+## 28. Dritte Nachprüfung: Auftrag W2 (Prüfwerkzeuge, Änderungen der Serie)
+
+- Zeitpunkt (UTC): 2026-11-15T16:49Z (Start des ersten Laufs)
+- Art: Auftrag an einen neuen Prüfer (Auftragsdatei)
+- Länge: 6817 Zeichen
+- Denkaufwand: xhigh. Grund: Experimente an den Prüfregeln mit Urteil je Kennung; Fehler hier ließen einen gescheiterten Stand bestanden wirken.
+
+~~~~
+PRUEFAUFTRAG W2 - DRITTE NACHPRUEFUNG: PRUEFWERKZEUGE II - AENDERUNGEN DER SERIE (2026-11-15)
+
+Lies ZUERST vollstaendig die gemeinsame Grundlage: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/AUFTRAG_GRUNDLAGE.md
+(Kontext, Pruefgegenstand, Regeln, Form des Berichts). Sie gilt fuer dich unveraendert.
+
+DEINE BERICHTSDATEI: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/BERICHT_W2_PRUEFWERKZEUGE.md
+DEIN ARBEITSORDNER FUER KOPIEN: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3/tmp_w2/
+KENNUNGEN NEUER BEFUNDE: F-NK3-W-nn
+
+1. WORUM ES GEHT
+
+Bericht B der zweiten Nachpruefung (governance/pruefungen/KONSOLIDIERUNG_NACHPRUEFUNG_2_B_PRUEFWERKZEUGE_2026-11-15.md)
+fand an den Pruefwerkzeugen zwei MAJOR (F-NK2-B-01 = Kandidat K10, F-NK2-B-02 = Kandidat K13), acht MINOR
+(F-NK2-B-03 bis -10) und zwei NICE (F-NK2-B-11, -12); Bericht A1 dazu F-NK2-U-02. Der Hauptarchitekt hat sie mit
+325aca2 (K10, K13; Negativtests fuer jede Fehlermeldung) und 98e1bb3 (B-03 bis B-12; neue Sperrregel) eingearbeitet.
+Am 2026-11-15 kam dazu (Commit 133e3bf, 03_CHANGELOG v2.9.1 Abschnitt 2 und v2.9.2; Befund BF-0117): ein
+Messwerkzeug qa/abdeckung.py, sechs geschaerfte Regeln und 49 neue Tests.
+Pruefgegenstand fuer dich: git diff 584a629..cd6b746 -- qa/ .github/ und die Texte, die das Verhalten der Werkzeuge
+zusichern.
+
+2. DEINE AUFGABEN
+
+(1) URTEIL JE KENNUNG (BEHOBEN / TEILWEISE BEHOBEN / NICHT BEHOBEN), jeweils durch WIEDERHOLUNG des Experiments aus
+    Bericht B (Tabelle in dessen Abschnitt 3; nutze die dortigen Fallkuerzel) auf eigenen Kopien bzw. im eigenen Klon:
+    F-NK2-B-01 (K10, K10b), F-NK2-B-02 (K13, DEL, KL, KLPE - im Klon mit einem UND mit zwei Commits),
+    F-NK2-B-03 (SA1, SA2), F-NK2-B-04 (HB1), F-NK2-B-05 (X1b, X1c, F1, F2), F-NK2-B-06 (X3a, X3b, F3),
+    F-NK2-B-07 (D1, D2, D3, D4), F-NK2-B-08 (V3b, Z1, Z2, Z4), F-NK2-B-09 (NB1; zweiter Teil: der Hauptarchitekt
+    ordnet ihn als nicht zutreffend ein - REVIEW_STANDARD 10.4 - beurteile die Begruendung), F-NK2-B-10, F-NK2-B-11
+    (R1, R2), F-NK2-B-12 (erster Teil: im Text gesagt, dass Aufrufstellen gezaehlt sind; zweiter Teil: Zaehlung je
+    Bedingung, seit 133e3bf eingerichtet - siehe Aufgabe 5a), F-NK2-U-02, dazu F-NKO-025 und F-NKO-027 (Reste laut
+    Bericht A1) und
+    die drei aelteren Werkzeugbefunde "K10" (BF-0102), "K13" (BF-0103) und BF-0104 (Inventar-Regel nur in Abschnitt 1
+    des Trackers - schreibe "BF-0104-INVENTAR").
+(2) DIE NEUE SPERRREGEL (qa/pruefe_register.py: Fundstelle im Ordner eines Moduls verlangt, dass der offene Befund
+    dessen Paket sperrt; Zeilen GESPERRT in REVIEW_TRACKER 1d; Feld entsperrt). Versuche sie zu umgehen und
+    protokolliere jeden Versuch (Veraenderung, rc, Meldung): andere Schreibweisen der Fundstelle, Unterordner,
+    modules/, entwuerfe/, Befund umbuchen, Sperrvermerk entfernen, Fundstelle entfernen statt Sperrvermerk setzen,
+    entsperrt mit Fuelltext, Zeile GESPERRT weglassen / veraendern / kleinschreiben, Paket wieder auf [DONE] setzen,
+    Modul auf CLEAN setzen. Was davon ist in REVIEW_STANDARD 10.4 als Grenze benannt, was nicht?
+(3) DIE ERKENNUNG DER PRUEFBERICHTE (Zuordnung "- Bericht: <Datei>" in governance/pruefungen/PRUEFAUFTRAEGE_*.md;
+    Bestaetigung nur mit einer Kennung, die im Bericht steht; Ausloeser der Einstufungspflicht auch ueber Dateinamen
+    und ueber Befundkennungen der Form F-XXX-nnn). Versuche sie zu umgehen und suche Fehlalarme auf dem regulaeren Weg
+    (ein neuer Bericht eines kuenftigen Vollaudits; ein eigener Fund des Hauptarchitekten, der eine Berichtskennung
+    nur erwaehnt).
+(4) ZUSICHERUNG GEGEN VERHALTEN. Lies 00_MANIFEST 6a (Absatz SCHUTZ GEGEN ERNEUTES AUSEINANDERLAUFEN), REVIEW_STANDARD
+    10.2 und 10.4, qa/README.txt und den Kopfkommentar von governance/register/BEFUNDE.yaml ganz. Je Zusicherung:
+    TRIFFT ZU / ZU WEIT / ZU ENG / NICHT GEPRUEFT, mit dem Experiment als Beleg.
+(5) NEGATIVTESTS. Fuehre die ganze Testsammlung EINMAL aus (python3 -m unittest discover -s qa/tests im eigenen Klon;
+    rund fuenf Minuten) und nenne Zahl und Ergebnis. Lies die in der Serie neuen Tests (git diff 584a629..cd6b746 --
+    qa/tests/test_negativ.py) und pruefe: Erzeugt jeder den im Namen genannten Fehler und erwartet er einen
+    Meldungstext, den nur die gemeinte Regel erzeugt? Waere er mit dem alten Code gruen geblieben? Gibt es neue oder
+    geaenderte Bedingungen ohne Test?
+(5a) DIE SECHS LUECKEN (BF-0117) UND DIE ZAEHLUNG JE TEILBEDINGUNG. Der Betreiber hat angeordnet (BM-0021 Nr. 2), dass
+    die Pruefung eines Pruefwerkzeugs nicht von selbst neue Pruefsysteme und weitere Pruefungen dieser Pruefsysteme
+    ausloest: Beurteile hier, ob die sechs Luecken geschlossen sind und ob stimmt, was der Text ueber die Zaehlung
+    sagt - schlage keine weiteren Messwerkzeuge und keine Pruefung des Messwerkzeugs vor. Lies qa/abdeckung.py und
+    den Changelog v2.9.1 Abschnitt 2 und v2.9.2 Abschnitt 3. a) Tut das Werkzeug im Kern, was sein Kopf sagt? Stelle
+    drei Mutationen von Hand nach (Bedingung in einer Kopie von qa/pruefe_register.py durch die Konstante ersetzen,
+    den vom Werkzeug genannten Test laufen lassen); das Werkzeug selbst rufst du NICHT auf. b) Wiederhole die sieben Experimente zu den Luecken am ALTEN Stand
+    (git worktree oder Klon bei fae9285: das Werkzeug muss "OK" melden) und am NEUEN (es muss den Fehler melden):
+    MODULPRUEFUNG.yaml fehlt / ist leer; index_datei entfernt; Kopfzeile VERSION des Changelogs entfernt (mit
+    abweichender README-Version); MARCOS_ARBEITSWEISE.txt bzw. 03_CHANGELOG.txt fehlt; fremde Datei unter
+    governance/pruefungen/, decisions/, modules/; Verzeichnis als erfuellt_in; STATUS.verweise als Text. c) Suche
+    FEHLALARME der geschaerften Regeln (legitime Zustaende, die jetzt rot werden) und Luecken DERSELBEN Art, die
+    geblieben sind (weitere Dateien oder Konfigurationsfelder, deren Fehlen eine Pruefung ohne Meldung abschaltet).
+    d) Die Grenzfall-Tests ("_schweigt", "_bricht_nicht_ab", "_besteht" in der Klasse Teilbedingungen und am Ende
+    der Klasse Befunde): Haelt einer ein Verhalten fest, das fachlich falsch ist? e) Ist die
+    Einstufung SCHWERWIEGEND fuer BF-0117 angemessen? Urteil unter "BF-0117-LUECKEN" (BEHOBEN / TEILWEISE BEHOBEN /
+    NICHT BEHOBEN) und "F-NK2-B-12" (zweiter Teil).
+(6) CI: .github/workflows/konzept-qa.yml - prueft der Lauf, was 6a "bei jedem Push" zusichert (Tiefe des Verlaufs,
+    Zeitgrenze, Aufrufe)?
+(7) NEUE FEHLER aus dieser Einarbeitung; FREIRAUM (Pflicht): Welche Luecke ist die gefaehrlichste, die noch offen ist?
+NICHT deine Aufgabe: die Umgehungsmatrix der abgebrochenen Pruefung C (Pruefer W1); die Texte ausserhalb der
+Werkzeug-Zusicherungen (E, S, T, C); der Vergleich mit dem Ausgangsstand (D1, D2).
+~~~~
+
+
+## 29. Dritte Nachprüfung: Ablaufskript des ersten Laufs (zwei Prüfer gleichzeitig)
+
+- Zeitpunkt (UTC): 2026-11-15T16:49Z
+- Art: Ablaufskript (nennt den Prüfern den Pfad der Auftragsdatei; ohne Modellangabe - die Prüfer laufen auf dem Modell der Hauptsitzung)
+- Länge: 2358 Zeichen
+
+~~~~
+export const meta = {
+  name: 'dritte-nachpruefung-konsolidierung',
+  description: 'Dritte (letzte breite) Nachpruefung der Konsolidierung QS-07: acht unabhaengige Pruefer, zwei Bahnen nacheinander',
+  phases: [
+    { title: 'Bahn 1', detail: 'E (Betreiberentscheidungen) -> C (Changelog, Register) -> D1 (Bestand I) -> W1 (Umgehungsmatrix)' },
+    { title: 'Bahn 2', detail: 'S (Sperre, Altmodule) -> T (Textbefunde) -> W2 (Pruefwerkzeuge) -> D2 (Bestand II)' },
+  ],
+}
+
+const SP = '/tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3'
+
+const auftrag = (k) => [
+  `Du bist der unabhaengige Pruefer ${k} der dritten Nachpruefung im Projekt RetroTunnel (reines Konzept-Repository, Textdateien).`,
+  `Du pruefst nur - du aenderst nichts am Pruefgegenstand und nichts unter /home/user/RetroTunnel oder /home/user/xp-vpn-stack.`,
+  ``,
+  `1. Lies ZUERST vollstaendig die gemeinsame Grundlage: ${SP}/AUFTRAG_GRUNDLAGE.md`,
+  `2. Lies DANN vollstaendig deinen Auftrag: ${SP}/AUFTRAG_${k}.md`,
+  `3. Fuehre den Auftrag genau so aus, wie er dort steht. Schreibe deinen Bericht LAUFEND in die dort genannte Berichtsdatei`,
+  `   (zuerst das Geruest anlegen, nach jedem abgeschlossenen Pruefschritt ergaenzen). Liegt die Berichtsdatei schon mit Inhalt`,
+  `   vor, setze dort fort, wie es die Grundlage beschreibt.`,
+  `4. Starte keine weiteren Agenten. Nenne in deinem Bericht keine Modellbezeichnungen.`,
+  ``,
+  `Deine Schlussantwort: nur die Kurzfassung (Gesamturteil, Zahl der Urteile je Art, Zahl der neuen Befunde je Schwere, die`,
+  `MAJOR- und BLOCKER-Befunde in je einem Satz) und der Pfad deiner Berichtsdatei.`,
+].join('\n')
+
+const bahn = async (schritte, phase) => {
+  const ergebnisse = []
+  for (const s of schritte) {
+    const r = await agent(auftrag(s.k), { label: `Pruefer ${s.k}`, phase, agentType: 'general-purpose', effort: s.e })
+    log(`Pruefer ${s.k}: ${r ? 'beendet' : 'ohne Ergebnis (abgebrochen oder Limit)'}`)
+    ergebnisse.push({ pruefer: s.k, aufwand: s.e, antwort: r })
+  }
+  return ergebnisse
+}
+
+const [bahn1, bahn2] = await parallel([
+  () => bahn([{ k: 'E', e: 'max' }, { k: 'C', e: 'xhigh' }, { k: 'D1', e: 'xhigh' }, { k: 'W1', e: 'high' }], 'Bahn 1'),
+  () => bahn([{ k: 'S', e: 'xhigh' }, { k: 'T', e: 'xhigh' }, { k: 'W2', e: 'xhigh' }, { k: 'D2', e: 'xhigh' }], 'Bahn 2'),
+])
+return { bahn1, bahn2 }
+~~~~
+
+
+## 30. Dritte Nachprüfung: Ablaufskript der Fortsetzung (ein Prüfer zur Zeit)
+
+- Zeitpunkt (UTC): 2026-11-15T21:34Z
+- Art: Ablaufskript der Fortsetzung nach dem Nutzungslimit (ohne Modellangabe)
+- Länge: 2601 Zeichen
+
+~~~~
+export const meta = {
+  name: 'dritte-nachpruefung-fortsetzung',
+  description: 'Dritte Nachpruefung QS-07, Fortsetzung nach dem Nutzungslimit: die sieben offenen Pruefer nacheinander (einer zur Zeit)',
+  phases: [
+    { title: 'Pruefer nacheinander', detail: 'E (Fortsetzung) -> T (Fortsetzung) -> C -> W2 -> D1 -> D2 -> W1; Abbruch der Reihe beim ersten Pruefer ohne Ergebnis' },
+  ],
+}
+
+const SP = '/tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np3'
+
+const auftrag = (k) => [
+  `Du bist der unabhaengige Pruefer ${k} der dritten Nachpruefung im Projekt RetroTunnel (reines Konzept-Repository, Textdateien).`,
+  `Du pruefst nur - du aenderst nichts am Pruefgegenstand und nichts unter /home/user/RetroTunnel oder /home/user/xp-vpn-stack.`,
+  ``,
+  `1. Lies ZUERST vollstaendig die gemeinsame Grundlage: ${SP}/AUFTRAG_GRUNDLAGE.md`,
+  `2. Lies DANN vollstaendig deinen Auftrag: ${SP}/AUFTRAG_${k}.md`,
+  `3. Fuehre den Auftrag genau so aus, wie er dort steht. Schreibe deinen Bericht LAUFEND in die dort genannte Berichtsdatei`,
+  `   (zuerst das Geruest anlegen, nach jedem abgeschlossenen Pruefschritt ergaenzen). Liegt die Berichtsdatei schon mit Inhalt`,
+  `   vor (ein frueherer Lauf wurde am Nutzungslimit abgebrochen), setze dort fort, wie es die Grundlage beschreibt.`,
+  `4. Starte keine weiteren Agenten. Nenne in deinem Bericht keine Modellbezeichnungen.`,
+  `5. Arbeite sparsam mit dem Kontext: Lies grosse Dateien gezielt in den Abschnitten, die dein Auftrag nennt, und halte`,
+  `   Zwischenergebnisse sofort in der Berichtsdatei fest. Der Pruefumfang deines Auftrags bleibt davon unberuehrt.`,
+  ``,
+  `Deine Schlussantwort: nur die Kurzfassung (Gesamturteil, Zahl der Urteile je Art, Zahl der neuen Befunde je Schwere, die`,
+  `MAJOR- und BLOCKER-Befunde in je einem Satz) und der Pfad deiner Berichtsdatei.`,
+].join('\n')
+
+const reihe = [
+  { k: 'E', e: 'xhigh' }, { k: 'T', e: 'xhigh' }, { k: 'C', e: 'xhigh' }, { k: 'W2', e: 'xhigh' },
+  { k: 'D1', e: 'xhigh' }, { k: 'D2', e: 'xhigh' }, { k: 'W1', e: 'high' },
+]
+phase('Pruefer nacheinander')
+const ergebnisse = []
+for (const s of reihe) {
+  const r = await agent(auftrag(s.k), { label: `Pruefer ${s.k}`, phase: 'Pruefer nacheinander', agentType: 'general-purpose', effort: s.e })
+  ergebnisse.push({ pruefer: s.k, aufwand: s.e, antwort: r })
+  if (!r) { log(`Pruefer ${s.k} ohne Ergebnis (Limit oder Abbruch) - Reihe angehalten; die uebrigen starten beim naechsten Lauf.`); break }
+  log(`Pruefer ${s.k} beendet.`)
+}
+return { ergebnisse, nicht_gestartet: reihe.slice(ergebnisse.length).map(s => s.k) }
 ~~~~
 
