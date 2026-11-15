@@ -1,0 +1,399 @@
+schema: trace/1
+quelle: XPN
+datei: blocks/B057_SETTINGS_PARAMETER_CANON_SQLFIRST_MAGIC_GUARD.txt
+einheit: AP-Q02
+vollstaendigkeit: TEILWEISE (Ziele, Fehlerverhalten, Beobachtbarkeit und die Startliste der Keys, soweit die Settings-Abschnitte
+  von BASE-040, BASE-050, BASE-070 und des Entwurfs BASE-080 betroffen sind; Tabellenfamilie, Schreibrechte, Upsert, Override-Regeln
+  und Governance gehoeren zu BASE-090 und folgen in AP-K090)
+records:
+- id: TR-XB057-01
+  zitat: '- Keine „Magic Numbers“ / implizite Defaults im Code, die Policy lockern könnten.'
+  art: SCHUTZZIEL
+  aussage: Keine festen Zahlen oder stillen Standardwerte im Code, die Policy lockern koennten.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-46
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-59
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-62
+  - base/BASE-050_FIREWALL_CORE/BASE-050_070_RENDERN_LADEN_UND_VERLUSTSCHUTZ.txt#Es gibt keinen stillen Standardwert (DP-02)
+  begruendung: Unveraendert.
+  zeilen:
+  - 26
+  - 26
+- id: TR-XB057-02
+  zitat: '- Missing/Invalid dürfen niemals „Allow by accident“ erzeugen (Fail-Closed/Fail-Safe ist maschinenlesbar definiert).'
+  art: SCHUTZZIEL
+  aussage: Fehlende oder ungueltige Werte duerfen nie versehentlich etwas erlauben.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-59
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-62
+  - 'base/BASE-050_FIREWALL_CORE/BASE-050_070_RENDERN_LADEN_UND_VERLUSTSCHUTZ.txt#FEHLERVERHALTEN: fuer ALLE Firewall-Settings
+    STRICT'
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_020_INTERFACE_UND_SERVER_CONFIG.txt#LKG
+  begruendung: 'BASE-070 und BASE-080: Fehlerklasse des Katalogs, kein eigener Rueckfall. BASE-050: Rendern bricht ab, das
+    aktive Regelwerk bleibt. BASE-040_020 fuehrt fuer 14 Betriebsparameter das Verhalten LKG (zuletzt gueltig gelesener Wert),
+    das der Kanon nicht kennt - offen, Befund BF-0041.'
+  zeilen:
+  - 30
+  - 30
+- id: TR-XB057-03
+  zitat: 'Norm (MUST): Fallbacks sind nur erlaubt, wenn fail_class=FAIL_SAFE_HARDCAP UND policy_direction=TIGHTEN_ONLY.'
+  art: SCHUTZZIEL
+  aussage: Ein Rueckfall ist nur erlaubt bei Fehlerklasse FAIL_SAFE_HARDCAP und Richtung TIGHTEN_ONLY.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#AUFLOESUNG UND FEHLERVERHALTEN
+    NACH DEM SETTINGS-KERN
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_070_HELFER_BETRIEB_UND_BEOBACHTBARKEIT.txt#FEHLERKLASSE UND NOTWERT JE KEY
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_020_INTERFACE_UND_SERVER_CONFIG.txt#LKG
+  begruendung: 'In BASE-070 und BASE-080 uebernommen (Notwert nur verschaerfend, Richtung je Key benannt). Zwei ausgewiesene
+    Abweichungen: vpn_l2tp_unaccounted_action (Notwert greift nicht ein; in BASE-070_070 begruendet, Antrag an BASE-090) und
+    LKG in BASE-040_020 (offen, BF-0041).'
+  zeilen:
+  - 81
+  - 81
+- id: TR-XB057-04
+  zitat: 'Norm (MUST): failsafe_value ist ein “Notwert”, der nur verschärfen darf (tighten-only).'
+  art: SCHUTZZIEL
+  aussage: Der Notwert darf nur verschaerfen.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#strenger ist
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-62
+  begruendung: Unveraendert; die Notwerte der Bremsen sind die strengsten.
+  zeilen:
+  - 83
+  - 83
+- id: TR-XB057-05
+  zitat: '- effective_value wird deterministisch gebildet als: 1) settings_connection (höchste Priorität) 2) settings_customer
+    3) settings_global 4) falls kein Wert vorhanden/valide: Fallback gemäß fail_class (13.4)'
+  art: FUNKTION
+  aussage: 'Aufloesung: Connection vor Customer vor Global, sonst Rueckfall nach Fehlerklasse.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - 'base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#GELTUNGSBEREICH: Alle Keys dieses
+    Moduls gelten nur global'
+  - base/BASE-050_FIREWALL_CORE/BASE-050_070_RENDERN_LADEN_UND_VERLUSTSCHUTZ.txt#alle sind global
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_020_INTERFACE_UND_SERVER_CONFIG.txt#Scope ueberall GLOBAL
+  - model/TRUTH_MODEL.txt#effective_source
+  begruendung: Die Aufloesung leistet der Settings-Kern (TRUTH_MODEL, kuenftig BASE-090). Alle Keys der vier Module gelten
+    nur global; die Reihenfolge ist fuer sie ohne Wirkung.
+  zeilen:
+  - 102
+  - 106
+- id: TR-XB057-06
+  zitat: '- Konsequenz (MUST): Bei jeder neuen Key-/Policy-Ergänzung muss mindestens 1 Satz enthalten sein: „/diag zeigt effective_value
+    + effective_source (inkl. Fallback/Reason), Resolution Order ist kanonisch.“'
+  art: ARBEITSANWEISUNG
+  aussage: 'Arbeitsregel: Jede Key-Ergaenzung nennt, dass die Diagnose wirksamen Wert und Herkunft zeigt und die Aufloesungsreihenfolge
+    kanonisch ist.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#wirksamer
+  - base/BASE-070_SESSION_CORE/BASE-070_080_OWNER_GRENZEN.txt#ANF-SC-08
+  - model/TRUTH_MODEL.txt#effective_source
+  begruendung: 'Historische Arbeitsanweisung; ihr sachlicher Kern ist zentral erfuellt: Die Module lesen ausschliesslich ueber
+    die Aufloesung des Settings-Kerns (wirksamer Wert, Herkunft, Zustand des Keys); die Anzeige je Key ist Vertrag des Settings-Kerns
+    (TRUTH_MODEL Abschnitt 4, BASE-090). Ein Satz je Key wird nicht wiederholt.'
+  zeilen:
+  - 115
+  - 116
+- id: TR-XB057-07
+  zitat: 'A) Missing Behavior (MUST): - Darf niemals still „relaxen“. - Reaktion ist pro Key im Katalog normiert: a) FAIL_CLOSED:
+    → Hard Fail (Fail-Closed) für die betroffene Operation / Funktion / Subsystem (Gate bleibt zu). b) FAIL_SAFE_HARDCAP (tighten-only):
+    → Nutzung von failsafe_value_* (extrem restriktiver Notwert) + Observability-Pflicht (13.5).'
+  art: SCHUTZZIEL
+  aussage: 'Fehlender Wert: nie still lockern; je nach Klasse harter Abbruch oder Notwert mit Meldepflicht.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#KEIN STILLER DEFAULT (R-02, R-03)
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-59
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-62
+  - 'base/BASE-050_FIREWALL_CORE/BASE-050_070_RENDERN_LADEN_UND_VERLUSTSCHUTZ.txt#FEHLERVERHALTEN: fuer ALLE Firewall-Settings
+    STRICT'
+  begruendung: Unveraendert.
+  zeilen:
+  - 142
+  - 148
+- id: TR-XB057-08
+  zitat: 'B) Invalid Behavior (MUST): - Gilt als Policy Corruption (härter als Missing). - Reaktion ist pro Key im Katalog
+    normiert: - Norm (MUST): • Operation fail-closed ODER (wenn fail_class=FAIL_SAFE_HARDCAP) failsafe_value + Flag “INVALID_OVERRIDDEN”
+    a) FAIL_CLOSED: → Hard-Fail (Subsystem stoppt deterministisch). b) FAIL_SAFE_HARDCAP (tighten-only): → Notwert + Pflichtwarnung
+    - Zusätzlich (MUST): • Invalid erzeugt immer ein Audit-Event (ratelimited) + Health Flag. • Admin-Health Warning (Panel)
+    + /diag Warning + ratelimited Log-Event'
+  art: SCHUTZZIEL
+  aussage: 'Ungueltiger Wert gilt als Beschaedigung der Policy: haerter als fehlend, immer mit Audit-Ereignis und Gesundheitsmeldung.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - model/TRUTH_MODEL.txt#4.3) Missing vs Invalid (MUST)
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-59
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-62
+  begruendung: Die Module behandeln fehlend und ungueltig gleich nach der Fehlerklasse und melden beides. Die Unterscheidung
+    selbst, das Audit-Ereignis und die Gesundheitsmeldung sind Vertrag des Settings-Kerns (BASE-090); in BASE-040 ist die
+    Meldung bei Nutzung eines LKG-Werts nicht festgelegt (BF-0041).
+  zeilen:
+  - 151
+  - 162
+- id: TR-XB057-09
+  zitat: '- Wenn irgendein key im Zustand { MISSING, INVALID, FALLBACK_ACTIVE } ist: • Admin-Panel: Health Warnings (read-only)
+    mit betroffenen Keys • /diag: warnings inkl. betroffene keys + effective_source (+ reason) • Logs: Event ist ratelimited
+    (kein Log-DoS) - Es darf keinen “stillen Notbetrieb” geben. - Fallback darf nie unbemerkt bleiben.'
+  art: SCHUTZZIEL
+  aussage: 'Kein stiller Notbetrieb: Jeder Rueckfall ist im Panel, in der Diagnose und im Log sichtbar.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-59
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#KEIN STILLER DEFAULT (R-02, R-03)
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-62
+  begruendung: 'Unveraendert: SESSION_SETTING_FALLBACK/BLOCKED und POLICY_SETTING_FALLBACK stehen in der Statusdatei, bis
+    der Zustand behoben ist.'
+  zeilen:
+  - 168
+  - 173
+- id: TR-XB057-10
+  zitat: '- Es gibt keinen Schreibpfad außerhalb dieses Contracts (keine “hidden config files” für Policy-Keys).'
+  art: SCHUTZZIEL
+  aussage: Kein Schreibweg fuer Policy-Keys ausserhalb des Vertrags, keine versteckten Konfigurationsdateien.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-62
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-46
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-41
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-28
+  - base/BASE-050_FIREWALL_CORE/BASE-050_030_SETS_UND_ZUSTANDS_ENFORCEMENT.txt#/etc/retrotunnel/admin_panel_allowed.conf
+  begruendung: 'Fuer Settings unveraendert. Zwei bewusste, benannte Ausnahmen ausserhalb von SQL: die Konfiguration des Notzugangs
+    (muss ohne Datenbank gelten) und die root-Datei der Verwaltungsfreigabe als zweite Quelle neben der SQL-Ableitung (beide
+    muessen zustimmen). Beides sind Sicherheitsanker, keine ueberschreibbaren Policy-Werte.'
+  zeilen:
+  - 210
+  - 210
+- id: TR-XB057-11
+  zitat: '- Canonical Settings-Keys sind lower_snake_case (a-z0-9_). - FORBIDDEN: UPPERCASE Keys als “echte” Keys (DB/Panel/Skripte).'
+  art: DEFINITION
+  aussage: Keys sind klein geschrieben mit Unterstrich; Grossschreibung ist nur Altnotation.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#QUARANTINE_DAYS
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#ENTFALLENE ODER ERSETZTE ALTNAMEN
+    (fuer den Katalog, BASE-090)
+  begruendung: Unveraendert; Altnamen sind als Alias fuer den Katalog gefuehrt.
+  zeilen:
+  - 257
+  - 258
+- id: TR-XB057-12
+  zitat: '• quarantine_days (INT, >0) — fail_class=FAIL_CLOSED, direction=TIGHTEN_ONLY (Compliance: IP-Reuse), allowed_override_scope=NONE'
+  art: PARAMETER
+  aussage: 'quarantine_days: FAIL_CLOSED, nur verschaerfend, nicht ueberschreibbar.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-73
+  - base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt#OFFENE FRIST - KEIN ENTZUG SCHEITERT AN FRIST
+    ODER UHR
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#TM 7.2, (a)
+  begruendung: 'Klasse und Geltung (nur global) unveraendert. Angepasst (BF-0050): FAIL_CLOSED schuetzt die RUECKGABE einer
+    Adresse; der Entzug wirkt immer - ohne berechenbare Frist bleibt sie offen (gesperrt ohne Ende). Das ist strenger als
+    der Abbruch des Entzugs.'
+  zeilen:
+  - 270
+  - 271
+- id: TR-XB057-13
+  zitat: • conn_new_rate_per_sec (INT, >0) — fail_class=FAIL_SAFE_HARDCAP, direction=TIGHTEN_ONLY, failsafe=1, allowed_override_scope=NONE
+  art: PARAMETER
+  aussage: 'conn_new_rate_per_sec: Rate neuer Verbindungen, HARDCAP mit Notwert 1.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_060_FORWARD_NAT_UND_EGRESS_SCHUTZ.txt#4.2 GRENZEN FUER NEUE FLOWS (fwd_limits)
+  - 'base/BASE-050_FIREWALL_CORE/BASE-050_070_RENDERN_LADEN_UND_VERLUSTSCHUTZ.txt#FEHLERVERHALTEN: fuer ALLE Firewall-Settings
+    STRICT'
+  begruendung: 'Als vpn_fw_client_new_rate_per_sec uebernommen. ABWEICHUNG OFFEN: Fehlerverhalten STRICT (Rendern bricht ab,
+    aktives Regelwerk bleibt) statt Notwert; der Altname und die Abweichung von TRUTH_MODEL 7.4 sind in BASE-050 nicht vermerkt
+    - Befund BF-0041.'
+  zeilen:
+  - 273
+  - 274
+- id: TR-XB057-14
+  zitat: • conn_new_burst (INT, >=0) — fail_class=FAIL_SAFE_HARDCAP, direction=TIGHTEN_ONLY, failsafe=0, allowed_override_scope=NONE
+  art: PARAMETER
+  aussage: 'conn_new_burst: Burst neuer Verbindungen, HARDCAP mit Notwert 0.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_060_FORWARD_NAT_UND_EGRESS_SCHUTZ.txt#4.2 GRENZEN FUER NEUE FLOWS (fwd_limits)
+  begruendung: Als vpn_fw_client_new_burst uebernommen; Fehlerverhalten wie bei der Rate (STRICT statt Notwert, BF-0041).
+  zeilen:
+  - 276
+  - 277
+- id: TR-XB057-15
+  zitat: • conn_new_log_rate_per_sec (INT, >=0) — fail_class=FAIL_SAFE_HARDCAP, direction=TIGHTEN_ONLY, failsafe=0, allowed_override_scope=NONE
+  art: PARAMETER
+  aussage: 'conn_new_log_rate_per_sec: Lograte fuer Ueberschreitungen, Notwert 0.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-44
+  - base/BASE-050_FIREWALL_CORE/BASE-050_070_RENDERN_LADEN_UND_VERLUSTSCHUTZ.txt#vpn_fw_log_rate_per_sec
+  begruendung: Aufgegangen in der allgemeinen Ratenbegrenzung der Logzeilen je Kennzeichen (vpn_fw_log_rate_per_sec); Fehlerverhalten
+    STRICT (BF-0041).
+  zeilen:
+  - 279
+  - 280
+- id: TR-XB057-16
+  zitat: • (OPTION) conn_new_rate_admin_multiplier (FLOAT, >=1.0) — fail_class=FAIL_SAFE_HARDCAP, direction=TIGHTEN_ONLY,
+    failsafe=1.0, allowed_override_scope=NONE
+  art: PARAMETER
+  aussage: 'Option: Faktor fuer ADMIN bei der Rate neuer Verbindungen.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_060_FORWARD_NAT_UND_EGRESS_SCHUTZ.txt#vpn_fw_client_admin_factor
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-49
+  begruendung: Uebernommen als vpn_fw_client_admin_factor (ganzzahlig 1 bis 16, Vorschlag 4) fuer alle Grenzen je Tunneladresse.
+  zeilen:
+  - 282
+  - 283
+- id: TR-XB057-17
+  zitat: '• pending_ttl_seconds (INT, >0) — fail_class=FAIL_SAFE_HARDCAP, direction=TIGHTEN_ONLY, failsafe=30, allowed_override_scope=NONE
+    - Zweck: IKEv2 Pending Hygiene (NX-05 / B166); Pending Expiry behandelt Session als FAILED (Kill-on-expire wenn SA existiert).'
+  art: PARAMETER
+  aussage: 'pending_ttl_seconds: Frist fuer haengende IKEv2-Aufbauten.'
+  einordnung: NICHT_ANWENDBAR
+  begruendung: IKEv2 gibt es in RetroTunnel nicht (WireGuard ersetzt den modernen Pfad). Die verwandte Frist fuer nicht freigegebene
+    L2TP-Sitzungen und haengende WireGuard-Gates ist vpn_connect_gate_ttl_seconds (BASE-080_070).
+  zeilen:
+  - 285
+  - 288
+- id: TR-XB057-18
+  zitat: '• active_session_lock_ttl_seconds (INT, >0) — fail_class=FAIL_SAFE_HARDCAP, direction=TIGHTEN_ONLY, failsafe=20,
+    allowed_override_scope=NONE - Zweck: Mutex-Lock TTL (active_session_locks) für Single-Active-Session Guard (B055/B056/B171);
+    verhindert Lock-Leichen. Konsumenten dürfen keine lokalen Defaults definieren (nur gemäß B057).'
+  art: PARAMETER
+  aussage: 'active_session_lock_ttl_seconds: Notwert 20; Verbraucher definieren keine eigenen Standardwerte.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#vpn_active_session_lock_ttl_seconds
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-59
+  begruendung: Unveraendert (Vorschlag und Notwert 20, Grenzen 10 bis 60).
+  zeilen:
+  - 290
+  - 293
+- id: TR-XB057-19
+  zitat: '• cleanup_ratelimit_window_seconds (INT, >0) — fail_class=FAIL_SAFE_HARDCAP, direction=TIGHTEN_ONLY, failsafe=10,
+    allowed_override_scope=NONE - Contract: Hardcap <= 30s (Systemschutz; Konsument: B169)'
+  art: PARAMETER
+  aussage: 'cleanup_ratelimit_window_seconds: Notwert 10, Obergrenze 30.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#vpn_cleanup_ratelimit_window_seconds
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#K-a
+  begruendung: Unveraendert (Notwert 10, Obergrenze 30; Vorschlag 5).
+  zeilen:
+  - 295
+  - 297
+- id: TR-XB057-20
+  zitat: '• cleanup_result_ttl_seconds (INT, >0) — fail_class=FAIL_SAFE_HARDCAP, direction=TIGHTEN_ONLY, failsafe=30, allowed_override_scope=NONE
+    - Contract: Hardcap <= 120s (Systemschutz; Konsument: B169)'
+  art: PARAMETER
+  aussage: 'cleanup_result_ttl_seconds: Notwert 30, Obergrenze 120.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#vpn_cleanup_result_ttl_seconds
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#K-a
+  begruendung: Unveraendert (Notwert 30, Obergrenze 120; Vorschlag 5). Das Fenster begrenzt zusaetzlich das Alter jedes zwischengespeicherten
+    Ergebnisses.
+  zeilen:
+  - 299
+  - 301
+- id: TR-XB057-21
+  zitat: '• cleanup_timeout_seconds (INT, >0) — fail_class=FAIL_SAFE_HARDCAP, direction=TIGHTEN_ONLY, failsafe=1, allowed_override_scope=NONE
+    - Contract: Hardcap <= 2s (Login-Path Schutz; Konsument: B169)'
+  art: PARAMETER
+  aussage: 'cleanup_timeout_seconds: Notwert 1, Obergrenze 2.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#vpn_cleanup_timeout_seconds
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#K-a
+  begruendung: Unveraendert (Notwert 1, Obergrenze 2; Vorschlag 2).
+  zeilen:
+  - 303
+  - 305
+- id: TR-XB057-22
+  zitat: '• radius_acct_interim_seconds (INT, >0) — fail_class=FAIL_SAFE_HARDCAP, direction=TIGHTEN_ONLY, failsafe=300, allowed_override_scope=NONE
+    - Contract: PHYSICS_CAP (MIN/MAX werden implementierungsseitig enforced; keine losen Zahlen in Konsumenten) (Konsument:
+    B168)'
+  art: PARAMETER
+  aussage: 'radius_acct_interim_seconds: Notwert 300.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#radius_acct_interim_seconds
+  begruendung: 'Fremder Key (Owner BASE-020/BASE-030): belegt 300; BASE-070 empfiehlt 60 (VB-0020, Entscheidung in BASE-090).'
+  zeilen:
+  - 307
+  - 309
+- id: TR-XB057-23
+  zitat: '• janitor_interval_seconds (INT, >0) — fail_class=FAIL_SAFE_HARDCAP, direction=TIGHTEN_ONLY, failsafe=300, allowed_override_scope=NONE
+    - Contract: PHYSICS_CAP (MIN/MAX werden implementierungsseitig enforced; keine losen Zahlen in Konsumenten) (Konsument:
+    B168)'
+  art: PARAMETER
+  aussage: 'janitor_interval_seconds: Notwert 300.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#vpn_janitor_interval_seconds
+  begruendung: Unveraendert (Vorschlag und Notwert 300).
+  zeilen:
+  - 311
+  - 313
+- id: TR-XB057-24
+  zitat: '• stale_threshold_seconds (INT, >0) — fail_class=FAIL_SAFE_HARDCAP, direction=TIGHTEN_ONLY, failsafe=900, allowed_override_scope=NONE
+    - Contract: PHYSICS_CAP / Relation-Constraints werden im Kanon beschrieben; keine lokalen Defaults (Konsument: B168)'
+  art: PARAMETER
+  aussage: 'stale_threshold_seconds: Notwert 900.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#l2tp_radacct_stale_threshold_seconds
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#ABWEICHUNG VON EINEM BELEGTEN VORSCHLAG
+  begruendung: 'Wert erhalten, Bedeutung geaendert: Meldeverzug statt Schliesskriterium; Regel K-b bindet ihn an den Meldeabstand.'
+  zeilen:
+  - 315
+  - 317
+- id: TR-XB057-25
+  zitat: '• tail_reserve_slots (B061: allocatable slots / exhaustion) - type: INT - scope_default: {GLOBAL} - allowed_override_scope:
+    NONE (global only) - fail_class: FAIL_SAFE_HARDCAP (tighten-only) - failsafe_value_int: 0 - notes: “tail reserve” schützt
+    Pool-Fairness & Admin-Breakglass'
+  art: PARAMETER
+  aussage: 'tail_reserve_slots: globale Reserve je Pool, Notwert 0.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt#tail_reserve_slots
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#ABWEICHUNG IM FEHLERVERHALTEN
+  begruendung: 'Angepasst: Spalte je Pool in vpn_pool_config statt globalem Setting; ein ungueltiger Wert macht die Pool-Konfiguration
+    ungueltig (keine Vergabe) - strenger als ein Notwert.'
+  zeilen:
+  - 319
+  - 325
+- id: TR-XB057-26
+  zitat: '• online_window_seconds (B061 panel heuristic: ONLINE/OFFLINE) - type: INT - scope_default: {GLOBAL} - allowed_override_scope:
+    NONE - fail_class: FAIL_SAFE_HARDCAP (tighten-only) - failsafe_value_int: 300 - notes: nur Panel/Stats, kein Enforcement'
+  art: PARAMETER
+  aussage: 'online_window_seconds: Fenster der Online-Anzeige im Panel.'
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#online_window_seconds
+  begruendung: 'Ersetzt: Der Key entfaellt; die Aktualitaetszusage steht in BASE-070_020 Abschnitt 2, die Anzeige gehoert
+    zu MOD-006.'
+  zeilen:
+  - 327
+  - 333
+- id: TR-XB057-27
+  zitat: '- Zahlenwerte können später festgelegt werden; aber Typ/Range/Fail-Verhalten/Override-Regeln sind ab jetzt Spezifikation.
+    - Jede Enforcement-Stelle (Allocator/nftables/AAA/Panel) referenziert ausschließlich über SoT (SQL-first), niemals als
+    Magic Numbers.'
+  art: SCHUTZZIEL
+  aussage: Zahlenwerte duerfen spaeter festgelegt werden; Typ, Bereich, Fehlerverhalten und Override-Regeln sind Spezifikation.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-46
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#FEHLERKLASSE UND NOTWERT JE KEY
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_020_INTERFACE_UND_SERVER_CONFIG.txt#LKG
+  begruendung: 'Fuer BASE-070 und BASE-080 eingehalten (Klassen des Kanons bzw. von TRUTH_MODEL Abschnitt 7 unveraendert).
+    Abweichungen im Fehlerverhalten bestehen in BASE-050 (STRICT statt Notwert) und BASE-040 (LKG): offen, BF-0041.'
+  zeilen:
+  - 337
+  - 338

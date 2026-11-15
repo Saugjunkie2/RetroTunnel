@@ -1,0 +1,215 @@
+schema: trace/1
+quelle: XPN
+datei: blocks/B055_DB_SCHEMA_CORE.txt
+einheit: AP-Q02
+vollstaendigkeit: TEILWEISE (Grundsaetze des Kern-Schemas und active_session_locks, soweit BASE-070 und der Entwurf BASE-080
+  betroffen sind; customers und vpn_connections gehoeren zu BASE-010 und folgen in AP-Q04, die Settings-Registry in AP-K090)
+records:
+- id: TR-XB055-01
+  zitat: '- Core-Schema bleibt bewusst klein und stabil; neue Features sollen neue Tabellen bekommen, nicht „Core aufblasen“.'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Das Kern-Schema bleibt klein; neue Funktionen bekommen eigene Tabellen.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#4) DATENBANKRECHTE (Tabellen dieses
+    Moduls)
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-34
+  - decisions/D004_RUNTIME_TRUTH_VS_SQL_PERSISTENZ.txt#D004-E01
+  begruendung: 'Eingehalten fuer Protokolle, Buchungsstaende, Perioden, Quarantaene, Marken und Sperren (eigene Tabellen).
+    Abweichung nach D004: Die Zaehlerpersistenz (Gruppe D) liegt als Spalten auf vpn_connections, mit eng begrenzten Schreibern.'
+  zeilen:
+  - 15
+  - 15
+- id: TR-XB055-02
+  zitat: '- Keine History/Forensics in Core-Tabellen: Verlaufsdaten gehen in Logs/Accounting/Separate Historientabellen.'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Keine Verlaufs- oder Forensikdaten in den Kerntabellen.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-11
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-36
+  begruendung: 'Unveraendert: Aktivitaetsprotokoll, Tagesreihe und Periodenprotokoll sind eigene Tabellen.'
+  zeilen:
+  - 16
+  - 16
+- id: TR-XB055-03
+  zitat: '- active_session_locks ist ein Atomar-Lock: muss crash-sicher auflösbar sein (Janitor) und gegen Parallel-Connects
+    schützen.'
+  art: SCHUTZZIEL
+  aussage: Die Sperrtabelle ist ein atomarer Mutex, nach Absturz aufloesbar, Schutz gegen parallele Anmeldungen.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-16
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-17
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-27
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-38
+  begruendung: Unveraendert.
+  zeilen:
+  - 17
+  - 17
+- id: TR-XB055-04
+  zitat: '- subaccount_login (PPP/RADIUS Username; pro Gerät; UNIQUE; serverseitig generiert; niemals user-supplied; nicht-enumerierbar)
+    - Format (kanonisch): "vpn_" + 16 Zeichen Base32 (Alphabet: a-z2-7) - Ziel: keine ableitbaren/fortlaufenden IDs (Enumeration
+    verhindern)'
+  art: DEFINITION
+  aussage: 'Anmeldename: eindeutig, servererzeugt, festes Format, nicht aufzaehlbar.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-62
+  - base/BASE-070_SESSION_CORE/BASE-070_080_OWNER_GRENZEN.txt#ANF-SC-16
+  begruendung: Schema und Format gehoeren zu BASE-010 (Nachzug AP-Q04). Fuer BASE-070 folgt daraus der byteweise Vergleich
+    und die Anforderung der Formatpruefung vor der Suche.
+  zeilen:
+  - 53
+  - 55
+- id: TR-XB055-05
+  zitat: '- conn_group (ENUM: LEGACY | MODERN | ADMIN; NOT NULL) <-- Kanonische Connection-Klassifikation (Scope/Policy/Diag);
+    SQL-first SoT; niemals aus IP-Ranges “ableiten/erraten”.'
+  art: SCHUTZZIEL
+  aussage: Die Gruppe der Connection ist ein SQL-Feld und wird nie aus Adressbereichen erraten.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - decisions/D003_POLICY_SYSTEM_UND_ROLLE_AM_CUSTOMER.txt#D003-E02
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-49
+  begruendung: Ersetzt durch access_role am Customer; Verbot der Rueckableitung bleibt.
+  zeilen:
+  - 56
+  - 57
+- id: TR-XB055-06
+  zitat: '- ip_slot (INTEGER; SoT; NULL bis Provisionierung) <-- Deterministische Slot-ID als Single Source of Truth für IP-Zuordnung:
+    aus ip_slot werden fixed_ip (IPv4) und fixed_ipv6 (IPv6) materialisiert (B061). - fixed_ipv6 (IPv6; materialisiert aus
+    ip_slot, nur wenn v6_addr_policy=FIXED_SQL; sonst NULL) - fixed_ip (IPv4; materialisiert aus ip_slot; PPP-IP; RADIUS Framed-IP-Address;
+    stabil pro Connection; keine Random-Leases) (B061)'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: ip_slot ist die Quelle; fixed_ip und fixed_ipv6 sind materialisiert und stabil.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-46
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-49
+  begruendung: Unveraendert.
+  zeilen:
+  - 61
+  - 64
+- id: TR-XB055-07
+  zitat: '- restricted_reason (ENUM: QUOTA | EXPIRY | MANUAL | UNCLAIMED_OVERDUE, NULL wenn unrestricted) <-- Kernel/nftables
+    Effective Reason (Performance/Debug). Wird deterministisch durch Apply/Reconcile gesetzt (B166), niemals user-supplied.
+    - restricted_effective (BOOL/TINYINT; 1 wenn restricted_reason != NULL, sonst 0) <-- Performance-Flag: Fast Path ohne
+    Join-heavy Evaluate. Wird nur vom Server gepflegt (B166), keine UI-Quelle.'
+  art: FUNKTION
+  aussage: Grund und Flag der Einschraenkung setzt der Server deterministisch durch Herstellung/Abgleich, nie der Nutzer.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-01
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-02
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-37
+  begruendung: 'Angepasst: op_status und op_reason_code schreibt der Bewerter ueber die Uebergangsroutine; Herstellung und
+    Abgleich schreiben keinen Status (Trennung Entscheiden/Durchsetzen, DEC-PA-01).'
+  zeilen:
+  - 74
+  - 77
+- id: TR-XB055-08
+  zitat: Atomic guard (Mutex) against SimUse race (radacct is Truth for “session active”, this table is NOT a session-state)
+  art: DEFINITION
+  aussage: Die Sperre ist ein Mutex gegen das SimUse-Rennen; die Protokolltabelle ist die Wahrheit, die Sperre kein Sitzungszustand.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-20
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-02
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-01
+  begruendung: Unveraendert als Mutex ohne Zustandsbedeutung; die Wahrheit ist seit D004 die Laufzeit.
+  zeilen:
+  - 96
+  - 96
+- id: TR-XB055-09
+  zitat: '- session_key (VARCHAR) <-- rein diagnostisch (z.B. derived from NAS-IP-Address + Calling-Station-Id + username)'
+  art: IMPL_DETAIL
+  aussage: Das Feld session_key ist rein diagnostisch.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-19
+  begruendung: 'Angepasst: Die Halterkennung (frischer Zufallswert je Vorgang) ist funktional - nur der Halter gibt frei (Behebung
+    BF-0016).'
+  zeilen:
+  - 99
+  - 99
+- id: TR-XB055-10
+  zitat: '- expires_at (DATETIME) <-- MUST: NOW()+<Lock-TTL> wobei <Lock-TTL> = active_session_lock_ttl_seconds (gemäß B057;
+    inkl. failsafe/validierung dort)'
+  art: PARAMETER
+  aussage: Der Ablauf der Sperre ist Datenbankzeit plus TTL aus den Settings.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-16
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-18
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#vpn_active_session_lock_ttl_seconds
+  begruendung: Unveraendert; zusaetzlich feste Obergrenze je Zweck gegen verstellte Uhren.
+  zeilen:
+  - 101
+  - 101
+- id: TR-XB055-11
+  zitat: '- state (enum: held, released) <-- OPTIONAL, DIAGNOSTIC ONLY (kein Lifecycle / keine Logikquelle) - release_reason
+    (nullable) <-- OPTIONAL, DIAGNOSTIC ONLY'
+  art: IMPL_DETAIL
+  aussage: Zustands- und Grundfelder der Sperre sind nur diagnostisch.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-16
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-20
+  begruendung: Die Sperre traegt Zweck, Halter und Ablauf; der Zweck ist funktional (Obergrenze, Freigabeweg). Ein Lebenszyklus
+    entsteht daraus nicht.
+  zeilen:
+  - 102
+  - 103
+- id: TR-XB055-12
+  zitat: '- UNIQUE(vpn_connection_id) <-- SimUse=1 guard'
+  art: SCHUTZZIEL
+  aussage: Je Connection hoechstens eine Sperre.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-16
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-24
+  begruendung: Unveraendert.
+  zeilen:
+  - 106
+  - 106
+- id: TR-XB055-13
+  zitat: '- Acquire: authorize end -> INSERT lock (expires_at = NOW() + Lock-TTL; Lock-TTL = active_session_lock_ttl_seconds
+    gemäß B057)'
+  art: FUNKTION
+  aussage: Erwerb am Ende der Autorisierung durch Einfuegen der Sperrzeile.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-14
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-17
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-23
+  begruendung: Unveraendert im Kern; der Erwerb ist in zwei einzeln festgeschriebene Anweisungen gefasst und Teil der Schritte
+    P1 bis P6 (danach erneute Pruefung von Protokoll und Zulassungsstand).
+  zeilen:
+  - 110
+  - 110
+- id: TR-XB055-14
+  zitat: '- Release: on Accounting-Start (radacct start) -> DELETE lock row'
+  art: FUNKTION
+  aussage: Freigabe beim Abrechnungsbeginn durch Loeschen der Zeile.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-19
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-26
+  begruendung: 'Angepasst (BF-0016): Freigegeben wird nach dem Schreiben der Protokollzeile und nur, wenn die Start-Meldung
+    die Halterkennung der Zusage traegt - eine nachgespielte Start-Meldung einer frueheren Sitzung loescht so keine fremde
+    Sperre.'
+  zeilen:
+  - 111
+  - 111
+- id: TR-XB055-15
+  zitat: '- Expired locks dürfen im Auth-Pfad ignoriert/gelöscht werden (idempotent); verhindern keinen dauerhaften Lockout.'
+  art: SCHUTZZIEL
+  aussage: Abgelaufene Sperren duerfen im Anmeldepfad geloescht werden; sie sperren nie dauerhaft aus.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-17
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-27
+  begruendung: Unveraendert, mit benannten Hoechstzeiten.
+  zeilen:
+  - 112
+  - 112

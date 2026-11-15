@@ -1,0 +1,623 @@
+schema: trace/1
+quelle: XPN
+datei: 00_MASTER_v2.5.txt
+einheit: AP-Q02
+vollstaendigkeit: TEILWEISE (bindende Master-Regeln und Kurzuebersicht, soweit BASE-040, BASE-050, BASE-070 und der Entwurf
+  BASE-080 betroffen sind; Onboarding, DNS-Dienste, Webstack, Blockpage, Zeitdienst, Verkehrsformung, Block-Liste und Abhaengigkeiten
+  folgen in den zustaendigen Arbeitspaketen)
+records:
+- id: TR-XMASTER-01
+  zitat: '- "Source of Truth" für Nutzer/Verbindungen/Expiry/Quota/Stats ist SQL ab Tag 1.'
+  art: SCHUTZZIEL
+  aussage: SQL ist die Quelle der Wahrheit fuer Nutzer, Verbindungen, Laufzeit, Quota und Statistik.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - decisions/D004_RUNTIME_TRUTH_VS_SQL_PERSISTENZ.txt#D004-E01
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-19
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-01
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-36
+  begruendung: 'Fuer Policy, Zulassung und Aggregate unveraendert (Herstellung allein aus SQL-SOLL, quota_used als einziges
+    Aggregat). Angepasst durch D004: Ob eine Sitzung lebt, sagt die Laufzeit (Daemon bzw. Kernel), nicht eine SQL-Tabelle;
+    es gibt keinen dauerhaften Sitzungsdatensatz.'
+  zeilen:
+  - 20
+  - 20
+- id: TR-XMASTER-02
+  zitat: '- Restricted (Kernel) wird nur durch QUOTA/EXPIRY/MANUAL/UNCLAIMED_OVERDUE ausgelöst, nicht durch Verify.'
+  art: SCHUTZZIEL
+  aussage: Die Kernel-Einschraenkung hat nur die genannten Ausloeser; die E-Mail-Bestaetigung gehoert nicht dazu.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-03
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-53
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_020_BEWERTUNG_UND_LIFECYCLE_LAUF.txt#2) BEDINGUNGSQUELLEN (abschliessend)
+  begruendung: Die Liste der Ausloeser ist weiter abschliessend, aber auf sechs Quellen erweitert (Plan-Limit und Pause sind
+    seit SM_CONNECTION/BASE-010_050 dazugekommen). Die E-Mail-Bestaetigung loest unveraendert nichts im Kernel aus.
+  zeilen:
+  - 31
+  - 31
+- id: TR-XMASTER-03
+  zitat: '- LEGACY (XP/Vista, PPP/L2TP) bleibt IPv4-only.'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: L2TP-Clients (XP/Vista) bleiben IPv4-only.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt#AV-2
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-25
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-17
+  begruendung: 'Unveraendert: L2TP_IPSEC erhaelt keine IPv6-Adresse; IPv6 an ppp* wird verworfen.'
+  zeilen:
+  - 35
+  - 35
+- id: TR-XMASTER-04
+  zitat: '- WAN/Provider-IPv6 ist kein implizites Feature: Leaks sind zu verhindern (nftables Policy, Forward/Output-Constraints).'
+  art: SCHUTZZIEL
+  aussage: IPv6 des Providers ist keine stille Zusatzfunktion; Lecks am Tunnel vorbei werden verhindert.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-25
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-17
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-36
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-37
+  begruendung: 'Unveraendert und fuer beide Tunnel ausgefuehrt: jeder Schutz gleichwertig fuer IPv6, kein IPv6 an ppp*, Client-Verkehr
+    verlaesst das WAN nur umgesetzt (NAT66), ein Leck-Waechter verwirft Adressen des RetroTunnel-Adressraums am WAN.'
+  zeilen:
+  - 37
+  - 37
+- id: TR-XMASTER-05
+  zitat: '- Dualstack Slot-Mapping (Thema I / B061): pro vpn_connection gibt es genau einen ip_slot als SoT; daraus werden
+    fixed_ip (v4) und fixed_ipv6 (v6) materialisiert (keine Random-Leases). v6_addr_policy: LEGACY=NONE, ADMIN/MODERN=FIXED_SQL
+    (SQL-first, reconcile-bar).'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Je Connection genau ein ip_slot als Quelle; IPv4- und IPv6-Adresse sind daraus materialisiert, keine Zufalls-Leases.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-46
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-49
+  - base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt#AV-1
+  begruendung: Unveraendert (ein Allokator, Ableitung aus Pool-Basis und Slot).
+  zeilen:
+  - 38
+  - 38
+- id: TR-XMASTER-06
+  zitat: '- IP-Lifecycle / Quarantäne / Reconcile (Thema C / B064): Soft-Delete (disabled_at/revoked_at), QUARANTINE_DAYS,
+    random ip_slot Allocation (CSPRNG) + Drift-Guards; verhindert monotone IP-Reihenfolgen ohne Lease-Chaos.'
+  art: FUNKTION
+  aussage: Entzogene Adressen gehen in Quarantaene; Slots werden zufaellig vergeben; Abweichungen werden erkannt.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-47
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-50
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-54
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-61
+  begruendung: Unveraendert. Der Drift-Waechter meldet und aendert nichts; die Reparatur ist eine Verwaltungshandlung.
+  zeilen:
+  - 39
+  - 39
+- id: TR-XMASTER-07
+  zitat: '- User dürfen bewusst definierte Web-Services (Panel/Status/Portal/Blockpage) nutzen, aber KEINE Admin-Services
+    (SSH, AdGuard UI, phpMyAdmin, DB, etc.).'
+  art: SCHUTZZIEL
+  aussage: Kunden erreichen nur die definierten Web-Dienste, nie Verwaltungsdienste.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-26
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-27
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-28
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-29
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-43
+  begruendung: 'Uebernommen und verschaerft: Verwaltungsdienste verlangen zusaetzlich zur ADMIN-Adresse die Aufnahme in admin_panel_allowed;
+    serverinterne Dienste sind aus keinem VPN-Interface erreichbar.'
+  zeilen:
+  - 41
+  - 42
+- id: TR-XMASTER-08
+  zitat: '- DNS-ZWANG ist IMMER aktiv (MUST, kein Optional-Mode):'
+  art: SCHUTZZIEL
+  aussage: Der DNS-Zwang ist immer aktiv.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-30
+  begruendung: Unveraendert, fuer alle Rollen und Zustaende und fuer beide Tunnel.
+  zeilen:
+  - 44
+  - 44
+- id: TR-XMASTER-09
+  zitat: DoH/DoT wird in dieser Runde nicht behandelt (PARKED).
+  art: ARCH_ENTSCHEIDUNG
+  aussage: DNS ueber TLS/HTTPS war im Vorgaenger zurueckgestellt.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-30
+  - base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-12
+  begruendung: 'Nicht mehr zurueckgestellt: Zielport 853 wird abgewiesen (DEC-FW-12); Listen gegen DNS ueber HTTPS sind eine
+    Anforderung an BASE-060.'
+  zeilen:
+  - 46
+  - 46
+- id: TR-XMASTER-10
+  zitat: '- Restricted statt Reject: QUOTA/EXPIRY/MANUAL/UNCLAIMED_OVERDUE -> ACCEPT + restricted_effective + restricted_reason'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: 'Einschraenken statt ablehnen: Bei Quota, Ablauf, Verwaltungs-Einschraenkung und ueberfaelligem Claim wird zugelassen
+    und eingeschraenkt.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-04
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-24
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-22
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-27
+  begruendung: 'Grundsatz unveraendert. Die Form ist angepasst: statt restricted_effective/restricted_reason fuehrt die Connection
+    op_status RESTRICTED mit op_reason_code (BASE-010); die Kernel-Wirkung definiert BASE-050.'
+  zeilen:
+  - 48
+  - 48
+- id: TR-XMASTER-11
+  zitat: Reject nur für DISABLED/BANNED/Missbrauch.
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Abgelehnt wird nur bei Sperrung und Missbrauch.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-020_AAA_CORE/BASE-020_090_INVARIANTEN.txt#AAA-02
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-24
+  begruendung: 'Unveraendert: DISABLED und Widerruf verweigern immer; RESTRICTED bleibt zugelassen.'
+  zeilen:
+  - 50
+  - 50
+- id: TR-XMASTER-12
+  zitat: '- ip-up/ip-down Hook erzeugt Runtime-Mapping (/run/vpn-sessions/pppX.env) MUST enthalten: PPPD_PID + PPP_IF + START_TS
+    (PID-Reuse Schutz) + VPN-IP/connection_id.'
+  art: IMPL_DETAIL
+  aussage: Der Sitzungs-Hook schreibt eine Zuordnungsdatei mit Prozessnummer, Schnittstelle und Startzeit.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-030_TUNNEL_L2TP_IPSEC/BASE-030_040_PPP_INTERFACE_LIFECYCLE.txt#5) SESSION-MAPPING (/run/vpn-sessions/)
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-71
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-33
+  begruendung: 'Ersetzt: accel-ppp fuehrt keine pppd-Prozesse je Sitzung. Der Laufzeit-Spiegel bleibt als Hilfe fuer den Hard-Cut
+    ohne Datenbank; die Zuordnung leistet der Adapter ueber Sitzungs- und Instanzkennung des Daemons. Schutzziel (keine Verwechslung
+    nach Wiederverwendung) bleibt erhalten.'
+  zeilen:
+  - 53
+  - 54
+- id: TR-XMASTER-13
+  zitat: '- Vor jedem SQL/Apply Zugriff wird ein Connect-Pending Gate aktiviert: connect_pending_v4 (deny-all forward).'
+  art: SCHUTZZIEL
+  aussage: Vor jedem SQL- und Herstellungszugriff ist die Sitzung gesperrt (kein Fenster ohne Policy).
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-19
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-18
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-26
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-19
+  begruendung: 'Schutzziel unveraendert, Mechanik tunnelspezifisch (DEC-FW-08): Eine L2TP-Sitzung ist ohne Freigabe-Element
+    von Beginn an gesperrt - es braucht keinen Eintrag, der vor dem SQL-Zugriff gesetzt werden muesste; fuer WireGuard steht
+    das Gate vor dem Peer-Eintrag. Gesperrt wird in input UND forward (Vorgaenger: nur forward).'
+  zeilen:
+  - 56
+  - 56
+- id: TR-XMASTER-14
+  zitat: '- Das Gate wird erst nach SUCCESS von vpn-policy-apply entfernt.'
+  art: SCHUTZZIEL
+  aussage: Die Sperre faellt erst nach erfolgreicher Herstellung.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-26
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-29
+  begruendung: 'Unveraendert: Die Freigabe ist der letzte Schritt.'
+  zeilen:
+  - 57
+  - 57
+- id: TR-XMASTER-15
+  zitat: '- Bei Apply-Failure (z.B. SQL down / TEMPFAIL) gilt fail-closed: Session wird deterministisch beendet.'
+  art: SCHUTZZIEL
+  aussage: Scheitert die Herstellung, wird die Sitzung beendet (Fail-Closed).
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-30
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_030_HERSTELLUNG_EINZELZIEL.txt#VERHAELTNIS ZUM VORGAENGER
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-35
+  begruendung: Fuer endgueltige Ursachen und fuer den Datenbankausfall unveraendert (sofort beenden). Bei voruebergehenden
+    Ursachen im Kernelzugriff bleibt die Sitzung gesperrt und wird nach hoechstens vpn_connect_gate_ttl_seconds beendet; die
+    Schutzwirkung haengt nicht am Beenden, weil bis zur Freigabe aller Verkehr verworfen wird.
+  zeilen:
+  - 58
+  - 58
+- id: TR-XMASTER-16
+  zitat: '- Wichtig: connect_pending_v4 ist NICHT restricted_v4/Walled Garden und erlaubt keinen Portal/DNS-Fallback.'
+  art: SCHUTZZIEL
+  aussage: 'Die Sperre ist kein eingeschraenkter Modus: kein Portal, kein DNS.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-19
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-18
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-22
+  begruendung: 'Unveraendert: ohne Freigabe wird aller Verkehr verworfen, einschliesslich DNS und Portal; es gibt keinen Ersatzzustand
+    ''eingeschraenkt''.'
+  zeilen:
+  - 59
+  - 59
+- id: TR-XMASTER-17
+  zitat: '- vpn-policy-apply setzt tc + enforced nft sets (restricted_v4)'
+  art: FUNKTION
+  aussage: vpn-policy-apply setzt Verkehrsformung und die durchgesetzten Sets.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-18
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-60
+  begruendung: 'Unveraendert: ein Schreiber fuer Sets, Peers, conntrack und Formung.'
+  zeilen:
+  - 60
+  - 60
+- id: TR-XMASTER-18
+  zitat: '- HARD CUT (MUST, sofortige Wirkung auch für ESTABLISHED): Beim Übergang FULL -> RESTRICTED gilt Reihenfolge: (1)
+    Enforce (nft/tc aktiv) -> (2) Conntrack-Flush (bidirektional, src+dst) für Client-IP.'
+  art: SCHUTZZIEL
+  aussage: 'Hard-Cut beim Uebergang in den eingeschraenkten Zustand: erst durchsetzen, dann conntrack beidseitig loeschen.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-32
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-38
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-40
+  begruendung: 'Reihenfolge unveraendert (Set vor conntrack). Angepasst: beide Adressfamilien, alle Tunneladressen der Connection,
+    Ausloeser ist der am Kernel gelesene Vorzustand statt eines Ereignisses.'
+  zeilen:
+  - 61
+  - 63
+- id: TR-XMASTER-19
+  zitat: 'Fail-Safe (MUST): Wenn Conntrack-Flush fehlschlägt -> PPP-Session kill (über PPPD_PID).'
+  art: SCHUTZZIEL
+  aussage: Scheitert das Loeschen der Fluesse, wird die Sitzung beendet.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-32
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-31
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-71
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-39
+  begruendung: Unveraendert im Ergebnis. Beendet wird ueber den Adapter (Sitzungskennung oder Tunneladresse) statt ueber eine
+    Prozessnummer; fuer WireGuard ueber Remove und Wiedereintrag des Peers.
+  zeilen:
+  - 64
+  - 64
+- id: TR-XMASTER-20
+  zitat: 'Fail-Closed: Wenn Flush+Kill fehlschlagen -> Fatal/Alert (kein Silent-Fail).'
+  art: SCHUTZZIEL
+  aussage: Scheitern Loeschen und Beenden, wird alarmiert - kein stilles Scheitern.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-32
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-21
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-33
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_030_HERSTELLUNG_EINZELZIEL.txt#auch der Rueckfall gescheitert
+  begruendung: 'Unveraendert: Ergebnis ist ein Fehler (Code 4), Ereignis CRITICAL, der Auftrag bleibt offen und wird wiederholt;
+    ein Code ungleich 0 gilt nie als Erfolg.'
+  zeilen:
+  - 65
+  - 65
+- id: TR-XMASTER-21
+  zitat: '- Reconcile (<=5min) macht FLUSH+REBUILD der Restricted-Sets (Drift-Schutz)'
+  art: SCHUTZZIEL
+  aussage: Der Abgleich laeuft spaetestens alle fuenf Minuten und baut die Sperr-Sets neu auf.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-36
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-39
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_070_HELFER_BETRIEB_UND_BEOBACHTBARKEIT.txt#vpn_reconcile_interval_seconds
+  begruendung: 'Der Neuaufbau ist verschaerft (leeren und fuellen nur in einer Transaktion; erst schliessen, dann oeffnen).
+    Der Takt ist ein Setting mit Vorschlag 300 s. ABWEICHUNG OFFEN: Die zulaessige Obergrenze 3600 s erlaubt, die Fuenf-Minuten-Zusage
+    des Vorgaengers auf eine Stunde zu dehnen - Befund BF-0085.'
+  zeilen:
+  - 66
+  - 66
+- id: TR-XMASTER-22
+  zitat: '- Simultaneous-Use=1 pro Subaccount ist bindend (pro Gerät genau eine Session).'
+  art: SCHUTZZIEL
+  aussage: Je Connection hoechstens eine Sitzung.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-12
+  - base/BASE-020_AAA_CORE/BASE-020_090_INVARIANTEN.txt#AAA-04
+  begruendung: Unveraendert.
+  zeilen:
+  - 68
+  - 68
+- id: TR-XMASTER-23
+  zitat: '- Janitor/Sweeper schließt stale radacct Sessions (Hybrid: SQL-first Settings + lokale Safety-Ceilings + Fallbacks)'
+  art: FUNKTION
+  aussage: Ein Bereinigungslauf schliesst haengende Sitzungszeilen; Settings aus SQL mit lokalen Obergrenzen und Rueckfaellen.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-23
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-24
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-59
+  begruendung: 'Geschlossen wird nur bei positiver Kenntnis aus einer Laufzeitlesung, nie nach Alter allein. Eigene Rueckfallwerte
+    hat das Modul nicht mehr: Es gilt die Fehlerklasse des Katalogs.'
+  zeilen:
+  - 70
+  - 70
+- id: TR-XMASTER-24
+  zitat: '- On-demand Janitor im RADIUS-Login-Flow: SHOULD: Cache/Fallback für Settings im On-demand Pfad (DoS-Schutz gegen
+    Login-Flooding).'
+  art: SCHUTZZIEL
+  aussage: Bereinigung im Anmeldepfad, geschuetzt gegen Anmeldefluten.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-26
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-14
+  begruendung: 'Unveraendert: Zeitlimit, Haeufigkeit je Connection und Gleichzeitigkeit begrenzt; Settings werden nicht je
+    Anfrage gelesen.'
+  zeilen:
+  - 71
+  - 72
+- id: TR-XMASTER-25
+  zitat: '- Safety-Check (MUST): Mapping-Dateien in /run/vpn-sessions/ sind NICHT per Existenz "wahr", sondern müssen gegen
+    Kernel-Realität validiert werden (Interface-Check + PID-Check + START_TS/PID-Reuse Schutz).'
+  art: SCHUTZZIEL
+  aussage: Zuordnungsdateien sind nicht durch blosse Existenz wahr; sie werden gegen die Kernel-Wirklichkeit geprueft.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-02
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-23
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-33
+  begruendung: 'Verschaerft: Keine Entscheidung liest den Spiegel als Beleg fuer eine lebende Sitzung; Liveness kommt allein
+    aus der Laufzeitlesung. Der Spiegel dient nur dem Hard-Cut ohne Datenbank; fehlt der Eintrag, ist das Ergebnis ein Fehler,
+    nie ''nicht aktiv''.'
+  zeilen:
+  - 73
+  - 74
+- id: TR-XMASTER-26
+  zitat: '- Integritätsschutz (MUST): /run/vpn-sessions/ root-only write (chmod/chown), keine Manipulation durch Web-User/Services.'
+  art: SCHUTZZIEL
+  aussage: Der Laufzeit-Spiegel ist nur fuer root schreibbar.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_040_BEREINIGUNG_UND_HARD_CUT.txt#Der Spiegel ist nur fuer root
+  begruendung: Unveraendert.
+  zeilen:
+  - 75
+  - 75
+- id: TR-XMASTER-27
+  zitat: '- Guard/Lock-Key ist vpn_connection_id (kein „Takeover“; keine stillen Overrides).'
+  art: SCHUTZZIEL
+  aussage: Die Sperre haengt an der Connection; keine Uebernahme, kein stilles Ueberschreiben.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-16
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-12
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-17
+  begruendung: 'Unveraendert: hoechstens eine Sperre je Connection, ein neuer Versuch verdraengt nie, ''einfuegen oder aktualisieren''
+    ist unzulaessig.'
+  zeilen:
+  - 77
+  - 77
+- id: TR-XMASTER-28
+  zitat: '- Lock-Lifecycle/Reset ist normiert (z.B. Release/Reset über klar definierte Trigger; Details in B171/B056/B055).'
+  art: FUNKTION
+  aussage: Lebenszyklus und Ruecksetzen der Sperre sind festgelegt.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-16
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-19
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-27
+  begruendung: 'Festgelegt und erweitert: Zweck, Halter und Ablauf je Sperre; Freigabe nur durch den Halter; benannte Aussperrzusagen.'
+  zeilen:
+  - 78
+  - 78
+- id: TR-XMASTER-29
+  zitat: '- Ziel: Simultaneous-Use=1 bleibt erzwingbar, ohne Support-Dead-Ends (Janitor + On-demand Flow bleiben Pflicht).'
+  art: SCHUTZZIEL
+  aussage: SimUse=1 bleibt durchsetzbar, ohne Kunden auszusperren.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-27
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-26
+  begruendung: Unveraendert, mit benannten Hoechstzeiten je Lage.
+  zeilen:
+  - 79
+  - 79
+- id: TR-XMASTER-30
+  zitat: 'Forward+NAT (IPv4 MASQUERADE + IPv6 NAT66/Masquerade), Peer-Isolation, Abuse-Outbound-Block, Walled-Garden/Restricted
+    (HARD: QUOTA/EXPIRY/MANUAL/UNCLAIMED_OVERDUE; Verify bleibt App-Layer Verify-Wall)'
+  art: FUNKTION
+  aussage: 'Kernel-Policy: WAN minimal offen, L2TP nur mit IPsec, Weiterleitung mit NAT, Isolation, Abuse-Sperren, eingeschraenkter
+    Modus.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-13
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-14
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-36
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-31
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-33
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-22
+  begruendung: Uebernommen. Am WAN kommen der WireGuard-Port und der Port des Notzugangs hinzu (IKEv2 entfaellt).
+  zeilen:
+  - 104
+  - 104
+- id: TR-XMASTER-31
+  zitat: '- Policy-Parameter/Settings sind SQL-first über settings_catalog + settings_* Scopes (Kanon: B057; Schema-SoT: B055);
+    keine Magic Numbers in Code/Configs.'
+  art: SCHUTZZIEL
+  aussage: Policy-Parameter stehen in SQL; keine festen Zahlen in Code und Konfiguration.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-46
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-59
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-62
+  begruendung: Unveraendert; feste Werte im Regelwerk sind abschliessend benannt (Protokollkonstanten, feste Abuse-Liste).
+  zeilen:
+  - 114
+  - 114
+- id: TR-XMASTER-32
+  zitat: '- conn_group ist der Primär-Policy-Key (SQL-first) und alle Segment-Ableitungen sind deterministisch (Kanon: B058;
+    Schema-SoT: B055; Segment-Decision: D003); keine Range-/UI-/Protocol-Inference.'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: conn_group ist der Policy-Schluessel; keine Ableitung aus Adressbereich, Oberflaeche oder Protokoll.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - decisions/D003_POLICY_SYSTEM_UND_ROLLE_AM_CUSTOMER.txt#D003-E02
+  - base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt#AV-2
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-49
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-50
+  begruendung: 'Ersetzt durch access_role am Customer und tunnel_type an der Connection (D003). Das Verbot der Rueckableitung
+    gilt weiter: Niemand rechnet aus einer Adresse Slot oder Rolle zurueck. Das Regelwerk der Firewall wird aus den Pool-Bereichen
+    gerendert - das ist die Materialisierung der Rolle, keine Ableitung in der Gegenrichtung.'
+  zeilen:
+  - 115
+  - 115
+- id: TR-XMASTER-33
+  zitat: '- Runtime-Mapping pppX -> connection_id via /run/vpn-sessions/pppX.env (PPPD_PID + PPP_IF + START_TS) - Accounting
+    Collector liest Kernel-Counter und schreibt Deltas batchweise (Hybrid: SQL-first Settings + lokale Safety-Ceilings + klar
+    markierte Notfall-Fallbacks).'
+  art: FUNKTION
+  aussage: Verbrauch wird aus Kernelzaehlern gelesen und in Buendeln gebucht.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-35
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-37
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-40
+  begruendung: 'WireGuard: Kernelzaehler des Peers. L2TP: Differenz zwischen dem in radacct gemeldeten Zaehler und dem Buchungsstand
+    (D004) statt eigener Zaehlerlesung je Schnittstelle. In beiden Faellen relativ, gebuendelt und ohne Datenbankzugriff je
+    Paket.'
+  zeilen:
+  - 118
+  - 120
+- id: TR-XMASTER-34
+  zitat: '- Bei Spool-Ceiling-Hit gilt MUST: Drop/Ring-Buffer (Drop Oldest) + Alert (keine Stop-Policy).'
+  art: SCHUTZZIEL
+  aussage: Bei vollem Spool werden die aeltesten Eintraege verworfen und es wird alarmiert; der Dienst wird nicht angehalten.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#P-d
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-39
+  - 'base/BASE-005_PLATFORM_CORE/BASE-005_040_FILESYSTEM_UND_LOG_LAYOUT.txt#Bei Ceiling-Hit: drop-oldest + Alert'
+  begruendung: 'Begrenzung und Alarm unveraendert; ein Anhalten wegen vollem Puffer ist nirgends vorgesehen. Angepasst ist
+    die Reihenfolge des Verwerfens im L2TP-Puffer: zuerst Interim-Meldungen (jede spaetere ersetzt sie), Start und Stop zuletzt;
+    die Plattform-Obergrenze verwirft weiter die aeltesten. Der zusammenfassende Satz in BASE-070_050 Abschnitt 8 (''aelteste
+    zuerst ... erhalten'') ist ungenau - Befund BF-0086.'
+  zeilen:
+  - 121
+  - 121
+- id: TR-XMASTER-35
+  zitat: '- Boot-Reconcile: /run ist tmpfs, daher Reconcile nach reboot zwingend'
+  art: SCHUTZZIEL
+  aussage: Nach einem Neustart ist der Abgleich zwingend.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-45
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-09
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-55
+  begruendung: 'Unveraendert und abgesichert: Bis zum fehlerfreien Startabgleich bleibt der WireGuard-Pfad versiegelt.'
+  zeilen:
+  - 128
+  - 128
+- id: TR-XMASTER-36
+  zitat: ADMIN ignoriert Quota/Expiry/UNCLAIMED_OVERDUE
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Fuer ADMIN gelten Quota, Ablauf und Claim-Frist nicht.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-05
+  begruendung: 'Unveraendert: Die Bewertung ergibt fuer ADMIN nie RESTRICTED.'
+  zeilen:
+  - 134
+  - 134
+- id: TR-XMASTER-37
+  zitat: MANUAL Restrict (Not-Aus) gilt weiterhin für alle, inkl. ADMIN
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Die Verwaltungs-Einschraenkung galt im Vorgaenger auch fuer ADMIN.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - 02_ASSUMPTIONS_AND_RULES.txt#R-08
+  - base/BASE-010_IDENTITY_CORE/BASE-010_050_REASON_REGISTRY.txt#KLARSTELLUNG RESTRICT_ADMIN_MANUAL (R-08)
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-05
+  begruendung: 'Bewusst geaendert (R-08): Eine ADMIN-Connection wird nie eingeschraenkt; der Not-Aus fuer ADMIN ist die Sperrung
+    (DISABLE). Dieselbe Aussage der nachgelieferten Plans-Datei ist als TR-NPLANS-01 eingeordnet.'
+  zeilen:
+  - 134
+  - 134
+- id: TR-XMASTER-38
+  zitat: Baseline-Security (DNS-Zwang, Peer-Isolation, Abuse-Outbound-Blocks, RateLimits) bleibt auch für ADMIN aktiv.
+  art: SCHUTZZIEL
+  aussage: Der Grundschutz gilt auch fuer ADMIN.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-49
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-33
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-31
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-30
+  begruendung: Unveraendert. Die Grenzen fuer neue Fluesse gelten fuer ADMIN mit einem Faktor (vpn_fw_client_admin_factor)
+    - das entspricht der Option conn_new_rate_admin_multiplier des Vorgaengers.
+  zeilen:
+  - 134
+  - 134
+- id: TR-XMASTER-39
+  zitat: '- Bind nur an SERVICE_WEB (10.77.0.3):80/443, niemals WAN, niemals 0.0.0.0'
+  art: SCHUTZZIEL
+  aussage: Der Webstack bindet nur an seine Dienstadresse, nie am WAN.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-51
+  begruendung: 'Unveraendert als zweite Schicht: Die Bindung der Dienste wird regelmaessig geprueft, unabhaengig von der Firewall.'
+  zeilen:
+  - 139
+  - 139
+- id: TR-XMASTER-40
+  zitat: '- Panel-Events triggern vpn-policy-apply (sofortige Durchsetzung)'
+  art: SCHUTZZIEL
+  aussage: Handlungen im Panel loesen die Herstellung sofort aus.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-46
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-50
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-64
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-56
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-60
+  begruendung: 'Schutzziel unveraendert und abgesichert: Der Webprozess ruft das Werkzeug nie selbst; jede Aenderung schreibt
+    in ihrer Transaktion einen Auftrag, der spaetestens nach einem Raster des Auftragslaufs wirkt - auch wenn der ausloesende
+    Prozess endet.'
+  zeilen:
+  - 140
+  - 140
+- id: TR-XMASTER-41
+  zitat: '- Hard-Stop (MUST): claim_deadline = created_at + 180 Tage (Standard). Wenn nach Ablauf weiterhin UNCLAIMED -> status=DISABLED
+    (HARD; RADIUS reject; kein VPN/kein Panel).'
+  art: FUNKTION
+  aussage: 'Harte Frist: Bleibt eine Connection bis zur claim_deadline ohne Claim, wird sie gesperrt.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-11
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-08
+  begruendung: Unveraendert in der Wirkung. Als unumkehrbarer Uebergang laeuft sie nur bei bestaetigter Zeit, ohne Zeitanomalie
+    und unter der Mengengrenze; die Dauer selbst gehoert zu MOD-001.
+  zeilen:
+  - 248
+  - 248
+- id: TR-XMASTER-42
+  zitat: '- Promotion (User → Admin): Panel-Admin (Role=ADMIN) provisioniert NEUE vpn_connection(s) mit conn_group=ADMIN (Admin
+    ist eigene Gruppe; kein Upgrade von LEGACY/MODERN).'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Befoerderung zum Admin geschah ueber NEUE Connections der Gruppe ADMIN.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - decisions/D002_ROLLENWECHSEL_INPLACE.txt#D003-E02
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-55
+  begruendung: 'Ersetzt durch den Rollenwechsel an Ort und Stelle (D002): Alle Connections des Customers werden in einer Transaktion
+    umgestellt; die alten Adressen gehen in Quarantaene.'
+  zeilen:
+  - 251
+  - 251
+- id: TR-XMASTER-43
+  zitat: '- Demotion (Admin → User): alle ADMIN-Connections werden sofort DISABLED (disabled_at) + revoked (revoked_at), optional
+    Hardcut/Session-Kill; DoD: danach kein Admin-Netz-Traffic mehr.'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Rueckstufung sperrte und widerrief alle ADMIN-Connections sofort.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-55
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-56
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-53
+  begruendung: 'Ersetzt durch den Rollenwechsel (D002): Die Connections bleiben bestehen und erhalten Adressen des Zielpools;
+    Laufzeit auf den alten Adressen wird beendet, sodass danach kein Verkehr mehr aus dem ADMIN-Netz moeglich ist - das Schutzziel
+    der Rueckstufung bleibt.'
+  zeilen:
+  - 252
+  - 252

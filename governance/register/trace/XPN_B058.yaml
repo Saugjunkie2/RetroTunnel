@@ -1,0 +1,163 @@
+schema: trace/1
+quelle: XPN
+datei: blocks/B058_CONN_GROUP_POLICYKEY_DETERMINISTIC_DERIVATIONS.txt
+einheit: AP-Q02
+vollstaendigkeit: TEILWEISE (Policy-Schluessel, Ableitungen und Trennung von Bestaetigung und Anmeldung, soweit BASE-050,
+  BASE-070 und der Entwurf BASE-080 betroffen sind; die Diagnose-Anzeige folgt in AP-M006)
+records:
+- id: TR-XB058-01
+  zitat: '- Der Primärschlüssel für Policy-Entscheidungen ist conn_group. - conn_group ist eine Eigenschaft der vpn_connection
+    (pro Gerät), nicht des Kunden. - conn_group ist SQL-first SoT (B055.vpn_connections.conn_group), NOT NULL.'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Der Policy-Schluessel ist conn_group, eine Eigenschaft der Connection, nicht des Kunden.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - decisions/D003_POLICY_SYSTEM_UND_ROLLE_AM_CUSTOMER.txt#D003-E02
+  - base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt#AV-2
+  begruendung: 'Ersetzt (D003): Die Rolle gehoert zum Customer (access_role); der Tunneltyp ist ein eigenes Feld der Connection.
+    Der Grundsatz ''ein Feld, eine Bedeutung, in SQL'' bleibt.'
+  zeilen:
+  - 25
+  - 27
+- id: TR-XB058-02
+  zitat: '- Niemals „aus IP-Ranges ableiten/erraten“ (kein Hidden Inference).'
+  art: SCHUTZZIEL
+  aussage: Der Schluessel wird nie aus Adressbereichen abgeleitet.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-49
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-50
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-28
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-24
+  begruendung: 'In aller Software unveraendert: Wer die Rolle braucht, liest access_role. Das Regelwerk des Kernels unterscheidet
+    Rollen ueber die Pool-Bereiche (Materialisierung, FW-50); die Verwaltungsdienste verlangen zusaetzlich das aus SQL abgeleitete
+    Set, und die Ausnahme von der Einschraenkung folgt der Rolle aus SQL.'
+  zeilen:
+  - 28
+  - 28
+- id: TR-XB058-03
+  zitat: '- Niemals „aus UI-Buttons ableiten/erraten“ (UI kann conn_group anzeigen, nicht definieren).'
+  art: SCHUTZZIEL
+  aussage: Der Schluessel wird nie aus Bedienelementen abgeleitet.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-55
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-64
+  begruendung: 'Unveraendert: Ein Rollenwechsel ist eine protokollierte Kaskade ueber den privilegierten Auftragsweg.'
+  zeilen:
+  - 29
+  - 29
+- id: TR-XB058-04
+  zitat: '- Niemals „aus Protocol ableiten/erraten“ (L2TP/IPsec/WG sind Stack-Details, nicht Segment-SoT).'
+  art: SCHUTZZIEL
+  aussage: Der Schluessel wird nie aus dem Protokoll abgeleitet.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt#AV-2
+  begruendung: 'Unveraendert: Der Pool ergibt sich aus access_role, nicht aus tunnel_type.'
+  zeilen:
+  - 30
+  - 30
+- id: TR-XB058-05
+  zitat: '- conn_group treibt: - IP-Pool Auswahl - nftables Scopes (Service allowlists, admin-only tools isolation) - tc/QoS
+    profiles - /diag output & Panel Status (Segmentanzeige) - Default restrictions / Walled Garden Mapping (per Segment) -
+    Legacy-Kompatibilitätspfade (XP Constraints)'
+  art: FUNKTION
+  aussage: Der Schluessel treibt Pool, Firewall-Bereiche, Verkehrsformung, Diagnose und Standardbeschraenkungen.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt#AV-2
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-49
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-50
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-05
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-60
+  begruendung: access_role bestimmt den Pool und - ueber ihn - die wenigen Rollenunterschiede des Regelwerks; die Verkehrsformung
+    definiert MOD-003. Der IP-Stack folgt aus tunnel_type (L2TP ohne IPv6) - ein ausdrueckliches SQL-Feld, keine erratene
+    Protokolleigenschaft.
+  zeilen:
+  - 31
+  - 37
+- id: TR-XB058-06
+  zitat: '- Segmentwechsel ist eine SQL-Operation (admin-only), nicht ein Nebenprodukt von IP/Protocol/Client.'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Ein Wechsel des Segments ist eine SQL-Operation eines Admins, kein Nebenprodukt.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-55
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-54
+  begruendung: Unveraendert (Rollenwechsel-Kaskade).
+  zeilen:
+  - 42
+  - 42
+- id: TR-XB058-07
+  zitat: '- Diese Ableitungen sind: - total (für alle conn_group definiert) - deterministisch (keine random/hidden branching)
+    - versionierbar (Schema-Version in /diag) - derived_policy ist nicht direkt „User-editable“. - derived_policy kann als
+    Debug/Observability im /diag sichtbar sein.'
+  art: SCHUTZZIEL
+  aussage: Die Ableitungen sind vollstaendig, deterministisch, versionierbar, nicht vom Nutzer aenderbar und in der Diagnose
+    sichtbar.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-55
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-03
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-45
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-65
+  begruendung: 'Vollstaendig und deterministisch: genau eine gueltige Pool-Zeile je Rolle, Rendern mit Generation. Nicht aenderbar:
+    Netz, Praefix und v6_visual sind unveraenderlich, sobald ein Slot vergeben ist. Sichtbar: Statusdatei der Firewall und
+    Lese-Helfer (SOLL/IST je Connection); die Diagnose-Seite gehoert zu MOD-006.'
+  zeilen:
+  - 57
+  - 62
+- id: TR-XB058-08
+  zitat: '- Für jede conn_group existiert ein Test (B310): expected ip_stack/pools/scopes stimmen.'
+  art: TEST
+  aussage: 'Test je Gruppe: erwarteter IP-Stack, Pool und Firewall-Bereich stimmen.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-41
+  begruendung: Uebernommen je Rolle (Testadresse je Rolle, richtiger Rollen-Zaehler).
+  zeilen:
+  - 65
+  - 65
+- id: TR-XB058-09
+  zitat: '- Negative Test: Manipulation an fixed_ip oder Protocol ändert derived_policy NICHT.'
+  art: TEST
+  aussage: 'Negativtest: Eine Manipulation an Adresse oder Protokoll aendert die abgeleitete Policy nicht.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-79
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-43
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-61
+  begruendung: 'Angepasst: Eine verfaelschte Adresse wird in jedem Bereinigungslauf erkannt und als CRITICAL gemeldet; eine
+    Adresse ausserhalb des ADMIN-Pools erreicht die Verwaltungsdienste auch mit Set-Eintrag nicht. GRENZE: Bis zur Reparatur
+    gelten im Kernel die Pool-Regeln der vorgefundenen Adresse (Zaehler, ADMIN-Faktor der Grenzen); ob die Herstellung eine
+    Connection mit Adress-Drift als nicht auswertbar behandeln muss, ist offen - Befund BF-0086.'
+  zeilen:
+  - 66
+  - 66
+- id: TR-XB058-10
+  zitat: '- Verify (email_verified_at) ist ein App-Layer Gate für Panel-User. - Verify hat keine direkte Auswirkung auf AAA/VPN-AuthN.
+    - AAA/VPN-AuthN wird über: - vpn_connection status (PREPROVISIONED/CLAIMED/DISABLED) - restricted_effective / reason (Kernel
+    Policy) - RADIUS/SQL SoT (B055/B056) entschieden.'
+  art: SCHUTZZIEL
+  aussage: Die E-Mail-Bestaetigung ist ein Gate der Anwendung; ueber VPN-Zugang entscheiden Status der Connection und SQL.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-53
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-24
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-63
+  begruendung: Unveraendert.
+  zeilen:
+  - 72
+  - 78
+- id: TR-XB058-11
+  zitat: '- conn_group ist unabhängig von Verify (Verify darf conn_group nicht beeinflussen).'
+  art: SCHUTZZIEL
+  aussage: Die Bestaetigung beeinflusst den Policy-Schluessel nicht.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-53
+  begruendung: 'Unveraendert: Kein Kernel-Zustand haengt an der E-Mail-Bestaetigung eines Customers.'
+  zeilen:
+  - 84
+  - 84

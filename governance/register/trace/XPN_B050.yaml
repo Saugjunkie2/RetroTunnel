@@ -1,0 +1,501 @@
+schema: trace/1
+quelle: XPN
+datei: blocks/B050_SQL_AAA_RADIUS.txt
+einheit: AP-Q02
+vollstaendigkeit: TEILWEISE (harte Regeln, Optionen, Fehlerbilder und Tests mit Bezug zu Sitzung, Sperre, Bereinigung, Buchung,
+  Datenbankausfall, Herstellung und Firewall; AuthN-Entscheidung, RADIUS-Attribute und Terminologie-Kanon gehoeren zu BASE-010/BASE-020
+  und folgen in AP-Q04)
+records:
+- id: TR-XB050-01
+  zitat: '- Backend-Fehler (SQL down etc.) dürfen niemals Bans triggern; sie müssen als eigener Reason-Code sichtbar sein.'
+  art: SCHUTZZIEL
+  aussage: Stoerungen des Backends fuehren nie zu Sperren und haben einen eigenen Grund.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-020_AAA_CORE/BASE-020_090_INVARIANTEN.txt#AAA-07
+  - base/BASE-020_AAA_CORE/BASE-020_070_REJECT_REASONS.txt#R_AUTH_BACKEND_SQL_DOWN
+  - base/BASE-020_AAA_CORE/BASE-020_095_TESTS.txt#T-AAA-06
+  begruendung: Unveraendert in BASE-020. BASE-070 und BASE-080 erzeugen bei Datenbankstoerung Betriebsereignisse, keine Anmeldefehler;
+    eine Sperrentscheidung trifft allein MOD-005.
+  zeilen:
+  - 18
+  - 18
+- id: TR-XB050-02
+  zitat: '- Accounting-Events sind Teil des Contracts (Quota/Janitor/F2B): Format und Felder dürfen nicht „still“ abweichen.'
+  art: SCHUTZZIEL
+  aussage: Abrechnungsmeldungen sind Vertragsbestandteil; Format und Felder weichen nicht still ab.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-38
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-37
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-39
+  begruendung: 'Unveraendert: radacct ist das Meldeprotokoll, jede Zeile erhaelt nach einer Regel einen Buchungsstand; nachgespielte
+    Meldungen behalten Reihenfolge und Zeiten.'
+  zeilen:
+  - 19
+  - 19
+- id: TR-XB050-03
+  zitat: '- subaccount_login MUSS eindeutig sein (UNIQUE) für aktive Verbindungen, damit ip-up die CONNECTION_ID deterministisch
+    per SQL Lookup ermitteln kann (siehe B167).'
+  art: SCHUTZZIEL
+  aussage: Der Anmeldename ist eindeutig, damit der Sitzungsbeginn die Connection sicher bestimmt.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-29
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-33
+  begruendung: 'Schutzziel unveraendert, Mechanik angepasst: Zugeordnet wird ueber die Gegenstellen-Adresse; der Anmeldename
+    dient der Gegenprobe (byteweise). Ein Widerspruch fuehrt nie zur Freigabe.'
+  zeilen:
+  - 69
+  - 69
+- id: TR-XB050-04
+  zitat: '- subaccount_login Format ist kanonisch und MUSS validiert werden: ^vpn_[a-z2-7]{16}$ (Prefix "vpn_" + 16 Zeichen
+    Base32 (a-z2-7), lowercase).'
+  art: SCHUTZZIEL
+  aussage: Das Format des Anmeldenamens ist kanonisch und muss geprueft werden.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-62
+  - base/BASE-070_SESSION_CORE/BASE-070_080_OWNER_GRENZEN.txt#ANF-SC-16
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-81
+  begruendung: 'Unveraendert als Pflicht; die Pruefung vor der Suche ist als Anforderung an BASE-020/BASE-010 gestellt (ANF-SC-16).
+    Eine abweichende Schreibweise ist ungueltig, nicht gleichwertig: Der Anmeldedienst laesst nur zu, wenn der Name Zeichen
+    fuer Zeichen gleicht.'
+  zeilen:
+  - 76
+  - 76
+- id: TR-XB050-05
+  zitat: '- Keine Parallel-Sessions: Pro subaccount_login / vpn_connection_id (CONNECTION_ID) ist maximal 1 gleichzeitige
+    PPP-Session erlaubt (pro Gerät genau 1 Verbindung).'
+  art: SCHUTZZIEL
+  aussage: Keine parallelen Sitzungen je Anmeldename bzw. Connection.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-12
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-13
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-16
+  begruendung: Unveraendert, mit zwei Schlussriegeln im Daemon.
+  zeilen:
+  - 78
+  - 78
+- id: TR-XB050-06
+  zitat: '- Enforcement erfolgt in FreeRADIUS über Simultaneous-Use=1 (radacct-basiert): - Wenn bereits eine aktive Session
+    existiert (radacct stop_time IS NULL), MUSS ein weiterer Login für denselben subaccount_login abgelehnt werden.'
+  art: FUNKTION
+  aussage: Durchgesetzt wird ueber die Pruefung auf eine offene Protokollzeile bei der Anmeldung.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-15
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-14
+  - decisions/D004_RUNTIME_TRUTH_VS_SQL_PERSISTENZ.txt#D004-E01
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-17
+  begruendung: 'Angepasst durch D004: Abgelehnt wird, wenn die Sonde eine lebende Sitzung meldet ODER radacct eine offene
+    Zeile zeigt; die Laufzeit ist die Wahrheit, radacct das Protokoll.'
+  zeilen:
+  - 79
+  - 80
+- id: TR-XB050-07
+  zitat: '- WICHTIG (Stabilität): Simultaneous-Use=1 (radacct) ist nicht atomar gegen Parallel-Logins/Race. - Zusätzlich MUSS
+    ein atomarer Session-Lock als Guard/Mutex (KEIN Lifecycle) umgesetzt werden (siehe B056 + B168/B169 + B310). - Ziel: Parallel-Login-Race
+    deterministisch verhindern (check radacct -> ACCEPT Fenster); Truth bleibt radacct (stop_time IS NULL).'
+  art: SCHUTZZIEL
+  aussage: Die Protokollpruefung ist nicht atomar; zusaetzlich schuetzt eine atomare Sperre (Mutex, kein Lebenszyklus).
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-16
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-17
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-20
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-23
+  begruendung: 'Unveraendert als Mutex. Angepasst: ''Wahrheit bleibt radacct'' gilt seit D004 nicht mehr - die Wahrheit ist
+    die Laufzeit; die Sperre ist weiterhin kein Zustand und dient keiner Aussage ueber Nutzung.'
+  zeilen:
+  - 81
+  - 83
+- id: TR-XB050-08
+  zitat: '- Stale radacct Sessions dürfen Simultaneous-Use nicht dauerhaft blockieren: DB-Janitor/Sweeper ist in B168 definiert
+    (Interim 300s, Threshold 900s, Timer 5min, Safety-Check /run/vpn-sessions).'
+  art: PARAMETER
+  aussage: 'Zahlen der Bereinigung: Meldeabstand 300 s, Schwelle 900 s, Lauf alle 5 Minuten, Sicherheitspruefung.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#ABWEICHUNG VON EINEM BELEGTEN VORSCHLAG
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#vpn_janitor_interval_seconds
+  - base/BASE-070_SESSION_CORE/BASE-070_070_LAUFZEITMARKEN_BETRIEB_UND_BEOBACHTBARKEIT.txt#radius_acct_interim_seconds
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-23
+  begruendung: Lauf 300 s und Schwelle 900 s sind als Vorschlag und Notwert erhalten; die Schwelle bedeutet jetzt Meldeverzug,
+    nicht mehr Schliesskriterium (geschlossen wird nur nach Laufzeitlesung). Der Meldeabstand ist ein Key von BASE-020/BASE-030
+    (belegt 300, Empfehlung 60 - VB-0020).
+  zeilen:
+  - 86
+  - 86
+- id: TR-XB050-09
+  zitat: '- Accounting ist Pflicht und muss persistent gespeichert werden.'
+  art: SCHUTZZIEL
+  aussage: Abrechnung ist Pflicht und wird dauerhaft gespeichert.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-39
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#P-b
+  begruendung: 'Unveraendert: Die Antwort an den Daemon erfolgt erst, wenn die Meldung dauerhaft steht.'
+  zeilen:
+  - 87
+  - 87
+- id: TR-XB050-10
+  zitat: '- "Restricted State" MUSS aus SQL deterministisch ableitbar sein (Single Source of Truth).'
+  art: SCHUTZZIEL
+  aussage: Der eingeschraenkte Zustand ist aus SQL eindeutig ableitbar.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-04
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-19
+  begruendung: 'Unveraendert: Der Zielzustand haengt allein von den gelesenen Daten ab.'
+  zeilen:
+  - 89
+  - 89
+- id: TR-XB050-11
+  zitat: '- conn_group MUSS SQL-first als Feld an der Connection geführt werden (B055) und darf nicht implizit aus IP-Ranges
+    “abgeleitet” werden.'
+  art: SCHUTZZIEL
+  aussage: Die Gruppe ist ein SQL-Feld und wird nie aus Adressbereichen abgeleitet.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - decisions/D003_POLICY_SYSTEM_UND_ROLLE_AM_CUSTOMER.txt#D003-E02
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-49
+  begruendung: Ersetzt durch access_role am Customer (D003); das Verbot der Rueckableitung aus der Adresse gilt weiter.
+  zeilen:
+  - 90
+  - 90
+- id: TR-XB050-12
+  zitat: '- Restricted wird NICHT über RADIUS reject umgesetzt (reject bleibt nur für DISABLED/BANNED/Missbrauch).'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Einschraenkung wird nie ueber eine Ablehnung der Anmeldung umgesetzt.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-24
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-27
+  begruendung: 'Unveraendert: RESTRICTED ist zugelassen; die Dienstklasse ALLE bleibt erreichbar.'
+  zeilen:
+  - 91
+  - 91
+- id: TR-XB050-13
+  zitat: '- Restricted Quellen (effective): - Quota <= 0 (pro Connection) -> restricted - Expiry überschritten (pro Connection)
+    -> restricted - Optional: manual_restricted (pro Connection) -> restricted (Admin-Tool) - UNCLAIMED_OVERDUE (customer_id
+    IS NULL AND now > unclaimed_grace_until) -> restricted'
+  art: FUNKTION
+  aussage: 'Quellen der Einschraenkung: Quota, Ablauf, Verwaltungs-Einschraenkung, ueberfaelliger Claim.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-03
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_020_BEWERTUNG_UND_LIFECYCLE_LAUF.txt#2) BEDINGUNGSQUELLEN (abschliessend)
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-03
+  begruendung: Die vier Quellen sind erhalten; hinzugekommen sind Plan-Limit und Pause (BASE-010_050). Die Liste bleibt abschliessend.
+  zeilen:
+  - 92
+  - 96
+- id: TR-XB050-14
+  zitat: '- Hinweis: Onboarding/Email-Verify ist App-Layer (Verify-Wall, B155/B280) und kein Restricted-Trigger mehr.'
+  art: SCHUTZZIEL
+  aussage: Die E-Mail-Bestaetigung ist kein Ausloeser der Einschraenkung.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-53
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-63
+  begruendung: Unveraendert.
+  zeilen:
+  - 97
+  - 97
+- id: TR-XB050-15
+  zitat: '1) DISABLED/BANNED/Missbrauch -> RADIUS reject (kein VPN) 2) Sonst: ACCEPT + restricted_effective (true/false) +
+    restricted_reason (string; B342-canonical R_* Token; niemals R_PANEL_*)'
+  art: FUNKTION
+  aussage: 'Auswertung: erst Sperrung (Ablehnung), sonst Zulassung mit Einschraenkungsflag und eindeutigem Grund.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-24
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-04
+  - base/BASE-010_IDENTITY_CORE/BASE-010_050_REASON_REGISTRY.txt#4) MULTI-REASON PRECEDENCE (MUST)
+  begruendung: Reihenfolge unveraendert (verweigern geht vor). Der Grund ist der aktive Grund mit dem niedrigsten precedence_rank
+    der Registry; Panel-Zustaende sind keine Gruende.
+  zeilen:
+  - 99
+  - 100
+- id: TR-XB050-16
+  zitat: '- Hinweis: restricted_reason ist ein deterministischer Reason-Code (B342-canonical Token), server-managed. Er kann
+    als computed Value abgeleitet werden ODER (empfohlen für Debug/Fast-Path) persistiert werden (Schema-Felder in B055: restricted_reason
+    + restricted_effective).'
+  art: FUNKTION
+  aussage: Der Grund ist servergefuehrt und deterministisch, berechnet oder gespeichert.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-02
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-06
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-01
+  begruendung: 'Gespeichert als op_reason_code, geschrieben allein ueber die Uebergangsroutine von BASE-010 und nur bei einer
+    Aenderung. Angepasst: Nicht die Herstellung schreibt ihn, sondern der Bewerter; vpn-policy-apply aendert kein fachliches
+    Feld.'
+  zeilen:
+  - 106
+  - 106
+- id: TR-XB050-17
+  zitat: '- Quota-Accounting darf NICHT per Paket/Traffic DB-Reads erzeugen: - Usage wird über pppX Kernel-Counter als Deltas
+    gesammelt und batchweise geschrieben.'
+  art: SCHUTZZIEL
+  aussage: Verbrauchsmessung erzeugt keine Datenbankzugriffe je Paket; Zaehlerdifferenzen werden gebuendelt geschrieben.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-35
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-37
+  begruendung: Unveraendert im Ziel. L2TP bucht die Differenz der in radacct gemeldeten Zaehler, WireGuard die der Kernelzaehler
+    des Peers.
+  zeilen:
+  - 107
+  - 108
+- id: TR-XB050-18
+  zitat: '- Enforcement-Drift ist unzulässig: Policy Apply + Reconcile Safety-Net sind in B166 definiert (DRY Tool, strict
+    single-target, best-effort reconcile, Exit-Codes).'
+  art: SCHUTZZIEL
+  aussage: Ein Auseinanderlaufen von SQL und Kernel ist unzulaessig; ein Werkzeug, strenge Einzelziele, Abgleich, Ergebniscodes.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-18
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-21
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-36
+  begruendung: Unveraendert.
+  zeilen:
+  - 110
+  - 110
+- id: TR-XB050-19
+  zitat: '- Reconnect ohne Lockout: Vor der Simultaneous-Use Prüfung wird ein On-Demand Stale-Cleanup für diesen subaccount_login
+    ausgeführt (B168 --subaccount-login), damit stale radacct Einträge (stop_time NULL) nicht unnötig blockieren.'
+  art: SCHUTZZIEL
+  aussage: Vor der SimUse-Pruefung laeuft die Bereinigung fuer diese Connection.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-020_AAA_CORE/BASE-020_090_INVARIANTEN.txt#AAA-05
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-14
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-26
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-30
+  begruendung: Unveraendert (Schritte P1 bis P6).
+  zeilen:
+  - 111
+  - 111
+- id: TR-XB050-20
+  zitat: '- Local cache für speed/quota decisions (Performance/Entkopplung), aber NICHT als DB-Down-Fallback: bei DB-Down
+    gilt Fail-Closed (siehe 8).'
+  art: SCHUTZZIEL
+  aussage: Ein lokaler Zwischenspeicher ist nie Ersatz bei Datenbankausfall.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-22
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-14
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-24
+  begruendung: 'Unveraendert: keine Herstellung aus zwischengespeicherten Werten; jeder Datenbankfehler im Anmeldepfad fuehrt
+    zur Ablehnung. Offen ist allein das Fehlerverhalten LKG einiger WireGuard-Betriebsparameter (BF-0041).'
+  zeilen:
+  - 115
+  - 115
+- id: TR-XB050-21
+  zitat: '- Durable Accounting-Spool (Quota Usage Deltas): - Collector liest pppX rx/tx counters, berechnet deltas und schreibt
+    sie batchweise in SQL. - Bei DB-Down werden deltas in /var/lib/vpn-accounting/ gespult (persistentes Journal) und später
+    nachgetragen. - Intervall: 300s (konfigurierbar).'
+  art: FUNKTION
+  aussage: Dauerhafter Spool fuer Verbrauchsdifferenzen bei Datenbankausfall, Takt 300 s.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-39
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#8) DATENBANKSTOERUNG
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_060_DB_DOWN_GRACE_UND_FAIL_CLOSED.txt#SNAPSHOT (PreDown-Hook in awg0.conf, Werkzeug
+    vpn-wg-snapshot)
+  begruendung: 'Ersetzt: Ein eigener Differenz-Spool entfaellt, weil die Zaehler kumulativ sind. L2TP: Der AAA-Dienst nimmt
+    Abrechnungsmeldungen ohne Datenbank an und puffert sie dauerhaft. WireGuard: Kernelzaehler laufen weiter, vor einem Stop
+    sichert ein Snapshot. Schutzziel (kein Verlust durch die Stoerung allein) unveraendert.'
+  zeilen:
+  - 116
+  - 119
+- id: TR-XB050-22
+  zitat: '- Dies ist KEIN Auth-Fallback: DB-Down bleibt Fail-Closed für neue VPN-Logins (siehe 8).'
+  art: SCHUTZZIEL
+  aussage: 'Der Spool ist kein Ersatz fuer die Anmeldung: Bei Datenbankausfall bleibt es bei der Ablehnung.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-020_AAA_CORE/BASE-020_090_INVARIANTEN.txt#AAA-03
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-14
+  begruendung: Unveraendert.
+  zeilen:
+  - 120
+  - 120
+- id: TR-XB050-23
+  zitat: '- DB down / SQL not reachable -> Auth/Authorization darf NICHT "hängen": - Fail-Policy = FAIL-CLOSED für ALLE (User
+    + Admin). - Verhalten: RADIUS antwortet deterministisch mit DENY/REJECT (keine neuen VPN-Logins).'
+  art: SCHUTZZIEL
+  aussage: 'Datenbank nicht erreichbar: Ablehnung fuer alle, auch ADMIN; die Antwort haengt nicht.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-020_AAA_CORE/BASE-020_090_INVARIANTEN.txt#AAA-03
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-14
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-26
+  - base/BASE-020_AAA_CORE/BASE-020_095_TESTS.txt#T-AAA-02
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-21
+  begruendung: 'Unveraendert fuer L2TP. Fuer WireGuard (im Vorgaenger nicht vorhanden) gilt der Grace-Vertrag von BASE-020
+    und BASE-040_060: bestehende Peers laufen begrenzt weiter, danach wird der Dienst gestoppt.'
+  zeilen:
+  - 124
+  - 126
+- id: TR-XB050-24
+  zitat: '- Keine Break-Glass Accounts via RADIUS, keine Fallback-Allowlist bei DB-Down.'
+  art: SCHUTZZIEL
+  aussage: Keine Notkonten ueber RADIUS und keine Ausnahmeliste bei Datenbankausfall.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-41
+  - base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-16
+  - base/BASE-020_AAA_CORE/BASE-020_090_INVARIANTEN.txt#AAA-03
+  begruendung: 'Unveraendert: Der Notzugang rtmgmt0 ist kein Konto des Anmeldedienstes und kein Client-Endpunkt; er haengt
+    weder an SQL noch an RADIUS und oeffnet keinen Weg in das Kundennetz.'
+  zeilen:
+  - 127
+  - 127
+- id: TR-XB050-25
+  zitat: '- Recovery/Access erfolgt out-of-band (SSH/Console/Provider), nicht über VPN.'
+  art: BETRIEB
+  aussage: Wiederherstellung und Zugang erfolgen ausserhalb des VPN (SSH, Konsole, Provider).
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-16
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-40
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-41
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-42
+  begruendung: 'Angepasst: SSH ist in RetroTunnel nur an SERVICE_SSH gebunden und war bei Stoerungen nicht erreichbar (BF-0011).
+    Der Notzugang ist ein eigenes, minimales WireGuard-Interface ausserhalb des Produktpfads mit dem einzigen Ziel SSH; die
+    Konsole des Hosters bleibt die letzte Ebene. Der Wortlaut ''nicht ueber VPN'' ist in DEC-FW-16 nicht ausdruecklich abgewogen
+    - Befund BF-0086.'
+  zeilen:
+  - 128
+  - 128
+- id: TR-XB050-26
+  zitat: '- Accounting läuft weiter (Collector liest Kernel-Counter), aber SQL-Updates können nicht committen. - Deltas werden
+    in /var/lib/vpn-accounting/ (durable spool) zwischengespeichert und bei DB-Recovery nachgetragen.'
+  art: FUNKTION
+  aussage: Bei Datenbankausfall laeuft die Messung weiter; nach der Rueckkehr wird nachgetragen.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-39
+  - base/BASE-070_SESSION_CORE/BASE-070_050_VERBRAUCHSBUCHUNG_UND_QUOTA_PERIODE.txt#8) DATENBANKSTOERUNG
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-51
+  begruendung: Unveraendert im Ergebnis, Mechanik wie oben (Puffer des AAA-Dienstes bzw. Kernelzaehler und Snapshot).
+  zeilen:
+  - 130
+  - 131
+- id: TR-XB050-27
+  zitat: '- Quota-Enforcement kann während DB-Down verzögert sein, da restricted_effective aus SQL kommt; nach Recovery wird
+    usage nachgetragen und Policy/Restricted kann synchronisiert werden.'
+  art: FUNKTION
+  aussage: Die Quota-Durchsetzung kann waehrend des Ausfalls verzoegert sein; danach wird nachgebucht und neu bewertet.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-16
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-45
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-17
+  begruendung: 'Unveraendert: Waehrend der Stoerung trifft der Bewerter keine Entscheidung; nach der Rueckkehr laeuft erst
+    der Bewerter, dann der vollstaendige Abgleich.'
+  zeilen:
+  - 132
+  - 132
+- id: TR-XB050-28
+  zitat: '- DB Down Test: MySQL stoppen / SQL unreachable -> neue VPN-Logins werden für ALLE denied (Fail-Closed), RADIUS
+    antwortet schnell (kein Hängen).'
+  art: TEST
+  aussage: 'Test: Datenbank aus - neue Anmeldungen werden fuer alle abgelehnt, ohne Haengen.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-020_AAA_CORE/BASE-020_095_TESTS.txt#T-AAA-02
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-21
+  begruendung: Uebernommen.
+  zeilen:
+  - 144
+  - 144
+- id: TR-XB050-29
+  zitat: '- Accounting Spool Test (DB Down): DB stoppen -> Collector schreibt deltas ins durable spool; nach 10+ Minuten DB
+    starten -> Collector trägt deltas batchweise in SQL nach (keine Usage-Lücken). - Accounting Spool Persistence Test: DB
+    down + Collector restart/reboot -> spool bleibt erhalten; nach DB recovery werden deltas weiterhin korrekt nachgetragen.'
+  art: TEST
+  aussage: 'Tests: Verbrauch geht bei Datenbankausfall und Neustart nicht verloren.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-51
+  begruendung: Uebernommen fuer die neue Mechanik (Puffer, Snapshot).
+  zeilen:
+  - 146
+  - 147
+- id: TR-XB050-30
+  zitat: '- ip-up Lookup Test: PPP Username == subaccount_login -> ip-up findet exakt 1 CONNECTION_ID und schreibt Mapping
+    /run/vpn-sessions/<ppp_if>.env; danach vpn-policy-apply wird ausgeführt.'
+  art: TEST
+  aussage: 'Test: Der Sitzungsbeginn findet genau eine Connection, schreibt die Zuordnung und ruft die Herstellung.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-33
+  - 'base/BASE-080_POLICY_APPLY_CORE/BASE-080_030_HERSTELLUNG_EINZELZIEL.txt#6.3) Sitzungsbeginn: --l2tp-up'
+  begruendung: 'Angepasst: Der Hook schreibt den Spiegel und ruft das Werkzeug; die Zuordnung trifft das Werkzeug ueber die
+    Adresse und gibt die Kennung zurueck. Der Hook liest kein SQL.'
+  zeilen:
+  - 148
+  - 148
+- id: TR-XB050-31
+  zitat: '- ip-up Ambiguity Test: doppelte subaccount_login (oder mehrere ACTIVE Treffer) -> ip-up MUSS fehlschlagen (kein
+    Mapping, kein apply) und Fehler wird diagnostizierbar geloggt.'
+  art: TEST
+  aussage: 'Test: Mehrdeutige Zuordnung beim Sitzungsbeginn muss scheitern - keine Zuordnung, keine Herstellung, nachvollziehbare
+    Meldung.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-29
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-25
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-33
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-28
+  begruendung: 'Unveraendert im Ergebnis: Widerspruch zwischen Adresse und Anmeldename, unbekannte oder mehrfach getragene
+    Adresse fuehren nie zur Freigabe; die Sitzung wird beendet und das Ereignis gemeldet. Der Spiegel wird vor dem Werkzeug
+    geschrieben, gilt aber nie als Beleg.'
+  zeilen:
+  - 149
+  - 149
+- id: TR-XB050-32
+  zitat: '- Parallel-Session Reject Test: 2. Login-Versuch mit gleichem subaccount_login während radacct stop_time IS NULL
+    ist -> MUSS abgelehnt werden (Simultaneous-Use=1).'
+  art: TEST
+  aussage: 'Test: Zweite Anmeldung bei bestehender Sitzung wird abgelehnt.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-17
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-16
+  begruendung: Uebernommen.
+  zeilen:
+  - 150
+  - 150
+- id: TR-XB050-33
+  zitat: '- Janitor Test (B168): stale radacct (stop_time NULL + acctupdatetime > 900s) wird geschlossen -> Simultaneous-Use
+    block ist weg; Safety-Check verhindert false positives, wenn /run/vpn-sessions Mapping existiert.'
+  art: TEST
+  aussage: 'Test: Haengende Protokollzeile wird geschlossen; die Sicherheitspruefung verhindert falsche Treffer.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-30
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-31
+  begruendung: Uebernommen; die Sicherheitspruefung ist die Laufzeitlesung (1000 Laeufe gegen lebende Sitzungen schliessen
+    nichts).
+  zeilen:
+  - 152
+  - 152
+- id: TR-XB050-34
+  zitat: '- Immediate Reconnect Test: Crash erzeugt stale radacct (stop_time NULL) -> On-Demand Cleanup (B168) läuft beim
+    Login-Versuch -> Login wird sofort wieder möglich, ohne Parallel-Sessions zu erlauben.'
+  art: TEST
+  aussage: 'Test: Nach einem Abbruch ist die erneute Anmeldung sofort moeglich, ohne Parallelsitzung.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-30
+  - base/BASE-070_SESSION_CORE/BASE-070_095_TESTS.txt#T-SC-35
+  begruendung: Uebernommen.
+  zeilen:
+  - 153
+  - 153
