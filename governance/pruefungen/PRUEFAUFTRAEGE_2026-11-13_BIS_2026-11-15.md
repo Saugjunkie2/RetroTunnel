@@ -22,10 +22,19 @@ Zugehörige Berichte unter governance/pruefungen/: BASE-070_GEGENPRUEFUNG_*, BAS
 KONSOLIDIERUNG_PRUEFUNG_A/B/C_*, KONSOLIDIERUNG_NACHPRUEFUNG_EINARBEITUNG_2026-11-15.md,
 KONSOLIDIERUNG_NACHPRUEFUNG_2_* (zweite Nachprüfung; der erste Durchgang brach am Nutzungslimit ab).
 
+ZUORDNUNG BERICHT - AUFTRAG (seit 2026-11-15, maschinell gelesen von qa/pruefe_register.py): Die Zeile
+"- Bericht: <Datei>" unter einer Abschnittsüberschrift ordnet dem Auftrag seinen Bericht zu. NUR so zugeordnete
+Dateien zählen für das Befundregister als Prüfbericht (Bestätigung einer Behebung, Zurückweisung, Herabstufung;
+Pflicht zur Einstufung des Prüfers) - nicht mehr der Dateiname. Jede andere Datei dieses Ordners muss hier als
+Arbeitspapier benannt sein; ein Arbeitspapier ist nie eine Bestätigung.
+
+- Arbeitspapier: BASE-070_BEHEBUNGSPLAN.md
+
 ---
 
 ## 1. Gegenprüfung BASE-070 Teil A
 
+- Bericht: BASE-070_GEGENPRUEFUNG_TEIL_A_2026-11-13.md
 - Zeitpunkt (UTC): 2026-11-13T19:56:45.957Z
 - Art: Auftrag an einen neuen Prüfer
 - Länge: 3750 Zeichen
@@ -61,6 +70,7 @@ Rückgabe an mich: die sortierte Befundliste in Kurzform (je Befund 2–4 Sätze
 
 ## 2. Gegenprüfung BASE-070 Teil B
 
+- Bericht: BASE-070_GEGENPRUEFUNG_TEIL_B_2026-11-13.md
 - Zeitpunkt (UTC): 2026-11-13T19:57:06.590Z
 - Art: Auftrag an einen neuen Prüfer
 - Länge: 4466 Zeichen
@@ -122,6 +132,7 @@ Das Nutzungslimit, das dich unterbrochen hat, ist zurückgesetzt – bitte setze
 
 ## 5. Nachprüfung Behebung Teil A
 
+- Bericht: BASE-070_NACHPRUEFUNG_TEIL_A_2026-11-14.md
 - Zeitpunkt (UTC): 2026-11-14T03:39:03.429Z
 - Art: Auftrag an einen neuen Prüfer
 - Länge: 5715 Zeichen
@@ -170,6 +181,7 @@ Deine Schlussantwort an mich: nur eine kurze Zusammenfassung (Urteile je Befund 
 
 ## 6. Nachprüfung Behebung Teil B
 
+- Bericht: BASE-070_NACHPRUEFUNG_TEIL_B_2026-11-14.md
 - Zeitpunkt (UTC): 2026-11-14T03:39:36.045Z
 - Art: Auftrag an einen neuen Prüfer
 - Länge: 7693 Zeichen
@@ -274,6 +286,9 @@ Sparsam mit dem Kontingent umgehen: Dateien, die du schon gelesen hast, nicht no
 
 ## 9. Unabhaengige Kontrolle der Konsolidierung (vier Pruefer A bis D), Ablaufskript
 
+- Bericht: KONSOLIDIERUNG_PRUEFUNG_A_STATUSANGABEN_2026-11-14.md
+- Bericht: KONSOLIDIERUNG_PRUEFUNG_B_ANFORDERUNGEN_2026-11-14.md
+- Bericht: KONSOLIDIERUNG_PRUEFUNG_C_PRUEFWERKZEUGE_2026-11-14_ABGEBROCHEN.md
 - Zeitpunkt (UTC): 2026-11-14T13:44:35.908Z
 - Art: Ablaufskript (enthält die Aufträge)
 - Länge: 19397 Zeichen
@@ -423,6 +438,7 @@ return alle
 
 ## 10. Nachprüfung der Einarbeitung
 
+- Bericht: KONSOLIDIERUNG_NACHPRUEFUNG_EINARBEITUNG_2026-11-15.md
 - Zeitpunkt (UTC): 2026-11-14T20:44:48.057Z
 - Art: Auftrag an einen neuen Prüfer
 - Länge: 7456 Zeichen
@@ -503,6 +519,7 @@ Weiterhin gilt: nichts am Pruefgegenstand und nichts im Repository /home/user/Re
 
 ## 12. Zweite Nachprüfung, Auftrag A (Texte, Register, Verweise)
 
+- Bericht: KONSOLIDIERUNG_NACHPRUEFUNG_2_A_TEXTE_UND_REGISTER_2026-11-15_ABGEBROCHEN.md
 - Zeitpunkt (UTC): 2026-11-15T05:42Z (Start des Ablaufs)
 - Art: Auftrag an einen neuen Prüfer (Auftragsdatei)
 - Verlauf: nach rund 21 Minuten am Nutzungslimit abgebrochen (gegen 06:04Z). Zwischenstand: KONSOLIDIERUNG_NACHPRUEFUNG_2_A_TEXTE_UND_REGISTER_2026-11-15_ABGEBROCHEN.md (Arbeitsprotokoll, 13 Kandidaten, keine Urteile)
@@ -626,6 +643,7 @@ und BLOCKER-Befunde in je einem Satz) und der Pfad der Berichtsdatei.
 
 ## 13. Zweite Nachprüfung, Auftrag B (Prüfwerkzeuge)
 
+- Bericht: KONSOLIDIERUNG_NACHPRUEFUNG_2_B_PRUEFWERKZEUGE_2026-11-15.md
 - Zeitpunkt (UTC): 2026-11-15T05:42Z (Start des Ablaufs)
 - Art: Auftrag an einen neuen Prüfer (Auftragsdatei)
 - Verlauf: im ersten Durchgang gestartet und vom Nutzungslimit sofort abgewiesen; kein Ergebnis. In der Fortsetzung unverändert gestellt, mit der Ergänzung aus Abschnitt 18
@@ -791,6 +809,7 @@ return { a, b }
 
 ## 15. Zweite Nachprüfung, Fortsetzung: Auftrag A1 (Urteil je Befund)
 
+- Bericht: KONSOLIDIERUNG_NACHPRUEFUNG_2_A1_URTEILE_2026-11-15.md
 - Zeitpunkt (UTC): 2026-11-15T06:40Z (Start des Ablaufs)
 - Art: Auftrag an einen neuen Prüfer (Auftragsdatei)
 - Länge: 5158 Zeichen
@@ -866,6 +885,7 @@ Schlussantwort an den Auftraggeber: nur die Kurzfassung und der Pfad der Bericht
 
 ## 16. Zweite Nachprüfung, Fortsetzung: Auftrag A2 (Kandidaten K1 bis K13, Prüffragen a bis c)
 
+- Bericht: KONSOLIDIERUNG_NACHPRUEFUNG_2_A2_KANDIDATEN_UND_PRUEFFRAGEN_ABC_2026-11-15.md
 - Zeitpunkt (UTC): 2026-11-15T06:40Z (Start des Ablaufs; der Prüfer startet nach Abschluss der ersten Runde)
 - Art: Auftrag an einen neuen Prüfer (Auftragsdatei)
 - Länge: 5808 Zeichen
@@ -945,6 +965,7 @@ BLOCKER-Befunde in je einem Satz) und der Pfad der Berichtsdatei.
 
 ## 17. Zweite Nachprüfung, Fortsetzung: Auftrag A3 (Prüffragen d bis f, Register und Zahlen, Freiraum)
 
+- Bericht: KONSOLIDIERUNG_NACHPRUEFUNG_2_A3_PRUEFFRAGEN_DEF_UND_FREIRAUM_2026-11-15.md
 - Zeitpunkt (UTC): 2026-11-15T06:40Z (Start des Ablaufs; der Prüfer startet nach Abschluss der ersten Runde)
 - Art: Auftrag an einen neuen Prüfer (Auftragsdatei)
 - Länge: 6105 Zeichen
