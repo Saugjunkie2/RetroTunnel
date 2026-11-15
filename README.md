@@ -1,7 +1,7 @@
 # RetroTunnel
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
-![Concept version: v2.9.0](https://img.shields.io/badge/Concept-v2.9.0-blue.svg)
+![Concept version: v2.9.1](https://img.shields.io/badge/Concept-v2.9.1-blue.svg)
 ![Status: M2 In Progress](https://img.shields.io/badge/Phase-M2%20In%20Progress-yellow.svg)
 ![Platform: Debian 13](https://img.shields.io/badge/Platform-Debian%2013-informational.svg)
 
@@ -14,7 +14,7 @@ RetroTunnel ist ein in Entwicklung befindliches Architektur- und Implementierung
 
 Geplant ist ein Full-Tunnel-VPN mit deterministischer Server-Side Policy, SQL-first AAA, rollenbasiertem Enforcement, DNS-Zwang, internem Webpanel und einem auf Produktivbetrieb ausgerichteten Betriebsmodell.
 
-> **Projektstand: Konzeptentwicklung (v2.9.0).** Die dokumentierten Module und Entscheidungen beschreiben den vorgesehenen Systemaufbau. Das Repository stellt derzeit **keine fertig implementierte oder als produktionsreif abgenommene VPN-Gesamtlösung** bereit. Fortschrittsangaben beziehen sich auf die Konzeptarbeit, soweit nicht ausdrücklich anders bezeichnet. Die [Prioritätenliste](PRIORITAETENLISTE.txt) dokumentiert die Arbeitsreihenfolge; der [Phasenplan](04_PHASE_PLAN.txt) beschreibt die erforderlichen Reife- und Abnahmekriterien. Einzelne Quelldateien können eigene Versionsstände führen; v2.9.0 bezeichnet den zentral dokumentierten Projektstand im [Changelog](03_CHANGELOG.txt).
+> **Projektstand: Konzeptentwicklung (v2.9.1).** Die dokumentierten Module und Entscheidungen beschreiben den vorgesehenen Systemaufbau. Das Repository stellt derzeit **keine fertig implementierte oder als produktionsreif abgenommene VPN-Gesamtlösung** bereit. Fortschrittsangaben beziehen sich auf die Konzeptarbeit, soweit nicht ausdrücklich anders bezeichnet. Die [Prioritätenliste](PRIORITAETENLISTE.txt) dokumentiert die Arbeitsreihenfolge; der [Phasenplan](04_PHASE_PLAN.txt) beschreibt die erforderlichen Reife- und Abnahmekriterien. Einzelne Quelldateien können eigene Versionsstände führen; v2.9.1 bezeichnet den zentral dokumentierten Projektstand im [Changelog](03_CHANGELOG.txt).
 
 ## Warum existiert dieses Projekt?
 
@@ -103,7 +103,7 @@ RetroTunnel/
 ├── REVIEW_STANDARD.txt             Review-Methodik, 8 Prüfebenen
 ├── REVIEW_TRACKER.txt              Datei-Inventar, Review-Status
 ├── REVIEW_TRACKER_HISTORIE.txt     Teil 2: Prüfhistorie und Nachweise
-├── PRIORITAETENLISTE.txt           Arbeitspakete (M0–M4)
+├── PRIORITAETENLISTE.txt           Arbeitspakete (M0–M4, QS)
 ├── NAVIGATIONSKARTE_ALTES_KONZEPT.txt  Themen-Index Vorgänger
 │
 ├── model/                          DAS DENKMODELL (Was + Warum)
@@ -188,7 +188,7 @@ Governance-Dateien für die Zusammenarbeit mit Claude (AI Co-Architect):
 | `REVIEW_STANDARD.txt` | Review-Methodik, 8 Prüfebenen, Autonomie-Grenze |
 | `REVIEW_TRACKER.txt` | Datei-Inventar, Review-Status, offene Befunde im Überblick, Sweep-Plan, Exit-Kriterien |
 | `REVIEW_TRACKER_HISTORIE.txt` | Zweiter Teil des Trackers: Prüfhistorie und Nachweise der Prüfungen vom Mai 2026 |
-| `PRIORITAETENLISTE.txt` | Arbeitspakete in 5 Modellphasen (M0–M4) |
+| `PRIORITAETENLISTE.txt` | Arbeitspakete in 5 Modellphasen (M0–M4) und Querschnittsaufgaben (QS) |
 | `NAVIGATIONSKARTE_ALTES_KONZEPT.txt` | Themen-Index zum Vorgänger xp-vpn-stack |
 
 `governance/` (Auftragsebene des Betreiberauftrags vom 2026-11-11, maschinenlesbare Register, Prüfberichte) und `qa/` (Prüfwerkzeuge) dienen diesen Dokumenten und sind keine zweite Projektsteuerung.

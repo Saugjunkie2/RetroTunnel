@@ -60,14 +60,36 @@ class Basis(unittest.TestCase):
             yaml.dump(daten, f, Dumper=YAML_SCHREIBER, allow_unicode=True, sort_keys=False)
 
     def lauf(self):
-        r = subprocess.run([sys.executable, PRUEFE, "--root", self.tmp, "--git", getattr(self, "git", ROOT)],
+        xpn = ["--xpn", self.xpn] if getattr(self, "xpn", None) else []
+        r = subprocess.run([sys.executable, PRUEFE, "--root", self.tmp, "--git", getattr(self, "git", ROOT)] + xpn,
                            capture_output=True, text=True)
         return r.returncode, r.stdout + r.stderr
+
+    def erwartung(self, teiltext, ausgabe):
+        """DIE Stelle, an der ein Test eine Fehlermeldung erwartet - auch fuer Tests, die eine Regel unmittelbar
+        aufrufen (statusregel). qa/abdeckung.py haengt sich hier ein und ordnet so jeden Test seinen Meldungen zu."""
+        self.assertIn(teiltext, ausgabe, f"Erwartete Fehlermeldung fehlt:\n{ausgabe}")
 
     def erwarte_fehler(self, teiltext):
         rc, out = self.lauf()
         self.assertNotEqual(rc, 0, f"Validator hat den Fehler NICHT erkannt:\n{out}")
-        self.assertIn(teiltext, out, f"Erwartete Fehlermeldung fehlt:\n{out}")
+        self.erwartung(teiltext, out)
+
+    def erwarte_keine_meldung(self, *teiltexte):
+        """Grenzfall: Die genannten Meldungen erscheinen NICHT, und das Werkzeug laeuft bis zum Ende. Der Lauf darf
+        aus anderem Grund Fehler melden. Tests dieser Art tragen '_schweigt' oder '_bricht_nicht_ab' im Namen; wie
+        die Tests mit '_besteht' laufen sie in qa/abdeckung.py gegen jede Mutation."""
+        rc, out = self.lauf()
+        self.assertNotIn("Traceback", out, f"Das Werkzeug ist abgebrochen:\n{out}")
+        self.assertIn("Fachstatus:", out, f"Das Werkzeug hat keinen Bericht ausgegeben:\n{out}")
+        for teiltext in teiltexte:
+            self.assertNotIn(teiltext, out, f"Meldung erscheint, obwohl die Regel hier schweigen muss:\n{out}")
+        return out
+
+    def git_stand(self):
+        """(Commit, Tree) des Arbeitsstands - ein Kandidat, den es im Repository gibt."""
+        return tuple(subprocess.run(["git", "-C", ROOT, "rev-parse", x], capture_output=True, text=True).stdout.strip()
+                     for x in ("HEAD", "HEAD^{tree}"))
 
     def trace_fixture(self, **aenderung):
         rec = {"id": "T-TEST-01", "zeilen": [1, 3], "zitat": "RetroTunnel", "art": "DEFINITION",
@@ -780,6 +802,63 @@ class Befunde(Basis):
                  ohne_pruefer_einstufung="x")
         self.erwarte_fehler(f"BEFUNDE {self.bid}: nennt einen Pruefbericht, fuehrt aber weder pruefer_einstufung")
 
+    # --- Zaehlung je Bedingung (2026-11-15): Grenzfaelle und einzeln ausloesende Teilbedingungen ---------------
+
+    def test_herabstufung_mit_unbekannter_ausgangsklasse(self):
+        self.neu(arbeitspaket="AP-K060",
+                 herabstufung={"von": "SEHR_SCHWER", "auf": "GERINGFUEGIG", "begruendung": GRUND,
+                               "bestaetigt_durch": f"{BERICHT}, {KENNUNG_IM_BERICHT}"})
+        self.erwarte_fehler(f"{self.bid}: herabstufung ohne von/begruendung/bestaetigt_durch")
+
+    def test_herabstufung_ohne_bestaetigt_durch(self):
+        self.neu(arbeitspaket="AP-K060",
+                 herabstufung={"von": "SCHWERWIEGEND", "auf": "GERINGFUEGIG", "begruendung": GRUND})
+        self.erwarte_fehler(f"{self.bid}: herabstufung ohne von/begruendung/bestaetigt_durch")
+
+    def test_gueltige_herabstufung_besteht(self):
+        # Eine begruendete, gesondert bestaetigte Herabstufung - unter die Einstufung des Pruefers und unter die
+        # bisher gefuehrte Klasse - loest keine der Klassenregeln aus.
+        bf = self.lade(BEFUNDE)
+        ziel = next(b for b in bf["befunde"] if b.get("klasse") == "SCHWERWIEGEND"
+                    and str(b.get("pruefer_einstufung")).upper() in ("HOCH", "MITTEL", "MAJOR"))
+        ziel["klasse"] = "GERINGFUEGIG"
+        ziel["herabstufung"] = {"von": "SCHWERWIEGEND", "auf": "GERINGFUEGIG", "begruendung": GRUND,
+                                "bestaetigt_durch": f"{BERICHT}, {KENNUNG_IM_BERICHT}"}
+        self.schreibe(BEFUNDE, bf)
+        if ziel.get("status") in ("OFFEN", "IN_ARBEIT"):       # der Stern in 1d zeigt kritisch oder schwerwiegend
+            self.tracker(lambda t: t.replace(ziel["id"] + "*", ziel["id"]))
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_unbekannte_klasse_bricht_klassenregeln_nicht_ab(self):
+        # Zu einer unbekannten Klasse gibt es keinen Rang: Die Vergleiche (Herabstufung, Einstufung des Pruefers,
+        # gesicherter Stand) entfallen; das Werkzeug meldet die Klasse und laeuft bis zum Ende.
+        self.neu(klasse="UNBEKANNT", arbeitspaket="AP-K060", pruefer_einstufung="HOCH",
+                 herabstufung={"von": "SCHWERWIEGEND", "auf": "GERINGFUEGIG", "begruendung": GRUND,
+                               "bestaetigt_durch": f"{BERICHT}, {KENNUNG_IM_BERICHT}"})
+        out = self.erwarte_keine_meldung()
+        self.erwartung(f"BEFUNDE {self.bid}: unbekannte klasse UNBEKANNT", out)
+
+    def test_zurueckweisung_ohne_begruendung(self):
+        self.neu(status="ZURUECKGEWIESEN", zurueckweisung={"bestaetigt_durch": f"{BERICHT}, {KENNUNG_IM_BERICHT}"})
+        self.tracker_zaehler(geschlossen=1)
+        self.erwarte_fehler(f"{self.bid}: ZURUECKGEWIESEN ohne zurueckweisung.begruendung und .bestaetigt_durch")
+
+    def test_gesamtzahlen_im_tracker_fehlen(self):
+        self.tracker(lambda t: t.replace("  Zusammen ", "  Insgesamt ", 1))
+        self.erwarte_fehler("Gesamtzahlen stimmen nicht mit dem Register ueberein")
+
+    def test_fachlich_fertig_ohne_offenen_schweren_befund_schweigt(self):
+        # Die Sperre "kein offener kritischer oder schwerwiegender Befund" trifft weder einen offenen geringfuegigen
+        # noch einen geschlossenen schweren Befund.
+        st = self.lade(STATUS)
+        st["fachstatus"] = "FACHLICH_FERTIG_FREIGABE_BLOCKIERT"
+        self.schreibe(STATUS, st)
+        self.neu(arbeitspaket="AP-K060")
+        geschlossen = next(b["id"] for b in self.lade(BEFUNDE)["befunde"]
+                           if b.get("klasse") in ("KRITISCH", "SCHWERWIEGEND") and b.get("status") == "BEHOBEN")
+        self.erwarte_keine_meldung(f"-Befund {self.bid}", f"-Befund {geschlossen}")
+
 
 class Arbeitspakete(Basis):
     def test_zyklus(self):
@@ -876,6 +955,27 @@ class DateiHelfer(Basis):
         self.assertNotEqual(alt, neu, f"Fixture passt nicht mehr zu {rel}")
         with open(p, "w", encoding="utf-8") as f:
             f.write(neu)
+
+    def aendere(self, rel, funktion):
+        d = self.lade(rel)
+        funktion(d)
+        self.schreibe(rel, d)
+
+    def statusregel(self, fachstatus, freeze, offene_pakete):
+        """Ruft die Statusregel des Werkzeugs unmittelbar auf - mit vorgegebener Paketlage und erklaertem oder nicht
+        erklaertem Freeze. Der Weg ueber eine ganze Kopie verlangte, das gesamte Konzept abzuschliessen."""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("pruefe_register_test", PRUEFE)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        kopf = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        baum = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD^{tree}"], capture_output=True, text=True).stdout.strip()
+        self.aendere(STATUS, lambda st: st.update(fachstatus=fachstatus, kandidat={"commit": kopf, "tree": baum}))
+        self.aendere(VERB, lambda vb: vb.update(freeze_erklaert=freeze))
+        p = mod.Pruefung(self.tmp, ROOT, None)
+        p.offene_pakete_bis = lambda bis: list(offene_pakete)
+        p.pruefe_status(self.lade(STATUS), {"befunde": []})
+        return [f for f in p.fehler if "fachstatus" in f]
 
 
 class Steuerung(DateiHelfer):
@@ -1499,11 +1599,6 @@ class Grundregeln(DateiHelfer):
     MODREG = "governance/register/MODULPRUEFUNG.yaml"
     NEUB = "governance/register/trace/NEU_BEGRUENDET.yaml"
 
-    def aendere(self, rel, funktion):
-        d = self.lade(rel)
-        funktion(d)
-        self.schreibe(rel, d)
-
     # --- Lesbarkeit ----------------------------------------------------------------------------------------
     def test_yaml_nicht_lesbar(self):
         with open(os.path.join(self.tmp, VERB), "w", encoding="utf-8") as f:
@@ -1880,22 +1975,6 @@ class Grundregeln(DateiHelfer):
         self.erwarte_fehler("fachstatus PRUEFBEREIT ohne eingefrorenes Konzept (Betreiberregeln Abschnitt 8): "
                             "Funktions-Freeze nicht erklaert; ")
 
-    def statusregel(self, fachstatus, freeze, offene_pakete):
-        """Ruft die Statusregel des Werkzeugs unmittelbar auf - mit vorgegebener Paketlage und erklaertem oder nicht
-        erklaertem Freeze. Der Weg ueber eine ganze Kopie verlangte, das gesamte Konzept abzuschliessen."""
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("pruefe_register_test", os.path.join(ROOT, "qa", "pruefe_register.py"))
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        kopf = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-        baum = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD^{tree}"], capture_output=True, text=True).stdout.strip()
-        self.aendere(STATUS, lambda st: st.update(fachstatus=fachstatus, kandidat={"commit": kopf, "tree": baum}))
-        self.aendere(VERB, lambda vb: vb.update(freeze_erklaert=freeze))
-        p = mod.Pruefung(self.tmp, ROOT, None)
-        p.offene_pakete_bis = lambda bis: list(offene_pakete)
-        p.pruefe_status(self.lade(STATUS), {"befunde": []})
-        return [f for f in p.fehler if "fachstatus" in f]
-
     def test_pruefbereit_mit_freeze_und_abgeschlossenen_paketen_besteht(self):
         # Fehlalarm-Kontrolle zu F-NK2-B-09: Die Regel schweigt, wenn Freeze und Paketlage stimmen.
         self.assertEqual(self.statusregel("PRUEFBEREIT", True, []), [])
@@ -1903,7 +1982,7 @@ class Grundregeln(DateiHelfer):
     def test_pruefbereit_mit_freeze_aber_offenem_paket(self):
         fehler = self.statusregel("PRUEFBEREIT", True, [("M3-010", "DEFERRED")])
         self.assertEqual(len(fehler), 1, fehler)
-        self.assertIn("1 Pakete bis QS-17 sind nicht [DONE], darunter M3-010", fehler[0])
+        self.erwartung("1 Pakete bis QS-17 sind nicht [DONE], darunter M3-010", fehler[0])
         self.assertNotIn("Funktions-Freeze nicht erklaert", fehler[0])
 
     def test_nachbesserung_mit_freeze_besteht(self):
@@ -1970,6 +2049,282 @@ class Grundregeln(DateiHelfer):
         self.erwarte_fehler("Modul BASE-120 hat keinen Eintrag in der PRIORITAETENLISTE")
         rc, out = self.lauf()
         self.assertIn("README.md:", out)
+
+
+class Teilbedingungen(DateiHelfer):
+    """Zaehlung je Bedingung (qa/abdeckung.py --bedingungen, 2026-11-15): Zu jeder Teilbedingung, die einer
+    Fehlermeldung vorausgeht, gibt es einen Test, der rot wird, wenn sie wirkungslos ist. Hier stehen die Tests, die
+    dabei fehlten: Grenzfaelle, in denen eine Regel schweigen muss ('_besteht', '_schweigt', '_bricht_nicht_ab'),
+    Faelle, in denen genau EINE Teilbedingung ausloest, und die Tests zu den Luecken der Pruefregeln, die die
+    Zaehlung gezeigt hat (Befund BF-0117). Befundbezogene Tests dieser Art stehen in der Klasse Befunde."""
+    MOD = "base/BASE-040_TUNNEL_WIREGUARD"
+    MODREG = "governance/register/MODULPRUEFUNG.yaml"
+    NEUB = "governance/register/trace/NEU_BEGRUENDET.yaml"
+    QUELLEN = "governance/register/QUELLENINVENTAR.yaml"
+
+    def gates(self, *namen, fachstatus=None, kandidat=False):
+        """Setzt die genannten Gates auf ERFUELLT (mit aufloesbarem Nachweis) und bei Bedarf Fachstatus und Kandidat."""
+        def f(st):
+            for g in namen:
+                st["gates"][g] = {"zustand": "ERFUELLT", "nachweis": "README.md"}
+            if fachstatus:
+                st["fachstatus"] = fachstatus
+            if kandidat:
+                kopf, baum = self.git_stand()
+                st["kandidat"] = {"commit": kopf, "tree": baum}
+        self.aendere(STATUS, f)
+
+    def neue_datei(self, rel, text="Notiz\n"):
+        p = os.path.join(self.tmp, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def inventarzeile(self, zeile):
+        """Fuegt dem Inventar des REVIEW_TRACKER (Abschnitt 1) eine Zeile hinzu."""
+        self.datei("REVIEW_TRACKER.txt", lambda t: t.replace("\n  LICENSE ", f"\n{zeile}\n\n  LICENSE ", 1))
+
+    # --- STATUS.yaml: Gates, Fachstatus, Kandidat ----------------------------------------------------------------
+    def test_status_verweise_ohne_zuordnung(self):
+        self.aendere(STATUS, lambda st: st.update(verweise="siehe CLAUDE_BRIEFING.txt"))
+        self.erwarte_fehler("STATUS: verweise ist keine Zuordnung")
+
+    def test_gate_erfuellt_mit_aufloesbarem_nachweis_besteht(self):
+        self.gates("G2")
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_g1_erfuellt_mit_erklaertem_freeze_schweigt(self):
+        self.gates("G1")
+        self.aendere(VERB, lambda vb: vb.update(freeze_erklaert=True))
+        self.erwarte_keine_meldung("der Funktions-Freeze ist nicht erklaert")
+
+    def test_freigegeben_mit_allen_gates_schweigt(self):
+        self.gates("G1", "G2", "G3", "G4", fachstatus="FREIGEGEBEN", kandidat=True)
+        self.erwarte_keine_meldung("obwohl nicht alle Gates G1-G4 ERFUELLT sind")
+
+    def test_fachlich_fertig_mit_g1_bis_g3_schweigt(self):
+        self.gates("G1", "G2", "G3", fachstatus="FACHLICH_FERTIG_FREIGABE_BLOCKIERT", kandidat=True)
+        self.erwarte_keine_meldung("FACHLICH_FERTIG_FREIGABE_BLOCKIERT verlangt G")
+
+    def test_kandidat_nur_commit_ungueltig(self):
+        _kopf, baum = self.git_stand()
+        self.aendere(STATUS, lambda st: st.update(fachstatus="PRUEFBEREIT", kandidat={"commit": "abc123", "tree": baum}))
+        self.erwarte_fehler("ohne kandidat.commit/kandidat.tree")
+
+    def test_kandidat_nur_tree_ungueltig(self):
+        kopf, _baum = self.git_stand()
+        self.aendere(STATUS, lambda st: st.update(fachstatus="PRUEFBEREIT", kandidat={"commit": kopf, "tree": "abc123"}))
+        self.erwarte_fehler("ohne kandidat.commit/kandidat.tree")
+
+    def test_kandidat_mit_passendem_tree_schweigt(self):
+        kopf, baum = self.git_stand()
+        self.aendere(STATUS, lambda st: st.update(fachstatus="PRUEFBEREIT", kandidat={"commit": kopf, "tree": baum}))
+        self.erwarte_keine_meldung("kandidat.tree passt nicht", "gibt es im Repository nicht")
+
+    def test_pruefbereit_ohne_freeze_bei_abgeschlossenen_paketen(self):
+        fehler = self.statusregel("PRUEFBEREIT", False, [])
+        self.assertEqual(len(fehler), 1, fehler)
+        self.erwartung("fachstatus PRUEFBEREIT ohne eingefrorenes Konzept", fehler[0])
+        self.erwartung("Funktions-Freeze nicht erklaert", fehler[0])
+
+    # --- Quellenbindung --------------------------------------------------------------------------------------------
+    def test_inventar_ohne_teil_rt_schweigt(self):
+        # Fehlt dem Quelleninventar der Teil einer Quelle, schweigt die Quellenbindung dazu (das Inventar selbst
+        # prueft qa/quelleninventar.py); nur fuer die Nachlieferung gilt "beide oder keines".
+        self.aendere(self.QUELLEN, lambda inv: inv["quellen"].pop("RT"))
+        self.erwarte_keine_meldung("weicht vom Quelleninventar ab", "muessen beide vorhanden sein")
+
+    def test_bindung_ohne_quellen_commit_rt_schweigt(self):
+        # Fehlt der Commit in STATUS.yaml, meldet das Werkzeug den fehlenden Commit - nicht zusaetzlich eine Abweichung.
+        self.aendere(STATUS, lambda st: st["identitaeten"].pop("quellen_commit_rt"))
+        out = self.erwarte_keine_meldung("quellen_commit_rt weicht vom Quelleninventar ab")
+        self.erwartung("STATUS: identitaeten.quellen_commit_rt ist keine 40-stellige Commit-ID", out)
+
+    # --- ARBEITSPAKETE.yaml ------------------------------------------------------------------------------------------
+    def test_offenes_paket_mit_kuenftigem_ergebnis_besteht(self):
+        # Das Ergebnis eines offenen Pakets muss es noch nicht geben.
+        def f(ap):
+            next(p for p in ap["pakete"] if p["id"] == "AP-K060")["ergebnis"] = ["base/BASE-060_DNS_CORE/BASE-060_INDEX.txt"]
+        self.aendere(PAKETE, f)
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_index_ergebnis_mit_leerzeichen(self):
+        self.aendere(PAKETE, lambda ap: ap["pakete"][0].update(ergebnis=["ordner/mit leerzeichen.txt"]))
+        self.erwarte_fehler("ergebnis ist kein Pfad: ordner/mit leerzeichen.txt")
+
+    def test_index_ergebnis_ohne_pfadzeichen(self):
+        self.aendere(PAKETE, lambda ap: ap["pakete"][0].update(ergebnis=["ERLEDIGT"]))
+        self.erwarte_fehler("ergebnis ist kein Pfad: ERLEDIGT")
+
+    # --- governance/pruefungen/ ----------------------------------------------------------------------------------------
+    def test_fremde_datei_im_pruefungsordner(self):
+        # Luecke bis 2026-11-15: Die Regel sah nur *.md.
+        self.neue_datei("governance/pruefungen/NOTIZ.txt")
+        self.erwarte_fehler("governance/pruefungen/NOTIZ.txt ist weder einem Pruefauftrag als Bericht zugeordnet")
+
+    # --- VERBESSERUNGEN.yaml ---------------------------------------------------------------------------------------------
+    def test_freeze_mit_vollstaendiger_analyse_schweigt(self):
+        # Bei erklaertem Freeze braucht nur ein Eintrag mit der Entscheidung INTEGRIEREN einen Integrationsort.
+        ids = []
+
+        def f(vb):
+            vb["freeze_erklaert"] = True
+            a, b = vb["eintraege"][0], vb["eintraege"][1]
+            a.update(einstufung="OPTIONAL", entscheidung="INTEGRIEREN", integriert_in=["README.md"])
+            b.update(einstufung="OPTIONAL", entscheidung="ROADMAP")
+            b.pop("integriert_in", None)
+            ids.extend([a["id"], b["id"]])
+        self.aendere(VERB, f)
+        self.erwarte_keine_meldung(f"VERBESSERUNGEN {ids[0]}: Freeze erklaert", f"VERBESSERUNGEN {ids[1]}: Freeze erklaert",
+                                   "Freeze erklaert ohne dokumentierte Analyse")
+
+    def test_verbesserung_freeze_mit_leerem_integrationsort(self):
+        def f(vb):
+            vb["freeze_erklaert"] = True
+            vb["eintraege"][0].update(entscheidung="INTEGRIEREN", integriert_in=[""])
+        self.aendere(VERB, f)
+        self.erwarte_fehler("VERBESSERUNGEN VB-0001: Freeze erklaert, aber integriert_in fehlt/unaufloesbar")
+
+    # --- Rueckverfolgung ---------------------------------------------------------------------------------------------------
+    def test_trace_ohne_datei(self):
+        self.trace_fixture()
+        self.aendere(TRACE, lambda t: t.pop("datei"))
+        self.erwarte_fehler(f"{TRACE}: quelle/datei fehlt oder ungueltig")
+
+    def test_trace_ohne_aussage(self):
+        self.trace_fixture(aussage="")
+        self.erwarte_fehler(f"{TRACE} T-TEST-01: aussage/begruendung fehlt")
+
+    def test_trace_zeilenangabe_unvollstaendig(self):
+        self.trace_fixture(zeilen=[1])
+        self.erwarte_fehler(f"{TRACE} T-TEST-01: zeilen ungueltig")
+
+    def test_erfuellungsort_ist_ein_verzeichnis(self):
+        # Luecke bis 2026-11-15: Ein vorhandenes Verzeichnis genuegte als Erfuellungsort.
+        self.trace_fixture(erfuellt_in=["base"])
+        self.erwarte_fehler(f"{TRACE} T-TEST-01: erfuellt_in-Datei fehlt: base")
+
+    def test_xpn_zitat_wird_mit_checkout_geprueft(self):
+        # Mit einem Checkout der XPN-Quelle werden deren Zitate geprueft, nicht nur als NICHT_GEPRUEFT vermerkt.
+        repo = os.path.join(os.path.dirname(self.tmp), "xpn")
+        os.makedirs(os.path.join(repo, "blocks"))
+        with open(os.path.join(repo, "blocks", "B999_TEST.txt"), "w", encoding="utf-8") as f:
+            f.write("Erste Zeile der erfundenen Quelldatei fuer diesen Test.\nZweite Zeile.\n")
+        git = ["git", "-C", repo, "-c", "user.name=Test", "-c", "user.email=test@example.invalid"]
+        subprocess.run(["git", "init", "-q", repo], check=True, capture_output=True)
+        subprocess.run(git + ["add", "."], check=True, capture_output=True)
+        subprocess.run(git + ["commit", "-q", "-m", "Testquelle"], check=True, capture_output=True)
+        commit = subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+        self.aendere(STATUS, lambda st: st["identitaeten"].update(quellen_commit_xpn=commit))
+        self.schreibe("governance/register/trace/_TEST_XPN.yaml", {
+            "schema": "trace/1", "quelle": "XPN", "datei": "blocks/B999_TEST.txt",
+            "records": [{"id": "T-TEST-XPN-01", "zeilen": [1, 1], "zitat": "Dieser Satz steht nicht in der Quelle",
+                         "art": "DEFINITION", "aussage": "Testaussage", "einordnung": "UEBERNOMMEN",
+                         "erfuellt_in": ["README.md#RetroTunnel"], "begruendung": "Test"}]})
+        self.xpn = repo
+        self.erwarte_fehler("T-TEST-XPN-01: zitat nicht in XPN:blocks/B999_TEST.txt:1-1 gefunden")
+
+    # --- Modulpruefung -----------------------------------------------------------------------------------------------------
+    def test_modul_testdatei_fehlt(self):
+        self.aendere(self.MODREG, lambda c: c["module"][0].update(test_datei="BASE-040_096_GIBT_ES_NICHT.txt"))
+        self.erwarte_fehler("MODUL BASE-040: Invarianten- oder Testdatei fehlt")
+
+    def test_modul_ohne_index_in_der_konfiguration(self):
+        # Luecke bis 2026-11-15: Ohne index_datei entfielen die Indexpruefungen ohne Meldung.
+        self.aendere(self.MODREG, lambda c: c["module"][0].pop("index_datei"))
+        self.erwarte_fehler("MODUL BASE-040: Indexdatei fehlt oder ist leer")
+
+    def test_modul_indexdatei_geloescht(self):
+        os.remove(os.path.join(self.tmp, self.MOD, "BASE-040_INDEX.txt"))
+        self.erwarte_fehler("MODUL BASE-040: Indexdatei fehlt oder ist leer")
+
+    def test_modul_index_ohne_zaehlbereich(self):
+        self.datei(f"{self.MOD}/BASE-040_INDEX.txt", lambda t: t.replace("WT-01..WT-", "WT-01 bis WT-"))
+        self.erwarte_fehler("MODUL BASE-040: Index-Zaehlbereich fuer WT passt nicht zu")
+
+    def test_modulpruefung_fehlt(self):
+        # Luecke bis 2026-11-15: Ohne die Datei entfiel die ganze Modulpruefung ohne Meldung.
+        os.remove(os.path.join(self.tmp, self.MODREG))
+        self.erwarte_fehler(f"{self.MODREG}: Datei fehlt")
+
+    def test_modulpruefung_leer(self):
+        self.neue_datei(self.MODREG, "")
+        self.erwarte_fehler("hat Moduldateien, steht aber nicht in governance/register/MODULPRUEFUNG.yaml")
+
+    def test_fremdes_verzeichnis_unter_base_bricht_nicht_ab(self):
+        self.neue_datei("base/NOTIZEN/notiz.txt")
+        self.erwarte_keine_meldung("hat Moduldateien, steht aber nicht in")
+
+    def test_optionale_datei_fehlt_ohne_eigene_meldung_schweigt(self):
+        # NEU_BEGRUENDET.yaml braucht es nur, wenn eine Invariante neu begruendet ist: Fehlt die Datei, meldet das
+        # Werkzeug die Invarianten ohne Herkunft, nicht die Datei.
+        os.remove(os.path.join(self.tmp, self.NEUB))
+        out = self.erwarte_keine_meldung(f"{self.NEUB}: Datei fehlt")
+        self.erwartung("ohne Herkunft (kein Trace-Record, nicht in NEU_BEGRUENDET)", out)
+
+    # --- Steuerungsdokumente und Inventar ----------------------------------------------------------------------------------
+    def test_changelog_fehlt(self):
+        # Luecke bis 2026-11-15: Das Fehlen von 03_CHANGELOG.txt fiel nur ueber den Verweis in STATUS.yaml auf.
+        os.remove(os.path.join(self.tmp, "03_CHANGELOG.txt"))
+        self.erwarte_fehler("Steuerungsdokument fehlt: 03_CHANGELOG.txt")
+
+    def test_arbeitsweise_fehlt(self):
+        # Luecke bis 2026-11-15: Das Fehlen von MARCOS_ARBEITSWEISE.txt blieb unbemerkt.
+        os.remove(os.path.join(self.tmp, "MARCOS_ARBEITSWEISE.txt"))
+        self.erwarte_fehler("Steuerungsdokument fehlt: MARCOS_ARBEITSWEISE.txt")
+
+    def test_changelog_ohne_versionskopf(self):
+        # Luecke bis 2026-11-15: Ohne die Kopfzeile entfiel der Abgleich mit dem README ohne Meldung.
+        self.datei("03_CHANGELOG.txt", lambda t: re.sub(r"(?m)^VERSION:", "FASSUNG:", t))
+        self.erwarte_fehler("03_CHANGELOG: Kopfzeile 'VERSION: v...' fehlt")
+
+    def test_changelog_ohne_eintrag(self):
+        self.datei("03_CHANGELOG.txt", lambda t: re.sub(r"(?m)^(v\d+\.\d+(?:\.\d+)?) \(", r"Fassung \1 (", t))
+        self.erwarte_fehler("03_CHANGELOG: kein Eintrag der Form")
+
+    def test_readme_fehlt_im_inventar(self):
+        self.datei("REVIEW_TRACKER.txt", lambda t: re.sub(r"(?m)^  README\.md\s+~ PARTIAL\n", "", t, count=1))
+        self.erwarte_fehler("REVIEW_TRACKER: Steuerungsdokument README.md fehlt im Inventar")
+
+    def test_fremde_datei_in_decisions_fehlt_im_inventar(self):
+        self.neue_datei("decisions/NOTIZ.md")
+        self.erwarte_fehler("REVIEW_TRACKER: decisions/NOTIZ.md fehlt im Inventar")
+
+    def test_modulverzeichnis_im_inventar_schweigt(self):
+        os.makedirs(os.path.join(self.tmp, "modules", "MOD-001_ONBOARDING"))
+        self.inventarzeile("  modules/MOD-001_ONBOARDING         □ EMPTY")
+        self.erwarte_keine_meldung("modules/MOD-001_ONBOARDING existiert, fehlt aber im Inventar")
+
+    def test_datei_unter_modules_fehlt_im_inventar(self):
+        self.neue_datei("modules/NOTIZ.txt")
+        self.erwarte_fehler("REVIEW_TRACKER: modules/NOTIZ.txt existiert, fehlt aber im Inventar")
+
+    def test_leeres_modulverzeichnis_ohne_inventarzeile_besteht(self):
+        os.makedirs(os.path.join(self.tmp, "base", "BASE-120_NOCH_LEER"))
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_abgeschlossenes_modul_ohne_befunde_darf_clean_sein_schweigt(self):
+        self.neue_datei("base/BASE-120_TESTMODUL/BASE-120_INDEX.txt", "RetroTunnel - Testmodul\nSTATUS: ACTIVE\n")
+        self.inventarzeile("  base/BASE-120_TESTMODUL            ✓ CLEAN (1 Dateien)")
+        with open(os.path.join(self.tmp, "PRIORITAETENLISTE.txt"), "a", encoding="utf-8") as f:
+            f.write("\nM2-120 [DONE] BASE-120_TESTMODUL\n")
+        self.erwarte_keine_meldung("base/BASE-120_TESTMODUL wird als CLEAN gefuehrt")
+
+    def test_pflegeeintrag_clean_ohne_offene_befunde_schweigt(self):
+        # Sind im Register keine Befunde offen, darf der juengste PFLEGE-Eintrag CLEAN melden.
+        def f(bf):
+            for b in bf["befunde"]:
+                b["status"] = "BEHOBEN"
+        self.aendere(BEFUNDE, f)
+        self.datei("REVIEW_TRACKER_HISTORIE.txt", lambda t: t.replace("STATUS: NICHT CLEAN", "STATUS: CLEAN", 1))
+        self.erwarte_keine_meldung("PFLEGE-Eintrag meldet STATUS: CLEAN")
+
+    def test_pruefhistorie_ohne_pflegeeintrag_bricht_nicht_ab(self):
+        self.datei("REVIEW_TRACKER_HISTORIE.txt", lambda t: t.replace("  PFLEGE-", "  EINTRAG-"))
+        self.erwarte_keine_meldung("PFLEGE-Eintrag meldet STATUS: CLEAN")
 
 
 class Quelleninventar(unittest.TestCase):

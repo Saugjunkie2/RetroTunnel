@@ -3,6 +3,7 @@ RetroTunnel — governance/  (Auftragsebene und maschinenlesbare Register)
 ================================================================================
 STATUS: ACTIVE
 ANGELEGT: 2026-11-11   NEU GEFASST: 2026-11-14 (Betreiberanweisung BM-0015)
+ERGÄNZT: 2026-11-15 (betreiberregeln/, pruefungen/)
 
 ROLLE: DIENEND
   Dieser Ordner ist KEINE Projektsteuerung. Gesteuert wird RetroTunnel über
@@ -22,12 +23,16 @@ EINSTIEG
   nicht hier.
 
 INHALT UND ZWECK
-  betreiberregeln/          Arbeitskopie der Betreiberregeln. Sie liegt im
-                            frei beschreibbaren Repository und ist deshalb
+  betreiberregeln/          Arbeitskopien der Betreiberregeln und des
+                            Startauftrags. Sie liegen im frei
+                            beschreibbaren Repository und sind deshalb
                             KEIN Schutz- oder Autoritätsnachweis; dasselbe
                             gilt für jeden hier notierten Hash. Eine extern
                             geschützte Referenz ist nicht eingerichtet
-                            (STATUS.yaml, Gate G4).
+                            (STATUS.yaml, Gate G4). Herkunft und Stand der
+                            Kopien: ARBEITSKOPIE_HINWEIS.txt (Originaltreue
+                            der Startauftrag-Kopie NICHT VERIFIZIERT,
+                            BM-0019 Nr. 5).
   STATUS.yaml               Fachstatus nach Betreiberregeln Abschnitt 8,
                             Abschluss-Gates G1-G4, Quellen-Commits,
                             Blockaden. Kein Modulfortschritt - der steht in
@@ -57,7 +62,8 @@ INHALT UND ZWECK
                             des Funktions-Freeze; jeder aufgenommene Punkt
                             verweist auf seine Stelle im Konzept.
   pruefungen/               Berichte unabhängiger Prüfer, unverändert
-                            abgelegt. Prüfhistorie und Ergebnis im Überblick:
+                            abgelegt, und die Prüfaufträge im Wortlaut.
+                            Prüfhistorie und Ergebnis im Überblick:
                             REVIEW_TRACKER.txt. Kein Vollaudit, kein
                             Freigabegate.
   arbeitsmaterial/          Sichtung und Extrakte der Nachlieferung.

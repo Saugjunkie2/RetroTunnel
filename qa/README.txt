@@ -56,6 +56,12 @@ WERKZEUGE
                          (KR-03); zulässige Felder der STATUS.yaml auf
                          allen Ebenen; Arbeitskopien von Betreiberregeln
                          und Startauftrag gegen ihre SHA-256-Werte.
+                         Seit 2026-11-15 PFLICHT (vorher entfiel die
+                         jeweilige Prüfung ohne Meldung): alle Dateien
+                         der Steuerungsdokumente, MODULPRUEFUNG.yaml,
+                         je Modul ein Index, die Kopfzeile VERSION des
+                         Changelogs; unter governance/pruefungen/,
+                         decisions/ und modules/ zählt jeder Eintrag.
                          Umfang und Grenzen im Einzelnen: REVIEW_STANDARD
                          Abschnitt 10.4.
   trace_zeilen.py        Trägt zu einem wörtlichen Zitat den Zeilenbereich der
@@ -74,6 +80,17 @@ WERKZEUGE
                          NICHT, ob ein Extrakt vollständig oder zutreffend
                          wiedergibt - er ist Arbeitsmaterial, kein Lesebeleg
                          des Hauptarchitekten.
+  abdeckung.py           Misst, wie weit die Negativtests die Regeln von
+                         pruefe_register.py belegen. --meldungen: Erwartet
+                         mindestens ein Test jede Fehlermeldung (je
+                         Aufrufstelle)? --bedingungen: Jede Bedingung vor
+                         einer Fehlermeldung und jeder ihrer Teile wird in
+                         einer Kopie des Werkzeugs wirkungslos gemacht; ein
+                         Test muss dann rot werden. Läuft NICHT im CI
+                         (Dauer: eine halbe Stunde und mehr); nach einer
+                         Änderung am Werkzeug von Hand wiederholen. Grenzen
+                         im Kopf der Datei; letztes Ergebnis:
+                         REVIEW_STANDARD 10.4 und Changelog.
   tests/test_negativ.py  Negativtests: absichtlich ungültige, harmlose Kopien der
                          Register müssen als Fehler erkannt werden (z. B. veränderte
                          Regelreferenz, falsche Commit-Bindung, gefälschtes Zitat,
@@ -88,10 +105,16 @@ WERKZEUGE
                          "Befunde" enthält die Tests zur Sperre nach der
                          betroffenen Datei und die Umgehungsversuche der
                          zweiten Nachprüfung zu Bestätigung, Herabstufung
-                         und Sperrvermerk. Jede Fehlermeldung von
-                         pruefe_register.py wird von mindestens einem Test
-                         erwartet (ausgezählt: REVIEW_STANDARD 10.4;
-                         gezählt sind Aufrufstellen, nicht Bedingungen).
+                         und Sperrvermerk. "Teilbedingungen" hält die
+                         Tests aus der Zählung je Bedingung vom
+                         2026-11-15: Fälle, in denen genau eine
+                         Teilbedingung auslöst, und Grenzfälle, in denen
+                         eine Regel schweigen muss (Namen mit "_besteht",
+                         "_schweigt", "_bricht_nicht_ab"). Jede
+                         Fehlermeldung von pruefe_register.py wird von
+                         mindestens einem Test erwartet; ausgezählt je
+                         Aufrufstelle und je Teilbedingung mit
+                         abdeckung.py (Ergebnis: REVIEW_STANDARD 10.4).
 
 AUFRUF (aus dem Repository-Wurzelverzeichnis)
   python3 qa/quelleninventar.py --rt . --xpn <xp-vpn-stack-Checkout> --check
@@ -100,6 +123,7 @@ AUFRUF (aus dem Repository-Wurzelverzeichnis)
   python3 qa/pruefe_register.py --root . --xpn <xp-vpn-stack-Checkout>
   python3 qa/pruefe_extrakte.py --root . [--bericht]
   python3 -m unittest discover -s qa/tests -v
+  python3 qa/abdeckung.py --bedingungen [--schnell]      (nicht im CI)
   Voraussetzung: Python 3, PyYAML, git; vollständige Historie (Baseline-Commit).
 
 GRENZEN (ausdrücklich)
