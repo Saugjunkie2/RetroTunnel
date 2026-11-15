@@ -830,7 +830,7 @@ class Befunde(Basis):
         rc, out = self.lauf()
         self.assertEqual(rc, 0, out)
 
-    def test_unbekannte_klasse_bricht_klassenregeln_nicht_ab(self):
+    def test_unbekannte_klasse_bei_klassenregeln_bricht_nicht_ab(self):
         # Zu einer unbekannten Klasse gibt es keinen Rang: Die Vergleiche (Herabstufung, Einstufung des Pruefers,
         # gesicherter Stand) entfallen; das Werkzeug meldet die Klasse und laeuft bis zum Ende.
         self.neu(klasse="UNBEKANNT", arbeitspaket="AP-K060", pruefer_einstufung="HOCH",
