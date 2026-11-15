@@ -2,7 +2,8 @@
 # status: OFFEN | IN_ARBEIT | BEHOBEN | AUFGELOEST_DURCH_AUFTRAGSHIERARCHIE | ZURUECKGEWIESEN
 #   BEHOBEN verlangt behoben_in (Datei oder Commit) UND nachpruefung (Bericht eines unabhaengigen Pruefers unter
 #   governance/pruefungen/); bis dahin bleibt ein eingearbeiteter Befund IN_ARBEIT (REVIEW_STANDARD 10.3).
-#   ZURUECKGEWIESEN verlangt zurueckweisung: {begruendung, bestaetigt_durch: <Bericht>}.
+#   ZURUECKGEWIESEN ist nur zulaessig, wenn der Befund NICHT ZUTRIFFT (ein zutreffender Befund wird behoben, auch ein
+#   Hinweis - BEFUND-REGEL), und verlangt zurueckweisung: {begruendung, bestaetigt_durch: <Bericht>}.
 #   AUFGELOEST_DURCH_AUFTRAGSHIERARCHIE verlangt aufgeloest_durch (Betreiberregel OP-... oder Mitteilung BM-nnnn).
 # pruefer_einstufung: Einstufung im Bericht - KRITISCH | HOCH | MITTEL | NIEDRIG | HINWEIS (Skala der Pruefer) oder
 #   BLOCKER | MAJOR | MINOR | NICE (Skala des REVIEW_STANDARD); Zuordnung zur klasse: REVIEW_STANDARD 10.2.
@@ -149,18 +150,26 @@ befunde:
 - id: BF-0006
   klasse: SCHWERWIEGEND
   status: IN_ARBEIT
-  stand: "2026-11-13: Entschieden in BASE-050 DEC-FW-01 (eine Tabelle, ein Renderer, ein Aktivierungsweg; Set-Inhalte nur über vpn-policy-apply; keine Regeln in awg0.conf, Hooks, Panel oder Fremdwerkzeugen). Die widersprüchliche Zeile in 04_PHASE_PLAN ist korrigiert. Nachtrag 2026-11-14: BASE-050 ist nie unabhängig geprüft worden. Nach REVIEW_STANDARD 10.3 e) ist der Befund deshalb EINGEARBEITET, nicht behoben (Kontrolle der Konsolidierung, Prüfung A, F-AST-006); geschlossen wird er mit der Gegenprüfung von BASE-050. Hierher gehört auch der Rest von EB-VOLLSCAN-04 (REVIEW_TRACKER 1b): Ob Stopp und Neustart des Regelwerks am Zielsystem wie beschrieben wirken, ist dort zu bestätigen (BASE-050_080 Abschnitt 7, E-FW-09)."
-  behoben_in: ["base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-01", "base/BASE-040_TUNNEL_WIREGUARD/BASE-040_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-WT-05", "04_PHASE_PLAN.txt"]
+  stand: '2026-11-13: Entschieden in BASE-050 DEC-FW-01 (eine Tabelle, ein Renderer, ein Aktivierungsweg; Set-Inhalte nur über vpn-policy-apply; keine Regeln
+    in awg0.conf, Hooks, Panel oder Fremdwerkzeugen). Die widersprüchliche Zeile in 04_PHASE_PLAN ist korrigiert. Nachtrag 2026-11-14: BASE-050 ist nie
+    unabhängig geprüft worden. Nach REVIEW_STANDARD 10.3 g) ("eingearbeitet ist nicht behoben") ist der Befund deshalb EINGEARBEITET, nicht behoben (Kontrolle
+    der Konsolidierung, Prüfung A, F-AST-006); geschlossen wird er mit der Gegenprüfung von BASE-050. Hierher gehört auch der Rest von EB-VOLLSCAN-04 (REVIEW_TRACKER
+    1b): Ob Stopp und Neustart des Regelwerks am Zielsystem wie beschrieben wirken, ist dort zu bestätigen (BASE-050_080 Abschnitt 7, E-FW-09).'
+  behoben_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-01
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-WT-05
+  - 04_PHASE_PLAN.txt
   titel: Widerspruch zur Autorität über Firewall-Regeln (awg0.conf PostUp/PostDown vs. SQL-first/Single-Writer)
-  beschreibung: >-
-    04_PHASE_PLAN nennt als Single-Source-of-Truth der Firewall "awg0.conf PostUp/PostDown (Service-Regeln) +
-    persistent rules nur für Deny-All + WG-Port". Dem stehen gegenüber: MANIFEST §5 ("WG-Server-Config: Komplett in
-    SQL (Option A). Kein Hidden Config File"), DP-05 (FLUSH+REBUILD aus SQL-Truth) und R-11 (Single-Writer für
-    Kernel-State über vpn-policy-apply).
-  fundstellen: ["RT:04_PHASE_PLAN.txt:155", "RT:00_MANIFEST.txt:290"]
+  beschreibung: '04_PHASE_PLAN nennt als Single-Source-of-Truth der Firewall "awg0.conf PostUp/PostDown (Service-Regeln) + persistent rules nur für Deny-All
+    + WG-Port". Dem stehen gegenüber: MANIFEST §5 ("WG-Server-Config: Komplett in SQL (Option A). Kein Hidden Config File"), DP-05 (FLUSH+REBUILD aus SQL-Truth)
+    und R-11 (Single-Writer für Kernel-State über vpn-policy-apply).'
+  fundstellen:
+  - RT:04_PHASE_PLAN.txt:155
+  - RT:00_MANIFEST.txt:290
   beleg: Beide Wortlaute gelesen.
   auswirkung: Zwei konkurrierende Schreibwege für nftables würden Drift und Fail-Open-Fenster beim Interface-Start ermöglichen.
-  massnahme: In AP-K050 (BASE-050) verbindlich entscheiden, welcher Akteur welche nftables-Objekte schreibt (Boot-Baseline, Rollen-Regelwerk, dynamische Sets), und 04_PHASE_PLAN angleichen.
+  massnahme: In AP-K050 (BASE-050) verbindlich entscheiden, welcher Akteur welche nftables-Objekte schreibt (Boot-Baseline, Rollen-Regelwerk, dynamische
+    Sets), und 04_PHASE_PLAN angleichen.
   arbeitspaket: AP-K050
   entdeckt_in: AP-S01
 - id: BF-0007
@@ -243,28 +252,28 @@ befunde:
 - id: BF-0011
   klasse: SCHWERWIEGEND
   status: IN_ARBEIT
-  stand: >-
-    2026-11-14: Eingearbeitet in BASE-050 (DEC-FW-16, BASE-050_040 Abschnitt 6). BASE-050 ist nie unabhängig
-    geprüft worden; nach REVIEW_STANDARD 10.3 e) ist der Befund deshalb nicht behoben (Kontrolle der
-    Konsolidierung, Prüfung A, F-AST-006). Geschlossen wird er mit der Gegenprüfung von BASE-050.
+  stand: '2026-11-14: Eingearbeitet in BASE-050 (DEC-FW-16, BASE-050_040 Abschnitt 6). BASE-050 ist nie unabhängig geprüft worden; nach REVIEW_STANDARD
+    10.3 g) ("eingearbeitet ist nicht behoben") ist der Befund deshalb nicht behoben (Kontrolle der Konsolidierung, Prüfung A, F-AST-006). Geschlossen wird
+    er mit der Gegenprüfung von BASE-050.'
   titel: Erklärter Notfallkanal SSH war bei Störungen nicht erreichbar (kein datenbankunabhängiger Verwaltungszugang)
-  beschreibung: >-
-    BASE-020_020 nennt für die Wiederherstellung bei Datenbankausfall "out-of-band (SSH/Console)"; die
-    Panel-Vorstudie bezeichnet SSH als letzten Notfallkanal "in jedem Fall". SSH ist aber nur an SERVICE_SSH
-    gebunden und ausschließlich über die Produkt-Tunnel aus dem ADMIN-Pool erreichbar. Bei Datenbankausfall lehnt
-    L2TP neue Anmeldungen ab (RADIUS) und awg0 wird nach der Grace gestoppt (WG-GRACE); bei defektem AWG-Modul
-    oder nicht ladbarem Regelwerk gibt es ebenfalls keinen Weg. Übrig blieb nur die Konsole des Hosters, die im
-    Konzept nirgends als Voraussetzung (lokales Konto, Kennwort) geführt war.
-  fundstellen: ["RT:base/BASE-020_AAA_CORE/BASE-020_020_ADMISSION_VERTRAG.txt:121", "RT:base/BASE-110_WEBSTACK_CORE/entwuerfe/panel-zentrale/VISION_PANEL_ZENTRALE.txt:579", "RT:base/BASE-005_PLATFORM_CORE/BASE-005_030_SERVICE_ENDPOINTS_UND_PORTS.txt:43"]
+  beschreibung: BASE-020_020 nennt für die Wiederherstellung bei Datenbankausfall "out-of-band (SSH/Console)"; die Panel-Vorstudie bezeichnet SSH als letzten
+    Notfallkanal "in jedem Fall". SSH ist aber nur an SERVICE_SSH gebunden und ausschließlich über die Produkt-Tunnel aus dem ADMIN-Pool erreichbar. Bei
+    Datenbankausfall lehnt L2TP neue Anmeldungen ab (RADIUS) und awg0 wird nach der Grace gestoppt (WG-GRACE); bei defektem AWG-Modul oder nicht ladbarem
+    Regelwerk gibt es ebenfalls keinen Weg. Übrig blieb nur die Konsole des Hosters, die im Konzept nirgends als Voraussetzung (lokales Konto, Kennwort)
+    geführt war.
+  fundstellen:
+  - RT:base/BASE-020_AAA_CORE/BASE-020_020_ADMISSION_VERTRAG.txt:121
+  - RT:base/BASE-110_WEBSTACK_CORE/entwuerfe/panel-zentrale/VISION_PANEL_ZENTRALE.txt:579
+  - RT:base/BASE-005_PLATFORM_CORE/BASE-005_030_SERVICE_ENDPOINTS_UND_PORTS.txt:43
   beleg: Wortlaute gelesen; Abgleich mit BASE-040_060 (Dienst-Stop nach Grace) und der Dienst-Matrix (SSH nur ADMIN-Pool).
-  auswirkung: >-
-    Im wahrscheinlichsten Störfall (Datenbank länger als die Grace nicht verfügbar) wäre der Server aus der Ferne
-    nicht mehr verwaltbar gewesen; die Wiederherstellung hätte von einer nicht dokumentierten Voraussetzung abgehangen.
-  massnahme: >-
-    Notzugang rtmgmt0 als eigene, datenbankunabhängige Ebene (BASE-050 DEC-FW-16, BASE-050_040 Abschnitt 6) mit
-    engem Zielumfang (nur SSH), Verfügbarkeit auch im Notfall-Riegel, Meldung jeder Nutzung; Konsole des Hosters als
-    letzte Ebene mit ausdrücklicher Anforderung eines lokalen Kontos (ANF-FW-01 h, ANF-FW-10).
-  behoben_in: ["base/BASE-050_FIREWALL_CORE/BASE-050_040_WAN_EXPOSITION_UND_NOTZUGANG.txt#6) NOTZUGANG rtmgmt0", "base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-16"]
+  auswirkung: Im wahrscheinlichsten Störfall (Datenbank länger als die Grace nicht verfügbar) wäre der Server aus der Ferne nicht mehr verwaltbar gewesen;
+    die Wiederherstellung hätte von einer nicht dokumentierten Voraussetzung abgehangen.
+  massnahme: Notzugang rtmgmt0 als eigene, datenbankunabhängige Ebene (BASE-050 DEC-FW-16, BASE-050_040 Abschnitt 6) mit engem Zielumfang (nur SSH), Verfügbarkeit
+    auch im Notfall-Riegel, Meldung jeder Nutzung; Konsole des Hosters als letzte Ebene mit ausdrücklicher Anforderung eines lokalen Kontos (ANF-FW-01 h,
+    ANF-FW-10).
+  behoben_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_040_WAN_EXPOSITION_UND_NOTZUGANG.txt#6) NOTZUGANG rtmgmt0
+  - base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-16
   arbeitspaket: AP-K050
   entdeckt_in: AP-K050
 - id: BF-0012

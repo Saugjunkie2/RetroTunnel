@@ -240,7 +240,7 @@ Die Statusangaben unten betreffen die **Konzeptausarbeitung** (M0–M4). Insbeso
 | M3 | Erweiterungs-Module (10 Module) | ⏸ Deferred |
 | M4 | Decisions, Proofs, Implementation | ⏸ Deferred |
 
-Den Stand der einzelnen Pakete – auch welche der acht übrigen Kern-Module geschrieben, geprüft oder offen sind – führt allein die [Prioritätenliste](PRIORITAETENLISTE.txt); diese Tabelle nennt nur die Phase.
+Den Stand der einzelnen Pakete – auch welche der acht übrigen Kern-Module geschrieben, geprüft oder offen sind – führt allein die [Prioritätenliste](PRIORITAETENLISTE.txt); diese Tabelle fasst sie zusammen (die Zeilen sind maschinell an die Liste gekoppelt). `✅ Done` bei M2-000 bis M2-030 gilt für den im Changelog beschriebenen Stand: Die Dateien im Repository liegen dahinter und tragen offene Befunde (Überblick: REVIEW_TRACKER.txt, Abschnitte 1 und 1d).
 
 ## Vorgänger
 
