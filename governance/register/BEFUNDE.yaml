@@ -9,6 +9,12 @@
 #   BLOCKER | MAJOR | MINOR | NICE (Skala des REVIEW_STANDARD); Zuordnung zur klasse: REVIEW_STANDARD 10.2.
 # Befunde werden nie geloescht; Kennungen sind lueckenlos.
 # sperrt_auch: weitere Pakete, die nicht [DONE] werden duerfen, solange dieser Befund offen ist (ausser arbeitspaket).
+# pruefer_einstufung ist PFLICHT, sobald entdeckt_in, beleg oder eine Fundstelle einen Pruefbericht unter
+#   governance/pruefungen/ nennt. Traegt der Bericht keine Einstufung: ohne_pruefer_einstufung: <Begruendung>.
+# umbuchung: {von: <bisheriges arbeitspaket>, begruendung}: Pflicht, wenn arbeitspaket gegenueber dem letzten
+#   gesicherten Stand geaendert wird (Umbuchen hebt die Abschluss-Sperre des bisherigen Pakets auf).
+# Als Pruefbericht zaehlt nur eine Datei unter governance/pruefungen/, deren Name PRUEFUNG enthaelt (Gegen-,
+#   Nachpruefung, Pruefung) - kein Arbeitspapier des Hauptarchitekten, nicht die Sammlung der Pruefauftraege.
 # Herabstufungen nur mit Begründung im Feld "herabstufung" und Bestätigung durch gesonderte Prüfung.
 # fundstellen: "RT:<pfad>:<zeile>" bezieht sich auf den RetroTunnel-Baseline-Commit, "XPN:<pfad>[:<zeile>]" auf den XPN-Baseline-Commit.
 #              "NL:<pfad>[:<zeile>]" auf die Nachlieferung am Liefer-Commit, "ZIEL:<pfad>[:<zeile>]@<commit>" auf eine Datei des
@@ -220,32 +226,42 @@ befunde:
 - id: BF-0010
   klasse: SCHWERWIEGEND
   status: OFFEN
-  stand: "2026-11-13: Der Betreiber liefert die lokalen Moduldateien nicht nach (BM-0003). Maßnahme (3) entfällt; es bleibt bei (1) Changelog als Primärquelle und (2) Nachzug in AP-Q04. Die Vermutung des Betreibers, die Inhalte seien bereits im Projekt aufgegangen, ist durch den unter 'beleg' genannten grep-Befund widerlegt. BASE-050 setzt F-001/F-002 (v2.1.14/v2.1.15) bereits um; der daraus folgende Nachzug in BASE-005_080 (Boot-Reihenfolge) und BASE-030 (LT-32, unit-cache) ist als ANF-FW-01/ANF-FW-02 registriert."
+  stand: '2026-11-13: Der Betreiber liefert die lokalen Moduldateien nicht nach (BM-0003). Maßnahme (3) entfällt; es bleibt bei (1) Changelog als Primärquelle
+    und (2) Nachzug in AP-Q04. Die Vermutung des Betreibers, die Inhalte seien bereits im Projekt aufgegangen, ist durch den unter ''beleg'' genannten grep-Befund
+    widerlegt. BASE-050 setzt F-001/F-002 (v2.1.14/v2.1.15) bereits um; der daraus folgende Nachzug in BASE-005_080 (Boot-Reihenfolge) und BASE-030 (LT-32,
+    unit-cache) ist als ANF-FW-01/ANF-FW-02 registriert. Nachtrag 2026-11-15 (Nachprüfung F-NKO-018): Fundstellen um je eine Datei aus BASE-000, BASE-005
+    und BASE-030 ergänzt, damit der Befund an allen fünf Altmodulen geführt wird. Belege: BASE-005_090 endet bei PF-18 (Changelog v1.7 beschreibt PF-19);
+    BASE-030_090 endet bei LT-40 (v1.6: LT-41); der für BASE-000_010 in v2.1.13 beschriebene ''HINWEIS CREDENTIAL-ENTSCHLUESSELUNG'' fehlt (Suche in base/BASE-000_SQL_FIRST:
+    0 Treffer).'
   titel: Moduldateien im Repository liegen hinter dem im Changelog dokumentierten Entscheidungsstand (v1.5 bis v2.1.15)
-  beschreibung: >-
-    Root-Dokumente (Changelog, Glossar, Manifest, Regeln, Phasenplan, Tracker) stehen auf v2.1.15. Die Moduldateien
-    unter base/, model/ und decisions/ enthalten dagegen zahlreiche im Changelog als "gepatcht" beschriebene Inhalte
-    NICHT: u. a. D004 als Datei (v2.1.4), Zähler-/Quota-Schema "Gruppe D" mit quota_used und last_runtime_seen_at
-    (v2.1.5), WG-GRACE-01…05 (v2.1.3), WG-01…05 und PF-19 (v1.7), LT-41 in den Invarianten (v1.6), INV-83/INV-84 und
-    VC-11 (v2.0), CEK und subaccount_password_enc (v2.1.13), Boot-Firewall-Abschnitt 3a (v2.1.14), Pfadkorrekturen
-    /etc/amnezia/amneziawg und swanctl (v2.1.6, v2.1.9), -Alt-Markierungen (v2.1.11), SM_CONNECTION-Cleanup (v1.9).
-    Höchste vorhandene Kennungen: INV-82, LT-40, AAA-31, PF-18. Der Commit a69f29e ("Update … to v2.1.15") änderte
-    nur 16 der 67 kanonischen Moduldateien. Der Stand der Moduldateien entspricht etwa v1.4 (2026-05-11).
-  fundstellen: ["RT:03_CHANGELOG.txt:17", "RT:03_CHANGELOG.txt:160", "RT:03_CHANGELOG.txt:659", "RT:03_CHANGELOG.txt:725", "RT:03_CHANGELOG.txt:983", "RT:03_CHANGELOG.txt:1671", "RT:03_CHANGELOG.txt:2157", "RT:base/BASE-010_IDENTITY_CORE/BASE-010_020_VPN_CONNECTIONS.txt:1", "RT:base/BASE-020_AAA_CORE/BASE-020_040_WIREGUARD_ADMISSION.txt:1"]
-  beleg: >-
-    grep über base/ model/ decisions/ docs/ am Baseline-Commit: 0 Treffer für "Gruppe D", "quota_used",
-    "last_runtime_seen_at", "WG-GRACE-01", "CEK", "subaccount_password_enc", "INV-83", "INV-84", "WG-01",
-    "INV-QUOTA-RESET-ATOMARITY", "T-RA-01"; git diff --name-only dfd2530 a69f29e; Changelog Zeilen 1–2680 gelesen.
-  auswirkung: >-
-    Wer nach den Moduldateien implementiert, setzt überholte bzw. als fehlerhaft erkannte Vorgaben um (z. B. Tunnel
-    vor Firewall, vpn_sessions-Tabelle, falsche Konfigurationspfade, Klartext-Credential-Modell). Die jüngsten
-    Entscheidungen sind nur über die Changelog-Erzählung belegt; deren Originalwortlaut in den Moduldateien ist
-    für den Hauptarchitekten nicht zugänglich.
-  massnahme: >-
-    (1) Der Changelog wird als Primärquelle der Entscheidungen v1.5–v2.1.15 behandelt; neue Module bauen auf diesem
-    Entscheidungsstand auf. (2) AP-Q04 führt die dokumentierten Entscheidungen systematisch in die bestehenden
-    Moduldateien nach (gekennzeichnet als Nachzug aus dem Changelog, mit Fundstelle). (3) Der Betreiber wird in der
-    gebündelten Anfrage gebeten, die aktuellen lokalen Moduldateien nachzuliefern; treffen sie ein, werden sie
+  beschreibung: 'Root-Dokumente (Changelog, Glossar, Manifest, Regeln, Phasenplan, Tracker) stehen auf v2.1.15. Die Moduldateien unter base/, model/ und
+    decisions/ enthalten dagegen zahlreiche im Changelog als "gepatcht" beschriebene Inhalte NICHT: u. a. D004 als Datei (v2.1.4), Zähler-/Quota-Schema
+    "Gruppe D" mit quota_used und last_runtime_seen_at (v2.1.5), WG-GRACE-01…05 (v2.1.3), WG-01…05 und PF-19 (v1.7), LT-41 in den Invarianten (v1.6), INV-83/INV-84
+    und VC-11 (v2.0), CEK und subaccount_password_enc (v2.1.13), Boot-Firewall-Abschnitt 3a (v2.1.14), Pfadkorrekturen /etc/amnezia/amneziawg und swanctl
+    (v2.1.6, v2.1.9), -Alt-Markierungen (v2.1.11), SM_CONNECTION-Cleanup (v1.9). Höchste vorhandene Kennungen: INV-82, LT-40, AAA-31, PF-18. Der Commit
+    a69f29e ("Update … to v2.1.15") änderte nur 16 der 67 kanonischen Moduldateien. Der Stand der Moduldateien entspricht etwa v1.4 (2026-05-11).'
+  fundstellen:
+  - RT:03_CHANGELOG.txt:17
+  - RT:03_CHANGELOG.txt:160
+  - RT:03_CHANGELOG.txt:659
+  - RT:03_CHANGELOG.txt:725
+  - RT:03_CHANGELOG.txt:983
+  - RT:03_CHANGELOG.txt:1671
+  - RT:03_CHANGELOG.txt:2157
+  - RT:base/BASE-010_IDENTITY_CORE/BASE-010_020_VPN_CONNECTIONS.txt:1
+  - RT:base/BASE-020_AAA_CORE/BASE-020_040_WIREGUARD_ADMISSION.txt:1
+  - RT:base/BASE-000_SQL_FIRST/BASE-000_010_DATENBANK_UND_SICHERHEITSZONEN.txt:1
+  - RT:base/BASE-005_PLATFORM_CORE/BASE-005_090_INVARIANTEN.txt:84
+  - RT:base/BASE-030_TUNNEL_L2TP_IPSEC/BASE-030_090_INVARIANTEN.txt:214
+  beleg: 'grep über base/ model/ decisions/ docs/ am Baseline-Commit: 0 Treffer für "Gruppe D", "quota_used", "last_runtime_seen_at", "WG-GRACE-01", "CEK",
+    "subaccount_password_enc", "INV-83", "INV-84", "WG-01", "INV-QUOTA-RESET-ATOMARITY", "T-RA-01"; git diff --name-only dfd2530 a69f29e; Changelog Zeilen
+    1–2680 gelesen.'
+  auswirkung: Wer nach den Moduldateien implementiert, setzt überholte bzw. als fehlerhaft erkannte Vorgaben um (z. B. Tunnel vor Firewall, vpn_sessions-Tabelle,
+    falsche Konfigurationspfade, Klartext-Credential-Modell). Die jüngsten Entscheidungen sind nur über die Changelog-Erzählung belegt; deren Originalwortlaut
+    in den Moduldateien ist für den Hauptarchitekten nicht zugänglich.
+  massnahme: (1) Der Changelog wird als Primärquelle der Entscheidungen v1.5–v2.1.15 behandelt; neue Module bauen auf diesem Entscheidungsstand auf. (2)
+    AP-Q04 führt die dokumentierten Entscheidungen systematisch in die bestehenden Moduldateien nach (gekennzeichnet als Nachzug aus dem Changelog, mit
+    Fundstelle). (3) Der Betreiber wird in der gebündelten Anfrage gebeten, die aktuellen lokalen Moduldateien nachzuliefern; treffen sie ein, werden sie
     gegen den Nachzug abgeglichen. Kein Blocker für die Arbeit.
   arbeitspaket: AP-Q04
   entdeckt_in: AP-Q01
@@ -1462,35 +1478,43 @@ befunde:
   klasse: SCHWERWIEGEND
   status: OFFEN
   titel: 'Audit 2026-05-30, F-015: Datenbankrechte des Webpanels moeglicherweise zu weit - nie geprueft'
-  beschreibung: 'REVIEW_TRACKER 1c fuehrt F-015 (Major) seit 2026-05-30 als OFFEN: "webpanel-DB-Rechte zu weit -> noch zu pruefen (aktive Datei BASE-000_010)". Der
-    Punkt wurde seit dem Auftrag vom 2026-11-11 nicht aufgenommen, weil der Tracker bis zum 2026-11-14 nicht vollstaendig gelesen war.'
+  beschreibung: 'REVIEW_TRACKER 1c fuehrt F-015 (Major) seit 2026-05-30 als OFFEN: "webpanel-DB-Rechte zu weit -> noch zu pruefen (aktive Datei BASE-000_010)".
+    Der Punkt wurde seit dem Auftrag vom 2026-11-11 nicht aufgenommen, weil der Tracker bis zum 2026-11-14 nicht vollstaendig gelesen war.'
   fundstellen:
   - RT:REVIEW_TRACKER.txt:709
   - RT:base/BASE-000_SQL_FIRST/BASE-000_010_DATENBANK_UND_SICHERHEITSZONEN.txt
   beleg: REVIEW_TRACKER Abschnitt 1c (Audit-Tracking), Uebersicht "OFFEN aktive Dateien".
-  auswirkung: Unbekannt, bis geprueft. Zu weite Rechte des Panel-Datenbankbenutzers wuerden die Zonen-Trennung (R-18, PATTERN-05) schwaechen; deshalb bis zur
-    Pruefung als schwerwiegend gefuehrt.
-  massnahme: Rechte des Benutzers webpanel in BASE-000_010 gegen die Schreibpfad-Matrizen (BASE-010_080, nachgelieferte B345) und gegen die Schreibwege der neuen
-    Module pruefen; Ergebnis im Tracker bei F-015 eintragen.
+  auswirkung: Unbekannt, bis geprueft. Zu weite Rechte des Panel-Datenbankbenutzers wuerden die Zonen-Trennung (R-18, PATTERN-05) schwaechen; deshalb bis
+    zur Pruefung als schwerwiegend gefuehrt.
+  massnahme: Rechte des Benutzers webpanel in BASE-000_010 gegen die Schreibpfad-Matrizen (BASE-010_080, nachgelieferte B345) und gegen die Schreibwege
+    der neuen Module pruefen; Ergebnis im Tracker bei F-015 eintragen.
   arbeitspaket: AP-Q04
   entdeckt_in: REVIEW_TRACKER Abschnitt 1c, uebernommen bei der Konsolidierung (AP-S06)
+  pruefer_einstufung: MAJOR
 - id: BF-0058
   klasse: GERINGFUEGIG
   status: OFFEN
+  stand: '2026-11-15 (Nachpruefung F-NKO-018, F-NKO-027): Fundstellen der beiden Ueberschriften in BASE-005 ergaenzt (dieselbe Ueberschrift ''CRASH-RECOVERY''
+    steht auch in BASE-005_080 Zeile 176). Einstufung des Audits nachgetragen: F-023 Minor, F-026 und F-027 Nice; der F-001-Folgepunkt stammt vom damaligen
+    Bearbeiter (''Nicht blockierend'').'
   titel: 'Audit 2026-05-30: redaktionelle Restpunkte in aktiven Dateien (F-001-Folgepunkt, F-023, F-026, F-027)'
   beschreibung: 'REVIEW_TRACKER 1c fuehrt als offen: Ueberschriften "CRASH-RECOVERY-*" in BASE-005_090 und _095 passen nicht mehr zum Inhalt (F-001-Folgepunkt);
-    OPEN-PHP-07 mit "vermutlich" und offener Frage an den Betreiber (F-023); IKEv2-Wortwahl im Manifest (F-026); Live-Fakten ohne Zeitstempel (F-027; vgl. BF-0009).'
+    OPEN-PHP-07 mit "vermutlich" und offener Frage an den Betreiber (F-023); IKEv2-Wortwahl im Manifest (F-026); Live-Fakten ohne Zeitstempel (F-027; vgl.
+    BF-0009).'
   fundstellen:
   - RT:REVIEW_TRACKER.txt:592
   - RT:REVIEW_TRACKER.txt:750
   - RT:REVIEW_TRACKER.txt:759
   - RT:REVIEW_TRACKER.txt:762
+  - RT:base/BASE-005_PLATFORM_CORE/BASE-005_090_INVARIANTEN.txt:81
+  - RT:base/BASE-005_PLATFORM_CORE/BASE-005_095_TESTS_UND_VALIDIERUNG.txt:122
   beleg: REVIEW_TRACKER Abschnitt 1c (Audit-Tracking).
   auswirkung: Keine fachliche; Lesbarkeit und Begriffstreue.
-  massnahme: Beim Nachzug der Dateien BASE-000 bis BASE-030 und beim Schlussabgleich der Steuerungsdokumente erledigen; F-023 als Annahme mit Pruefmethode fassen
-    statt als Frage.
+  massnahme: Beim Nachzug der Dateien BASE-000 bis BASE-030 und beim Schlussabgleich der Steuerungsdokumente erledigen; F-023 als Annahme mit Pruefmethode
+    fassen statt als Frage.
   arbeitspaket: AP-Q04
   entdeckt_in: REVIEW_TRACKER Abschnitt 1c, uebernommen bei der Konsolidierung (AP-S06)
+  pruefer_einstufung: MINOR
 - id: BF-0059
   klasse: SCHWERWIEGEND
   status: OFFEN
@@ -1529,24 +1553,34 @@ befunde:
   arbeitspaket: AP-Q04
   entdeckt_in: REVIEW_TRACKER Abschnitt 1b/1c (Mai 2026); ins Register uebernommen am 2026-11-14 nach der Kontrolle der Konsolidierung (Pruefung A, F-AST-005)
 - id: BF-0061
-  klasse: SCHWERWIEGEND
+  klasse: KRITISCH
   status: IN_ARBEIT
-  titel: 'Audit F-002 (Restnotiz): Restrisiko waehrend der WireGuard-Grace bei Datenbankausfall ist nicht unabhaengig bewertet'
-  beschreibung: 'Das Audit vom 2026-05-30 fuehrte F-002 als Blocker ("WG-DB-Down-Grace nicht als Fail-Closed-Ausnahme benannt"). Am 2026-05-30 als Blocker
-    zurueckgewiesen, weil BASE-020_020 die Grace als Betreiberentscheidung vom 2026-04-18 ausdruecklich benennt (REVIEW_TRACKER 1c). Offen blieb dort eine
-    Restnotiz (damals MINOR): Waehrend der Grace bleibt ein Peer ohne erneute Pruefung gegen die Datenbank verbunden. BASE-040_060 arbeitet das Verhalten
-    in der Stoerung aus; ob das Restrisiko damit geschlossen ist, hat kein unabhaengiger Pruefer bewertet. Die Einstufung des Audits (Blocker) bezog sich
-    auf die widerlegte Annahme, die Ausnahme sei nicht benannt; der hier gefuehrte Befund ist die Restnotiz.'
+  stand: '2026-11-15: Klasse von SCHWERWIEGEND auf KRITISCH angehoben und pruefer_einstufung BLOCKER nachgetragen (Nachpruefung F-NKO-027 und Antwort d).
+    Grund ist allein die Regel ''Klasse nicht unter der Einstufung des Pruefers ohne gesondert bestaetigte Herabstufung'' (REVIEW_STANDARD 10.2; Betreiberregeln
+    Abschnitt 5): Die Zurueckweisung als Blocker und die Einstufung MINOR vom Mai stammen vom damaligen Bearbeiter, einen Bericht einer gesonderten Pruefung
+    gibt es dazu nicht. Zur Sache gibt es KEINE neue Erkenntnis; nach eigener Lektuere benennt BASE-020_020 die Grace tatsaechlich als Betreiberentscheidung.
+    Der Restkern ist jetzt im Wortlaut wiedergegeben (vorher verkuerzt als ''bleibt ein Peer ... verbunden'').'
+  titel: 'Audit F-002 (Blocker): Zurueckweisung vom 2026-05-30 und Restrisiko waehrend der WireGuard-Grace bei Datenbankausfall sind nicht unabhaengig bewertet'
+  beschreibung: 'Das Audit vom 2026-05-30 fuehrte F-002 als Blocker ("WG-DB-Down-Grace nicht als Fail-Closed-Ausnahme benannt"). Der damalige Bearbeiter
+    wies ihn am 2026-05-30 als Blocker zurueck ("REJECT als Blocker (teilweise korrekt)"), weil BASE-020_020 die Grace als Betreiberentscheidung vom 2026-04-18
+    ausdruecklich benennt (5 Minuten Grace, dann Dienst-Stop; REVIEW_TRACKER 1c). Offen blieb dort eine Restnotiz, im Wortlaut: "Realer Restkern (Peer kann
+    waehrend Grace ohne DB-Recheck handshaken) ist bewusst akzeptiert + zeitlich begrenzt = MINOR, gekoppelt an F-014/BASE-040." BASE-040_060 arbeitet das
+    Verhalten in der Stoerung aus. Weder die Zurueckweisung noch das Restrisiko hat ein unabhaengiger Pruefer bewertet. Die Einstufung des Audits (Blocker)
+    bezog sich auf die Annahme, die Ausnahme sei nicht benannt; die Einstufung MINOR fuer den Restkern stammt vom damaligen Bearbeiter, nicht vom Audit.'
   fundstellen:
   - RT:REVIEW_TRACKER.txt:600
   - RT:base/BASE-020_AAA_CORE/BASE-020_020_ADMISSION_VERTRAG.txt:128
   - ZIEL:base/BASE-040_TUNNEL_WIREGUARD/BASE-040_060_DB_DOWN_GRACE_UND_FAIL_CLOSED.txt@857b95f
   beleg: REVIEW_TRACKER Abschnitt 1c, F-002 mit Stand-Vermerk vom 2026-11-14; BASE-020_020 (Hybrid-Loesung) gelesen.
-  auswirkung: Unbekannt, bis bewertet. Betroffen ist das Fail-Closed-Ziel fuer die Dauer der Grace; deshalb bis zur Bewertung als schwerwiegend gefuehrt.
-  massnahme: 'In der dritten Pruefrunde von BASE-040 ausdruecklich bewerten lassen: Was kann ein Peer waehrend der Grace, was nicht (BASE-040_060), und
-    ist das von der Betreiberentscheidung vom 2026-04-18 gedeckt. Ergebnis hier und im Tracker bei F-002 eintragen.'
+  auswirkung: Unbekannt, bis bewertet. Betroffen ist das Fail-Closed-Ziel fuer die Dauer der Grace; bis zur Bewertung in der Einstufung des Audits gefuehrt
+    (siehe stand).
+  massnahme: 'In der dritten Pruefrunde von BASE-040 ausdruecklich bewerten lassen: (a) Traegt die Zurueckweisung vom 2026-05-30 (die Praemisse des Audits
+    sei falsch, weil BASE-020_020 die Grace als Betreiberentscheidung benennt)? (b) Was kann ein Peer waehrend der Grace, was nicht (BASE-040_060), und
+    ist das von der Betreiberentscheidung vom 2026-04-18 gedeckt? Ergebnis hier und in der Pruefhistorie bei F-002 eintragen. Eine Herabstufung ist nur
+    mit dem Bericht dieser Pruefung moeglich (Feld herabstufung).'
   arbeitspaket: AP-K040
   entdeckt_in: REVIEW_TRACKER Abschnitt 1b/1c (Mai 2026); ins Register uebernommen am 2026-11-14 nach der Kontrolle der Konsolidierung (Pruefung A, F-AST-005)
+  pruefer_einstufung: BLOCKER
 - id: BF-0062
   klasse: SCHWERWIEGEND
   status: IN_ARBEIT
@@ -2030,6 +2064,8 @@ befunde:
     abgebrochenen Rest der Pruefung nachholen.
   arbeitspaket: AP-S06
   entdeckt_in: Unabhaengige Kontrolle der Konsolidierung (BM-0015 Schritt E), Pruefung C (Pruefwerkzeuge, abgebrochen), 2026-11-14
+  ohne_pruefer_einstufung: 'Die Pruefung C brach ab, bevor der Pruefer seine Befunde eingestuft hatte: Abschnitt 2 ''Befunde nach Schwere'' des Berichts
+    ist leer, der Bericht ist ein Zwischenstand. Die Klasse SCHWERWIEGEND hat der Hauptarchitekt gesetzt.'
 - id: BF-0084
   klasse: GERINGFUEGIG
   status: OFFEN

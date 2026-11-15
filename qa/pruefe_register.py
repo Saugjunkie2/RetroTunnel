@@ -60,14 +60,16 @@ ALT_PAKETE = {**{f"M0-{i:02d}": "DONE" for i in range(1, 8)}, **{f"M1-{i:02d}": 
               "M2-030": "DONE", "QS-01": "LAUFEND"}
 # Module, die vor dem Auftrag geschrieben wurden und (noch) nicht unter der maschinellen Modulpruefung stehen.
 ALT_MODULE = {"BASE-000", "BASE-005", "BASE-010", "BASE-020", "BASE-030"}
-# Welches Modul die Kennungen eines Praefix DEFINIERT (nur dort wird gezaehlt). Fuer die Praefixe der Altmodule darf
-# ein Steuerungsdokument den im Changelog beschriebenen, im Repository nicht vorhandenen Stand nennen, wenn der
-# Vermerk "BF-0010" in der Naehe steht.
+# Welches Modul die Kennungen eines Praefix DEFINIERT (nur dort wird gezaehlt).
 EIGNER = {"SQL": "BASE-000", "T-SQL": "BASE-000", "PF": "BASE-005", "T-PF": "BASE-005", "INV": "BASE-010",
           "AAA": "BASE-020", "T-AAA": "BASE-020", "LT": "BASE-030", "T-LT": "BASE-030",
           **{p + k: m for k, m in (("WT", "BASE-040"), ("FW", "BASE-050"), ("SC", "BASE-070"), ("PA", "BASE-080"))
              for p in ("", "T-", "DEC-", "ANF-")}}
-ALT_PRAEFIXE = {p for p, m in EIGNER.items() if m in ALT_MODULE}
+# Der im Changelog beschriebene, im Repository nicht vorhandene Stand der Altmodule (Befund BF-0010): je Praefix
+# genau EIN geduldeter Wert, und nur neben dem Vermerk "BF-0010". Jede andere Angabe muss dem Bestand im
+# Repository entsprechen - auch neben dem Vermerk (Nachpruefung vom 2026-11-15, F-NKO-001).
+BESCHRIEBEN = {"PF": 19, "T-PF": 21, "INV": 84, "LT": 41, "T-LT": 46}
+assert all(EIGNER.get(p) in ALT_MODULE for p in BESCHRIEBEN)
 # Dokumente, die Vergangenes festhalten: dort werden Zaehlangaben nicht gegen den heutigen Bestand geprueft.
 ZEITDOKUMENTE = {"REVIEW_TRACKER_HISTORIE.txt"}
 KR03_AUSNAHME = {"03_CHANGELOG.txt"}   # ueberschritt 1500 Zeilen schon am Ausgangsstand (3279); 00_MANIFEST KR-03
@@ -107,6 +109,7 @@ class Pruefung:
         self._cache = {}
         self.trace_ziele = set()
         self.entwuerfe = set()
+        self.paket_vorher = {}
         self._liste = None
         self.pfad_zeilen = []          # Zeilen des Abschnitts KRITISCHER PFAD der PRIORITAETENLISTE
         self.sperren = {}              # Listen-Kennung -> offene Befunde, die das Paket am Abschluss hindern
@@ -215,10 +218,8 @@ class Pruefung:
             vbx = self.lade("governance/register/VERBESSERUNGEN.yaml", pflicht=False) or {}
             if not vbx.get("freeze_erklaert"):
                 self.err("STATUS: Gate G1 ERFUELLT, aber der Funktions-Freeze ist nicht erklaert")
-            for kennung, e in self.lies_prioritaetenliste().items():
-                mq = re.fullmatch(r"QS-(\d+)", kennung)
-                if e["tag"] != "DONE" and kennung != "QS-01" and not (mq and int(mq.group(1)) > 16):
-                    self.err(f"STATUS: Gate G1 ERFUELLT, aber {kennung} ist [{e['tag']}]")
+            for kennung, tag in self.offene_pakete_bis(16):
+                self.err(f"STATUS: Gate G1 ERFUELLT, aber {kennung} ist [{tag}]")
         fs = st.get("fachstatus")
         alle = all((gates.get(g) or {}).get("zustand") == "ERFUELLT" for g in ("G1", "G2", "G3", "G4"))
         if fs in ("FREIGEGEBEN", "ABGESCHLOSSEN_UND_UEBERNOMMEN") and not alle:
@@ -240,6 +241,17 @@ class Pruefung:
                     self.err(f"STATUS: kandidat.commit {k['commit'][:12]} gibt es im Repository nicht")
                 elif baum.stdout.strip() != k["tree"]:
                     self.err(f"STATUS: kandidat.tree passt nicht zum kandidat.commit {k['commit'][:12]}")
+        if fs == "PRUEFBEREIT":
+            # "integrierter und eingefrorener Abschlusskandidat vorhanden" (Betreiberregeln Abschnitt 8): Der
+            # Funktions-Freeze ist erklaert und alle Pakete bis QS-17 sind [DONE]. QS-18 ist das Einfrieren selbst;
+            # ueber die Gates entscheidet erst QS-22 - deshalb haengt die Regel an der Paketlage, nicht an G1.
+            vbx = self.lade("governance/register/VERBESSERUNGEN.yaml", pflicht=False) or {}
+            offen_p = self.offene_pakete_bis(17)
+            if offen_p or not vbx.get("freeze_erklaert"):
+                self.err("STATUS: fachstatus PRUEFBEREIT ohne eingefrorenes Konzept (Betreiberregeln Abschnitt 8): "
+                         + ("" if vbx.get("freeze_erklaert") else "Funktions-Freeze nicht erklaert; ")
+                         + (f"{len(offen_p)} Pakete bis QS-17 sind nicht [DONE], darunter "
+                            f"{', '.join(k for k, _t in offen_p[:5])}" if offen_p else ""))
         if fs in ("FACHLICH_FERTIG_FREIGABE_BLOCKIERT", "FREIGEGEBEN", "ABGESCHLOSSEN_UND_UEBERNOMMEN"):
             for b in (bf or {}).get("befunde") or []:
                 if b.get("klasse") in ("KRITISCH", "SCHWERWIEGEND") and b.get("status") not in BF_ERLEDIGT:
@@ -287,6 +299,16 @@ class Pruefung:
                          f"({str(soll)[:12]} gegen {str(teil.get('baseline_commit'))[:12]})")
             if q == "NL" and bool(teil) != bool(soll):
                 self.err("STATUS: quellen_commit_nl und Inventarteil NL muessen beide vorhanden sein oder beide fehlen")
+
+    def offene_pakete_bis(self, bis):
+        """Pakete der PRIORITAETENLISTE, die nicht [DONE] sind - ohne die Daueraufgabe QS-01 und ohne die
+        QS-Pakete mit einer Nummer ueber 'bis'. Rueckgabe: Liste (Kennung, Tag)."""
+        offen = []
+        for kennung, e in self.lies_prioritaetenliste().items():
+            mq = re.fullmatch(r"QS-(\d+)", kennung)
+            if e["tag"] != "DONE" and kennung != "QS-01" and not (mq and int(mq.group(1)) > bis):
+                offen.append((kennung, e["tag"]))
+        return offen
 
     def pruefe_umgebung(self, up):
         ids = set()
@@ -508,8 +530,11 @@ class Pruefung:
             self.err(f"{wer}: Zeile ausserhalb der Datei (1..{len(z)}): {fs}")
 
     def berichte(self, text):
-        """Im Text genannte Pruefberichte unter governance/pruefungen/, die es gibt."""
-        return [p for p in re.findall(PRUEFBERICHT, str(text or "")) if os.path.exists(os.path.join(self.root, p))]
+        """Im Text genannte Pruefberichte unter governance/pruefungen/, die es gibt. Als Pruefbericht zaehlt nur eine
+        Datei, deren Name sie als solchen ausweist (...PRUEFUNG...: Gegenpruefung, Nachpruefung, Pruefung). Die
+        Arbeitspapiere des Hauptarchitekten und die Sammlung der Pruefauftraege im selben Ordner zaehlen nicht."""
+        return [p for p in re.findall(PRUEFBERICHT, str(text or ""))
+                if "PRUEFUNG" in os.path.basename(p) and os.path.exists(os.path.join(self.root, p))]
 
     def nachweis_aufloesbar(self, wert):
         """behoben_in muss eine vorhandene Datei (vor einem #Anker) oder einen vorhandenen Commit nennen."""
@@ -540,6 +565,8 @@ class Pruefung:
             for b in daten.get("befunde") or []:
                 rang = BF_RANG.get(b.get("klasse"), 9)
                 alt[b.get("id")] = min(alt.get(b.get("id"), 9), rang)
+                if rev == "HEAD":
+                    self.paket_vorher[b.get("id")] = b.get("arbeitspaket")
         return alt
 
     def pruefe_befunde(self, bf, pakete, commits):
@@ -565,6 +592,13 @@ class Pruefung:
                 self.pruefe_fundstelle(f"BEFUNDE {i}", fs, commits)
             if b.get("arbeitspaket") and b["arbeitspaket"] not in pakete:
                 self.err(f"BEFUNDE {i}: unbekanntes arbeitspaket {b['arbeitspaket']}")
+            # Umbuchen hebt die Abschluss-Sperre des bisherigen Pakets auf: nur mit Begruendung (F-NKO-025).
+            vp = self.paket_vorher.get(i)
+            if vp and b.get("arbeitspaket") != vp:
+                u = b.get("umbuchung") or {}
+                if not (isinstance(u, dict) and u.get("von") == vp and u.get("begruendung")):
+                    self.err(f"BEFUNDE {i}: arbeitspaket gegenueber dem letzten gesicherten Stand geaendert ({vp} -> "
+                             f"{b.get('arbeitspaket')}), ohne Feld umbuchung mit von und begruendung")
             h = b.get("herabstufung")
             rang = BF_RANG.get(b.get("klasse"))
             if h and not (h.get("von") in BF_KLASSE and h.get("begruendung") and h.get("bestaetigt_durch")):
@@ -583,6 +617,11 @@ class Pruefung:
             elif pe is not None and rang is not None and rang > EINSTUFUNG_RANG[pe] and not h:
                 self.err(f"BEFUNDE {i}: klasse {b.get('klasse')} liegt unter der Einstufung des Pruefers ({pe}), "
                          f"ohne Feld herabstufung")
+            herkunft = " ".join([str(b.get("entdeckt_in") or ""), str(b.get("beleg") or "")]
+                                + [str(x) for x in b.get("fundstellen") or []])
+            if pe is None and self.berichte(herkunft) and not b.get("ohne_pruefer_einstufung"):
+                self.err(f"BEFUNDE {i}: nennt einen Pruefbericht, fuehrt aber weder pruefer_einstufung noch "
+                         f"ohne_pruefer_einstufung (Begruendung, warum der Bericht keine Einstufung traegt)")
             if rang is not None and rang > vorher.get(i, 9) and not h:
                 self.err(f"BEFUNDE {i}: klasse gegenueber dem letzten gesicherten Stand gesenkt, ohne Feld herabstufung")
             st = b.get("status")
@@ -1044,8 +1083,9 @@ class Pruefung:
                     self.err(f"KR-03: {rel} hat {n_zeilen} Zeilen (Grenze 1500)")
         # (c) Zaehlangaben je Steuerungsdokument. Erkannt werden "WT-01..WT-57", "WT-01..57", "WT-01 bis WT-57",
         # "WT-01 … WT-57", "WT-01 - WT-57", auch ueber einen Zeilenumbruch und mit anderer Stellenzahl. Eine Angabe
-        # ab -01 nennt den VOLLEN Bereich; ein Teilbereich ist zulaessig in einem Proof-Anker (eckige Klammer) oder
-        # mit dem Wort "Teilbereich" davor. Zahlen in Worten ("52 Invarianten") erkennt die Pruefung nicht.
+        # ab -01 nennt den VOLLEN Bereich; ein Teilbereich ist zulaessig in einem Proof-Anker (eckige Klammer, die mit
+        # einer Moduldatei beginnt: "[BASE-040_095 T-WT-01..05") oder mit dem Wort "Teilbereich" davor. Zahlen in
+        # Worten ("52 Invarianten") erkennt die Pruefung nicht.
         angabe = re.compile(r"(?<![\w-])((?:T-|DEC-|ANF-)?[A-Z]{2,3})-0*1(?:\s*\.\.\s*|\s*…\s*|\s+bis\s+|\s+[-–]\s+)"
                             r"(?:\1-)?0*(\d{1,3})\b")
         for rel in STEUERUNG:
@@ -1061,12 +1101,13 @@ class Pruefung:
                     continue
                 n = text.count("\n", 0, m.start()) + 1
                 davor = text[max(0, m.start() - 400):m.start()]
-                teil = davor.rfind("[") > davor.rfind("]") or re.search(r"Teilbereich\s*$", davor)
+                klammer = davor[davor.rfind("["):] if davor.rfind("[") > davor.rfind("]") else ""
+                teil = re.match(r"\[(?:BASE|MOD)-\d{3}_\d{3}", klammer) or re.search(r"Teilbereich\s*$", davor)
                 umfeld = "\n".join(zeilen_d[max(0, n - 4):n + 3])
                 if bis == bereiche[praef]:
                     continue
-                if praef in ALT_PRAEFIXE and "BF-0010" in umfeld:
-                    continue           # beschriebener, im Repository nicht vorhandener Stand - als solcher vermerkt
+                if BESCHRIEBEN.get(praef) == bis and "BF-0010" in umfeld:
+                    continue           # der EINE beschriebene, im Repository nicht vorhandene Stand - mit Vermerk
                 if bis < bereiche[praef] and teil:
                     continue
                 self.err(f"{rel}:{n}: Zaehlbereich {praef}-01..{bis} stimmt nicht mit den Moduldateien "
@@ -1076,6 +1117,8 @@ class Pruefung:
         if os.path.exists(pt):
             with open(pt, encoding="utf-8", errors="replace") as fh:
                 tracker = fh.read()
+            bfd = self.lade("governance/register/BEFUNDE.yaml", pflicht=False) or {}
+            befunde_offen = [b for b in bfd.get("befunde") or [] if b.get("status") not in BF_ERLEDIGT]
             for modul, (d, anzahl) in sorted(verzeichnisse.items()):
                 mi = re.search(rf"^  base/{re.escape(d)}\s+(.*)$", tracker, re.M)
                 if anzahl and not mi:
@@ -1100,6 +1143,28 @@ class Pruefung:
                     elif self.sperren.get(kennung):
                         self.err(f"REVIEW_TRACKER: base/{d} wird als CLEAN gefuehrt, obwohl Befunde offen sind: "
                                  f"{' '.join(sorted(self.sperren[kennung]))}")
+                # Die Abschluss-Sperre folgt der Buchung Befund -> Paket. Ein [DONE]-Modul, an dessen DATEIEN ein
+                # offener Befund eines anderen Pakets haengt, darf deshalb nicht CLEAN heissen und muss die
+                # Kennungen im Inventar und an seinem Eintrag der PRIORITAETENLISTE nennen (F-NKO-018).
+                kennung, tag = modul_tag.get(modul, ("", ""))
+                am_modul = sorted(b.get("id") for b in befunde_offen
+                                  if any(f"base/{d}/" in str(fs) for fs in b.get("fundstellen") or []))
+                if tag == "DONE" and am_modul:
+                    rest = tracker[mi.start():]
+                    mn = re.search(r"\n  \S", rest[1:])
+                    block = rest[:mn.start() + 1] if mn else rest
+                    if "CLEAN" in zeile:
+                        self.err(f"REVIEW_TRACKER: base/{d} wird als CLEAN gefuehrt, obwohl Befunde an seinen Dateien "
+                                 f"offen sind: {' '.join(am_modul)}")
+                    fehlt = [i for i in am_modul if i not in block]
+                    if fehlt:
+                        self.err(f"REVIEW_TRACKER: base/{d} ist [DONE], nennt aber offene Befunde an seinen Dateien "
+                                 f"nicht: {' '.join(fehlt)}")
+                    eintrag_l = (liste.get(kennung) or {}).get("text", "")
+                    fehlt = [i for i in am_modul if i not in eintrag_l]
+                    if fehlt:
+                        self.err(f"PRIORITAETENLISTE {kennung}: [DONE], nennt aber offene Befunde an den Dateien von "
+                                 f"{modul} nicht: {' '.join(fehlt)}")
             for rel in STEUERUNG + ["03_CHANGELOG.txt", "MARCOS_ARBEITSWEISE.txt"]:
                 if rel != "README.md" and not re.search(rf"^  {re.escape(rel)}\s", tracker, re.M):
                     self.err(f"REVIEW_TRACKER: Steuerungsdokument {rel} fehlt im Inventar")
@@ -1132,13 +1197,16 @@ class Pruefung:
             if mv and me and mv.group(1) != me.group(1):
                 self.err(f"03_CHANGELOG: Kopf nennt {mv.group(1)}, der juengste Eintrag ist {me.group(1)}")
             if mv:
-                stellen = (re.findall(r"Concept version:\s*([^\]]*)\]", readme)
-                           + re.findall(r"badge/Concept-([^-]*)-", readme)
-                           + re.findall(r"Konzeptentwicklung \(([^)]*)\)", readme))
+                # Jede der drei Versionsstellen muss es geben (bis 2026-11-15 genuegten drei Treffer insgesamt, auch
+                # dreimal dieselbe Stelle - der Negativtest dazu hat die Luecke gezeigt).
+                je_stelle = [re.findall(r"Concept version:\s*([^\]]*)\]", readme),
+                             re.findall(r"badge/Concept-([^-]*)-", readme),
+                             re.findall(r"Konzeptentwicklung \(([^)]*)\)", readme)]
+                stellen = [v for teil in je_stelle for v in teil]
                 for z in readme.splitlines():      # jede Versionsnummer in den Zeilen zum Projektstand
                     if "Projektstand" in z or "Concept version" in z:
                         stellen += re.findall(r"\bv\d+(?:\.\d+)+\b", z)
-                if len(stellen) < 3:
+                if not all(je_stelle):
                     self.err("README.md: Versionsangabe fehlt (Badge-Text, Badge-Adresse oder 'Konzeptentwicklung (v...)')")
                 for v in sorted(set(stellen) - {mv.group(1)}):
                     self.err(f"README.md nennt {v}, der Changelog steht bei {mv.group(1)}")

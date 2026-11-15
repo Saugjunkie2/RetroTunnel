@@ -143,6 +143,31 @@ class StatusUndGates(Basis):
         self.erwarte_fehler(f"trotz offenem SCHWERWIEGEND-Befund {neu}")
 
 
+    # --- Nachpruefung vom 2026-11-15: X5 und zwei Meldungen ohne Test (F-NKO-023, F-NKO-028) ----------------
+
+    def test_pruefbereit_ohne_eingefrorenes_konzept(self):
+        kopf = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        baum = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD^{tree}"], capture_output=True,
+                              text=True).stdout.strip()
+        st = self.lade(STATUS)
+        st["fachstatus"] = "PRUEFBEREIT"
+        st["kandidat"] = {"commit": kopf, "tree": baum}
+        self.schreibe(STATUS, st)
+        self.erwarte_fehler("fachstatus PRUEFBEREIT ohne eingefrorenes Konzept")
+
+    def test_checkpoint_ist_keine_zahl(self):
+        st = self.lade(STATUS)
+        st["checkpoint"] = "elf"
+        self.schreibe(STATUS, st)
+        self.erwarte_fehler("STATUS: checkpoint ist keine Zahl")
+
+    def test_blockade_kennung_im_falschen_format(self):
+        st = self.lade(STATUS)
+        st["blockaden"][0]["id"] = "X-1"
+        self.schreibe(STATUS, st)
+        self.erwarte_fehler("Blockade-Kennung nicht im Format BL-nn")
+
+
 BERICHT = "governance/pruefungen/BASE-070_NACHPRUEFUNG_TEIL_A_2026-11-14.md"
 
 
@@ -340,6 +365,58 @@ class Befunde(Basis):
         self.tracker(f)
         rc, out = self.lauf()
         self.assertEqual(rc, 0, out)
+
+
+    # --- Nachpruefung vom 2026-11-15: X1, X3, X4 und drei Meldungen ohne Test (F-NKO-023, -025, -026, -027) -
+
+    def test_arbeitspaket_umgebucht_ohne_begruendung(self):
+        bf = self.lade(BEFUNDE)
+        b = next(x for x in bf["befunde"] if x["id"] == "BF-0002")
+        self.assertEqual(b["arbeitspaket"], "AP-Q02", "Fixture passt nicht mehr zu BF-0002")
+        b["arbeitspaket"] = "AP-A06"
+        self.schreibe(BEFUNDE, bf)
+        self.erwarte_fehler("BF-0002: arbeitspaket gegenueber dem letzten gesicherten Stand geaendert")
+
+    def test_arbeitspaket_umgebucht_mit_begruendung_besteht(self):
+        bf = self.lade(BEFUNDE)
+        b = next(x for x in bf["befunde"] if x["id"] == "BF-0002")
+        b["arbeitspaket"] = "AP-A06"
+        b["umbuchung"] = {"von": "AP-Q02", "begruendung": "Test: gehoert zum Schlussabgleich"}
+        self.schreibe(BEFUNDE, bf)
+        self.tracker(lambda t: re.sub(r"(OFFEN QS-13:[^\n]*)", r"\1 BF-0002", t.replace(" BF-0002 ", " ", 1), count=1))
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_bestaetigung_mit_arbeitspapier_statt_pruefbericht(self):
+        self.neu(status="BEHOBEN", behoben_in="README.md",
+                 nachpruefung="bestaetigt (governance/pruefungen/BASE-070_BEHEBUNGSPLAN.md)")
+        self.tracker_zaehler(geschlossen=1)
+        self.erwarte_fehler(f"BEFUNDE {self.bid}: BEHOBEN ohne nachpruefung mit einem Bericht")
+
+    def test_befund_aus_pruefbericht_ohne_einstufung(self):
+        self.neu(klasse="VERBESSERUNG", arbeitspaket="AP-K060", beleg=f"Bericht {BERICHT}, Punkt X")
+        self.erwarte_fehler(f"BEFUNDE {self.bid}: nennt einen Pruefbericht, fuehrt aber weder pruefer_einstufung")
+
+    def test_befund_aus_pruefbericht_mit_begruendetem_verzicht_besteht(self):
+        self.neu(arbeitspaket="AP-Q02", beleg=f"Bericht {BERICHT}, Punkt X",
+                 ohne_pruefer_einstufung="Test: der Bericht stuft diesen Punkt nicht ein")
+        self.tracker(lambda t: re.sub(r"(OFFEN QS-09:[^\n]*)", lambda m: m.group(1) + " " + self.bid, t, count=1))
+        self.tracker_zaehler(offen=1)
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_herabstufung_von_nicht_strenger(self):
+        self.neu(arbeitspaket="AP-K060",
+                 herabstufung={"von": "GERINGFUEGIG", "begruendung": "x", "bestaetigt_durch": BERICHT})
+        self.erwarte_fehler("ist nicht strenger als die klasse")
+
+    def test_unbekannte_pruefer_einstufung(self):
+        self.neu(arbeitspaket="AP-K060", pruefer_einstufung="SEHR_HOCH")
+        self.erwarte_fehler("unbekannte pruefer_einstufung SEHR_HOCH")
+
+    def test_sperrt_auch_nennt_unbekanntes_paket(self):
+        self.neu(arbeitspaket="AP-K060", sperrt_auch=["AP-GIBTESNICHT"])
+        self.erwarte_fehler("sperrt_auch nennt unbekanntes Paket AP-GIBTESNICHT")
 
 
 class Arbeitspakete(Basis):
@@ -765,6 +842,68 @@ class Haertung(DateiHelfer):
         bf["stand_je_paket"] = {"M2-040": "fertig"}
         self.schreibe(BEFUNDE, bf)
         self.erwarte_fehler("BEFUNDE: Feld stand_je_paket auf oberster Ebene ist nicht zulaessig")
+
+
+    # --- Nachpruefung vom 2026-11-15: E8, V1 bis V3 (F-NKO-001), F-NKO-018 und vier Meldungen ohne Test -----
+
+    def test_zaehlangabe_altmodul_neben_vermerk_erfunden(self):          # E8
+        self.datei("PRIORITAETENLISTE.txt", lambda t: t.replace("PF-01..PF-19", "PF-01..PF-25"))
+        self.erwarte_fehler("Zaehlbereich PF-01..25 stimmt nicht")
+
+    def test_zaehlangabe_altmodul_bestand_falsch(self):                  # V1
+        self.datei("PRIORITAETENLISTE.txt",
+                   lambda t: t.replace("Im Repository: PF-01..PF-18", "Im Repository: PF-01..PF-17"))
+        self.erwarte_fehler("Zaehlbereich PF-01..17 stimmt nicht")
+
+    def test_zaehlangabe_fremdes_modul_neben_vermerk(self):              # V2
+        self.datei("01_GLOSSARY.txt", lambda t: t.replace("SQL-01..SQL-10", "SQL-01..SQL-12"))
+        self.erwarte_fehler("Zaehlbereich SQL-01..12 stimmt nicht")
+
+    def test_zaehlangabe_bestand_im_phasenplan_erfunden(self):           # V3
+        self.datei("04_PHASE_PLAN.txt", lambda t: t.replace("INV-01..INV-82", "INV-01..INV-90", 1))
+        self.erwarte_fehler("Zaehlbereich INV-01..90 stimmt nicht")
+
+    def test_beschriebener_stand_mit_vermerk_besteht(self):
+        rc, out = self.lauf()                # der Bestand nennt PF-01..PF-19 und INV-01..84 neben dem Vermerk BF-0010
+        self.assertEqual(rc, 0, out)
+
+    def test_done_modul_clean_trotz_befund_an_seinen_dateien(self):
+        self.datei("REVIEW_TRACKER.txt",
+                   lambda t: re.sub(r"(  base/BASE-000_SQL_FIRST\s+)~ PARTIAL", r"\1✓ CLEAN", t))
+        self.erwarte_fehler("wird als CLEAN gefuehrt, obwohl Befunde an seinen Dateien offen sind")
+
+    def test_done_modul_nennt_befund_im_tracker_nicht(self):
+        def f(t):
+            a = t.index("  base/BASE-000_SQL_FIRST")
+            b = t.index("  base/BASE-005_PLATFORM_CORE")
+            return t[:a] + t[a:b].replace("BF-0057", "BF-00xx") + t[b:]
+        self.datei("REVIEW_TRACKER.txt", f)
+        self.erwarte_fehler("ist [DONE], nennt aber offene Befunde an seinen Dateien nicht: BF-0057")
+
+    def test_done_modul_nennt_befund_in_der_liste_nicht(self):
+        def f(t):
+            a = t.index("M2-000 [DONE]")
+            b = t.index("M2-005 [DONE]")
+            return t[:a] + t[a:b].replace("BF-0057", "BF-00xx") + t[b:]
+        self.datei("PRIORITAETENLISTE.txt", f)
+        self.erwarte_fehler("PRIORITAETENLISTE M2-000: [DONE], nennt aber offene Befunde")
+
+    def test_phasenplan_status_aufstellung_fehlt(self):
+        self.datei("04_PHASE_PLAN.txt",
+                   lambda t: t.replace("KONSOLIDIERTE STATUS-AUFSTELLUNG", "KONSOLIDIERTE AUFSTELLUNG"))
+        self.erwarte_fehler("KONSOLIDIERTE STATUS-AUFSTELLUNG fehlt")
+
+    def test_readme_ohne_versionsangabe(self):
+        self.datei("README.md", lambda t: "\n".join(z for z in t.splitlines() if "Concept version" not in z) + "\n")
+        self.erwarte_fehler("README.md: Versionsangabe fehlt")
+
+    def test_readme_entwurfsangabe_fehlt(self):
+        self.datei("README.md", lambda t: t.replace("🚧 (Entwurf)", "🚧"))
+        self.erwarte_fehler("Angabe 'Entwurf' bei BASE-080 passt nicht")
+
+    def test_readme_statuszeile_ohne_paket(self):
+        self.datei("README.md", lambda t: t.replace("| M3 | Erweiterungs-Module", "| M7 | Erweiterungs-Module"))
+        self.erwarte_fehler("Statuszeile M7 ist keinem Paket")
 
 
 class Verbesserungen(Basis):

@@ -36,8 +36,10 @@ WERKZEUGE
                          Titel, Abhängigkeiten, keine eigenen Felder,
                          Abschnitt KRITISCHER PFAD); offene Befunde gegen
                          REVIEW_TRACKER.txt Abschnitt 1d; Regeln für das
-                         Schließen, Herabstufen und Löschen von Befunden;
-                         kein [DONE] mit sperrendem Befund; Modulstatus,
+                         Schließen, Herabstufen, Umbuchen und Löschen von
+                         Befunden; kein [DONE] mit sperrendem Befund; ein
+                         [DONE]-Modul nennt offene Befunde an seinen
+                         Dateien und heißt nicht CLEAN; Modulstatus,
                          Matrix und Summen im 04_PHASE_PLAN.txt und Marken
                          des README gegen die Liste; Zählangaben in den
                          Steuerungsdokumenten gegen die Moduldateien;
@@ -69,7 +71,8 @@ WERKZEUGE
                          Regelreferenz, falsche Commit-Bindung, gefälschtes Zitat,
                          fehlender Beleg, Freigabe ohne Gates). Die Klasse
                          "Haertung" enthält die Umgehungsversuche der
-                         unabhängigen Kontrolle vom 2026-11-14.
+                         unabhängigen Kontrolle vom 2026-11-14 und der
+                         Nachprüfung vom 2026-11-15.
 
 AUFRUF (aus dem Repository-Wurzelverzeichnis)
   python3 qa/quelleninventar.py --rt . --xpn <xp-vpn-stack-Checkout> --check
