@@ -158,7 +158,7 @@ def laden(rt):
     if not os.path.exists(p):
         return None
     with open(p, encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        return yaml.load(f, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))   # gleiche Daten, schneller
 
 
 def main():

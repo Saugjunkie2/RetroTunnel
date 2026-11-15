@@ -11,6 +11,10 @@ Aufruf (aus dem Repository-Wurzelverzeichnis):
 import os, re, shutil, subprocess, sys, tempfile, unittest
 import yaml
 
+# Dieselben Daten wie safe_load/safe_dump, nur schneller (C-Leser und C-Schreiber, wenn vorhanden).
+YAML_LESER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+YAML_SCHREIBER = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
+
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 PRUEFE = os.path.join(ROOT, "qa", "pruefe_register.py")
 INVENTAR = os.path.join(ROOT, "qa", "quelleninventar.py")
@@ -47,16 +51,16 @@ class Basis(unittest.TestCase):
 
     def lade(self, rel):
         with open(os.path.join(self.tmp, rel), encoding="utf-8") as f:
-            return yaml.safe_load(f)
+            return yaml.load(f, Loader=YAML_LESER)
 
     def schreibe(self, rel, daten):
         p = os.path.join(self.tmp, rel)
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "w", encoding="utf-8") as f:
-            yaml.safe_dump(daten, f, allow_unicode=True, sort_keys=False)
+            yaml.dump(daten, f, Dumper=YAML_SCHREIBER, allow_unicode=True, sort_keys=False)
 
     def lauf(self):
-        r = subprocess.run([sys.executable, PRUEFE, "--root", self.tmp, "--git", ROOT],
+        r = subprocess.run([sys.executable, PRUEFE, "--root", self.tmp, "--git", getattr(self, "git", ROOT)],
                            capture_output=True, text=True)
         return r.returncode, r.stdout + r.stderr
 
@@ -300,10 +304,12 @@ class Befunde(Basis):
         self.tracker_zaehler(geschlossen=1)
         self.erwarte_fehler(f"{self.bid}: ZURUECKGEWIESEN ohne zurueckweisung.begruendung und .bestaetigt_durch")
 
-    def test_aufloesung_durch_auftragsebene_ohne_regelbezug(self):
-        self.neu(status="AUFGELOEST_DURCH_AUFTRAGSHIERARCHIE", klasse="SCHWERWIEGEND")
-        self.tracker_zaehler(geschlossen=1)
-        self.erwarte_fehler(f"{self.bid}: AUFGELOEST_DURCH_AUFTRAGSHIERARCHIE ohne aufgeloest_durch")
+    def test_gestrichener_schliessweg_ohne_bericht(self):
+        # Bis 2026-11-15 schloss dieser Status einen Befund ohne Pruefbericht und ohne Behebung (Kandidat K10 der
+        # zweiten Nachpruefung). Er ist gestrichen - auch mit Regelbezug.
+        self.neu(status="AUFGELOEST_DURCH_AUFTRAGSHIERARCHIE", klasse="SCHWERWIEGEND", arbeitspaket="AP-K060",
+                 aufgeloest_durch="OP-B03 (Test)")
+        self.erwarte_fehler(f"{self.bid}: status AUFGELOEST_DURCH_AUFTRAGSHIERARCHIE ist gestrichen")
 
     def test_klasse_unter_der_einstufung_des_pruefers(self):
         self.neu(klasse="GERINGFUEGIG", pruefer_einstufung="HOCH", arbeitspaket="AP-K060")
@@ -314,7 +320,7 @@ class Befunde(Basis):
         ziel = next(b for b in bf["befunde"] if b.get("klasse") == "SCHWERWIEGEND" and not b.get("pruefer_einstufung"))
         ziel["klasse"] = "GERINGFUEGIG"
         self.schreibe(BEFUNDE, bf)
-        self.erwarte_fehler(f"{ziel['id']}: klasse gegenueber dem letzten gesicherten Stand gesenkt")
+        self.erwarte_fehler(f"{ziel['id']}: klasse gegenueber einem gesicherten Stand gesenkt")
 
     def test_herabstufung_mit_erfundener_bestaetigung(self):
         self.neu(herabstufung={"von": "SCHWERWIEGEND", "begruendung": "weil", "bestaetigt_durch": "x"},
@@ -329,7 +335,7 @@ class Befunde(Basis):
         bf = self.lade(BEFUNDE)
         bf["befunde"] = [b for b in bf["befunde"] if b["id"] != weg]
         self.schreibe(BEFUNDE, bf)
-        self.erwarte_fehler(f"{weg} stand im letzten gesicherten Stand und fehlt jetzt")
+        self.erwarte_fehler(f"{weg} stand in einem gesicherten Stand und fehlt jetzt")
 
     def test_befund_aus_der_mitte_entfernt(self):
         bf = self.lade(BEFUNDE)
@@ -375,7 +381,7 @@ class Befunde(Basis):
         self.assertEqual(b["arbeitspaket"], "AP-Q02", "Fixture passt nicht mehr zu BF-0002")
         b["arbeitspaket"] = "AP-A06"
         self.schreibe(BEFUNDE, bf)
-        self.erwarte_fehler("BF-0002: arbeitspaket gegenueber dem letzten gesicherten Stand geaendert")
+        self.erwarte_fehler("BF-0002: arbeitspaket gegenueber einem gesicherten Stand geaendert (AP-Q02 -> AP-A06)")
 
     def test_arbeitspaket_umgebucht_mit_begruendung_besteht(self):
         bf = self.lade(BEFUNDE)
@@ -386,6 +392,47 @@ class Befunde(Basis):
         self.tracker(lambda t: re.sub(r"(OFFEN QS-13:[^\n]*)", r"\1 BF-0002", t.replace(" BF-0002 ", " ", 1), count=1))
         rc, out = self.lauf()
         self.assertEqual(rc, 0, out)
+
+    def test_arbeitspaket_umgebucht_mit_liste_besteht(self):
+        """Mehrere Umbuchungen stehen als Liste; jede fruehere Buchung braucht ihren Eintrag."""
+        bf = self.lade(BEFUNDE)
+        b = next(x for x in bf["befunde"] if x["id"] == "BF-0002")
+        b["arbeitspaket"] = "AP-A06"
+        b["umbuchung"] = [{"von": "AP-Q02", "begruendung": "Test: gehoert zum Schlussabgleich"}]
+        self.schreibe(BEFUNDE, bf)
+        self.tracker(lambda t: re.sub(r"(OFFEN QS-13:[^\n]*)", r"\1 BF-0002", t.replace(" BF-0002 ", " ", 1), count=1))
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_umbuchung_nennt_falsches_vorpaket(self):
+        bf = self.lade(BEFUNDE)
+        b = next(x for x in bf["befunde"] if x["id"] == "BF-0002")
+        b["arbeitspaket"] = "AP-A06"
+        b["umbuchung"] = {"von": "AP-K060", "begruendung": "Test: nennt nicht das bisherige Paket"}
+        self.schreibe(BEFUNDE, bf)
+        self.erwarte_fehler("BF-0002: arbeitspaket gegenueber einem gesicherten Stand geaendert (AP-Q02 -> AP-A06)")
+
+    def test_pruefer_einstufung_entfernt(self):
+        bf = self.lade(BEFUNDE)
+        ziel = next(b for b in bf["befunde"] if b.get("pruefer_einstufung") in ("HOCH", "MITTEL", "MAJOR"))
+        del ziel["pruefer_einstufung"]
+        self.schreibe(BEFUNDE, bf)
+        self.erwarte_fehler(f"{ziel['id']}: pruefer_einstufung gegenueber einem gesicherten Stand entfernt oder gemildert")
+
+    def test_pruefer_einstufung_gemildert(self):
+        bf = self.lade(BEFUNDE)
+        ziel = next(b for b in bf["befunde"] if b.get("pruefer_einstufung") in ("HOCH", "MITTEL", "MAJOR"))
+        ziel["pruefer_einstufung"] = "NIEDRIG"
+        self.schreibe(BEFUNDE, bf)
+        self.erwarte_fehler(f"{ziel['id']}: pruefer_einstufung gegenueber einem gesicherten Stand entfernt oder gemildert")
+
+    def test_herabstufung_verschweigt_strengste_klasse(self):
+        bf = self.lade(BEFUNDE)
+        ziel = next(b for b in bf["befunde"] if b.get("klasse") == "KRITISCH")
+        ziel["klasse"] = "GERINGFUEGIG"
+        ziel["herabstufung"] = {"von": "SCHWERWIEGEND", "begruendung": "Test", "bestaetigt_durch": BERICHT}
+        self.schreibe(BEFUNDE, bf)
+        self.erwarte_fehler(f"{ziel['id']}: herabstufung.von (SCHWERWIEGEND) nennt nicht die strengste Klasse")
 
     def test_bestaetigung_mit_arbeitspapier_statt_pruefbericht(self):
         self.neu(status="BEHOBEN", behoben_in="README.md",
@@ -1073,6 +1120,454 @@ class Modulpruefung(Basis):
     def test_luecke_in_nummerierung(self):
         self.text("BASE-040_090_INVARIANTEN.txt", lambda s: s.replace("  WT-07  ", "  WT-77  ", 1))
         self.erwarte_fehler("nicht lueckenlos nummeriert")
+
+
+class Verlauf(Basis):
+    """Die Verlaufsregeln des Befundregisters wirken auch NACH dem Commit (zweite Nachpruefung, Kandidat K13): Bis
+    2026-11-15 verglichen sie nur mit dem letzten gesicherten Stand und verstummten, sobald die Verfaelschung selbst
+    gesichert war - also im CI-Lauf. Geprueft wird deshalb an einem eigenen Klon, in dem die Verfaelschung gesichert
+    ist und danach noch ein weiterer Commit liegt (Arbeitsbaum = letzter Stand)."""
+    GIT = ["git", "-c", "user.name=qa-test", "-c", "user.email=qa-test@example.invalid", "-c", "commit.gpgsign=false"]
+
+    def setUp(self):
+        super().setUp()
+        kopie = self.tmp                                   # Arbeitsbaum mit normalisiertem Status (Basis.setUp)
+        self.tmp = self.git = os.path.join(os.path.dirname(kopie), "klon")
+        subprocess.run(["git", "clone", "-q", ROOT, self.tmp], check=True, capture_output=True)
+        shutil.copytree(kopie, self.tmp, dirs_exist_ok=True)
+        self.sichere("Stand des Arbeitsbaums")
+
+    def sichere(self, nachricht):
+        subprocess.run(["git", "-C", self.tmp, "add", "-A"], check=True, capture_output=True)
+        subprocess.run(self.GIT + ["-C", self.tmp, "commit", "-q", "--allow-empty", "-m", nachricht],
+                       check=True, capture_output=True)
+
+    def verfaelsche_und_sichere(self, funktion):
+        bf = self.lade(BEFUNDE)
+        ergebnis = funktion(bf)
+        self.schreibe(BEFUNDE, bf)
+        self.sichere("Verfaelschung")
+        self.sichere("weiterer Commit danach")
+        sauber = subprocess.run(["git", "-C", self.tmp, "status", "--porcelain"], capture_output=True, text=True).stdout
+        self.assertEqual(sauber, "", "Der Klon muss gesichert sein (Arbeitsbaum = letzter Stand)")
+        return ergebnis
+
+    def test_klon_mit_arbeitsstand_besteht(self):
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_umbuchung_nach_dem_commit(self):
+        def f(bf):
+            b = next(x for x in bf["befunde"] if x["id"] == "BF-0002")
+            self.assertEqual(b["arbeitspaket"], "AP-Q02", "Fixture passt nicht mehr zu BF-0002")
+            b["arbeitspaket"] = "AP-A06"
+        self.verfaelsche_und_sichere(f)
+        self.erwarte_fehler("BF-0002: arbeitspaket gegenueber einem gesicherten Stand geaendert (AP-Q02 -> AP-A06)")
+
+    def test_klasse_gesenkt_nach_dem_commit(self):
+        def f(bf):
+            ziel = next(b for b in bf["befunde"] if b.get("klasse") == "SCHWERWIEGEND" and not b.get("pruefer_einstufung"))
+            ziel["klasse"] = "GERINGFUEGIG"
+            return ziel["id"]
+        kennung = self.verfaelsche_und_sichere(f)
+        self.erwarte_fehler(f"{kennung}: klasse gegenueber einem gesicherten Stand gesenkt")
+
+    def test_befund_geloescht_nach_dem_commit(self):
+        def f(bf):
+            return bf["befunde"].pop()["id"]
+        kennung = self.verfaelsche_und_sichere(f)
+        self.erwarte_fehler(f"{kennung} stand in einem gesicherten Stand und fehlt jetzt")
+
+    def test_pruefer_einstufung_entfernt_nach_dem_commit(self):
+        def f(bf):
+            ziel = next(b for b in bf["befunde"] if b.get("pruefer_einstufung") in ("HOCH", "MITTEL", "MAJOR"))
+            del ziel["pruefer_einstufung"]
+            return ziel["id"]
+        kennung = self.verfaelsche_und_sichere(f)
+        self.erwarte_fehler(f"{kennung}: pruefer_einstufung gegenueber einem gesicherten Stand entfernt oder gemildert")
+
+
+class Grundregeln(DateiHelfer):
+    """Je ein Test fuer die 75 Fehlermeldungen, die bis 2026-11-15 keinen Negativtest hatten (03_CHANGELOG v2.8.4
+    Abschnitt 4; PRIORITAETENLISTE QS-07 Punkt 2). Ein Fehler je Test; erwartet wird der Wortlaut DIESER Meldung."""
+    MOD = "base/BASE-040_TUNNEL_WIREGUARD"
+    UMG = "governance/UMGEBUNGSPRUEFUNG.yaml"
+    MODREG = "governance/register/MODULPRUEFUNG.yaml"
+    NEUB = "governance/register/trace/NEU_BEGRUENDET.yaml"
+
+    def aendere(self, rel, funktion):
+        d = self.lade(rel)
+        funktion(d)
+        self.schreibe(rel, d)
+
+    # --- Lesbarkeit ----------------------------------------------------------------------------------------
+    def test_yaml_nicht_lesbar(self):
+        with open(os.path.join(self.tmp, VERB), "w", encoding="utf-8") as f:
+            f.write("schema: verbesserungen/1\neintraege: [unvollstaendig\n")
+        self.erwarte_fehler(f"{VERB}: YAML nicht lesbar")
+
+    # --- STATUS.yaml ---------------------------------------------------------------------------------------
+    def test_status_ohne_verweise(self):
+        self.aendere(STATUS, lambda st: st.pop("verweise"))
+        self.erwarte_fehler("STATUS: verweise fehlt (wo Aufgaben, Review-Stand, Reife und Chronik stehen)")
+
+    def test_status_verweis_fehlt(self):
+        self.aendere(STATUS, lambda st: st["verweise"].pop("einstieg"))
+        self.erwarte_fehler("STATUS: verweise.einstieg fehlt")
+
+    def test_status_verweis_ohne_datei(self):
+        self.aendere(STATUS, lambda st: st["verweise"].update(einstieg="siehe das Briefing"))
+        self.erwarte_fehler("STATUS: verweise.einstieg nennt keine Datei")
+
+    def test_status_unbekanntes_gate(self):
+        self.aendere(STATUS, lambda st: st["gates"].update(G5={"zustand": "OFFEN"}))
+        self.erwarte_fehler("STATUS: unbekanntes Gate G5")
+
+    def test_status_gate_mit_fremdem_feld(self):
+        self.aendere(STATUS, lambda st: st["gates"]["G1"].update(fortschritt="80 Prozent"))
+        self.erwarte_fehler("STATUS: gates.G1.fortschritt ist nicht vorgesehen")
+
+    def test_status_blockade_mit_fremdem_feld(self):
+        self.aendere(STATUS, lambda st: st["blockaden"][0].update(naechster_schritt="x"))
+        self.erwarte_fehler("Feld naechster_schritt ist nicht vorgesehen")
+
+    def test_status_blockade_betrifft_unbekanntes(self):
+        self.aendere(STATUS, lambda st: st["blockaden"][0].update(betrifft=["Modulstand"]))
+        self.erwarte_fehler("betrifft 'Modulstand' ist nicht vorgesehen")
+
+    def test_status_unbekannter_fachstatus(self):
+        self.aendere(STATUS, lambda st: st.update(fachstatus="FERTIG"))
+        self.erwarte_fehler("STATUS: unbekannter fachstatus FERTIG")
+
+    def test_status_unbekannter_ausfuehrungsstatus(self):
+        self.aendere(STATUS, lambda st: st.update(ausfuehrungsstatus="laeuft"))
+        self.erwarte_fehler("STATUS: unbekannter ausfuehrungsstatus laeuft")
+
+    def test_status_gate_fehlt(self):
+        self.aendere(STATUS, lambda st: st["gates"].pop("G3"))
+        self.erwarte_fehler("STATUS: Gate G3 fehlt")
+
+    def test_status_gate_unbekannter_zustand(self):
+        self.aendere(STATUS, lambda st: st["gates"]["G2"].update(zustand="FAST_ERFUELLT"))
+        self.erwarte_fehler("STATUS: Gate G2 unbekannter zustand FAST_ERFUELLT")
+
+    def test_status_g1_erfuellt_trotz_offenem_paket(self):
+        # Ein Paket wird in der Kopie ausdruecklich geoeffnet, damit der Test nicht am Projektfortschritt haengt.
+        self.datei("PRIORITAETENLISTE.txt", lambda t: t.replace("\nM0-01 [DONE] ", "\nM0-01 [ACTIVE] ", 1))
+        self.aendere(STATUS, lambda st: st["gates"].update(G1={"zustand": "ERFUELLT", "nachweis": "03_CHANGELOG.txt"}))
+        self.erwarte_fehler("STATUS: Gate G1 ERFUELLT, aber M0-01 ist [ACTIVE]")
+
+    def test_status_fachlich_fertig_ohne_gates(self):
+        self.aendere(STATUS, lambda st: st.update(fachstatus="FACHLICH_FERTIG_FREIGABE_BLOCKIERT"))
+        self.erwarte_fehler("STATUS: FACHLICH_FERTIG_FREIGABE_BLOCKIERT verlangt G1=ERFUELLT")
+
+    def test_status_kandidat_tree_passt_nicht(self):
+        kopf = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        self.aendere(STATUS, lambda st: st.update(fachstatus="NACHBESSERUNG", kandidat={"commit": kopf, "tree": "0" * 40}))
+        self.erwarte_fehler(f"STATUS: kandidat.tree passt nicht zum kandidat.commit {kopf[:12]}")
+
+    def test_status_regelkopie_fehlt(self):
+        os.remove(os.path.join(self.tmp, REGELN))
+        self.erwarte_fehler(f"STATUS: Betreiberregel-Arbeitskopie fehlt: {REGELN}")
+
+    def test_status_ohne_angabe_der_regelkopie(self):
+        self.aendere(STATUS, lambda st: st["identitaeten"]["betreiberregeln"].pop("arbeitskopie"))
+        self.erwarte_fehler("STATUS: identitaeten.betreiberregeln.arbeitskopie fehlt")
+
+    def test_status_ohne_angabe_des_startauftrags(self):
+        self.aendere(STATUS, lambda st: st["identitaeten"]["startauftrag"].pop("arbeitskopie"))
+        self.erwarte_fehler("STATUS: identitaeten.startauftrag.arbeitskopie fehlt")
+
+    def test_status_ohne_liefercommit_trotz_inventarteil(self):
+        self.aendere(STATUS, lambda st: st["identitaeten"].pop("quellen_commit_nl"))
+        self.erwarte_fehler("STATUS: quellen_commit_nl und Inventarteil NL muessen beide vorhanden sein oder beide fehlen")
+
+    # --- UMGEBUNGSPRUEFUNG.yaml ----------------------------------------------------------------------------
+    def test_umgebung_doppelte_id(self):
+        self.aendere(self.UMG, lambda u: u["pruefungen"].append(dict(u["pruefungen"][0])))
+        self.erwarte_fehler("UMGEBUNG: doppelte id UP-01")
+
+    def test_umgebung_unbekannter_status(self):
+        self.aendere(self.UMG, lambda u: u["pruefungen"][0].update(status="VERMUTET"))
+        self.erwarte_fehler("UMGEBUNG UP-01: unbekannter status VERMUTET")
+
+    def test_umgebung_feld_fehlt(self):
+        self.aendere(self.UMG, lambda u: u["pruefungen"][0].pop("methode"))
+        self.erwarte_fehler("UMGEBUNG UP-01: Feld methode fehlt")
+
+    # --- ARBEITSPAKETE.yaml und PRIORITAETENLISTE ------------------------------------------------------------
+    def test_pakete_doppelte_id(self):
+        self.aendere(PAKETE, lambda a: a["pakete"].append(dict(a["pakete"][0])))
+        self.erwarte_fehler("ARBEITSPAKETE: doppelte id AP-S01")
+
+    def test_pakete_unbekannter_status(self):
+        self.aendere(PAKETE, lambda a: a["pakete"][0].update(status="FAST_FERTIG"))
+        self.erwarte_fehler("ARBEITSPAKETE AP-S01: unbekannter status FAST_FERTIG")
+
+    def test_pakete_unbekannte_abhaengigkeit(self):
+        self.aendere(PAKETE, lambda a: a["pakete"][0].update(haengt_ab_von=["AP-GIBTESNICHT"]))
+        self.erwarte_fehler("ARBEITSPAKETE AP-S01: unbekannte Abhaengigkeit AP-GIBTESNICHT")
+
+    def test_pakete_bezug_nicht_in_der_liste(self):
+        self.aendere(PAKETE, lambda a: a["pakete"][0].update(bezug="M9-999"))
+        self.erwarte_fehler("ARBEITSPAKETE AP-S01: bezug M9-999 nicht in PRIORITAETENLISTE.txt gefunden")
+
+    def test_liste_altpaket_fehlt(self):
+        self.datei("PRIORITAETENLISTE.txt", lambda t: t.replace("\nM0-01 [DONE] ", "\n(M0-01, erledigt) ", 1))
+        self.erwarte_fehler("PRIORITAETENLISTE: Eintrag M0-01 fehlt oder traegt kein gueltiges Status-Tag")
+
+    def test_liste_kritischer_pfad_unbekannte_kennung(self):
+        self.datei("PRIORITAETENLISTE.txt", lambda t: t.replace("\n  M0 (DONE)\n", "\n  M0 (DONE)\n  M9-999 (DONE)\n", 1))
+        self.erwarte_fehler("PRIORITAETENLISTE, KRITISCHER PFAD: unbekannte Kennung M9-999")
+
+    def test_liste_fehlt(self):
+        os.remove(os.path.join(self.tmp, "PRIORITAETENLISTE.txt"))
+        self.erwarte_fehler("PRIORITAETENLISTE.txt fehlt")
+
+    def test_liste_kennung_doppelt(self):
+        self.datei("PRIORITAETENLISTE.txt",
+                   lambda t: t.replace("\nM0-01 [DONE] ", "\nM0-01 [DONE] Doppelter Eintrag\n\nM0-01 [DONE] ", 1))
+        self.erwarte_fehler("PRIORITAETENLISTE: Kennung M0-01 mehrfach vergeben")
+
+    # --- BEFUNDE.yaml ----------------------------------------------------------------------------------------
+    def befund(self, **felder):
+        bf = self.lade(BEFUNDE)
+        self.bid = f"BF-{len(bf['befunde']) + 1:04d}"
+        b = {"id": self.bid, "klasse": "GERINGFUEGIG", "status": "OFFEN", "titel": "t", "beschreibung": "b",
+             "beleg": "b", "massnahme": "m", "fundstellen": ["RT:README.md:1"], "arbeitspaket": "AP-K060"}
+        b.update(felder)
+        bf["befunde"].append({k: v for k, v in b.items() if v is not None})
+        self.schreibe(BEFUNDE, bf)
+
+    def test_befund_zielfundstelle_zeile_ausserhalb(self):
+        kopf = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        self.befund(fundstellen=[f"ZIEL:README.md:999999@{kopf}"])
+        self.erwarte_fehler(f"Zeile ausserhalb der Datei (1..")
+        rc, out = self.lauf()
+        self.assertIn(f"ZIEL:README.md:999999@{kopf}", out)
+
+    def test_befund_doppelte_id(self):
+        self.befund(id="BF-0001")
+        self.erwarte_fehler("BEFUNDE: doppelte id BF-0001")
+
+    def test_befund_id_falsches_format(self):
+        self.befund(id="BEFUND-7")
+        self.erwarte_fehler("BEFUNDE: id nicht im Format BF-nnnn: BEFUND-7")
+
+    def test_befund_unbekannte_klasse(self):
+        self.befund(klasse="MITTELSCHWER")
+        self.erwarte_fehler(f"BEFUNDE {self.bid}: unbekannte klasse MITTELSCHWER")
+
+    def test_befund_unbekannter_status(self):
+        self.befund(status="ERLEDIGT")
+        self.erwarte_fehler(f"BEFUNDE {self.bid}: unbekannter status ERLEDIGT")
+
+    def test_befund_ohne_fundstelle(self):
+        self.befund(fundstellen=None)
+        self.erwarte_fehler(f"BEFUNDE {self.bid}: keine Fundstelle")
+
+    def test_befund_unbekanntes_arbeitspaket(self):
+        self.befund(arbeitspaket="AP-GIBTESNICHT")
+        self.erwarte_fehler(f"BEFUNDE {self.bid}: unbekanntes arbeitspaket AP-GIBTESNICHT")
+
+    # --- REVIEW_TRACKER Abschnitt 1d -------------------------------------------------------------------------
+    def test_tracker_fehlt(self):
+        os.remove(os.path.join(self.tmp, "REVIEW_TRACKER.txt"))
+        self.erwarte_fehler("REVIEW_TRACKER.txt fehlt")
+
+    def test_tracker_abschnitt_1d_fehlt(self):
+        self.datei("REVIEW_TRACKER.txt", lambda t: t.replace("\n1d) EINZELBEFUNDE", "\n1x) EINZELBEFUNDE", 1))
+        self.erwarte_fehler("REVIEW_TRACKER: Abschnitt 1d (Einzelbefunde) fehlt")
+
+    def test_tracker_paket_doppelt(self):
+        self.datei("REVIEW_TRACKER.txt",
+                   lambda t: t.replace("\n  OFFEN QS-12:", "\n  OFFEN QS-13:  BF-0004\n  OFFEN QS-12:", 1))
+        self.erwarte_fehler("REVIEW_TRACKER 1d: Paket QS-13 mehrfach aufgefuehrt")
+
+    # --- VERBESSERUNGEN.yaml -----------------------------------------------------------------------------------
+    def test_verbesserung_doppelte_id(self):
+        self.aendere(VERB, lambda v: v["eintraege"].append(dict(v["eintraege"][0])))
+        self.erwarte_fehler("VERBESSERUNGEN: doppelte id VB-0001")
+
+    def test_verbesserung_unbekannte_einstufung(self):
+        self.aendere(VERB, lambda v: v["eintraege"][0].update(einstufung="NETT"))
+        self.erwarte_fehler("VERBESSERUNGEN VB-0001: unbekannte einstufung NETT")
+
+    def test_verbesserung_unbekannte_entscheidung(self):
+        self.aendere(VERB, lambda v: v["eintraege"][0].update(entscheidung="VIELLEICHT"))
+        self.erwarte_fehler("VERBESSERUNGEN VB-0001: unbekannte entscheidung VIELLEICHT")
+
+    def test_verbesserung_feld_fehlt(self):
+        self.aendere(VERB, lambda v: v["eintraege"][0].pop("zweck"))
+        self.erwarte_fehler("VERBESSERUNGEN VB-0001: Feld zweck fehlt")
+
+    def test_verbesserung_freeze_ohne_integrationsort(self):
+        def f(v):
+            v["freeze_erklaert"] = True
+            v["eintraege"][0].update(entscheidung="INTEGRIEREN", integriert_in=["gibt/es/nicht.txt"])
+        self.aendere(VERB, f)
+        self.erwarte_fehler("VERBESSERUNGEN VB-0001: Freeze erklaert, aber integriert_in fehlt/unaufloesbar")
+
+    def test_verbesserung_freeze_trotz_offener_entscheidung(self):
+        def f(v):
+            v["freeze_erklaert"] = True
+            v["eintraege"][0]["entscheidung"] = "OFFEN"
+        self.aendere(VERB, f)
+        self.erwarte_fehler("VERBESSERUNGEN VB-0001: Freeze erklaert trotz entscheidung OFFEN")
+
+    # --- BETREIBERMITTEILUNGEN.yaml --------------------------------------------------------------------------
+    def test_mitteilung_id_falsches_format(self):
+        self.aendere(MITT, lambda d: d["mitteilungen"][0].update(id="MITTEILUNG-1"))
+        self.erwarte_fehler("MITTEILUNGEN: id nicht im Format BM-nnnn: MITTEILUNG-1")
+
+    def test_mitteilung_doppelte_id(self):
+        self.aendere(MITT, lambda d: d["mitteilungen"].append(dict(d["mitteilungen"][0])))
+        self.erwarte_fehler("MITTEILUNGEN: doppelte id BM-0001")
+
+    def test_mitteilung_unbekannte_einordnung(self):
+        self.aendere(MITT, lambda d: d["mitteilungen"][0].update(einordnung="WUNSCH"))
+        self.erwarte_fehler("MITTEILUNGEN BM-0001: unbekannte einordnung WUNSCH")
+
+    def test_mitteilung_regelaenderung_kein_wahrheitswert(self):
+        self.aendere(MITT, lambda d: d["mitteilungen"][0].update(regelaenderung="nein"))
+        self.erwarte_fehler("MITTEILUNGEN BM-0001: regelaenderung muss true oder false sein")
+
+    def test_mitteilung_geklaert_durch_unbekannt(self):
+        self.aendere(MITT, lambda d: d["mitteilungen"][0].update(geklaert_durch="BM-9999"))
+        self.erwarte_fehler("MITTEILUNGEN BM-0001: geklaert_durch verweist auf unbekannte Mitteilung BM-9999")
+
+    # --- Rueckverfolgung -------------------------------------------------------------------------------------
+    def test_trace_quelle_ungueltig(self):
+        self.trace_fixture()
+        self.aendere(TRACE, lambda t: t.update(quelle="ABC"))
+        self.erwarte_fehler(f"{TRACE}: quelle/datei fehlt oder ungueltig")
+
+    def test_trace_quelldatei_nicht_lesbar(self):
+        self.trace_fixture()
+        self.aendere(TRACE, lambda t: t.update(datei="gibt/es/nicht.txt"))
+        self.erwarte_fehler(f"{TRACE}: Quelldatei am Baseline-Commit nicht lesbar: RT:gibt/es/nicht.txt")
+
+    def test_trace_doppelte_record_id(self):
+        self.trace_fixture()
+        self.aendere(TRACE, lambda t: t["records"].append(dict(t["records"][0])))
+        self.erwarte_fehler(f"{TRACE}: doppelte Record-id T-TEST-01")
+
+    def test_trace_unbekannte_art(self):
+        self.trace_fixture(art="MEINUNG")
+        self.erwarte_fehler(f"{TRACE} T-TEST-01: unbekannte art MEINUNG")
+
+    def test_trace_unbekannte_einordnung(self):
+        self.trace_fixture(einordnung="VIELLEICHT")
+        self.erwarte_fehler(f"{TRACE} T-TEST-01: unbekannte einordnung VIELLEICHT")
+
+    def test_trace_ohne_begruendung(self):
+        self.trace_fixture(begruendung="")
+        self.erwarte_fehler(f"{TRACE} T-TEST-01: aussage/begruendung fehlt")
+
+    def test_trace_zitat_zu_kurz(self):
+        self.trace_fixture(zitat="Retro")
+        self.erwarte_fehler(f"{TRACE} T-TEST-01: zitat fehlt oder zu kurz")
+
+    def test_neu_begruendet_ohne_begruendung(self):
+        self.aendere(self.NEUB, lambda n: n["eintraege"][0].pop("begruendung"))
+        self.erwarte_fehler("NEU_BEGRUENDET WT-03: begruendung fehlt")
+
+    # --- Modulpruefung -----------------------------------------------------------------------------------------
+    def modultext(self, datei, funktion):
+        self.datei(f"{self.MOD}/{datei}", funktion)
+
+    def test_modul_verzeichnis_fehlt(self):
+        self.aendere(self.MODREG, lambda c: c["module"][0].update(pfad="base/BASE-040_GIBT_ES_NICHT"))
+        self.erwarte_fehler("MODUL BASE-040: Verzeichnis fehlt: base/BASE-040_GIBT_ES_NICHT")
+
+    def test_modul_invariantendatei_fehlt(self):
+        self.aendere(self.MODREG, lambda c: c["module"][0].update(inv_datei="BASE-040_091_GIBT_ES_NICHT.txt"))
+        self.erwarte_fehler("MODUL BASE-040: Invarianten- oder Testdatei fehlt")
+
+    def test_modul_invariante_doppelt_definiert(self):
+        self.modultext("BASE-040_090_INVARIANTEN.txt", lambda t: t + "\n  WT-01  Zweite Definition derselben Kennung.\n")
+        self.erwarte_fehler("MODUL BASE-040: Invariante WT-01 mehrfach definiert")
+
+    def test_modul_test_ohne_invariante(self):
+        kennung = []
+
+        def zusatz(t):
+            n = max(int(x) for x in re.findall(r"^  T-WT-(\d{2,3})  \S", t, re.M)) + 1
+            kennung.append(f"T-WT-{n:02d}")
+            return t + f"\n  {kennung[0]}  [L] Test ohne Bezug auf eine Invariante.\n"
+        self.modultext("BASE-040_095_TESTS.txt", zusatz)
+        self.erwarte_fehler(f"MODUL BASE-040: {kennung[0]} verweist auf keine Invariante")
+
+    def test_modul_erwaehnt_undefinierte_invariante(self):
+        self.modultext("BASE-040_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt", lambda t: t + "\nSiehe auch WT-999.\n")
+        self.erwarte_fehler("BASE-040_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt erwaehnt undefinierte Invariante WT-999")
+
+    def test_modul_erwaehnt_undefinierten_test(self):
+        self.modultext("BASE-040_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt", lambda t: t + "\nGeprueft durch T-WT-998.\n")
+        self.erwarte_fehler("BASE-040_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt erwaehnt undefinierten Test T-WT-998")
+
+    def test_modul_datei_fehlt_im_index(self):
+        with open(os.path.join(self.tmp, self.MOD, "BASE-040_099_NACHTRAG.txt"), "w", encoding="utf-8") as f:
+            f.write("RetroTunnel - Nachtrag ohne Indexeintrag\nSTATUS: ACTIVE\n")
+        self.erwarte_fehler("MODUL BASE-040: Datei BASE-040_099_NACHTRAG.txt fehlt im Index")
+
+    def test_modul_index_zaehlbereich_falsch(self):
+        self.modultext("BASE-040_INDEX.txt", lambda t: re.sub(r"WT-01\.\.WT-(\d+)", lambda m: f"WT-01..WT-{int(m.group(1)) + 5}",
+                                                               t, count=1))
+        self.erwarte_fehler("MODUL BASE-040: Index-Zaehlbereich fuer WT passt nicht zu")
+
+    def test_neu_begruendet_nennt_undefinierte_invariante(self):
+        self.aendere(self.NEUB, lambda n: n["eintraege"].append({"id": "WT-999", "modul": "BASE-040", "begruendung": "Test"}))
+        self.erwarte_fehler("NEU_BEGRUENDET: BASE-040 WT-999 ist keine definierte Invariante")
+
+    # --- 04_PHASE_PLAN -----------------------------------------------------------------------------------------
+    def test_phasenplan_unbekanntes_status_tag(self):
+        self.datei("04_PHASE_PLAN.txt",
+                   lambda t: re.sub(r"(?m)^(  BASE-040_TUNNEL_WIREGUARD\s+— [^\n]*)\[IN-PROGRESS\]", r"\1[FASTFERTIG]", t, count=1))
+        self.erwarte_fehler("Modul BASE-040: unbekanntes Status-Tag [FASTFERTIG]")
+
+    def test_phasenplan_modul_ohne_listeneintrag(self):
+        self.datei("04_PHASE_PLAN.txt",
+                   lambda t: re.sub(r"(?m)^(  BASE-040_TUNNEL_WIREGUARD\s+— [^\n]*\n)",
+                                    r"\1  BASE-120_NEUES_MODUL         — Testmodul ohne Paket                [WAITING]\n", t, count=1))
+        self.erwarte_fehler("Modul BASE-120 hat keinen Eintrag in der PRIORITAETENLISTE")
+        rc, out = self.lauf()
+        self.assertIn("04_PHASE_PLAN:", out)
+
+    # --- Steuerungsdokumente, Inventar, README -------------------------------------------------------------------
+    def test_steuerungsdokument_fehlt(self):
+        os.remove(os.path.join(self.tmp, "01_GLOSSARY.txt"))
+        self.erwarte_fehler("Steuerungsdokument fehlt: 01_GLOSSARY.txt")
+
+    def test_inventar_leeres_modul_nicht_als_empty(self):
+        self.datei("REVIEW_TRACKER.txt",
+                   lambda t: re.sub(r"(?m)^(  base/BASE-110_WEBSTACK_CORE\s+)□ EMPTY", r"\1~ PARTIAL", t, count=1))
+        self.erwarte_fehler("REVIEW_TRACKER: base/BASE-110_WEBSTACK_CORE hat keine Moduldateien, wird aber nicht als EMPTY gefuehrt")
+
+    def test_inventar_clean_trotz_offener_befunde_des_pakets(self):
+        # BASE-040 wird in der Kopie als abgeschlossen und CLEAN gefuehrt, obwohl Befunde auf sein Paket gebucht sind.
+        self.assertTrue(any(b.get("arbeitspaket") == "AP-K040" and b.get("status") in ("OFFEN", "IN_ARBEIT")
+                            for b in self.lade(BEFUNDE)["befunde"]), "Fixture: kein offener Befund an AP-K040")
+        self.datei("PRIORITAETENLISTE.txt", lambda t: t.replace("\nM2-040 [ACTIVE] ", "\nM2-040 [DONE] ", 1))
+        self.datei("REVIEW_TRACKER.txt",
+                   lambda t: re.sub(r"(?m)^(  base/BASE-040_TUNNEL_WIREGUARD\s+)~ PARTIAL", r"\1✓ CLEAN", t, count=1))
+        self.erwarte_fehler("REVIEW_TRACKER: base/BASE-040_TUNNEL_WIREGUARD wird als CLEAN gefuehrt, obwohl Befunde offen sind:")
+
+    def test_inventar_steuerungsdokument_fehlt(self):
+        self.datei("REVIEW_TRACKER.txt", lambda t: re.sub(r"(?m)^  01_GLOSSARY\.txt ", "  01_GLOSSAR_ALT.txt ", t, count=1))
+        self.erwarte_fehler("REVIEW_TRACKER: Steuerungsdokument 01_GLOSSARY.txt fehlt im Inventar")
+
+    def test_inventar_abschnitt_fehlt(self):
+        self.datei("REVIEW_TRACKER.txt", lambda t: t.replace("\n1) DATEI-INVENTAR", "\n0) DATEI-INVENTAR", 1))
+        self.erwarte_fehler("REVIEW_TRACKER: Abschnitt 1 (Datei-Inventar) fehlt")
+
+    def test_readme_modul_ohne_listeneintrag(self):
+        self.datei("README.md",
+                   lambda t: re.sub(r"(?m)^(│   ├── BASE-040_TUNNEL_WIREGUARD/[^\n]*\n)",
+                                    r"\1│   ├── BASE-120_NEUES_MODUL/       Testmodul ohne Paket\n", t, count=1))
+        self.erwarte_fehler("Modul BASE-120 hat keinen Eintrag in der PRIORITAETENLISTE")
+        rc, out = self.lauf()
+        self.assertIn("README.md:", out)
 
 
 class Quelleninventar(unittest.TestCase):

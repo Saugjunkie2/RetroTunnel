@@ -37,7 +37,9 @@ WERKZEUGE
                          Abschnitt KRITISCHER PFAD); offene Befunde gegen
                          REVIEW_TRACKER.txt Abschnitt 1d; Regeln für das
                          Schließen, Herabstufen, Umbuchen und Löschen von
-                         Befunden; kein [DONE] mit sperrendem Befund; ein
+                         Befunden - verglichen mit ALLEN gesicherten Ständen
+                         des Registers (Git-Verlauf), nicht nur mit dem
+                         letzten; kein [DONE] mit sperrendem Befund; ein
                          [DONE]-Modul nennt offene Befunde an seinen
                          Dateien und heißt nicht CLEAN; Modulstatus,
                          Matrix und Summen im 04_PHASE_PLAN.txt und Marken
@@ -72,7 +74,14 @@ WERKZEUGE
                          fehlender Beleg, Freigabe ohne Gates). Die Klasse
                          "Haertung" enthält die Umgehungsversuche der
                          unabhängigen Kontrolle vom 2026-11-14 und der
-                         Nachprüfung vom 2026-11-15.
+                         Nachprüfung vom 2026-11-15. "Verlauf" prüft an
+                         einem eigenen Klon, dass die Regeln zum Löschen,
+                         Herabstufen und Umbuchen auch NACH dem Commit
+                         greifen. "Grundregeln" hält je einen Test für die
+                         Meldungen, die bis 2026-11-15 keinen hatten. Jede
+                         Fehlermeldung von pruefe_register.py wird von
+                         mindestens einem Test erwartet (ausgezählt:
+                         REVIEW_STANDARD 10.4).
 
 AUFRUF (aus dem Repository-Wurzelverzeichnis)
   python3 qa/quelleninventar.py --rt . --xpn <xp-vpn-stack-Checkout> --check

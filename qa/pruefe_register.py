@@ -15,14 +15,27 @@ Aufruf:
 import argparse, glob, hashlib, os, re, subprocess, sys
 import yaml
 
+# Der in C geschriebene Leser liefert dieselben Daten wie der in Python geschriebene (nur Zerlegen und Parsen laufen in
+# C; Typen und Konstruktion sind dieselben Klassen) und ist um ein Vielfaches schneller. Fehlt er, gilt der andere.
+YAML_LESER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
+
+def yaml_lesen(strom):
+    return yaml.load(strom, Loader=YAML_LESER)
+
 FACHSTATUS = ["IN_BEARBEITUNG", "PRUEFBEREIT", "NACHBESSERUNG", "FACHLICH_FERTIG_FREIGABE_BLOCKIERT",
               "FREIGEGEBEN", "ABGESCHLOSSEN_UND_UEBERNOMMEN"]
 AUSF = ["aktiv", "pausiert", "extern blockiert", "wiederaufnehmbar"]
 GATE = ["OFFEN", "ERFUELLT", "NICHT_ERFUELLT", "NICHT_ERFUELLBAR_OHNE_BETREIBERAKTION"]
 AP_STATUS = ["OFFEN", "IN_ARBEIT", "ERLEDIGT", "BLOCKIERT"]
 BF_KLASSE = ["KRITISCH", "SCHWERWIEGEND", "GERINGFUEGIG", "VERBESSERUNG"]
-BF_STATUS = ["OFFEN", "IN_ARBEIT", "BEHOBEN", "AUFGELOEST_DURCH_AUFTRAGSHIERARCHIE", "ZURUECKGEWIESEN"]
-BF_ERLEDIGT = {"BEHOBEN", "AUFGELOEST_DURCH_AUFTRAGSHIERARCHIE", "ZURUECKGEWIESEN"}
+# Geschlossen wird ein Befund nur auf zwei Wegen, beide mit dem Bericht einer gesonderten Pruefung (REVIEW_STANDARD
+# 10.2). Den dritten Status AUFGELOEST_DURCH_AUFTRAGSHIERARCHIE (bis 2026-11-15) gibt es nicht mehr: Er schloss ohne
+# Bericht und ohne Behebung (zweite Nachpruefung, Kandidat K10).
+BF_STATUS = ["OFFEN", "IN_ARBEIT", "BEHOBEN", "ZURUECKGEWIESEN"]
+BF_ERLEDIGT = {"BEHOBEN", "ZURUECKGEWIESEN"}
+BF_STATUS_GESTRICHEN = {"AUFGELOEST_DURCH_AUFTRAGSHIERARCHIE"}
+REGISTER_BEFUNDE = "governance/register/BEFUNDE.yaml"
 BF_RANG = {"KRITISCH": 0, "SCHWERWIEGEND": 1, "GERINGFUEGIG": 2, "VERBESSERUNG": 3}
 # Einstufung im Pruefbericht -> Rang der Mindestklasse im Register (REVIEW_STANDARD 10.2)
 EINSTUFUNG_RANG = {"KRITISCH": 0, "BLOCKER": 0, "HOCH": 1, "MITTEL": 1, "MAJOR": 1, "NIEDRIG": 2, "MINOR": 2,
@@ -109,7 +122,6 @@ class Pruefung:
         self._cache = {}
         self.trace_ziele = set()
         self.entwuerfe = set()
-        self.paket_vorher = {}
         self._liste = None
         self.pfad_zeilen = []          # Zeilen des Abschnitts KRITISCHER PFAD der PRIORITAETENLISTE
         self.sperren = {}              # Listen-Kennung -> offene Befunde, die das Paket am Abschluss hindern
@@ -126,7 +138,7 @@ class Pruefung:
             return None
         try:
             with open(p, encoding="utf-8") as f:
-                return yaml.safe_load(f)
+                return yaml_lesen(f)
         except yaml.YAMLError as e:
             self.err(f"{rel}: YAML nicht lesbar: {e}")
             return None
@@ -506,13 +518,16 @@ class Pruefung:
         mz = re.fullmatch(r"ZIEL:(.+?)(?::(\d+))?@([0-9a-f]{7,40})", fs)
         if mz:
             pfad, zeile, commit = mz.group(1), mz.group(2), mz.group(3)
-            out = subprocess.run(["git", "-C", self.git, "show", f"{commit}:{pfad}"], capture_output=True)
-            if out.returncode != 0:
+            key = ("ZIEL", commit, pfad)            # Zeilenzahl der Datei am Commit, None = nicht vorhanden
+            if key not in self._cache:
+                out = subprocess.run(["git", "-C", self.git, "show", f"{commit}:{pfad}"], capture_output=True)
+                self._cache[key] = (len(out.stdout.decode("utf-8", errors="replace").splitlines())
+                                    if out.returncode == 0 else None)
+            n = self._cache[key]
+            if n is None:
                 self.err(f"{wer}: Fundstelle nicht aufloesbar (Datei fehlt am genannten Commit): {fs}")
-            else:
-                n = len(out.stdout.decode("utf-8", errors="replace").splitlines())
-                if zeile and not (1 <= int(zeile) <= n):
-                    self.err(f"{wer}: Zeile ausserhalb der Datei (1..{n}): {fs}")
+            elif zeile and not (1 <= int(zeile) <= n):
+                self.err(f"{wer}: Zeile ausserhalb der Datei (1..{n}): {fs}")
             return
         m = re.fullmatch(r"(RT|XPN|NL):(.+?)(?::(\d+))?", fs)
         if not m:
@@ -549,29 +564,52 @@ class Pruefung:
                     return True
         return False
 
-    def befunde_vorher(self):
-        """Befunde des letzten gesicherten Stands (HEAD und dessen Vorgaenger): id -> strengste dort gefuehrte
-        Klasse. Grundlage fuer 'Befunde werden nie geloescht' und 'Klasse nur mit herabstufung senken'."""
-        alt = {}
-        for rev in ("HEAD~1", "HEAD"):
-            out = subprocess.run(["git", "-C", self.git, "show", f"{rev}:governance/register/BEFUNDE.yaml"],
-                                 capture_output=True)
-            if out.returncode != 0:
-                continue
+    def befunde_historie(self):
+        """Alle gesicherten Staende des Befundregisters (jeder Commit, der die Datei geaendert hat). Je Befund:
+        strengste je gefuehrte Klasse, alle je gefuehrten Arbeitspakete, strengste je gefuehrte Einstufung des
+        Pruefers. Grundlage fuer 'Befunde werden nie geloescht', 'Klasse nur mit herabstufung senken', 'Umbuchen nur
+        mit Begruendung' und 'die Einstufung des Pruefers wird nicht entfernt oder gemildert'.
+        Bis 2026-11-15 verglichen diese Regeln nur mit dem letzten Stand (HEAD, zum Teil HEAD~1): Nach dem naechsten
+        Commit - also im CI-Lauf - verstummten sie (zweite Nachpruefung, Kandidat K13)."""
+        klasse, pakete, einstufung = {}, {}, {}
+        log = subprocess.run(["git", "-C", self.git, "log", "--format=%H", "--", REGISTER_BEFUNDE],
+                             capture_output=True, text=True)
+        revs = log.stdout.split() if log.returncode == 0 else []
+        flach = subprocess.run(["git", "-C", self.git, "rev-parse", "--is-shallow-repository"],
+                               capture_output=True, text=True).stdout.strip() == "true"
+        if flach or not revs:
+            self.hinweise.append("BEFUNDE: Historie des Registers unvollstaendig oder nicht lesbar (flacher Klon oder "
+                                 "kein Git-Verlauf) - die Verlaufsregeln (kein Loeschen, kein Senken der Klasse, kein "
+                                 "Umbuchen ohne Begruendung) sind nur gegen die vorhandenen Staende geprueft")
+        if not revs:
+            return klasse, pakete, einstufung
+        anfrage = "".join(f"{r}:{REGISTER_BEFUNDE}\n" for r in revs).encode()
+        out = subprocess.run(["git", "-C", self.git, "cat-file", "--batch"], input=anfrage, capture_output=True).stdout
+        pos = 0
+        while pos < len(out):
+            ende = out.index(b"\n", pos)
+            kopf = out[pos:ende].split()
+            pos = ende + 1
+            if len(kopf) != 3 or kopf[1] != b"blob":
+                continue                                    # "<name> missing": Stand ohne diese Datei
+            n = int(kopf[2])
+            roh, pos = out[pos:pos + n], pos + n + 1
             try:
-                daten = yaml.safe_load(out.stdout.decode("utf-8", errors="replace")) or {}
+                daten = yaml_lesen(roh.decode("utf-8", errors="replace")) or {}
             except yaml.YAMLError:
                 continue
             for b in daten.get("befunde") or []:
-                rang = BF_RANG.get(b.get("klasse"), 9)
-                alt[b.get("id")] = min(alt.get(b.get("id"), 9), rang)
-                if rev == "HEAD":
-                    self.paket_vorher[b.get("id")] = b.get("arbeitspaket")
-        return alt
+                i = b.get("id")
+                klasse[i] = min(klasse.get(i, 9), BF_RANG.get(b.get("klasse"), 9))
+                if b.get("arbeitspaket"):
+                    pakete.setdefault(i, set()).add(b["arbeitspaket"])
+                if b.get("pruefer_einstufung") in EINSTUFUNG_RANG:
+                    einstufung[i] = min(einstufung.get(i, 9), EINSTUFUNG_RANG[b["pruefer_einstufung"]])
+        return klasse, pakete, einstufung
 
     def pruefe_befunde(self, bf, pakete, commits):
         ids = set()
-        vorher = self.befunde_vorher()
+        vorher, pakete_vorher, einstufung_vorher = self.befunde_historie()
         for b in (bf or {}).get("befunde") or []:
             i = b.get("id")
             if i in ids:
@@ -581,7 +619,10 @@ class Pruefung:
                 self.err(f"BEFUNDE: id nicht im Format BF-nnnn: {i}")
             if b.get("klasse") not in BF_KLASSE:
                 self.err(f"BEFUNDE {i}: unbekannte klasse {b.get('klasse')}")
-            if b.get("status") not in BF_STATUS:
+            if b.get("status") in BF_STATUS_GESTRICHEN:
+                self.err(f"BEFUNDE {i}: status {b.get('status')} ist gestrichen - geschlossen wird nur als BEHOBEN oder "
+                         f"ZURUECKGEWIESEN, jeweils mit dem Bericht einer gesonderten Pruefung (REVIEW_STANDARD 10.2)")
+            elif b.get("status") not in BF_STATUS:
                 self.err(f"BEFUNDE {i}: unbekannter status {b.get('status')}")
             for k in ("titel", "beschreibung", "beleg", "massnahme"):
                 if not b.get(k):
@@ -592,13 +633,15 @@ class Pruefung:
                 self.pruefe_fundstelle(f"BEFUNDE {i}", fs, commits)
             if b.get("arbeitspaket") and b["arbeitspaket"] not in pakete:
                 self.err(f"BEFUNDE {i}: unbekanntes arbeitspaket {b['arbeitspaket']}")
-            # Umbuchen hebt die Abschluss-Sperre des bisherigen Pakets auf: nur mit Begruendung (F-NKO-025).
-            vp = self.paket_vorher.get(i)
-            if vp and b.get("arbeitspaket") != vp:
-                u = b.get("umbuchung") or {}
-                if not (isinstance(u, dict) and u.get("von") == vp and u.get("begruendung")):
-                    self.err(f"BEFUNDE {i}: arbeitspaket gegenueber dem letzten gesicherten Stand geaendert ({vp} -> "
-                             f"{b.get('arbeitspaket')}), ohne Feld umbuchung mit von und begruendung")
+            # Umbuchen hebt die Abschluss-Sperre des bisherigen Pakets auf: nur mit Begruendung (F-NKO-025). Jede
+            # fruehere Buchung, die von der heutigen abweicht, muss im Feld umbuchung stehen (ein Eintrag oder eine
+            # Liste von Eintraegen mit von und begruendung) - gleich, wie viele Commits seither liegen.
+            u = b.get("umbuchung")
+            belegt = {x.get("von") for x in (u if isinstance(u, list) else [u]) if isinstance(x, dict)
+                      and x.get("begruendung")}
+            for vp in sorted(pakete_vorher.get(i, set()) - {b.get("arbeitspaket")} - belegt):
+                self.err(f"BEFUNDE {i}: arbeitspaket gegenueber einem gesicherten Stand geaendert ({vp} -> "
+                         f"{b.get('arbeitspaket')}), ohne Feld umbuchung mit von und begruendung")
             h = b.get("herabstufung")
             rang = BF_RANG.get(b.get("klasse"))
             if h and not (h.get("von") in BF_KLASSE and h.get("begruendung") and h.get("bestaetigt_durch")):
@@ -606,6 +649,9 @@ class Pruefung:
             elif h:
                 if rang is not None and BF_RANG[h["von"]] >= rang:
                     self.err(f"BEFUNDE {i}: herabstufung.von ({h['von']}) ist nicht strenger als die klasse")
+                if BF_RANG[h["von"]] > vorher.get(i, 9):
+                    self.err(f"BEFUNDE {i}: herabstufung.von ({h['von']}) nennt nicht die strengste Klasse, die der "
+                             f"Befund in einem gesicherten Stand trug")
                 if not self.berichte(h.get("bestaetigt_durch")):
                     self.err(f"BEFUNDE {i}: herabstufung.bestaetigt_durch nennt keinen vorhandenen Bericht unter "
                              f"governance/pruefungen/ (gesonderte Pruefung)")
@@ -622,8 +668,11 @@ class Pruefung:
             if pe is None and self.berichte(herkunft) and not b.get("ohne_pruefer_einstufung"):
                 self.err(f"BEFUNDE {i}: nennt einen Pruefbericht, fuehrt aber weder pruefer_einstufung noch "
                          f"ohne_pruefer_einstufung (Begruendung, warum der Bericht keine Einstufung traegt)")
+            # Die Einstufung des Pruefers ist ein Beleg: Sie wird nicht entfernt und nicht gemildert.
+            if i in einstufung_vorher and EINSTUFUNG_RANG.get(pe, 9) > einstufung_vorher[i]:
+                self.err(f"BEFUNDE {i}: pruefer_einstufung gegenueber einem gesicherten Stand entfernt oder gemildert")
             if rang is not None and rang > vorher.get(i, 9) and not h:
-                self.err(f"BEFUNDE {i}: klasse gegenueber dem letzten gesicherten Stand gesenkt, ohne Feld herabstufung")
+                self.err(f"BEFUNDE {i}: klasse gegenueber einem gesicherten Stand gesenkt, ohne Feld herabstufung")
             st = b.get("status")
             if st == "BEHOBEN":
                 if not b.get("behoben_in"):
@@ -640,15 +689,11 @@ class Pruefung:
                 if not (z.get("begruendung") and self.berichte(z.get("bestaetigt_durch"))):
                     self.err(f"BEFUNDE {i}: ZURUECKGEWIESEN ohne zurueckweisung.begruendung und .bestaetigt_durch "
                              f"(Bericht einer gesonderten Pruefung unter governance/pruefungen/)")
-            elif st == "AUFGELOEST_DURCH_AUFTRAGSHIERARCHIE":
-                if not re.search(r"\b(OP-[A-Z]\d+|BM-\d{4})\b", str(b.get("aufgeloest_durch") or "")):
-                    self.err(f"BEFUNDE {i}: AUFGELOEST_DURCH_AUFTRAGSHIERARCHIE ohne aufgeloest_durch "
-                             f"(Betreiberregel OP-... oder Betreibermitteilung BM-nnnn)")
         nummern = sorted(int(str(i)[3:]) for i in ids if re.fullmatch(r"BF-\d{4}", str(i)))
         if nummern != list(range(1, len(nummern) + 1)):
             self.err("BEFUNDE: Kennungen nicht lueckenlos ab BF-0001 (Befunde werden nie geloescht oder umnummeriert)")
         for i in sorted(set(vorher) - ids, key=str):
-            self.err(f"BEFUNDE: {i} stand im letzten gesicherten Stand und fehlt jetzt (Befunde werden nie geloescht)")
+            self.err(f"BEFUNDE: {i} stand in einem gesicherten Stand und fehlt jetzt (Befunde werden nie geloescht)")
 
     def pruefe_tracker_befunde(self, bf, pakete):
         """REVIEW_TRACKER.txt ist massgeblich fuer den UEBERBLICK ueber offene Befunde (00_MANIFEST 6a). Abschnitt 1d
@@ -1116,7 +1161,13 @@ class Pruefung:
         pt = os.path.join(self.root, "REVIEW_TRACKER.txt")
         if os.path.exists(pt):
             with open(pt, encoding="utf-8", errors="replace") as fh:
-                tracker = fh.read()
+                tracker_ganz = fh.read()
+            # Geprueft wird das INVENTAR (Abschnitt 1), nicht das ganze Dokument: Bis 2026-11-15 genuegte eine
+            # Erwaehnung an beliebiger Stelle (z. B. in der Konsistenzmatrix) - der Negativtest dazu hat die Luecke gezeigt.
+            mi1 = re.search(r"^1\) [^\n]*\n=+\n(.*?)(?=^={10,}\n1[a-d]\))", tracker_ganz, re.M | re.S)
+            if not mi1:
+                self.err("REVIEW_TRACKER: Abschnitt 1 (Datei-Inventar) fehlt oder endet nicht vor Abschnitt 1a/1d")
+            tracker = mi1.group(1) if mi1 else ""
             bfd = self.lade("governance/register/BEFUNDE.yaml", pflicht=False) or {}
             befunde_offen = [b for b in bfd.get("befunde") or [] if b.get("status") not in BF_ERLEDIGT]
             for modul, (d, anzahl) in sorted(verzeichnisse.items()):

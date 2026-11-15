@@ -1,7 +1,7 @@
 ================================================================================
 RetroTunnel — CHANGELOG (Zentrales Projektgedaechtnis)
 ================================================================================
-VERSION: v2.8.5
+VERSION: v2.8.6
 DATUM: 2026-11-15
 STATUS: ACTIVE
 
@@ -13,6 +13,120 @@ sind leer (Verweis auf diese Datei).
 ================================================================================
 VERSIONSHISTORIE
 ================================================================================
+
+v2.8.6 (2026-11-15) — PRUEFWERKZEUGE: ZWEI LUECKEN GESCHLOSSEN, JEDE
+                       FEHLERMELDUNG MIT NEGATIVTEST; ZWEITE NACHPRUEFUNG
+                       UNTERBROCHEN UND FORTGESETZT
+
+  AUSLOESER: (a) QS-07 Punkt 2 - 75 Fehlermeldungen des Pruefwerkzeugs
+  hatten keinen Negativtest. (b) Der erste Durchgang der zweiten
+  Nachpruefung (Start 05:42 UTC) brach gegen 06:04 UTC am Nutzungslimit
+  ab. Der Pruefer zu Texten und Registern hinterliess ein
+  Arbeitsprotokoll mit 13 Kandidaten K1 bis K13 OHNE Einstufung und
+  ohne Urteile je Befund; der Pruefer der Werkzeuge kam nicht zum Zug.
+  Zwei Kandidaten (K10, K13) betreffen Luecken der Pruefregeln und
+  waren mit Experimenten belegt.
+  STAND: EINGEARBEITET, NICHT BESTAETIGT. Die Fortsetzung der zweiten
+  Nachpruefung laeuft (vier Pruefer); ihr Ergebnis steht aus.
+
+  1  COMMITS
+      a475aaa  Zwischenstand des abgebrochenen Pruefers unveraendert
+               abgelegt; Pruefauftraege im Wortlaut (Abschnitte 12 bis
+               19); Mitteilung BM-0016; Beobachtung zum Limit (UP-11)
+      (dieser) Pruefwerkzeuge, Tests, Zusicherungen, drei Befunde
+
+  2  ZWEI LUECKEN DER PRUEFREGELN (aus dem Zwischenstand; von mir am
+     Code und am Git-Verlauf des Registers nachvollzogen)
+     BF-0102 (K10)  Das Register kannte einen dritten Schliess-Status
+       AUFGELOEST_DURCH_AUFTRAGSHIERARCHIE: erledigt ohne Pruefbericht
+       und ohne Behebung, nur mit einem Regelbezug. REVIEW_STANDARD
+       10.2 und 10.4 und 00_MANIFEST 6a sicherten zu, jeder Schliessweg
+       brauche einen Bericht. BEHOBEN DURCH: Status gestrichen. Zuletzt
+       trug ihn kein Befund (BF-0004 vom 2026-11-11 bis 2026-11-14).
+     BF-0103 (K13)  Die Regel "Umbuchen nur mit Begruendung" verglich
+       mit dem letzten gesicherten Stand. Nach dem Commit - also in
+       jedem CI-Lauf - konnte sie nicht ausloesen. 10.4 sagte "reicht
+       fuer das Paket einen Commit zurueck"; es war keiner. Dieselbe
+       Bauart bei "kein Loeschen" und "keine stille Herabstufung" (zwei
+       Commits). BEHOBEN DURCH: Vergleich gegen ALLE gesicherten
+       Staende des Registers. Dabei zwei verwandte Luecken geschlossen:
+       Die Einstufung des Pruefers kann nicht mehr entfernt oder
+       gemildert werden, und eine Herabstufung muss die strengste je
+       gefuehrte Klasse nennen.
+       AUSWERTUNG DES VERLAUFS (24 Staende seit 2026-11-11): kein
+       Befund geloescht, keine Klasse gesenkt, kein Paket umgebucht,
+       keine Einstufung entfernt oder gemildert. Nach Aktenlage ist
+       keine der Luecken benutzt worden.
+       BLEIBENDE GRENZE: Wer den Git-Verlauf umschreibt, umgeht die
+       Regel (Force-Push ist untersagt, aber nicht gesperrt: UP-05);
+       bei flachem Klon meldet das Werkzeug einen Hinweis.
+
+  3  NEGATIVTESTS
+     - 86 neue Tests (163 -> 249): 76 in der Klasse Grundregeln (je
+       einer fuer die 75 Meldungen ohne Test, einer fuer die neue
+       Inventar-Regel), fuenf in der Klasse Verlauf (vier
+       Verfaelschungen NACH dem Commit an einem eigenen Klon, eine
+       Positivkontrolle) und fuenf fuer die neuen Regeln im
+       Arbeitsbaum (vier Verfaelschungen, eine Positivkontrolle).
+     - AUSGEZAEHLT mit einem Lauf der ganzen Sammlung: 192 von 192
+       Fehlermeldungen von qa/pruefe_register.py werden von mindestens
+       einem Test erwartet (vorher 114 von 189). VERFAHREN: Ein
+       Hilfsskript ausserhalb des Repositorys setzt vor jede Meldung
+       die Quellzeile ihres Aufrufs; gezaehlt ist eine Meldung, wenn
+       der im Test erwartete Wortlaut in ihr steht. GRENZE: Die Zahl
+       belegt, dass jede Meldung ausgeloest werden kann - nicht, dass
+       jede Regel jeden Umgehungsweg erkennt.
+     - EIN NEUER TEST ZEIGTE EINE UNWIRKSAME REGEL (BF-0104): Die
+       Inventar-Regel des Trackers suchte Dateinamen im ganzen Dokument
+       statt im Inventar; eine Erwaehnung in der Konsistenzmatrix
+       genuegte. Berichtigt (nur noch Abschnitt 1), mit zwei Tests.
+
+  4  LAUFZEIT
+     Das Werkzeug liest YAML jetzt mit dem in C geschriebenen Leser
+     (dieselben Daten: Typen und Konstruktion sind unveraendert;
+     geprueft an allen 88 YAML-Dateien des Repositorys) und fragt Git
+     je Fundstelle nur einmal. Ein Lauf: 0,9 statt 2,4 Sekunden; die
+     ganze Testsammlung: knapp 4 statt gut 6 Minuten bei 86 Tests mehr.
+     Der CI-Lauf brauchte zuletzt bis zu 8 der erlaubten 10 Minuten;
+     die Grenze steht jetzt bei 15.
+
+  5  GEAENDERTE DATEIEN
+     qa/pruefe_register.py, qa/quelleninventar.py (nur der Leser),
+     qa/tests/test_negativ.py, qa/README.txt,
+     .github/workflows/konzept-qa.yml (Zeitgrenze); REVIEW_STANDARD v1.7
+     (10.2: nur zwei Schliesswege, Umbuchen, Einstufung; 10.4:
+     Verlaufsregeln, Auszaehlung, Grenzen); 00_MANIFEST v1.5 (6a);
+     Kopf des Befundregisters; BF-0102 bis BF-0104; REVIEW_TRACKER
+     v1.24 (1d); PRIORITAETENLISTE v1.10 (QS-07); README (Version).
+
+  6  EIGENE ENTSCHEIDUNGEN DIESER RUNDE
+     E-13  Der dritte Schliess-Status ist GESTRICHEN, nicht an einen
+           Bericht gebunden: Niemand nutzt ihn, und zwei Wege sind
+           leichter zu pruefen als drei. Strenger als bisher.
+     E-14  K10 und K13 sind als SCHWERWIEGEND registriert, obwohl der
+           abgebrochene Pruefer sie nicht eingestuft hat (Feld
+           ohne_pruefer_einstufung nennt den Grund). Die Einstufung
+           des Fortsetzungspruefers geht vor, wenn sie strenger ist.
+     E-15  Die Pruefer der Fortsetzung laufen auf einem anderen Modell
+           als der Hauptarchitekt, und der Auftrag zu Texten und
+           Registern ist auf drei schmale Auftraege verteilt (Grund:
+           Limit des eingesetzten Modells, UP-11 Beobachtung
+           2026-11-15-c; Nebenwirkung: eine zweite Modellsicht).
+           Hoechstens zwei Pruefer gleichzeitig.
+
+  7  GEPRUEFT / NICHT GEPRUEFT / OFFEN
+     MASCHINELL GEPRUEFT: alle 249 Tests gruen; Registerpruefung,
+     Quelleninventar und Extraktpruefung gruen; Auszaehlung 192/192.
+     LOGISCH GEPRUEFT (Autor): Gleichwertigkeit des schnellen Lesers
+     (Vergleich der geladenen Daten aller YAML-Dateien); Auswertung des
+     Verlaufs.
+     NICHT GEPRUEFT: ob die neuen Regeln weitere Umgehungswege offen
+     lassen - das ist Gegenstand des laufenden Pruefauftrags zu den
+     Werkzeugen. Die Kandidaten K1 bis K9, K11 und K12 sind NICHT
+     bearbeitet und nicht registriert; sie werden von der Fortsetzung
+     nachgeprueft und danach eingeordnet.
+     OFFEN: Ergebnis der vier Pruefer; Blickrichtung "Bestand";
+     Klasse-B-Review der Steuerungsdokumente (QS-07 Punkt 3).
 
 v2.8.5 (2026-11-15) — DOMAIN_MODEL GELESEN UND MIT BASE-070 / BASE-080
                        ABGEGLICHEN (BF-0090); BESTAETIGUNG STEHT AUS
