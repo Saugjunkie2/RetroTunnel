@@ -10,11 +10,17 @@ Herkunft: maschinell aus dem Sitzungsprotokoll der Cloud-Sitzung entnommen (Werk
 Nichts ist gekürzt oder geglättet. Pfade unter /tmp/... sind Arbeitsverzeichnisse der Sitzung und
 bestehen nicht dauerhaft. Diese Datei ist KEIN Prüfbericht.
 
+Abschnitte 12 bis 19 (zweite Nachprüfung, 2026-11-15): aus den Auftragsdateien und Ablaufskripten übernommen,
+die den Prüfern übergeben wurden (die Abläufe nannten den Prüfern nur den Pfad ihrer Auftragsdatei). Einzige
+Abweichung vom Wortlaut: In Abschnitt 19 ist die Modellangabe des Ablaufskripts durch einen Platzhalter ersetzt
+(das Repository nennt keine Modellkennungen).
+
 Nicht enthalten: die Aufträge der Leseläufe (Extraktion der XPN-Quellen am 2026-11-11, Leselauf der
 Nachlieferung am 2026-11-13) - das waren keine Prüfungen.
 
 Zugehörige Berichte unter governance/pruefungen/: BASE-070_GEGENPRUEFUNG_*, BASE-070_NACHPRUEFUNG_TEIL_*,
-KONSOLIDIERUNG_PRUEFUNG_A/B/C_*, KONSOLIDIERUNG_NACHPRUEFUNG_EINARBEITUNG_2026-11-15.md.
+KONSOLIDIERUNG_PRUEFUNG_A/B/C_*, KONSOLIDIERUNG_NACHPRUEFUNG_EINARBEITUNG_2026-11-15.md,
+KONSOLIDIERUNG_NACHPRUEFUNG_2_* (zweite Nachprüfung; der erste Durchgang brach am Nutzungslimit ab).
 
 ---
 
@@ -491,5 +497,619 @@ Bitte so weiterarbeiten (das Nutzungsfenster ist knapp; ein Abbruch darf kein Er
 3. Experimente an den Pruefwerkzeugen nur noch, soweit ein Urteil davon abhaengt; keine vollstaendige Wiederholung der Umgehungsmatrix. Was du nicht mehr pruefst, im Bericht ausdruecklich als NICHT GEPRUEFT nennen.
 4. Am Ende den Kopf des Berichts auf den Endstand setzen (Status ABGESCHLOSSEN oder ABGEBROCHEN mit Grund), Gesamturteil nach REVIEW_STANDARD Abschnitt 6.
 Weiterhin gilt: nichts am Pruefgegenstand und nichts im Repository /home/user/RetroTunnel aendern, keine Patches, nur Befunde.
+~~~~
+
+---
+
+## 12. Zweite Nachprüfung, Auftrag A (Texte, Register, Verweise)
+
+- Zeitpunkt (UTC): 2026-11-15T05:42Z (Start des Ablaufs)
+- Art: Auftrag an einen neuen Prüfer (Auftragsdatei)
+- Verlauf: nach rund 21 Minuten am Nutzungslimit abgebrochen (gegen 06:04Z). Zwischenstand: KONSOLIDIERUNG_NACHPRUEFUNG_2_A_TEXTE_UND_REGISTER_2026-11-15_ABGEBROCHEN.md (Arbeitsprotokoll, 13 Kandidaten, keine Urteile)
+- Länge: 8529 Zeichen
+
+~~~~
+PRUEFAUFTRAG A - ZWEITE NACHPRUEFUNG: TEXTE, REGISTER, VERWEISE (2026-11-15)
+
+Du bist unabhaengiger Pruefer im Projekt RetroTunnel. Du PRUEFST - du aenderst nichts. Sprache des Berichts: Deutsch.
+
+1. KONTEXT
+
+RetroTunnel ist ein reines KONZEPT-Repository (Textdateien, kein Produktcode): das Konzept einer VPN-Plattform mit
+zwei Tunneln (L2TP/IPsec fuer alte Clients, AmneziaWG fuer neue). Seit dem 2026-11-11 stellt ein KI-Hauptarchitekt das
+Konzept im Auftrag des Betreibers (Marco) eigenstaendig fertig. Massgeblich sind im Wortlaut: der Startauftrag und die
+Betreiberregeln (governance/betreiberregeln/) und die Mitteilungen des Betreibers
+(governance/register/BETREIBERMITTEILUNGEN.yaml).
+
+Am 2026-11-14 hat der Betreiber angeordnet (Mitteilung BM-0015, dort im Wortlaut), die Projektsteuerung auf seine
+urspruenglichen Dokumente im Wurzelverzeichnis zurueckzufuehren, dabei nichts abzuschwaechen und das Ergebnis
+kontrollieren zu lassen. Seither gab es: eine unabhaengige Kontrolle (Berichte A, B, C vom 2026-11-14), ihre
+Einarbeitung, eine Nachpruefung dieser Einarbeitung (Bericht vom 2026-11-15 mit 29 neuen Befunden F-NKO-001 bis
+F-NKO-029) und deren Einarbeitung durch den Hauptarchitekten in vier Commits. DIESE zweite Einarbeitung ist dein
+Pruefgegenstand. Erfahrung aus den bisherigen Runden: Jede Einarbeitung hat neue Fehler erzeugt.
+
+2. PRUEFGEGENSTAND UND UNTERLAGEN
+
+Pruefgegenstand (nur lesen): /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/gegenstand
+  Das ist eine eigene Arbeitskopie (git worktree) des Repositorys am Commit 584a629.
+  Aenderungsserie: git diff 6f71d25..584a629  (Commits 139fb6d, d54201f, 2ccec56, 584a629).
+  Der Vorstand 6f71d25 ist der Stand, an dem das Ergebnis der Nachpruefung registriert, aber noch nichts behoben war.
+Vorgaenger-Repository (nur lesen, nur bei Bedarf): /home/user/xp-vpn-stack
+
+Unterlagen im Pruefgegenstand:
+- governance/pruefungen/KONSOLIDIERUNG_NACHPRUEFUNG_EINARBEITUNG_2026-11-15.md - der Bericht mit den 29 Befunden,
+  den Antworten (a) bis (e) und dem Freiraum 1 bis 9. Er ist deine Pruefliste.
+- 03_CHANGELOG.txt, Eintrag v2.8.4 - der Bericht des Hauptarchitekten ueber die Einarbeitung. Er ist Gegenstand der
+  Pruefung, kein Beleg.
+- REVIEW_STANDARD.txt - der Pruefmassstab (Abschnitte 1 bis 7 und 10).
+- CLAUDE_BRIEFING.txt (vor allem TEIL 0, Teil 1 Regel 8 und 10, Teil 3.1, Teil 5), 00_MANIFEST.txt (Abschnitte 3 bis
+  7), PRIORITAETENLISTE.txt, REVIEW_TRACKER.txt, REVIEW_TRACKER_HISTORIE.txt, 04_PHASE_PLAN.txt, 01_GLOSSARY.txt,
+  02_ASSUMPTIONS_AND_RULES.txt, MARCOS_ARBEITSWEISE.txt, README.md.
+- governance/register/BEFUNDE.yaml (Befundregister), governance/register/ARBEITSPAKETE.yaml.
+- base/BASE-040_TUNNEL_WIREGUARD/BASE-040_010_..., base/BASE-050_FIREWALL_CORE/BASE-050_010_...,
+  base/BASE-070_SESSION_CORE/BASE-070_010_..., base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_... (die Entscheidungen
+  DEC-WT, DEC-FW, DEC-SC, DEC-PA der vier seit dem Auftrag geschriebenen Module).
+
+Die Pruefwerkzeuge (qa/) untersucht ein zweiter Pruefer vertieft. Du pruefst dazu nur, ob die TEXTE ueber die Werkzeuge
+(00_MANIFEST 6a Schutz-Abschnitt, REVIEW_STANDARD 10.4, qa/README.txt, Kopfkommentar des Befundregisters) zum Code
+passen.
+
+3. AUFGABEN
+
+(1) URTEIL JE BEFUND. Fuer F-NKO-001 bis F-NKO-029 (bei F-NKO-029 je Einzelpunkt), fuer die Punkte aus "Antwort (a)"
+    und "Antwort (d)" und fuer "Freiraum 1 bis 9" des Berichts: BEHOBEN / TEILWEISE BEHOBEN / NICHT BEHOBEN, am Text
+    geprueft, mit Datei:Zeile als Beleg. Wo der Bericht eine "Validierung" nennt, fuehre sie aus. Ebenso fuer die
+    sieben dort als nur teilweise behoben gefuehrten Altbefunde (F-AST-003, F-AST-004, F-BAN-004, F-AST-013, F-AST-020,
+    F-BAN-016, F-BAN-022) und F-AST-019.
+
+(2) NEUE FEHLER aus dieser Einarbeitung: falsche oder veraltete Verweise, falsche Zahlen, veraenderte Zitate, Aussagen,
+    die weiter gehen als das Belegte, Widersprueche zwischen Dokumenten, stillschweigende Abschwaechung oder Umdeutung
+    einer Regel des Betreibers (CLAUDE_BRIEFING Teil 1, 2, 5; REVIEW_STANDARD Abschnitte 1 bis 9; MARCOS_ARBEITSWEISE;
+    Betreiberregeln; Startauftrag).
+
+(3) GEZIELTE PRUEFFRAGEN
+    (a) 03_CHANGELOG v2.8.4 Abschnitt 3 (Tabelle "Aussage - Ergebnis") und die Stand-Vermerke vom 2026-11-15 in
+        CLAUDE_BRIEFING 3.1 und 00_MANIFEST Abschnitt 3 bis 5: Trifft jede Zeile und jeder Vermerk zu? Pruefe gegen die
+        vier Entscheidungsdateien. Gibt es eine Aussage in Briefing 3.1/3.2 oder MANIFEST 3 bis 5, die eine
+        Modulentscheidung aendert, ergaenzt oder ihr widerspricht und KEINEN Vermerk traegt?
+    (b) REVIEW_STANDARD 10.3 h bis j: Hat jetzt jeder Satz aus CLAUDE_BRIEFING Regel 8 (ab "DRITTPRUEFUNG") und aus
+        Regel 10 Schritt 4 einen Verbleib, und ist er zutreffend eingeordnet (gilt unveraendert / gilt in dieser Form /
+        ersetzt)? Ist dabei etwas enger oder schwaecher gefasst als im Original?
+    (c) Stellen mit "EIGENE ENTSCHEIDUNG" bzw. "EIGENE AUSLEGUNG" und die Sammelliste im Changelog v2.8.4 Abschnitt 6:
+        Ist die Liste vollstaendig und gibt sie jede Entscheidung zutreffend wieder? Gibt es weitere Stellen, an denen
+        eine Regel des Betreibers enger, schwaecher oder anders gefasst ist, ohne dass es dasteht?
+    (d) Befundregister: Sind BF-0088 bis BF-0099 und die in dieser Serie geaenderten Eintraege (git diff zeigt sie)
+        sachlich richtig - Wiedergabe der Quelle, Klasse, Einstufung des Pruefers, Paket, Fundstellen, Stand? Stimmt der
+        Stand der Module BASE-000 bis BASE-030 in REVIEW_TRACKER Abschnitt 1 und PRIORITAETENLISTE M2-000 bis M2-030
+        mit dem Register ueberein, und ist die dort getroffene Entscheidung nachvollziehbar begruendet?
+    (e) Zahlen: Stimmen die Angaben im Changelog v2.8.4, in REVIEW_TRACKER 1d, PRIORITAETENLISTE (QS-07, QS-08),
+        REVIEW_TRACKER_HISTORIE (PFLEGE-Eintraege vom 2026-11-15) und README gegeneinander und gegen den Bestand?
+    (f) Changelog v2.8.4 Abschnitt 9 beantwortet die sechs Pruefpunkte aus BM-0015 Abschnitt 6 E. Ist jede Antwort
+        durch den Bestand gedeckt, und ist ehrlich ausgewiesen, was NICHT geprueft ist?
+
+(4) FREIRAUM (Pflicht): Was siehst DU, was in dieser Liste nicht steht? Welche Entscheidung dieser Runde wuerdest du
+    anders treffen, und warum? Welche Randfaelle fehlen?
+
+4. REGELN
+
+- NUR LESEN. Veraendere nichts unter /home/user/RetroTunnel, nichts im Pruefgegenstand, nichts unter
+  /home/user/xp-vpn-stack. Kein git commit, kein git push, kein git stash, kein git checkout im Pruefgegenstand.
+- Schreiben darfst du ausschliesslich unter /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2 (Bericht, Notizen, Kopien fuer Experimente unter /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/tmp_a/).
+- Wer prueft, aendert nicht: Du lieferst Befunde mit Fix-Intention, keine Patches.
+- Urteile zaehlen nur mit Beleg (Datei:Zeile im Pruefgegenstand, ausgefuehrter Befehl mit Ergebnis). Was du nicht
+  geprueft hast, nennst du ausdruecklich als nicht geprueft. Erfinde keine Lesestaende.
+- Lies die Dateien selbst; uebernimm keine Aussage aus dem Changelog ungeprueft.
+- Der Ordner nachlieferung/ und governance/arbeitsmaterial/ gehoeren nicht zum Pruefumfang.
+
+5. FORM DES BERICHTS (REVIEW_STANDARD Abschnitt 6 und 10.3 e)
+
+Schreibe den Bericht in die Datei /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/BERICHT_A_TEXTE_UND_REGISTER.md - LAUFEND: Lege die Datei mit dem Geruest
+sofort an und ergaenze sie nach jedem abgeschlossenen Pruefschritt (das Nutzungslimit kann dich jederzeit
+unterbrechen; was nicht in der Datei steht, ist verloren). Trage die Urteile je Befund ein, sobald du sie hast.
+
+Gliederung:
+  1. Gesamturteil (drei bis acht Saetze)
+  2. Was ich gelesen und ausgefuehrt habe (je Datei: vollstaendig / Zeilenbereich / nur durchsucht; Befehle)
+  3. Urteil je Befund der Nachpruefung (Tabelle: Kennung | Urteil | Beleg)
+  4. Neue Befunde: Kennung F-NK2-A-nn, Schwere (BLOCKER / MAJOR / MINOR / NICE nach REVIEW_STANDARD Abschnitt 6),
+     Pruefebene, Stelle (Datei:Zeile), Zitat, Problem, Warum relevant, Fix-Intention, Validierung
+  5. Antworten auf die Prueffragen (a) bis (f) und der Freiraum
+  6. Was bestaetigt ist (mit Beleg)
+  7. Was ich NICHT geprueft habe
+  8. Kurzfassung
+
+Deine Schlussantwort an den Auftraggeber: nur die Kurzfassung (Gesamturteil, Zahl der Befunde je Schwere, die MAJOR-
+und BLOCKER-Befunde in je einem Satz) und der Pfad der Berichtsdatei.
+~~~~
+
+---
+
+## 13. Zweite Nachprüfung, Auftrag B (Prüfwerkzeuge)
+
+- Zeitpunkt (UTC): 2026-11-15T05:42Z (Start des Ablaufs)
+- Art: Auftrag an einen neuen Prüfer (Auftragsdatei)
+- Verlauf: im ersten Durchgang gestartet und vom Nutzungslimit sofort abgewiesen; kein Ergebnis. In der Fortsetzung unverändert gestellt, mit der Ergänzung aus Abschnitt 18
+- Länge: 7725 Zeichen
+
+~~~~
+PRUEFAUFTRAG B - ZWEITE NACHPRUEFUNG: PRUEFWERKZEUGE (2026-11-15)
+
+Du bist unabhaengiger Pruefer im Projekt RetroTunnel. Du PRUEFST - du aenderst nichts. Sprache des Berichts: Deutsch.
+
+1. KONTEXT
+
+RetroTunnel ist ein reines KONZEPT-Repository (Textdateien, kein Produktcode der VPN-Plattform). Die Werkzeuge unter
+qa/ sind Konsistenzpruefungen fuer diese Konzeptdokumente und Register: qa/pruefe_register.py (Schema, Querverweise,
+Gleichstand der Steuerungsdokumente), qa/quelleninventar.py, qa/pruefe_extrakte.py, qa/tests/test_negativ.py
+(Negativtests: jede Regel muss eine absichtlich falsche Kopie erkennen). Sie sind KEIN Freigabegate.
+
+Am 2026-11-14 hat der Betreiber angeordnet (Mitteilung BM-0015, im Wortlaut in
+governance/register/BETREIBERMITTEILUNGEN.yaml, dort Abschnitt 6 E), zu kontrollieren, ob "neue QA-Pruefungen
+tatsaechlich die jeweils beanspruchten Anforderungen kontrollieren". Eine erste Pruefung der Werkzeuge brach ab
+(Bericht C vom 2026-11-14, Zwischenstand mit Umgehungsmatrix). Die Nachpruefung vom 2026-11-15 fand weitere
+Umgehungen (Experimente E8, V1 bis V3, X1, X3, X4, X5; Befunde F-NKO-001, -018, -023, -025 bis -028). Der
+Hauptarchitekt hat daraufhin Regeln geaendert und Tests ergaenzt. DIESE Aenderungen sind dein Pruefgegenstand.
+
+2. PRUEFGEGENSTAND UND UNTERLAGEN
+
+Pruefgegenstand (nur lesen): /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/gegenstand
+  Eigene Arbeitskopie (git worktree) des Repositorys am Commit 584a629.
+  Aenderungsserie an den Werkzeugen: git diff 6f71d25..584a629 -- qa/   (im Wesentlichen Commit d54201f).
+Vorgaenger-Repository (nur lesen; die Werkzeuge brauchen es fuer Zitatpruefungen): /home/user/xp-vpn-stack
+
+Unterlagen im Pruefgegenstand:
+- qa/pruefe_register.py, qa/tests/test_negativ.py, qa/README.txt
+- Die ZUSICHERUNGEN ueber die Werkzeuge: 00_MANIFEST.txt Abschnitt 6a, Absatz "SCHUTZ GEGEN ERNEUTES
+  AUSEINANDERLAUFEN"; REVIEW_STANDARD.txt Abschnitt 10.2 und 10.4; Kopfkommentar von
+  governance/register/BEFUNDE.yaml; CLAUDE_BRIEFING.txt TEIL 0.3
+- governance/pruefungen/KONSOLIDIERUNG_NACHPRUEFUNG_EINARBEITUNG_2026-11-15.md (Abschnitt 5 e: Experimente und
+  Urteil je Zusicherung; Befunde F-NKO-001, -018, -023, -025 bis -028)
+- governance/pruefungen/KONSOLIDIERUNG_PRUEFUNG_C_PRUEFWERKZEUGE_2026-11-14_ABGEBROCHEN.md (Umgehungsmatrix der ersten
+  Pruefung)
+- 03_CHANGELOG.txt, Eintrag v2.8.4, Abschnitte 2 und 4 (Darstellung des Hauptarchitekten; Gegenstand der Pruefung,
+  kein Beleg)
+
+So arbeitest du mit den Werkzeugen, ohne den Pruefgegenstand zu veraendern:
+  cp -r /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/gegenstand /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/tmp_b/kopie_N        (ohne .git genuegt: rsync -a --exclude .git ...)
+  ... Kopie gezielt veraendern ...
+  python3 /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/gegenstand/qa/pruefe_register.py --root /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/tmp_b/kopie_N --git /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/gegenstand --xpn /home/user/xp-vpn-stack
+  (Rueckgabewert 0 = "konsistent", 1 = Fehler gemeldet. --git nennt das Repository, dessen letzter gesicherter Stand
+  als Vergleich dient.)
+Die ganze Testsammlung (python3 -m unittest discover -s qa/tests, aus dem Pruefgegenstand heraus) laeuft rund sechs
+Minuten; fuehre sie hoechstens EINMAL aus. Einzelne Tests: python3 -m unittest qa.tests.test_negativ.<Klasse>.<Test>.
+
+3. AUFGABEN
+
+(1) EXPERIMENTE WIEDERHOLEN: E8, V1, V2, V3, X1, X3, X4, X5 aus Abschnitt 5 e des Nachpruefungsberichts - je Fall:
+    Veraenderung, Rueckgabewert, Meldung. Erkannt oder nicht?
+
+(2) UMGEHUNGSVERSUCHE gegen die neuen oder geaenderten Regeln - je Regel mindestens zwei eigene Versuche, die ein
+    Bearbeiter aus Versehen oder zur Abkuerzung machen koennte:
+    - Zaehlangaben der Altmodule (ein geduldeter Wert je Praefix; Teilbereich nur im Proof-Anker)
+    - "Bestaetigung nur durch einen Pruefbericht" (Schliessen, Herabstufen, Zurueckweisen eines Befunds)
+    - Pflichtfeld pruefer_einstufung bzw. begruendeter Verzicht
+    - Umbuchen eines Befunds auf ein anderes Paket
+    - fachstatus PRUEFBEREIT
+    - "[DONE]-Modul heisst nicht CLEAN und nennt offene Befunde an seinen Dateien" (Tracker und Liste)
+    - Versionsangaben im README
+    Halte je Versuch fest: Aenderung, erwartetes Verhalten, tatsaechliches Verhalten, Rueckgabewert.
+
+(3) ZUSICHERUNG GEGEN VERHALTEN: Gehe den Schutz-Absatz in 00_MANIFEST 6a Punkt fuer Punkt und die Liste
+    "GELTUNGSBEREICH UND GRENZEN" in REVIEW_STANDARD 10.4 Punkt fuer Punkt durch: Entspricht jede Aussage dem, was das
+    Werkzeug tut - weder zu weit (zugesichert, aber umgehbar) noch zu eng (Grenze genannt, die es nicht gibt)?
+
+(4) NEGATIVTESTS: Pruefen die in dieser Serie neu hinzugekommenen Tests das, was ihr Name sagt (kein Test, der aus
+    einem anderen Grund gruen wird; keine Erwartung, die auch eine fremde Meldung erfuellt)? Die Zahl "114 von 189
+    Fehlermeldungen haben einen Negativtest" (Changelog v2.8.4 Abschnitt 4; REVIEW_STANDARD 10.4): Ist das Verfahren
+    tragfaehig beschrieben, und ist die Zahl plausibel? (Du darfst sie nachstellen, musst es aber nicht.)
+
+(5) FEHLALARME: Gibt es zulaessige Aenderungen, die die neuen Regeln faelschlich ablehnen oder unnoetig erschweren
+    (z. B. berechtigte Umbuchung, neuer Befund aus einem Pruefbericht, ein kuenftiger Pruefbericht mit anderem
+    Dateinamen, ein Modul, das regulaer [DONE] wird, der regulaere Weg zu PRUEFBEREIT nach der PRIORITAETENLISTE
+    QS-16 bis QS-22)?
+
+(6) FREIRAUM (Pflicht): Was siehst DU, was in dieser Liste nicht steht? Welche Regel wuerdest du anders bauen?
+    Welche Luecke ist die gefaehrlichste?
+
+4. REGELN
+
+- NUR LESEN am Pruefgegenstand, unter /home/user/RetroTunnel und unter /home/user/xp-vpn-stack. Kein git commit, kein
+  git push, kein git stash, kein git checkout dort.
+- Schreiben darfst du ausschliesslich unter /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2 (Bericht, Notizen, Kopien unter /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/tmp_b/). Raeume grosse Kopien
+  am Ende weg.
+- Wer prueft, aendert nicht: Du lieferst Befunde mit Fix-Intention, keine Patches am Werkzeug.
+- Urteile zaehlen nur mit Beleg (Befehl, Rueckgabewert, Meldung; Datei:Zeile). Was du nicht geprueft hast, nennst du
+  ausdruecklich als nicht geprueft.
+
+5. FORM DES BERICHTS (REVIEW_STANDARD Abschnitt 6 und 10.3 e)
+
+Schreibe den Bericht in die Datei /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/BERICHT_B_PRUEFWERKZEUGE.md - LAUFEND: Lege die Datei mit dem Geruest sofort
+an und ergaenze sie nach jedem Experiment bzw. Pruefschritt (das Nutzungslimit kann dich jederzeit unterbrechen; was
+nicht in der Datei steht, ist verloren).
+
+Gliederung:
+  1. Gesamturteil (drei bis acht Saetze)
+  2. Was ich gelesen und ausgefuehrt habe
+  3. Experimente und Umgehungsversuche (Tabelle: Fall | Veraenderung | Ergebnis | Rueckgabewert | Meldung)
+  4. Befunde: Kennung F-NK2-B-nn, Schwere (BLOCKER / MAJOR / MINOR / NICE nach REVIEW_STANDARD Abschnitt 6),
+     Pruefebene, Stelle (Datei:Zeile), Problem, Warum relevant, Fix-Intention, Validierung
+  5. Zusicherung gegen Verhalten (je Punkt aus 6a und 10.4: trifft zu / zu weit / zu eng, mit Beleg)
+  6. Negativtests, Fehlalarme, Freiraum
+  7. Was ich NICHT geprueft habe
+  8. Kurzfassung
+
+Deine Schlussantwort an den Auftraggeber: nur die Kurzfassung (Gesamturteil, Zahl der Befunde je Schwere, die MAJOR-
+und BLOCKER-Befunde in je einem Satz) und der Pfad der Berichtsdatei.
+~~~~
+
+---
+
+## 14. Zweite Nachprüfung, Ablaufskript des ersten Durchgangs
+
+- Zeitpunkt (UTC): 2026-11-15T05:42Z
+- Art: Ablaufskript (zwei Prüfer nacheinander; nennt den Prüfern den Pfad der Auftragsdatei)
+- Länge: 1428 Zeichen
+
+~~~~
+export const meta = {
+  name: 'zweite-nachpruefung',
+  description: 'Zwei unabhaengige Pruefer nacheinander (nur lesend): Texte und Register, danach Pruefwerkzeuge',
+  phases: [
+    { title: 'Pruefung A', detail: 'Texte, Register, Verweise der Einarbeitung vom 2026-11-15' },
+    { title: 'Pruefung B', detail: 'Pruefwerkzeuge: Experimente, Umgehungsversuche, Zusicherungen' },
+  ],
+}
+
+const NP2 = args.np2
+const einleitung = (datei) =>
+  `Du bist unabhaengiger Pruefer im Projekt RetroTunnel (reines Konzept-Repository). ` +
+  `Dein vollstaendiger, massgeblicher Pruefauftrag steht in der Datei ${NP2}/${datei}. ` +
+  `Lies diese Datei zuerst vollstaendig und fuehre den Auftrag dann genau so aus, wie er dort steht ` +
+  `(Aufgaben, Regeln, Form des Berichts, laufendes Schreiben in die dort genannte Berichtsdatei). ` +
+  `Du pruefst nur und aenderst nichts ausserhalb von ${NP2}. ` +
+  `Deine Schlussantwort ist nur die im Auftrag verlangte Kurzfassung mit dem Pfad der Berichtsdatei.`
+
+phase('Pruefung A')
+const a = await agent(einleitung('AUFTRAG_A_TEXTE_UND_REGISTER.md'), {
+  label: 'pruefer-a-texte-register',
+  phase: 'Pruefung A',
+  agentType: 'general-purpose',
+})
+log('Pruefung A abgeschlossen; starte Pruefung B')
+
+phase('Pruefung B')
+const b = await agent(einleitung('AUFTRAG_B_PRUEFWERKZEUGE.md'), {
+  label: 'pruefer-b-pruefwerkzeuge',
+  phase: 'Pruefung B',
+  agentType: 'general-purpose',
+})
+
+return { a, b }
+~~~~
+
+---
+
+## 15. Zweite Nachprüfung, Fortsetzung: Auftrag A1 (Urteil je Befund)
+
+- Zeitpunkt (UTC): 2026-11-15T06:40Z (Start des Ablaufs)
+- Art: Auftrag an einen neuen Prüfer (Auftragsdatei)
+- Länge: 5158 Zeichen
+
+~~~~
+PRUEFAUFTRAG A1 - ZWEITE NACHPRUEFUNG, FORTSETZUNG: URTEIL JE BEFUND (2026-11-15)
+
+Du bist unabhaengiger Pruefer im Projekt RetroTunnel. Du PRUEFST - du aenderst nichts. Sprache des Berichts: Deutsch.
+
+1. LAGE
+
+Der urspruengliche Pruefauftrag A steht in /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/AUFTRAG_A_TEXTE_UND_REGISTER.md. Lies ihn ZUERST vollstaendig: Seine
+Abschnitte 1 (Kontext), 2 (Pruefgegenstand und Unterlagen), 4 (Regeln) und 5 (Form des Berichts) gelten fuer dich
+unveraendert. Ein erster Pruefer hat diesen Auftrag begonnen und wurde nach rund 20 Minuten vom Nutzungslimit
+unterbrochen; sein Zwischenstand (Arbeitsprotokoll und 13 Kandidaten K1 bis K13, KEINE Urteile je Befund) liegt
+unveraendert in /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/BERICHT_A_ZWISCHENSTAND_ABGEBROCHEN.md. Der Auftrag ist deshalb auf drei Pruefer verteilt.
+DU uebernimmst Aufgabe (1).
+
+Der Pruefgegenstand bleibt die Arbeitskopie /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/gegenstand am Commit 584a629 (Aenderungsserie 6f71d25..584a629). Im
+Hauptrepository /home/user/RetroTunnel ist inzwischen ein weiterer Commit hinzugekommen (ein anderes Arbeitspaket); er
+ist NICHT Teil der Pruefung - lies dort nicht.
+
+2. DEINE AUFGABE
+
+Aufgabe (1) des urspruenglichen Auftrags, vollstaendig: je ein Urteil BEHOBEN / TEILWEISE BEHOBEN / NICHT BEHOBEN, am
+Text geprueft, mit Datei:Zeile als Beleg, fuer
+  - F-NKO-001 bis F-NKO-029 (bei F-NKO-029 je Einzelpunkt),
+  - die Punkte aus "Antwort (a)" und "Antwort (d)" des Nachpruefungsberichts,
+  - "Freiraum 1 bis 9" des Nachpruefungsberichts,
+  - die dort als nur teilweise behoben gefuehrten Altbefunde F-AST-003, F-AST-004, F-BAN-004, F-AST-013, F-AST-020,
+    F-BAN-016, F-BAN-022 und den offenen F-AST-019.
+Wo der Nachpruefungsbericht (governance/pruefungen/KONSOLIDIERUNG_NACHPRUEFUNG_EINARBEITUNG_2026-11-15.md im
+Pruefgegenstand) eine "Validierung" nennt, fuehre sie aus.
+Pruefe je Befund auch, ob die Darstellung im 03_CHANGELOG.txt, Eintrag v2.8.4, Abschnitt 2 ("Einordnung je Befund und
+Verbleib") zutrifft: Ist als erledigt Bezeichnetes wirklich erledigt, als OFFEN Bezeichnetes wirklich offen, und stimmt
+der genannte Commit?
+Faellt dir dabei ein NEUER Fehler auf (durch die Behebung erzeugt oder von ihr uebersehen), nimm ihn als Befund
+F-NK2-U-nn auf. Die Kandidaten K1 bis K13 des ersten Pruefers prueft ein anderer Pruefer; du brauchst sie nicht zu
+bearbeiten, darfst sie aber als Hinweis nutzen.
+NICHT deine Aufgabe: die Prueffragen (3 a bis f) und der Freiraum (4) des urspruenglichen Auftrags.
+
+3. ARBEITSWEISE
+
+  - Reihenfolge: zuerst die drei MAJOR (F-NKO-007, F-NKO-016, F-NKO-018), dann die MINOR, dann die NICE, dann
+    Antworten (a)/(d), Freiraum 1 bis 9 und die Altbefunde.
+  - Der Nachpruefungsbericht (672 Zeilen) ist deine Pruefliste - lies ihn ganz. Sonst lies gezielt (grep,
+    Zeilenbereiche, git diff 6f71d25..584a629 -- <Datei>).
+  - Schreibe JEDES Urteil sofort nach der Pruefung in die Berichtsdatei (das Nutzungslimit kann dich jederzeit
+    unterbrechen; was nicht in der Datei steht, ist verloren).
+  - Die Negativtests (python3 -m unittest discover -s qa/tests) musst du NICHT ausfuehren: Der erste Pruefer hat sie
+    am Stand 584a629 ausgefuehrt ("Ran 163 tests in 360.072s - OK"). Einzelne Laeufe des Pruefskripts auf einer
+    eigenen Kopie sind erlaubt:
+      rsync -a --exclude .git /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/gegenstand/ /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/tmp_a1/kopie_N/
+      python3 /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/gegenstand/qa/pruefe_register.py --root /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/tmp_a1/kopie_N --git /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/gegenstand --xpn /home/user/xp-vpn-stack
+  - Schreiben darfst du ausschliesslich unter /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2 (Bericht, Kopien unter /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/tmp_a1/).
+  - Starte KEINE weiteren Agenten.
+
+4. BERICHT
+
+Datei: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/BERICHT_A1_URTEILE.md - sofort mit dem Geruest anlegen, laufend ergaenzen.
+Gliederung:
+  1. Gesamturteil (drei bis acht Saetze)
+  2. Was ich gelesen und ausgefuehrt habe (je Datei: vollstaendig / Zeilenbereich / nur durchsucht; Befehle)
+  3. Urteil je Befund (Tabelle: Kennung | Urteil | Beleg Datei:Zeile | Darstellung im Changelog v2.8.4 zutreffend?)
+  4. Neue Befunde: Kennung F-NK2-U-nn, Schwere (BLOCKER / MAJOR / MINOR / NICE nach REVIEW_STANDARD Abschnitt 6),
+     Pruefebene, Stelle (Datei:Zeile), Zitat, Problem, Warum relevant, Fix-Intention, Validierung
+  5. Was ich NICHT geprueft habe
+  6. Kurzfassung (Zahl je Urteil; Zahl neuer Befunde je Schwere; die MAJOR- und BLOCKER-Befunde in je einem Satz)
+Schlussantwort an den Auftraggeber: nur die Kurzfassung und der Pfad der Berichtsdatei.
+~~~~
+
+---
+
+## 16. Zweite Nachprüfung, Fortsetzung: Auftrag A2 (Kandidaten K1 bis K13, Prüffragen a bis c)
+
+- Zeitpunkt (UTC): 2026-11-15T06:40Z (Start des Ablaufs; der Prüfer startet nach Abschluss der ersten Runde)
+- Art: Auftrag an einen neuen Prüfer (Auftragsdatei)
+- Länge: 5808 Zeichen
+
+~~~~
+PRUEFAUFTRAG A2 - ZWEITE NACHPRUEFUNG, FORTSETZUNG: KANDIDATEN K1 BIS K13, PRUEFFRAGEN (a) BIS (c) (2026-11-15)
+
+Du bist unabhaengiger Pruefer im Projekt RetroTunnel. Du PRUEFST - du aenderst nichts. Sprache des Berichts: Deutsch.
+
+1. LAGE
+
+Der urspruengliche Pruefauftrag A steht in /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/AUFTRAG_A_TEXTE_UND_REGISTER.md. Lies ihn ZUERST vollstaendig: Seine
+Abschnitte 1 (Kontext), 2 (Pruefgegenstand und Unterlagen), 4 (Regeln) und 5 (Form des Berichts) gelten fuer dich
+unveraendert. Ein erster Pruefer hat diesen Auftrag begonnen und wurde nach rund 20 Minuten vom Nutzungslimit
+unterbrochen; sein Zwischenstand liegt unveraendert in /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/BERICHT_A_ZWISCHENSTAND_ABGEBROCHEN.md: ein
+Arbeitsprotokoll und 13 Kandidaten K1 bis K13, von ihm selbst als "noch nicht endgueltig eingestuft" bezeichnet.
+Der Auftrag ist deshalb auf drei Pruefer verteilt.
+
+Der Pruefgegenstand bleibt die Arbeitskopie /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/gegenstand am Commit 584a629 (Aenderungsserie 6f71d25..584a629). Im
+Hauptrepository /home/user/RetroTunnel ist inzwischen ein weiterer Commit hinzugekommen (ein anderes Arbeitspaket); er
+ist NICHT Teil der Pruefung - lies dort nicht.
+
+2. DEINE AUFGABE
+
+(i) KANDIDATEN K1 BIS K13: Pruefe JEDEN am Text nach - K10 und K13 zusaetzlich durch Wiederholung des Experiments auf
+    einer eigenen Kopie. Urteil je Kandidat: BESTAETIGT / TEILWEISE BESTAETIGT / NICHT BESTAETIGT, mit Beleg
+    (Datei:Zeile, Befehl mit Ergebnis). Du bist an die Sicht des ersten Pruefers nicht gebunden; widersprich, wo der
+    Text es nicht hergibt. Jeder (teilweise) bestaetigte Kandidat wird ein Befund F-NK2-A-nn mit Schwere und allen
+    Pflichtangaben; nenne beim Befund den Kandidaten (K-Nummer), aus dem er hervorgeht.
+(ii) PRUEFFRAGEN (3 a), (3 b) und (3 c) des urspruenglichen Auftrags - Wortlaut dort. Kurz:
+    (a) Trifft jede Zeile der Tabelle in 03_CHANGELOG v2.8.4 Abschnitt 3 und jeder Stand-Vermerk vom 2026-11-15 in
+        CLAUDE_BRIEFING 3.1 und 00_MANIFEST Abschnitt 3 bis 5 zu (gegen die vier Entscheidungsdateien)? Gibt es dort
+        eine Aussage, die eine Modulentscheidung aendert, ergaenzt oder ihr widerspricht und KEINEN Vermerk traegt?
+    (b) REVIEW_STANDARD 10.3 h bis j: Verbleib jedes Satzes aus CLAUDE_BRIEFING Regel 8 (ab "DRITTPRUEFUNG") und
+        Regel 10 Schritt 4; etwas enger oder schwaecher gefasst als im Original?
+    (c) "EIGENE ENTSCHEIDUNG" / "EIGENE AUSLEGUNG" und die Sammelliste im Changelog v2.8.4 Abschnitt 6: vollstaendig
+        und zutreffend? Weitere Stellen, an denen eine Regel des Betreibers enger, schwaecher oder anders gefasst ist,
+        ohne dass es dasteht?
+(iii) Aufgabe (2) des urspruenglichen Auftrags (NEUE FEHLER aus dieser Einarbeitung) fuer die Dokumente, die du dabei
+    liest: CLAUDE_BRIEFING.txt, 00_MANIFEST.txt, REVIEW_STANDARD.txt, die vier Entscheidungsdateien (nur als
+    Vergleichsgrundlage), 03_CHANGELOG v2.8.4 Abschnitte 3 und 6.
+NICHT deine Aufgabe: Aufgabe (1) (Urteil je Befund der Nachpruefung), die Prueffragen (3 d bis f), der Freiraum (4) -
+das uebernehmen zwei andere Pruefer.
+
+3. ARBEITSWEISE
+
+  - Reihenfolge: zuerst K10 und K13 (Experimente), dann K1 bis K9, K11, K12; danach (a), (b), (c).
+  - Schreibe jedes Urteil sofort in die Berichtsdatei (das Nutzungslimit kann dich jederzeit unterbrechen).
+  - Experimente nur auf einer eigenen Kopie:
+      rsync -a --exclude .git /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/gegenstand/ /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/tmp_a2/kopie_N/
+      python3 /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/gegenstand/qa/pruefe_register.py --root /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/tmp_a2/kopie_N --git /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/gegenstand --xpn /home/user/xp-vpn-stack
+    (Rueckgabewert 0 = "konsistent", 1 = Fehler gemeldet. --git nennt das Repository, dessen letzter gesicherter
+    Stand als Vergleich dient. Fuer K13 brauchst du einen eigenen Klon mit Commit: git clone /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/gegenstand
+    /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/tmp_a2/klon - dort darfst du committen; NIE im Pruefgegenstand.)
+  - Die ganze Testsammlung (python3 -m unittest discover -s qa/tests) NICHT ausfuehren.
+  - Schreiben darfst du ausschliesslich unter /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2 (Bericht, Kopien unter /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/tmp_a2/). Raeume grosse Kopien am Ende weg.
+  - Starte KEINE weiteren Agenten.
+
+4. BERICHT
+
+Datei: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/BERICHT_A2_KANDIDATEN_UND_PRUEFFRAGEN_ABC.md - sofort mit dem Geruest anlegen, laufend ergaenzen.
+Gliederung:
+  1. Gesamturteil (drei bis acht Saetze)
+  2. Was ich gelesen und ausgefuehrt habe
+  3. Urteil je Kandidat K1 bis K13 (Tabelle: Kandidat | Urteil | Beleg)
+  4. Befunde: Kennung F-NK2-A-nn, Schwere (BLOCKER / MAJOR / MINOR / NICE nach REVIEW_STANDARD Abschnitt 6),
+     Pruefebene, Stelle (Datei:Zeile), Zitat, Problem, Warum relevant, Fix-Intention, Validierung
+  5. Antworten auf die Prueffragen (a), (b), (c)
+  6. Was bestaetigt ist (mit Beleg)
+  7. Was ich NICHT geprueft habe
+  8. Kurzfassung
+Schlussantwort an den Auftraggeber: nur die Kurzfassung (Gesamturteil, Zahl der Befunde je Schwere, die MAJOR- und
+BLOCKER-Befunde in je einem Satz) und der Pfad der Berichtsdatei.
+~~~~
+
+---
+
+## 17. Zweite Nachprüfung, Fortsetzung: Auftrag A3 (Prüffragen d bis f, Register und Zahlen, Freiraum)
+
+- Zeitpunkt (UTC): 2026-11-15T06:40Z (Start des Ablaufs; der Prüfer startet nach Abschluss der ersten Runde)
+- Art: Auftrag an einen neuen Prüfer (Auftragsdatei)
+- Länge: 6105 Zeichen
+
+~~~~
+PRUEFAUFTRAG A3 - ZWEITE NACHPRUEFUNG, FORTSETZUNG: PRUEFFRAGEN (d) BIS (f), REGISTER UND ZAHLEN, FREIRAUM (2026-11-15)
+
+Du bist unabhaengiger Pruefer im Projekt RetroTunnel. Du PRUEFST - du aenderst nichts. Sprache des Berichts: Deutsch.
+
+1. LAGE
+
+Der urspruengliche Pruefauftrag A steht in /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/AUFTRAG_A_TEXTE_UND_REGISTER.md. Lies ihn ZUERST vollstaendig: Seine
+Abschnitte 1 (Kontext), 2 (Pruefgegenstand und Unterlagen), 4 (Regeln) und 5 (Form des Berichts) gelten fuer dich
+unveraendert. Ein erster Pruefer hat diesen Auftrag begonnen und wurde nach rund 20 Minuten vom Nutzungslimit
+unterbrochen; sein Zwischenstand (Arbeitsprotokoll und 13 Kandidaten K1 bis K13) liegt unveraendert in
+/tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/BERICHT_A_ZWISCHENSTAND_ABGEBROCHEN.md. Der Auftrag ist deshalb auf drei Pruefer verteilt.
+
+Der Pruefgegenstand bleibt die Arbeitskopie /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/gegenstand am Commit 584a629 (Aenderungsserie 6f71d25..584a629). Im
+Hauptrepository /home/user/RetroTunnel ist inzwischen ein weiterer Commit hinzugekommen (ein anderes Arbeitspaket); er
+ist NICHT Teil der Pruefung - lies dort nicht.
+
+2. DEINE AUFGABE
+
+(i) PRUEFFRAGEN (3 d), (3 e) und (3 f) des urspruenglichen Auftrags - Wortlaut dort. Kurz:
+    (d) Befundregister: Sind BF-0088 bis BF-0099 und die in dieser Serie geaenderten Eintraege (git diff
+        6f71d25..584a629 -- governance/register/BEFUNDE.yaml) sachlich richtig - Wiedergabe der Quelle, Klasse,
+        Einstufung des Pruefers, Paket, Fundstellen, Stand? Stimmt der Stand der Module BASE-000 bis BASE-030 in
+        REVIEW_TRACKER Abschnitt 1 und PRIORITAETENLISTE M2-000 bis M2-030 mit dem Register ueberein, und ist die
+        dort getroffene Entscheidung nachvollziehbar begruendet?
+    (e) Zahlen: Stimmen die Angaben im Changelog v2.8.4, in REVIEW_TRACKER 1d, PRIORITAETENLISTE (QS-07, QS-08),
+        REVIEW_TRACKER_HISTORIE (PFLEGE-Eintraege vom 2026-11-15) und README gegeneinander und gegen den Bestand?
+        (Zaehle selbst: Befunde gesamt/offen/geschlossen und je Klasse, Tests, Fehlermeldungen des Pruefskripts,
+        Stand-Vermerke, Commits.)
+    (f) Changelog v2.8.4 Abschnitt 9 beantwortet die sechs Pruefpunkte aus BM-0015 Abschnitt 6 E
+        (governance/register/BETREIBERMITTEILUNGEN.yaml). Ist jede Antwort durch den Bestand gedeckt, und ist ehrlich
+        ausgewiesen, was NICHT geprueft ist?
+(ii) Aufgabe (2) des urspruenglichen Auftrags (NEUE FEHLER aus dieser Einarbeitung) fuer: governance/register/BEFUNDE.yaml
+    (Aenderungen der Serie), REVIEW_TRACKER.txt, REVIEW_TRACKER_HISTORIE.txt (PFLEGE-Eintraege vom 2026-11-15),
+    PRIORITAETENLISTE.txt, 04_PHASE_PLAN.txt, 01_GLOSSARY.txt, 02_ASSUMPTIONS_AND_RULES.txt, README.md, qa/README.txt,
+    03_CHANGELOG v2.8.4 Abschnitte 1, 4, 5 und 7 bis 10. Suche: falsche oder veraltete Verweise, falsche Zahlen,
+    veraenderte Zitate, Aussagen, die weiter gehen als das Belegte, Widersprueche zwischen Dokumenten.
+(iii) FREIRAUM (Pflicht, Aufgabe 4 des urspruenglichen Auftrags): Was siehst DU, was in dieser Liste nicht steht?
+    Welche Entscheidung dieser Runde wuerdest du anders treffen, und warum? Welche Randfaelle fehlen? Lies dazu die
+    Sammelliste der eigenen Entscheidungen (Changelog v2.8.4 Abschnitt 6) und die offenen Fragen an den Betreiber
+    (Abschnitt 7): Ist eine davon in Wahrheit eine Betreiberentscheidung, die der Hauptarchitekt nicht selbst treffen
+    durfte - oder umgekehrt eine Frage, die die Regeln schon beantworten?
+NICHT deine Aufgabe: Aufgabe (1) (Urteil je Befund der Nachpruefung), die Prueffragen (3 a bis c) und die Kandidaten
+K1 bis K13 - das uebernehmen zwei andere Pruefer. Die Kandidaten darfst du als Hinweis nutzen.
+
+3. ARBEITSWEISE
+
+  - Reihenfolge: (d), (e), (f), dann (ii), dann der Freiraum.
+  - Schreibe jedes Ergebnis sofort in die Berichtsdatei (das Nutzungslimit kann dich jederzeit unterbrechen).
+  - Lies gezielt (grep, Zeilenbereiche, git diff 6f71d25..584a629 -- <Datei>); zaehle mit Befehlen, nicht von Hand.
+  - Die ganze Testsammlung (python3 -m unittest discover -s qa/tests) NICHT ausfuehren; der erste Pruefer hat sie am
+    Stand 584a629 ausgefuehrt ("Ran 163 tests in 360.072s - OK"). Einzelne Laeufe des Pruefskripts auf einer eigenen
+    Kopie sind erlaubt:
+      rsync -a --exclude .git /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/gegenstand/ /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/tmp_a3/kopie_N/
+      python3 /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/gegenstand/qa/pruefe_register.py --root /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/tmp_a3/kopie_N --git /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/gegenstand --xpn /home/user/xp-vpn-stack
+  - Schreiben darfst du ausschliesslich unter /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2 (Bericht, Kopien unter /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/tmp_a3/).
+  - Starte KEINE weiteren Agenten.
+
+4. BERICHT
+
+Datei: /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/BERICHT_A3_PRUEFFRAGEN_DEF_UND_FREIRAUM.md - sofort mit dem Geruest anlegen, laufend ergaenzen.
+Gliederung:
+  1. Gesamturteil (drei bis acht Saetze)
+  2. Was ich gelesen und ausgefuehrt habe
+  3. Antworten auf die Prueffragen (d), (e), (f) - mit den eigenen Zaehlungen
+  4. Befunde: Kennung F-NK2-C-nn, Schwere (BLOCKER / MAJOR / MINOR / NICE nach REVIEW_STANDARD Abschnitt 6),
+     Pruefebene, Stelle (Datei:Zeile), Zitat, Problem, Warum relevant, Fix-Intention, Validierung
+  5. Freiraum
+  6. Was bestaetigt ist (mit Beleg)
+  7. Was ich NICHT geprueft habe
+  8. Kurzfassung
+Schlussantwort an den Auftraggeber: nur die Kurzfassung (Gesamturteil, Zahl der Befunde je Schwere, die MAJOR- und
+BLOCKER-Befunde in je einem Satz) und der Pfad der Berichtsdatei.
+~~~~
+
+---
+
+## 18. Zweite Nachprüfung, Fortsetzung: Ergänzung zum Auftrag B
+
+- Zeitpunkt (UTC): 2026-11-15T06:40Z (Start des Ablaufs)
+- Art: Ergänzung zum Auftrag aus Abschnitt 13 (Auftragsdatei)
+- Länge: 2141 Zeichen
+
+~~~~
+ERGAENZUNG ZUM PRUEFAUFTRAG B (2026-11-15, nach dem Abbruch des ersten Durchgangs am Nutzungslimit)
+
+Der Auftrag in /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/AUFTRAG_B_PRUEFWERKZEUGE.md gilt unveraendert. Zusaetzlich:
+
+(7) Ein anderer Pruefer hat vor seinem Abbruch zwei Umgehungen notiert (Zwischenstand:
+    /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/BERICHT_A_ZWISCHENSTAND_ABGEBROCHEN.md, Kandidaten K10 und K13):
+    K10  Der Status AUFGELOEST_DURCH_AUFTRAGSHIERARCHIE schliesst einen Befund ohne Pruefbericht und ohne Behebung
+         (verlangt nur das Feld aufgeloest_durch).
+    K13  Die Regel "Umbuchen nur mit Begruendung" vergleicht mit dem letzten gesicherten Stand und kann deshalb nach
+         dem Commit (im CI-Lauf) nicht ausloesen.
+    Wiederhole beide als Experiment (fuer K13 auf einem eigenen Klon mit Commit: git clone /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/gegenstand
+    /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/tmp_b/klon - dort darfst du committen; NIE im Pruefgegenstand) und suche gezielt nach WEITEREN Luecken
+    derselben beiden Arten:
+    - Regeln, die nur relativ zum letzten gesicherten Stand wirken (Vergleich mit HEAD) und nach einem Commit
+      verstummen - z. B. "ein Befund darf nicht geloescht werden", "Klasse nicht unter die Einstufung des Pruefers",
+      Wiedereroeffnen/Schliessen;
+    - Status- oder Feldwerte, mit denen sich eine Regel umgehen laesst, ohne dass eine andere Regel greift.
+(8) Der Hauptarbeitsstand /home/user/RetroTunnel ist seit dem Start um einen Commit weiter (ein anderes
+    Arbeitspaket); er ist NICHT Teil der Pruefung - lies dort nicht. Pruefgegenstand bleibt /tmp/claude-0/-home-user/02737377-a7f1-5508-9243-cd15bfb63961/scratchpad/np2/gegenstand am
+    Commit 584a629.
+
+Die Negativtests hat der erste Pruefer A am Stand 584a629 bereits ausgefuehrt ("Ran 163 tests in 360.072s - OK"); du
+brauchst die ganze Sammlung nicht noch einmal laufen zu lassen. Einzelne Tests und eigene Experimente bleiben
+ausdruecklich erwuenscht.
+~~~~
+
+---
+
+## 19. Zweite Nachprüfung, Fortsetzung: Ablaufskript (vier Prüfer, je zwei gleichzeitig)
+
+- Zeitpunkt (UTC): 2026-11-15T06:40Z
+- Art: Ablaufskript (nennt den Prüfern den Pfad der Auftragsdatei; Modellangabe durch Platzhalter ersetzt)
+- Länge: 2670 Zeichen
+
+~~~~
+export const meta = {
+  name: 'zweite-nachpruefung-fortsetzung',
+  description: 'Vier unabhaengige Pruefer (nur lesend), je zwei gleichzeitig: Urteile je Befund und Pruefwerkzeuge, danach Kandidaten/Prueffragen a-c und Prueffragen d-f/Freiraum',
+  phases: [
+    { title: 'Runde 1', detail: 'A1 Urteile je Befund; B Pruefwerkzeuge', model: '<anderes Modell als der Hauptarchitekt>' },
+    { title: 'Runde 2', detail: 'A2 Kandidaten und Prueffragen a bis c; A3 Prueffragen d bis f und Freiraum', model: '<anderes Modell als der Hauptarchitekt>' },
+  ],
+}
+
+const NP2 = args.np2
+
+function auftrag(dateien, bericht) {
+  const liste = dateien.map(d => `${NP2}/${d}`).join(' und danach ')
+  return [
+    'Du bist ein unabhaengiger Pruefer im Konzeptprojekt RetroTunnel (reine Textdokumente, kein Produktcode).',
+    `Dein Auftrag steht im Wortlaut in der Datei ${liste}. Lies ihn zuerst vollstaendig und fuehre ihn dann genau so aus.`,
+    'Wichtig: Du pruefst nur und aenderst nichts ausserhalb des im Auftrag genannten Arbeitsverzeichnisses. Kein git commit, push, stash oder checkout im Pruefgegenstand oder unter /home/user/RetroTunnel oder /home/user/xp-vpn-stack.',
+    `Schreibe deinen Bericht LAUFEND in die Datei ${NP2}/${bericht} (zuerst das Geruest anlegen, dann nach jedem Pruefschritt ergaenzen), damit bei einer Unterbrechung nichts verloren geht.`,
+    'Starte keine weiteren Agenten. Deine Schlussantwort: nur die Kurzfassung und der Pfad der Berichtsdatei.',
+  ].join('\n')
+}
+
+const OPT = { agentType: 'general-purpose', model: '<anderes Modell als der Hauptarchitekt>' }
+
+phase('Runde 1')
+const r1 = await parallel([
+  () => agent(auftrag(['AUFTRAG_A1_URTEILE.md'], 'BERICHT_A1_URTEILE.md'),
+    { ...OPT, label: 'pruefer-a1-urteile', phase: 'Runde 1' }),
+  () => agent(auftrag(['AUFTRAG_B_PRUEFWERKZEUGE.md', 'AUFTRAG_B_ERGAENZUNG.md'], 'BERICHT_B_PRUEFWERKZEUGE.md'),
+    { ...OPT, label: 'pruefer-b-pruefwerkzeuge', phase: 'Runde 1' }),
+])
+log(`Runde 1 fertig: A1 ${r1[0] ? 'mit Ergebnis' : 'OHNE Ergebnis'}, B ${r1[1] ? 'mit Ergebnis' : 'OHNE Ergebnis'}`)
+
+phase('Runde 2')
+const r2 = await parallel([
+  () => agent(auftrag(['AUFTRAG_A2_KANDIDATEN_UND_PRUEFFRAGEN_ABC.md'], 'BERICHT_A2_KANDIDATEN_UND_PRUEFFRAGEN_ABC.md'),
+    { ...OPT, label: 'pruefer-a2-kandidaten-abc', phase: 'Runde 2' }),
+  () => agent(auftrag(['AUFTRAG_A3_PRUEFFRAGEN_DEF_UND_FREIRAUM.md'], 'BERICHT_A3_PRUEFFRAGEN_DEF_UND_FREIRAUM.md'),
+    { ...OPT, label: 'pruefer-a3-def-freiraum', phase: 'Runde 2' }),
+])
+log(`Runde 2 fertig: A2 ${r2[0] ? 'mit Ergebnis' : 'OHNE Ergebnis'}, A3 ${r2[1] ? 'mit Ergebnis' : 'OHNE Ergebnis'}`)
+
+return { a1: r1[0], b: r1[1], a2: r2[0], a3: r2[1] }
 ~~~~
 
