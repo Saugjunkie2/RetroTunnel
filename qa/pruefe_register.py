@@ -40,7 +40,22 @@ BF_RANG = {"KRITISCH": 0, "SCHWERWIEGEND": 1, "GERINGFUEGIG": 2, "VERBESSERUNG":
 # Einstufung im Pruefbericht -> Rang der Mindestklasse im Register (REVIEW_STANDARD 10.2)
 EINSTUFUNG_RANG = {"KRITISCH": 0, "BLOCKER": 0, "HOCH": 1, "MITTEL": 1, "MAJOR": 1, "NIEDRIG": 2, "MINOR": 2,
                    "HINWEIS": 3, "NICE": 3}
-PRUEFBERICHT = r"governance/pruefungen/[\w./-]+\.md"
+PRUEF_ORDNER = "governance/pruefungen"
+# Zulaessige Felder eines Befunds (wie STATUS_FELDER): Ein Tippfehler im Feldnamen (sperrt_ach) oder ein frei
+# erfundenes Feld bliebe sonst unbemerkt (F-NK2-B-03).
+BF_FELDER = {"id", "klasse", "status", "stand", "titel", "beschreibung", "fundstellen", "beleg", "auswirkung",
+             "massnahme", "arbeitspaket", "entdeckt_in", "pruefer_einstufung", "ohne_pruefer_einstufung",
+             "sperrt_auch", "entsperrt", "umbuchung", "herabstufung", "behoben_in", "nachpruefung", "zurueckweisung",
+             "weiter_fehlend", "abgleichpunkte"}
+# Kennung, unter der ein Pruefbericht einen Punkt fuehrt (B-01, F-AST-001, F-NK2-B-03, V1-07) - nicht die Kennungen
+# der eigenen Register und der Liste.
+KENNUNG = re.compile(r"\b[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\d{1,4}\b")
+KEINE_BERICHTSKENNUNG = re.compile(r"^(?:BF|QS|BM|UP|AP|VB|OP|BL|TR|M\d)-")
+BEGRUENDUNG_MIN = 20      # eine "Begruendung" aus weniger Zeichen gilt als fehlend; ob sie traegt, prueft nichts
+# Befundkennungen der Pruefberichte mit eigenem Namensraum (F-AST-006, F-NKO-018, F-NK2-B-03): Nennt die Herkunft
+# eines Befunds eine solche Kennung und fuehrt ein Pruefbericht sie, gilt der Bericht als genannt (F-NK2-B-06).
+# Die kurzen Kennungen aelterer Berichte (A-01, B-07, N-11) sind dafuer zu mehrdeutig und NICHT erfasst.
+BERICHTSKENNUNG = re.compile(r"\bF-[A-Z][A-Z0-9]*(?:-[A-Z])?-\d{1,3}\b")
 UP_STATUS = ["NACHGEWIESEN", "NICHT_VERFUEGBAR", "NICHT_GEPRUEFT"]
 VB_EINSTUFUNG = ["ZWINGEND_NOTWENDIG", "BETRIEBLICH_NOTWENDIG", "WESENTLICH_VORTEILHAFT", "OPTIONAL", "NICHT_SINNVOLL"]
 VB_ENTSCHEIDUNG = ["INTEGRIEREN", "ROADMAP", "VERWORFEN", "OFFEN"]
@@ -66,11 +81,12 @@ STEUERUNG = ["00_MANIFEST.txt", "01_GLOSSARY.txt", "02_ASSUMPTIONS_AND_RULES.txt
              "REVIEW_TRACKER_HISTORIE.txt", "NAVIGATIONSKARTE_ALTES_KONZEPT.txt", "README.md"]
 PRIO_TAGS = {"DONE", "ACTIVE", "NEXT", "WAITING", "DEFERRED", "LAUFEND"}
 AP_KOPF = {"schema", "ausgangs_commit_rt", "ausgangs_commit_xpn", "pakete"}
-# Eintraege der PRIORITAETENLISTE ohne Indexeintrag: die vor dem Auftrag vom 2026-11-11 abgeschlossenen Pakete und die
-# Daueraufgabe QS-01. Jeder andere Eintrag braucht die Zeile "Index: AP-...".
+# Eintraege der PRIORITAETENLISTE ohne Indexeintrag: die vor dem Auftrag vom 2026-11-11 abgeschlossenen Pakete der
+# Phasen M0 und M1 und die Daueraufgabe QS-01. Jeder andere Eintrag braucht die Zeile "Index: AP-...". Die fuenf
+# Modulpakete M2-000 bis M2-030 gehoeren seit 2026-11-15 NICHT mehr dazu: An ihren Dateien sind Befunde offen, und
+# ohne Indexeintrag liess sich das Paket nicht sperren (BF-0105).
 ALT_PAKETE = {**{f"M0-{i:02d}": "DONE" for i in range(1, 8)}, **{f"M1-{i:02d}": "DONE" for i in range(1, 8)},
-              "M1-SWEEP": "DONE", "M2-000": "DONE", "M2-005": "DONE", "M2-010": "DONE", "M2-020": "DONE",
-              "M2-030": "DONE", "QS-01": "LAUFEND"}
+              "M1-SWEEP": "DONE", "QS-01": "LAUFEND"}
 # Module, die vor dem Auftrag geschrieben wurden und (noch) nicht unter der maschinellen Modulpruefung stehen.
 ALT_MODULE = {"BASE-000", "BASE-005", "BASE-010", "BASE-020", "BASE-030"}
 # Welches Modul die Kennungen eines Praefix DEFINIERT (nur dort wird gezaehlt).
@@ -125,6 +141,9 @@ class Pruefung:
         self._liste = None
         self.pfad_zeilen = []          # Zeilen des Abschnitts KRITISCHER PFAD der PRIORITAETENLISTE
         self.sperren = {}              # Listen-Kennung -> offene Befunde, die das Paket am Abschluss hindern
+        self._berichte = None          # Pruefberichte laut Sammlung der Pruefauftraege (berichtsdateien)
+        self._arbeitspapiere = set()
+        self._texte = {}
         self.offene_befunde = 0
 
     def err(self, m):
@@ -264,6 +283,14 @@ class Pruefung:
                          + ("" if vbx.get("freeze_erklaert") else "Funktions-Freeze nicht erklaert; ")
                          + (f"{len(offen_p)} Pakete bis QS-17 sind nicht [DONE], darunter "
                             f"{', '.join(k for k, _t in offen_p[:5])}" if offen_p else ""))
+        if fs == "NACHBESSERUNG":
+            # "Pruefer haben Maengel festgestellt; neue Revision erforderlich" (Betreiberregeln Abschnitt 8): Der Status
+            # setzt einen eingefrorenen, geprueften Kandidaten voraus. Formal pruefbar ist nur der erklaerte Freeze;
+            # die Pakete duerfen in der Nachbesserung wieder offen sein.
+            vbx = self.lade("governance/register/VERBESSERUNGEN.yaml", pflicht=False) or {}
+            if not vbx.get("freeze_erklaert"):
+                self.err("STATUS: fachstatus NACHBESSERUNG ohne erklaerten Funktions-Freeze (der Status setzt einen "
+                         "eingefrorenen, geprueften Abschlusskandidaten voraus, Betreiberregeln Abschnitt 8)")
         if fs in ("FACHLICH_FERTIG_FREIGABE_BLOCKIERT", "FREIGEGEBEN", "ABGESCHLOSSEN_UND_UEBERNOMMEN"):
             for b in (bf or {}).get("befunde") or []:
                 if b.get("klasse") in ("KRITISCH", "SCHWERWIEGEND") and b.get("status") not in BF_ERLEDIGT:
@@ -311,6 +338,15 @@ class Pruefung:
                          f"({str(soll)[:12]} gegen {str(teil.get('baseline_commit'))[:12]})")
             if q == "NL" and bool(teil) != bool(soll):
                 self.err("STATUS: quellen_commit_nl und Inventarteil NL muessen beide vorhanden sein oder beide fehlen")
+
+    def modul_pakete(self):
+        """Modul (BASE-040, MOD-001 ...) -> Kennung seines Pakets in der PRIORITAETENLISTE (aus dem Titel des Eintrags)."""
+        zuordnung = {}
+        for kennung, e in self.lies_prioritaetenliste().items():
+            mm = re.search(r"\b((?:BASE|MOD)-\d{3})_[A-Z0-9_]+", e["text"].splitlines()[0])
+            if mm:
+                zuordnung[mm.group(1)] = kennung
+        return zuordnung
 
     def offene_pakete_bis(self, bis):
         """Pakete der PRIORITAETENLISTE, die nicht [DONE] sind - ohne die Daueraufgabe QS-01 und ohne die
@@ -544,12 +580,72 @@ class Pruefung:
         elif zeile and not (1 <= int(zeile) <= len(z)):
             self.err(f"{wer}: Zeile ausserhalb der Datei (1..{len(z)}): {fs}")
 
+    def berichtsdateien(self):
+        """Pruefberichte: die Dateien unter governance/pruefungen/, die eine Sammlung der Pruefauftraege
+        (PRUEFAUFTRAEGE_*.md) einem Auftrag zuordnet - Zeile '- Bericht: <Datei>' ausserhalb der woertlichen
+        Auftragstexte. Arbeitspapiere stehen dort als '- Arbeitspapier: <Datei>'. Bis 2026-11-15 entschied der
+        Dateiname (PRUEFUNG): zu weit fuer eine selbst angelegte 'SELBSTPRUEFUNG', zu eng fuer einen 'VOLLAUDIT'
+        (F-NK2-B-05)."""
+        if self._berichte is None:
+            self._berichte = set()
+            for f in sorted(glob.glob(os.path.join(self.root, PRUEF_ORDNER, "PRUEFAUFTRAEGE_*.md"))):
+                im_wortlaut = False
+                with open(f, encoding="utf-8", errors="replace") as fh:
+                    for zeile in fh.read().splitlines():
+                        if zeile.startswith("~~~~"):
+                            im_wortlaut = not im_wortlaut
+                        elif not im_wortlaut:
+                            m = re.match(r"^- (Bericht|Arbeitspapier):\s*([\w.-]+\.md)\s*$", zeile)
+                            if m:
+                                (self._berichte if m.group(1) == "Bericht" else self._arbeitspapiere).add(
+                                    f"{PRUEF_ORDNER}/{m.group(2)}")
+        return self._berichte
+
+    def lies_text(self, rel):
+        if rel not in self._texte:
+            with open(os.path.join(self.root, rel), encoding="utf-8", errors="replace") as fh:
+                self._texte[rel] = fh.read()
+        return self._texte[rel]
+
     def berichte(self, text):
-        """Im Text genannte Pruefberichte unter governance/pruefungen/, die es gibt. Als Pruefbericht zaehlt nur eine
-        Datei, deren Name sie als solchen ausweist (...PRUEFUNG...: Gegenpruefung, Nachpruefung, Pruefung). Die
-        Arbeitspapiere des Hauptarchitekten und die Sammlung der Pruefauftraege im selben Ordner zaehlen nicht."""
-        return [p for p in re.findall(PRUEFBERICHT, str(text or ""))
-                if "PRUEFUNG" in os.path.basename(p) and os.path.exists(os.path.join(self.root, p))]
+        """Im Text genannte Pruefberichte (mit Pfad oder nur mit Dateinamen), die es gibt."""
+        t = str(text or "")
+        return [p for p in sorted(self.berichtsdateien())
+                if (p in t or os.path.basename(p) in t) and os.path.exists(os.path.join(self.root, p))]
+
+    def nennt_bericht(self, text):
+        """Der Text nennt einen Pruefbericht: mit Pfad, mit Dateinamen oder ueber eine Befundkennung mit eigenem
+        Namensraum (BERICHTSKENNUNG), die in einem der Berichte steht."""
+        if self.berichte(text):
+            return True
+        kennungen = set(BERICHTSKENNUNG.findall(str(text or "")))
+        return any(k in self.lies_text(p) for p in sorted(self.berichtsdateien())
+                   if os.path.exists(os.path.join(self.root, p)) for k in kennungen)
+
+    def bestaetigt(self, text):
+        """Eine Bestaetigung nennt einen Pruefbericht UND eine Kennung, unter der dieser Bericht den Punkt fuehrt
+        (sie muss im Bericht stehen). Ob das Urteil dort traegt, prueft das nicht."""
+        kennungen = [k for k in KENNUNG.findall(str(text or "")) if not KEINE_BERICHTSKENNUNG.match(k)]
+        return any(k in self.lies_text(p) for p in self.berichte(text) for k in kennungen)
+
+    def pruefe_pruefungsordner(self):
+        """Jede Datei unter governance/pruefungen/ ist die Sammlung der Auftraege, ein zugeordneter Bericht oder ein
+        benanntes Arbeitspapier; jeder zugeordnete Bericht existiert."""
+        berichte = self.berichtsdateien()
+        for p in sorted(berichte | self._arbeitspapiere):
+            if not os.path.exists(os.path.join(self.root, p)):
+                self.err(f"PRUEFUNGEN: Die Sammlung der Pruefauftraege nennt eine Datei, die es nicht gibt: {p}")
+        ordner = os.path.join(self.root, PRUEF_ORDNER)
+        for f in sorted(os.listdir(ordner)) if os.path.isdir(ordner) else []:
+            rel = f"{PRUEF_ORDNER}/{f}"
+            if f.endswith(".md") and not f.startswith("PRUEFAUFTRAEGE_") and rel not in berichte | self._arbeitspapiere:
+                self.err(f"PRUEFUNGEN: {rel} ist weder einem Pruefauftrag als Bericht zugeordnet noch als "
+                         f"Arbeitspapier benannt (Zeile '- Bericht: ...' bzw. '- Arbeitspapier: ...' in "
+                         f"PRUEFAUFTRAEGE_*.md)")
+
+    @staticmethod
+    def begruendet(wert):
+        return len(str(wert or "").strip()) >= BEGRUENDUNG_MIN
 
     def nachweis_aufloesbar(self, wert):
         """behoben_in muss eine vorhandene Datei (vor einem #Anker) oder einen vorhandenen Commit nennen."""
@@ -571,7 +667,7 @@ class Pruefung:
         mit Begruendung' und 'die Einstufung des Pruefers wird nicht entfernt oder gemildert'.
         Bis 2026-11-15 verglichen diese Regeln nur mit dem letzten Stand (HEAD, zum Teil HEAD~1): Nach dem naechsten
         Commit - also im CI-Lauf - verstummten sie (zweite Nachpruefung, Kandidat K13)."""
-        klasse, pakete, einstufung = {}, {}, {}
+        klasse, pakete, einstufung, sperren = {}, {}, {}, {}
         log = subprocess.run(["git", "-C", self.git, "log", "--format=%H", "--", REGISTER_BEFUNDE],
                              capture_output=True, text=True)
         revs = log.stdout.split() if log.returncode == 0 else []
@@ -582,7 +678,7 @@ class Pruefung:
                                  "kein Git-Verlauf) - die Verlaufsregeln (kein Loeschen, kein Senken der Klasse, kein "
                                  "Umbuchen ohne Begruendung) sind nur gegen die vorhandenen Staende geprueft")
         if not revs:
-            return klasse, pakete, einstufung
+            return klasse, pakete, einstufung, sperren
         anfrage = "".join(f"{r}:{REGISTER_BEFUNDE}\n" for r in revs).encode()
         out = subprocess.run(["git", "-C", self.git, "cat-file", "--batch"], input=anfrage, capture_output=True).stdout
         pos = 0
@@ -603,13 +699,16 @@ class Pruefung:
                 klasse[i] = min(klasse.get(i, 9), BF_RANG.get(b.get("klasse"), 9))
                 if b.get("arbeitspaket"):
                     pakete.setdefault(i, set()).add(b["arbeitspaket"])
-                if b.get("pruefer_einstufung") in EINSTUFUNG_RANG:
-                    einstufung[i] = min(einstufung.get(i, 9), EINSTUFUNG_RANG[b["pruefer_einstufung"]])
-        return klasse, pakete, einstufung
+                pe_alt = str(b.get("pruefer_einstufung") or "").strip().upper()
+                if pe_alt in EINSTUFUNG_RANG:
+                    einstufung[i] = min(einstufung.get(i, 9), EINSTUFUNG_RANG[pe_alt])
+                for ap in b.get("sperrt_auch") or []:
+                    sperren.setdefault(i, set()).add(ap)
+        return klasse, pakete, einstufung, sperren
 
     def pruefe_befunde(self, bf, pakete, commits):
         ids = set()
-        vorher, pakete_vorher, einstufung_vorher = self.befunde_historie()
+        vorher, pakete_vorher, einstufung_vorher, sperren_vorher = self.befunde_historie()
         for b in (bf or {}).get("befunde") or []:
             i = b.get("id")
             if i in ids:
@@ -617,6 +716,8 @@ class Pruefung:
             ids.add(i)
             if not re.fullmatch(r"BF-\d{4}", str(i)):
                 self.err(f"BEFUNDE: id nicht im Format BF-nnnn: {i}")
+            for k in sorted(set(b) - BF_FELDER):
+                self.err(f"BEFUNDE {i}: Feld {k} ist nicht vorgesehen (Tippfehler? zulaessige Felder: Kopf des Registers)")
             if b.get("klasse") not in BF_KLASSE:
                 self.err(f"BEFUNDE {i}: unbekannte klasse {b.get('klasse')}")
             if b.get("status") in BF_STATUS_GESTRICHEN:
@@ -638,15 +739,49 @@ class Pruefung:
             # Liste von Eintraegen mit von und begruendung) - gleich, wie viele Commits seither liegen.
             u = b.get("umbuchung")
             belegt = {x.get("von") for x in (u if isinstance(u, list) else [u]) if isinstance(x, dict)
-                      and x.get("begruendung")}
+                      and self.begruendet(x.get("begruendung"))}
             for vp in sorted(pakete_vorher.get(i, set()) - {b.get("arbeitspaket")} - belegt):
                 self.err(f"BEFUNDE {i}: arbeitspaket gegenueber einem gesicherten Stand geaendert ({vp} -> "
                          f"{b.get('arbeitspaket')}), ohne Feld umbuchung mit von und begruendung")
+            # sperrt_auch wirkt wie die Buchung: Ein offener Befund verliert kein gesperrtes Paket ohne Begruendung
+            # (Feld entsperrt: Liste aus paket und begruendung) - verglichen mit allen gesicherten Staenden (F-NK2-B-03).
+            if b.get("status") not in BF_ERLEDIGT:
+                es = b.get("entsperrt")
+                frei = {x.get("paket") for x in (es if isinstance(es, list) else [es]) if isinstance(x, dict)
+                        and self.begruendet(x.get("begruendung"))}
+                # Die Sperre folgt der BETROFFENEN DATEI (BEFUND-REGEL): Liegt eine Fundstelle im Ordner eines Moduls
+                # (ohne dessen Entwuerfe), muss dessen Paket das eigene sein oder in sperrt_auch stehen. Ist die
+                # Fundstelle nur die zutreffende Vergleichsstelle, steht das Paket mit Begruendung in entsperrt.
+                # Bis 2026-11-15 folgte die Sperre allein der Buchung (BF-0105).
+                bezug_ap = {p.get("bezug"): pid for pid, p in pakete.items()}
+                for fs in b.get("fundstellen") or []:
+                    mf = re.search(r"(?:base|modules)/((?:BASE|MOD)-\d{3})_[^/]*/(.*)", str(fs))
+                    if not mf or mf.group(2).startswith("entwuerfe/"):
+                        continue
+                    kennung = self.modul_pakete().get(mf.group(1))
+                    ap_modul = bezug_ap.get(kennung)
+                    if not ap_modul:
+                        self.err(f"BEFUNDE {i}: Fundstelle im Ordner von {mf.group(1)}, aber das Modul hat kein Paket "
+                                 f"mit Indexeintrag - der Befund kann es nicht sperren")
+                    elif ap_modul not in {b.get("arbeitspaket")} | set(b.get("sperrt_auch") or []) | frei:
+                        self.err(f"BEFUNDE {i}: Fundstelle im Ordner von {mf.group(1)} - das Paket {ap_modul} ({kennung}) "
+                                 f"fehlt in sperrt_auch (ein offener Befund an einer Datei eines Moduls sperrt dessen "
+                                 f"Abschluss; Ausnahme nur mit begruendetem Eintrag in entsperrt)")
+                for ap in sorted(sperren_vorher.get(i, set()) - set(b.get("sperrt_auch") or [])
+                                 - {b.get("arbeitspaket")} - frei):
+                    self.err(f"BEFUNDE {i}: sperrt_auch nennt {ap} nicht mehr, ohne Eintrag im Feld entsperrt "
+                             f"(paket und begruendung)")
             h = b.get("herabstufung")
             rang = BF_RANG.get(b.get("klasse"))
-            if h and not (h.get("von") in BF_KLASSE and h.get("begruendung") and h.get("bestaetigt_durch")):
+            if h and not (h.get("von") in BF_KLASSE and self.begruendet(h.get("begruendung"))
+                          and h.get("bestaetigt_durch")):
                 self.err(f"BEFUNDE {i}: herabstufung ohne von/begruendung/bestaetigt_durch (gesonderte Pruefung)")
             elif h:
+                # Die Herabstufung gilt fuer GENAU die heutige Klasse: Jede weitere Senkung braucht eine neue,
+                # bestaetigte Herabstufung (bis 2026-11-15 schaltete ein einmal gesetztes Feld beide Klassenregeln
+                # dauerhaft ab, F-NK2-B-04).
+                if h.get("auf") != b.get("klasse"):
+                    self.err(f"BEFUNDE {i}: herabstufung.auf nennt nicht die heutige klasse ({b.get('klasse')})")
                 if rang is not None and BF_RANG[h["von"]] >= rang:
                     self.err(f"BEFUNDE {i}: herabstufung.von ({h['von']}) ist nicht strenger als die klasse")
                 if BF_RANG[h["von"]] > vorher.get(i, 9):
@@ -655,17 +790,21 @@ class Pruefung:
                 if not self.berichte(h.get("bestaetigt_durch")):
                     self.err(f"BEFUNDE {i}: herabstufung.bestaetigt_durch nennt keinen vorhandenen Bericht unter "
                              f"governance/pruefungen/ (gesonderte Pruefung)")
+                elif not self.bestaetigt(h.get("bestaetigt_durch")):
+                    self.err(f"BEFUNDE {i}: herabstufung.bestaetigt_durch nennt keine Kennung, unter der der Bericht "
+                             f"den Punkt fuehrt")
             # Die Klasse darf nicht unter der Einstufung des Pruefers und nicht unter dem letzten gesicherten Stand
             # liegen, es sei denn, eine Herabstufung ist begruendet und gesondert bestaetigt (Betreiberregeln 5).
             pe = b.get("pruefer_einstufung")
+            pe = str(pe).strip().upper() if pe is not None else None     # "hoch" (REVIEW_STANDARD 10.2) = "HOCH"
             if pe is not None and pe not in EINSTUFUNG_RANG:
-                self.err(f"BEFUNDE {i}: unbekannte pruefer_einstufung {pe}")
+                self.err(f"BEFUNDE {i}: unbekannte pruefer_einstufung {b.get('pruefer_einstufung')}")
             elif pe is not None and rang is not None and rang > EINSTUFUNG_RANG[pe] and not h:
                 self.err(f"BEFUNDE {i}: klasse {b.get('klasse')} liegt unter der Einstufung des Pruefers ({pe}), "
                          f"ohne Feld herabstufung")
             herkunft = " ".join([str(b.get("entdeckt_in") or ""), str(b.get("beleg") or "")]
                                 + [str(x) for x in b.get("fundstellen") or []])
-            if pe is None and self.berichte(herkunft) and not b.get("ohne_pruefer_einstufung"):
+            if pe is None and self.nennt_bericht(herkunft) and not self.begruendet(b.get("ohne_pruefer_einstufung")):
                 self.err(f"BEFUNDE {i}: nennt einen Pruefbericht, fuehrt aber weder pruefer_einstufung noch "
                          f"ohne_pruefer_einstufung (Begruendung, warum der Bericht keine Einstufung traegt)")
             # Die Einstufung des Pruefers ist ein Beleg: Sie wird nicht entfernt und nicht gemildert.
@@ -682,13 +821,19 @@ class Pruefung:
                 if not self.berichte(b.get("nachpruefung")):
                     self.err(f"BEFUNDE {i}: BEHOBEN ohne nachpruefung mit einem Bericht unter governance/pruefungen/ "
                              f"(REVIEW_STANDARD 10.3: eingearbeitet ist nicht behoben)")
+                elif not self.bestaetigt(b.get("nachpruefung")):
+                    self.err(f"BEFUNDE {i}: nachpruefung nennt keine Kennung, unter der der genannte Bericht den "
+                             f"Befund fuehrt (z. B. 'B-07' oder 'F-AST-001'; sie muss im Bericht stehen)")
                 if re.search(r"noch\s+NICHT\s+unabhaengig\s+nachgeprueft", str(b.get("stand") or "")):
                     self.err(f"BEFUNDE {i}: BEHOBEN, aber das Feld stand nennt die Behebung noch als nicht nachgeprueft")
             elif st == "ZURUECKGEWIESEN":
                 z = b.get("zurueckweisung") or {}
-                if not (z.get("begruendung") and self.berichte(z.get("bestaetigt_durch"))):
+                if not (self.begruendet(z.get("begruendung")) and self.berichte(z.get("bestaetigt_durch"))):
                     self.err(f"BEFUNDE {i}: ZURUECKGEWIESEN ohne zurueckweisung.begruendung und .bestaetigt_durch "
                              f"(Bericht einer gesonderten Pruefung unter governance/pruefungen/)")
+                elif not self.bestaetigt(z.get("bestaetigt_durch")):
+                    self.err(f"BEFUNDE {i}: zurueckweisung.bestaetigt_durch nennt keine Kennung, unter der der Bericht "
+                             f"den Punkt fuehrt")
         nummern = sorted(int(str(i)[3:]) for i in ids if re.fullmatch(r"BF-\d{4}", str(i)))
         if nummern != list(range(1, len(nummern) + 1)):
             self.err("BEFUNDE: Kennungen nicht lueckenlos ab BF-0001 (Befunde werden nie geloescht oder umnummeriert)")
@@ -710,19 +855,23 @@ class Pruefung:
             self.err("REVIEW_TRACKER: Abschnitt 1d (Einzelbefunde) fehlt")
             return
         abschnitt = m.group(1)
-        ist, akt = {}, None
+        # Zwei Zeilenarten, beide je Paket und beide gegen das Register geprueft:
+        #   OFFEN <Paket>:    offene Befunde, die auf das Paket GEBUCHT sind
+        #   GESPERRT <Paket>: offene Befunde anderer Pakete, die es am Abschluss hindern (Feld sperrt_auch)
+        ist, ist_sp, akt = {}, {}, None
         for line in abschnitt.splitlines():
-            mo = re.match(r"^\s+OFFEN\s+([A-Z0-9-]+):\s*(.*)$", line)
+            mo = re.match(r"^\s+(OFFEN|GESPERRT)\s+([A-Z0-9-]+):\s*(.*)$", line)
             if mo:
-                akt = mo.group(1)
-                if akt in ist:
-                    self.err(f"REVIEW_TRACKER 1d: Paket {akt} mehrfach aufgefuehrt")
-                ist[akt] = set(re.findall(r"BF-\d{4}\*?", mo.group(2)))
+                ziel = ist if mo.group(1) == "OFFEN" else ist_sp
+                akt = (ziel, mo.group(2))
+                if mo.group(2) in ziel:
+                    self.err(f"REVIEW_TRACKER 1d: Paket {mo.group(2)} mehrfach aufgefuehrt")
+                ziel[mo.group(2)] = set(re.findall(r"BF-\d{4}\*?", mo.group(3)))
             elif akt and re.match(r"^\s+BF-\d{4}", line):
-                ist[akt] |= set(re.findall(r"BF-\d{4}\*?", line))
+                akt[0][akt[1]] |= set(re.findall(r"BF-\d{4}\*?", line))
             else:
                 akt = None
-        soll, gesamt, offen = {}, 0, 0
+        soll, soll_sp, gesamt, offen = {}, {}, 0, 0
         for b in (bf or {}).get("befunde") or []:
             gesamt += 1
             if b.get("status") in BF_ERLEDIGT:
@@ -748,6 +897,7 @@ class Pruefung:
                     continue
                 bz = pakete[ap].get("bezug")
                 self.sperren.setdefault(bz, set()).add(b.get("id"))
+                soll_sp.setdefault(bz, set()).add(f"{b.get('id')}{stern}")
                 if (self.lies_prioritaetenliste().get(bz) or {}).get("tag") == "DONE":
                     self.err(f"PRIORITAETENLISTE {bz} ist [DONE], aber Befund {b.get('id')} sperrt dieses Paket")
         for k in sorted(set(soll) | set(ist)):
@@ -757,14 +907,15 @@ class Pruefung:
             if zuviel:
                 self.err(f"REVIEW_TRACKER 1d: bei {k} stehen Befunde, die im Register nicht (so) offen sind: "
                          f"{' '.join(sorted(zuviel))}")
-        # Der Vermerk "SPERRT AUCH" nennt genau die offenen Befunde mit dem Feld sperrt_auch.
-        ms = re.search(r"SPERRT AUCH:(.*?)(?:\n\s*\n|\Z)", abschnitt, re.S)
-        genannt = set(re.findall(r"BF-\d{4}", ms.group(1))) if ms else set()
-        gefuehrt = {b.get("id") for b in (bf or {}).get("befunde") or []
-                    if b.get("sperrt_auch") and b.get("status") not in BF_ERLEDIGT}
-        if genannt != gefuehrt:
-            self.err(f"REVIEW_TRACKER 1d: Vermerk SPERRT AUCH nennt {sorted(genannt) or 'nichts'}, das Register fuehrt "
-                     f"sperrt_auch bei {sorted(gefuehrt) or 'keinem offenen Befund'}")
+        for k in sorted(set(soll_sp) | set(ist_sp)):
+            fehlt = soll_sp.get(k, set()) - ist_sp.get(k, set())
+            zuviel = ist_sp.get(k, set()) - soll_sp.get(k, set())
+            if fehlt:
+                self.err(f"REVIEW_TRACKER 1d: bei GESPERRT {k} fehlen sperrende Befunde des Registers: "
+                         f"{' '.join(sorted(fehlt))}")
+            if zuviel:
+                self.err(f"REVIEW_TRACKER 1d: bei GESPERRT {k} stehen Befunde, die das Paket laut Register nicht "
+                         f"(so) sperren: {' '.join(sorted(zuviel))}")
         mz = re.search(r"Zusammen\s+(\d+)\s+offene\s+von\s+(\d+)\s+Befunden;\s+(\d+)\s+sind\s+geschlossen", abschnitt)
         self.offene_befunde = offen
         if not mz or [int(x) for x in mz.groups()] != [offen, gesamt, gesamt - offen]:
@@ -1131,7 +1282,8 @@ class Pruefung:
         # ab -01 nennt den VOLLEN Bereich; ein Teilbereich ist zulaessig in einem Proof-Anker (eckige Klammer, die mit
         # einer Moduldatei beginnt: "[BASE-040_095 T-WT-01..05") oder mit dem Wort "Teilbereich" davor. Zahlen in
         # Worten ("52 Invarianten") erkennt die Pruefung nicht.
-        angabe = re.compile(r"(?<![\w-])((?:T-|DEC-|ANF-)?[A-Z]{2,3})-0*1(?:\s*\.\.\s*|\s*…\s*|\s+bis\s+|\s+[-–]\s+)"
+        angabe = re.compile(r"(?<![\w-])((?:T-|DEC-|ANF-)?[A-Z]{2,3})-0*1"
+                            r"(?:\s*\.{2,3}\s*|\s*…\s*|\s+bis\s+|\s+[-–]\s+|–)"
                             r"(?:\1-)?0*(\d{1,3})\b")
         for rel in STEUERUNG:
             p = os.path.join(self.root, rel)
@@ -1147,11 +1299,19 @@ class Pruefung:
                 n = text.count("\n", 0, m.start()) + 1
                 davor = text[max(0, m.start() - 400):m.start()]
                 klammer = davor[davor.rfind("["):] if davor.rfind("[") > davor.rfind("]") else ""
-                teil = re.match(r"\[(?:BASE|MOD)-\d{3}_\d{3}", klammer) or re.search(r"Teilbereich\s*$", davor)
+                # Proof-Anker: die Klammer beginnt mit einer Moduldatei, die es GIBT (F-NK2-B-08, Fall Z4)
+                ma = re.match(r"\[((?:BASE|MOD)-\d{3})_(\d{3})", klammer)
+                anker = bool(ma) and bool(glob.glob(os.path.join(
+                    self.root, "base" if ma.group(1).startswith("BASE") else "modules", ma.group(1) + "_*",
+                    f"{ma.group(1)}_{ma.group(2)}*.txt")))
+                teil = anker or re.search(r"Teilbereich\s*$", davor)
                 umfeld = "\n".join(zeilen_d[max(0, n - 4):n + 3])
                 if bis == bereiche[praef]:
                     continue
-                if BESCHRIEBEN.get(praef) == bis and "BF-0010" in umfeld:
+                # Eine Angabe, die sich selbst als Bestand ausweist ("im Repository ..."), wird immer am Bestand
+                # gemessen - auch neben dem Vermerk (F-NK2-B-08, Fall V3b).
+                bestand_behauptet = re.search(r"[Ii]m Repository:?\s*$", davor)
+                if BESCHRIEBEN.get(praef) == bis and "BF-0010" in umfeld and not bestand_behauptet:
                     continue           # der EINE beschriebene, im Repository nicht vorhandene Stand - mit Vermerk
                 if bis < bereiche[praef] and teil:
                     continue
@@ -1168,8 +1328,6 @@ class Pruefung:
             if not mi1:
                 self.err("REVIEW_TRACKER: Abschnitt 1 (Datei-Inventar) fehlt oder endet nicht vor Abschnitt 1a/1d")
             tracker = mi1.group(1) if mi1 else ""
-            bfd = self.lade("governance/register/BEFUNDE.yaml", pflicht=False) or {}
-            befunde_offen = [b for b in bfd.get("befunde") or [] if b.get("status") not in BF_ERLEDIGT]
             for modul, (d, anzahl) in sorted(verzeichnisse.items()):
                 mi = re.search(rf"^  base/{re.escape(d)}\s+(.*)$", tracker, re.M)
                 if anzahl and not mi:
@@ -1178,15 +1336,21 @@ class Pruefung:
                 if not mi:
                     continue
                 zeile = mi.group(1)
-                if anzahl and "EMPTY" in zeile:
+                # Statuswort = erstes Wort hinter dem Verzeichnis (nach der Marke), ohne Ruecksicht auf die Schreibung.
+                # Bis 2026-11-15 suchte die Regel "CLEAN" irgendwo in der Zeile: "Clean" entging ihr, "nicht CLEAN"
+                # loeste sie aus (F-NK2-B-07).
+                mw = re.match(r"[^A-Za-z]*([A-Za-z]+)", zeile)
+                wort = mw.group(1).upper() if mw else ""
+                ist_clean, ist_empty = wort == "CLEAN", wort == "EMPTY"
+                if anzahl and ist_empty:
                     self.err(f"REVIEW_TRACKER: base/{d} hat {anzahl} Dateien, wird aber als EMPTY gefuehrt")
-                elif not anzahl and "EMPTY" not in zeile:
+                elif not anzahl and not ist_empty:
                     self.err(f"REVIEW_TRACKER: base/{d} hat keine Moduldateien, wird aber nicht als EMPTY gefuehrt")
                 mz = re.search(r"(\d+) Dateien", zeile)
                 if mz and int(mz.group(1)) != anzahl:
                     self.err(f"REVIEW_TRACKER: base/{d} wird mit {mz.group(1)} Dateien gefuehrt, im Verzeichnis "
                              f"liegen {anzahl}")
-                if "CLEAN" in zeile:
+                if ist_clean:
                     kennung, tag = modul_tag.get(modul, ("", ""))
                     if tag != "DONE":
                         self.err(f"REVIEW_TRACKER: base/{d} wird als CLEAN gefuehrt, die PRIORITAETENLISTE fuehrt "
@@ -1194,28 +1358,6 @@ class Pruefung:
                     elif self.sperren.get(kennung):
                         self.err(f"REVIEW_TRACKER: base/{d} wird als CLEAN gefuehrt, obwohl Befunde offen sind: "
                                  f"{' '.join(sorted(self.sperren[kennung]))}")
-                # Die Abschluss-Sperre folgt der Buchung Befund -> Paket. Ein [DONE]-Modul, an dessen DATEIEN ein
-                # offener Befund eines anderen Pakets haengt, darf deshalb nicht CLEAN heissen und muss die
-                # Kennungen im Inventar und an seinem Eintrag der PRIORITAETENLISTE nennen (F-NKO-018).
-                kennung, tag = modul_tag.get(modul, ("", ""))
-                am_modul = sorted(b.get("id") for b in befunde_offen
-                                  if any(f"base/{d}/" in str(fs) for fs in b.get("fundstellen") or []))
-                if tag == "DONE" and am_modul:
-                    rest = tracker[mi.start():]
-                    mn = re.search(r"\n  \S", rest[1:])
-                    block = rest[:mn.start() + 1] if mn else rest
-                    if "CLEAN" in zeile:
-                        self.err(f"REVIEW_TRACKER: base/{d} wird als CLEAN gefuehrt, obwohl Befunde an seinen Dateien "
-                                 f"offen sind: {' '.join(am_modul)}")
-                    fehlt = [i for i in am_modul if i not in block]
-                    if fehlt:
-                        self.err(f"REVIEW_TRACKER: base/{d} ist [DONE], nennt aber offene Befunde an seinen Dateien "
-                                 f"nicht: {' '.join(fehlt)}")
-                    eintrag_l = (liste.get(kennung) or {}).get("text", "")
-                    fehlt = [i for i in am_modul if i not in eintrag_l]
-                    if fehlt:
-                        self.err(f"PRIORITAETENLISTE {kennung}: [DONE], nennt aber offene Befunde an den Dateien von "
-                                 f"{modul} nicht: {' '.join(fehlt)}")
             for rel in STEUERUNG + ["03_CHANGELOG.txt", "MARCOS_ARBEITSWEISE.txt"]:
                 if rel != "README.md" and not re.search(rf"^  {re.escape(rel)}\s", tracker, re.M):
                     self.err(f"REVIEW_TRACKER: Steuerungsdokument {rel} fehlt im Inventar")
@@ -1260,7 +1402,11 @@ class Pruefung:
                 if not all(je_stelle):
                     self.err("README.md: Versionsangabe fehlt (Badge-Text, Badge-Adresse oder 'Konzeptentwicklung (v...)')")
                 for v in sorted(set(stellen) - {mv.group(1)}):
-                    self.err(f"README.md nennt {v}, der Changelog steht bei {mv.group(1)}")
+                    if "v" + v == mv.group(1):
+                        self.err(f"README.md nennt die Version ohne fuehrendes 'v' ({v}); der Changelog schreibt "
+                                 f"{mv.group(1)}")
+                    else:
+                        self.err(f"README.md nennt {v}, der Changelog steht bei {mv.group(1)}")
         # (g) README: Marken am Modulbaum und Statustabelle sind KOPIEN des Status der PRIORITAETENLISTE
         # (00_MANIFEST 6a Zeile 11). Schreibweise: Baumzeile "│   ├── BASE-040_NAME/  Text 🚧"; Tabellenzeile
         # "| M2-040 | Text | 🚧 In Arbeit |" (Kennung: ein Paket, eine Phase "M3" oder ein Bereich "M2-040..110").
@@ -1326,6 +1472,7 @@ class Pruefung:
         self.pruefe_status(st, bf)
         self.pruefe_umgebung(up)
         pakete = self.pruefe_pakete(ap) or {}
+        self.pruefe_pruefungsordner()
         self.pruefe_befunde(bf, pakete, commits)
         self.pruefe_tracker_befunde(bf, pakete)
         self.pruefe_verbesserungen(vb)

@@ -37,11 +37,17 @@ WERKZEUGE
                          Abschnitt KRITISCHER PFAD); offene Befunde gegen
                          REVIEW_TRACKER.txt Abschnitt 1d; Regeln für das
                          Schließen, Herabstufen, Umbuchen und Löschen von
-                         Befunden - verglichen mit ALLEN gesicherten Ständen
-                         des Registers (Git-Verlauf), nicht nur mit dem
-                         letzten; kein [DONE] mit sperrendem Befund; ein
-                         [DONE]-Modul nennt offene Befunde an seinen
-                         Dateien und heißt nicht CLEAN; Modulstatus,
+                         Befunden und für das Entfernen eines Sperrvermerks
+                         - verglichen mit ALLEN gesicherten Ständen des
+                         Registers (Git-Verlauf), nicht nur mit dem
+                         letzten; Prüfberichte nach der Zuordnung in der
+                         Sammlung der Prüfaufträge, Bestätigung mit der
+                         Kennung des Berichts; nur vorgesehene Felder am
+                         Befund; kein [DONE] mit sperrendem Befund; ein
+                         offener Befund an einer Moduldatei sperrt das
+                         Paket des Moduls (die Sperre folgt der betroffenen
+                         Datei, Zeilen GESPERRT im Tracker); CLEAN nur für
+                         ein [DONE]-Modul ohne sperrenden Befund; Modulstatus,
                          Matrix und Summen im 04_PHASE_PLAN.txt und Marken
                          des README gegen die Liste; Zählangaben in den
                          Steuerungsdokumenten gegen die Moduldateien;
@@ -78,10 +84,14 @@ WERKZEUGE
                          einem eigenen Klon, dass die Regeln zum Löschen,
                          Herabstufen und Umbuchen auch NACH dem Commit
                          greifen. "Grundregeln" hält je einen Test für die
-                         Meldungen, die bis 2026-11-15 keinen hatten. Jede
-                         Fehlermeldung von pruefe_register.py wird von
-                         mindestens einem Test erwartet (ausgezählt:
-                         REVIEW_STANDARD 10.4).
+                         Meldungen, die bis 2026-11-15 keinen hatten.
+                         "Befunde" enthält die Tests zur Sperre nach der
+                         betroffenen Datei und die Umgehungsversuche der
+                         zweiten Nachprüfung zu Bestätigung, Herabstufung
+                         und Sperrvermerk. Jede Fehlermeldung von
+                         pruefe_register.py wird von mindestens einem Test
+                         erwartet (ausgezählt: REVIEW_STANDARD 10.4;
+                         gezählt sind Aufrufstellen, nicht Bedingungen).
 
 AUFRUF (aus dem Repository-Wurzelverzeichnis)
   python3 qa/quelleninventar.py --rt . --xpn <xp-vpn-stack-Checkout> --check

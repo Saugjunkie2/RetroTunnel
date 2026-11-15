@@ -1,7 +1,7 @@
 ================================================================================
 RetroTunnel — REVIEW-STANDARD (NUR FÜR CLAUDE)
 ================================================================================
-VERSION: v1.7
+VERSION: v1.8
 DATUM: 2026-11-15
 STATUS: ACTIVE
 
@@ -634,11 +634,23 @@ bis 2026-11-14 wurde OHNE Kenntnis dieses Standards geprueft.
     NICE              VERBESSERUNG                 Hinweis
 
   ZWEI SCHWELLEN:
-  - [DONE] eines Pakets: kein offener Befund dieses Pakets, gleich
-    welcher Klasse (10.1 zu Abschnitt 5.3). Massgeblich ist die
-    BUCHUNG des Befunds auf das Paket (Feld arbeitspaket, dazu
-    sperrt_auch), nicht die betroffene Datei. Grenze und Umgang mit
-    den vor dem Auftrag abgeschlossenen Modulen: 10.4.
+  - [DONE] eines Pakets: kein offener Befund, der das Paket sperrt,
+    gleich welcher Klasse (10.1 zu Abschnitt 5.3). Ein offener Befund
+    sperrt (a) das Paket, auf das er gebucht ist (Feld arbeitspaket),
+    (b) jedes Paket in seinem Feld sperrt_auch und (c) das Paket jedes
+    Moduls, in dessen Ordner eine seiner Fundstellen liegt (ohne
+    Entwuerfe, KR-01): Die Sperre folgt der BETROFFENEN DATEI, nicht
+    nur der Buchung. Fuer (c) ist der Eintrag in sperrt_auch Pflicht
+    und maschinell erzwungen. AUSNAHME: Ist die Fundstelle nur die
+    zutreffende Vergleichsstelle (der Mangel liegt anderswo), steht
+    das Paket mit Begruendung im Feld entsperrt.
+    [Berichtigt am 2026-11-15: Seit dem Morgen desselben Tages
+    (Commit d54201f) stand hier "Massgeblich ist die BUCHUNG ...,
+    nicht die betroffene Datei". Das fasste die BEFUND-REGEL enger,
+    ohne es als eigene, schwaechere Entscheidung auszuweisen, und
+    liess fuenf Module mit offenen Befunden an ihren Dateien [DONE]
+    (zweite Nachpruefung, F-NK2-A-14; BF-0105). Grenzen der
+    maschinellen Regel: 10.4.]
   - Freigabe des Konzepts: zusaetzlich die Betreiberregeln - kein
     offener KRITISCH oder SCHWERWIEGEND, zwei Vollaudits, Gates G1-G4.
   REGISTER: Je Befund eine BF-nnnn mit der Kennung des Berichts und der
@@ -677,6 +689,9 @@ bis 2026-11-14 wurde OHNE Kenntnis dieses Standards geprueft.
   UMBUCHEN auf ein anderes Paket hebt die Abschluss-Sperre des
   bisherigen auf und braucht deshalb das Feld umbuchung (von,
   begruendung) - fuer JEDE fruehere Buchung, bei mehreren als Liste.
+  Dasselbe gilt fuer einen SPERRVERMERK: Ein offener Befund verliert
+  einen Eintrag in sperrt_auch nur mit einem Eintrag im Feld entsperrt
+  (paket, begruendung).
   SAMMELBEFUND (EIGENE ENTSCHEIDUNG, 2026-11-15): Ein Sammelbefund
   traegt EINEN Status. Bestaetigt ein Pruefer nur einen Teil seiner
   Kennungen, bleibt er offen; das Feld stand nennt je Kennung, was
@@ -692,10 +707,13 @@ bis 2026-11-14 wurde OHNE Kenntnis dieses Standards geprueft.
   selbst. Nimmt ein Pruefer einen eigenen frueheren Befund zurueck,
   ist das eine Zurueckweisung und braucht deren Form. Im Zweifel gilt
   die strengere Lesart.
-  [DONE]-PAKETE OHNE INDEXEINTRAG (vor dem Auftrag abgeschlossen):
-  Auf sie laesst sich kein Befund buchen. Betrifft ein Befund ihre
-  Dateien, wird er auf das Paket gebucht, das die Arbeit traegt, und
-  am Modul in Tracker und Liste genannt (10.4).
+  PAKETE OHNE INDEXEINTRAG gibt es nur noch in den Phasen M0 und M1
+  (vor dem Auftrag abgeschlossen) und als Daueraufgabe QS-01. Jedes
+  Modulpaket hat einen Indexeintrag und ist damit sperrbar. [Bis
+  2026-11-15 standen auch M2-000 bis M2-030 ohne Indexeintrag und
+  [DONE]; sie sind wieder geoeffnet (BF-0105).] Die Dateien unter
+  model/ sind DEPRECATED und Quelle der Module: Ein Befund mit einer
+  Fundstelle dort sperrt ueber seine Buchung und sperrt_auch.
   Die maschinelle Pruefung erzwingt diese Regeln der FORM nach (10.4).
   Ob eine Bestaetigung inhaltlich traegt, prueft sie nicht.
 
@@ -726,6 +744,11 @@ bis 2026-11-14 wurde OHNE Kenntnis dieses Standards geprueft.
        Pruefauftrag stehen: Sie sind dann als Entwurf eingearbeitet,
        das Paket bleibt offen, und jede Behebung wird erneut geprueft
        (g). Das ist schwaecher als "vor dem Patch" und so ausgewiesen.
+       ABGESCHLOSSEN in diesem Sinn sind auch BASE-000 bis BASE-030:
+       Sie waren am beschriebenen Stand abgeschlossen und sind seit
+       2026-11-15 nur wegen offener Befunde an ihren Dateien wieder
+       [ACTIVE] (BF-0105). Die Wiederoeffnung nimmt ihnen diesen Schutz
+       nicht.
     b) NACH dem Schreiben eines Moduls als Schritt 4 des Qualitaets-
        Gates (Regel 10): erst nach bestandenen Schritten 1 bis 3; jede
        Aenderung aus der Pruefung fuehrt zurueck zu Schritt 1
@@ -846,20 +869,24 @@ bis 2026-11-14 wurde OHNE Kenntnis dieses Standards geprueft.
                              dem Register; Inventar des Trackers passt
                              zum Bestand; Zaehlangaben "XX-01..XX-NN"
                              gleich den Moduldateien; README-Version
-                             gleich Changelog
+                             (an ihren Versionsstellen) gleich
+                             Changelog
     Herkunft (Alt -> Neu)    jede Invariante hat eine Quelle mit
                              woertlich geprueftem Zitat oder steht in
                              der Liste der Neuentscheidungen
     Befunde                  Schliessen nur mit Pruefbericht (zwei
-                             Wege, 10.2); Klasse nicht unter der
-                             Einstufung des Pruefers (Pflichtfeld,
-                             sobald ein Bericht genannt ist), die
-                             Einstufung nicht entfernt oder gemildert;
-                             kein Loeschen; Umbuchen nur mit
-                             Begruendung; kein [DONE] mit offenem
-                             Befund; ein [DONE]-Modul nennt offene
-                             Befunde an seinen Dateien und heisst
-                             nicht CLEAN
+                             Wege, 10.2) und der Kennung, unter der
+                             der Bericht den Punkt fuehrt; Klasse
+                             nicht unter der Einstufung des Pruefers
+                             (Pflichtfeld, sobald ein Bericht genannt
+                             ist), die Einstufung nicht entfernt oder
+                             gemildert; kein Loeschen; Umbuchen und
+                             Entfernen eines Sperrvermerks nur mit
+                             Begruendung; nur vorgesehene Felder; kein
+                             [DONE] mit sperrendem Befund; ein Befund
+                             an einer Moduldatei sperrt das Paket des
+                             Moduls; CLEAN nur fuer ein [DONE]-Modul
+                             ohne sperrenden Befund
     C, D, E, F               NICHT maschinell pruefbar
 
   GELTUNGSBEREICH UND GRENZEN (Stand 2026-11-15):
@@ -873,33 +900,86 @@ bis 2026-11-14 wurde OHNE Kenntnis dieses Standards geprueft.
     T-LT 46) - und nur, wenn der Vermerk "BF-0010" daneben steht.
     [Bis 2026-11-15 liess sie neben dem Vermerk JEDEN Wert durch.]
     Ein Teilbereich der Kennungen ist nur im Proof-Anker zulaessig
-    (eckige Klammer, die mit einer Moduldatei beginnt) oder mit dem
-    Wort "Teilbereich" davor.
+    (eckige Klammer, die mit einer VORHANDENEN Moduldatei beginnt)
+    oder mit dem Wort "Teilbereich" davor. Eine Angabe, die sich mit
+    "im Repository" als Bestand ausweist, wird immer am Bestand
+    gemessen, auch neben dem Vermerk. Erkannt werden auch drei Punkte
+    und ein Strich ohne Leerzeichen ("WT-01...WT-57", "WT-01–WT-57").
+    [Diese drei Punkte seit 2026-11-15, zweite Nachpruefung
+    F-NK2-B-08.]
     Nicht erfasst sind einzelne Kennungen ("LT-41", "PF-19"),
     Bereiche, die nicht bei -01 beginnen ("WG-01..05" hat keinen
-    Eigner), Zahlen in Worten ("52 Invarianten") und der Changelog;
-    Punkt h der Checkliste (Testanzahl gegen Changelog) ist damit
-    nicht maschinell abgedeckt.
+    Eigner), andere Schreibweisen ("WT-01 to WT-57"), Zahlen in
+    Worten ("52 Invarianten") und der Changelog; ob ein mit
+    "Teilbereich" eingeleiteter Bereich wirklich einer sein soll,
+    prueft nichts. Punkt h der Checkliste (Testanzahl gegen
+    Changelog) ist damit nicht maschinell abgedeckt.
   - Freie Saetze prueft nichts: Ein Satz wie "BASE-040 ist
     abgeschlossen" im Fliesstext, der Text eines Stand-Vermerks oder
     der Freitext in governance/STATUS.yaml bleibt unerkannt.
-  - Die Regeln fuer Befunde pruefen, DASS ein Pruefbericht genannt
-    ist und existiert (Dateiname mit "PRUEFUNG"; Arbeitspapiere des
-    Hauptarchitekten und die Sammlung der Pruefauftraege zaehlen
-    nicht) - nicht, ob der Bericht den Befund nennt oder die Behebung
-    traegt. Klasse, Einstufung des Pruefers und Paket traegt der
-    Hauptarchitekt selbst ein.
-  - Die Abschluss-Sperre folgt der Buchung Befund -> Paket, nicht
-    der betroffenen Datei. Ein Befund an einer Datei eines
-    [DONE]-Moduls sperrt dieses Paket nur, wenn er dort gebucht ist
-    oder es in sperrt_auch nennt; erzwungen ist dann nur, dass Tracker
-    und Liste ihn am Modul nennen.
+  - PRUEFBERICHT ist eine Datei unter governance/pruefungen/, die
+    die Sammlung der Pruefauftraege (PRUEFAUFTRAEGE_*.md) mit der
+    Zeile "- Bericht: <Datei>" einem Auftrag zuordnet - ausserhalb
+    der woertlichen Auftragstexte. Arbeitspapiere stehen dort als
+    "- Arbeitspapier: <Datei>"; jede andere Datei im Ordner ist ein
+    Fehler. [Bis 2026-11-15 entschied der Dateiname ("PRUEFUNG"):
+    Eine selbst angelegte "SELBSTPRUEFUNG" zaehlte, ein "VOLLAUDIT"
+    nicht (F-NK2-B-05).]
+    Eine BESTAETIGUNG (nachpruefung, herabstufung.bestaetigt_durch,
+    zurueckweisung.bestaetigt_durch) nennt den Bericht - mit Pfad
+    oder Dateinamen - UND eine Kennung, die in diesem Bericht steht
+    (Kennungen der eigenen Register wie BF-, QS-, BM- zaehlen nicht).
+    GRENZEN: Ob der Bericht unter dieser Kennung die Behebung DIESES
+    Befunds bestaetigt, prueft nichts. Die Zuordnung in der Sammlung
+    traegt der Hauptarchitekt selbst ein, ebenso Klasse, Einstufung
+    des Pruefers und Paket.
+  - EINSTUFUNG DES PRUEFERS: Pflicht, sobald die Herkunft eines
+    Befunds (entdeckt_in, beleg, fundstellen) einen Pruefbericht
+    nennt - mit Pfad, mit Dateinamen oder ueber eine Befundkennung
+    der Form F-XXX-nnn, die in einem Bericht steht. Die Skala wird
+    ohne Ruecksicht auf Gross- und Kleinschreibung gelesen. VERZICHT
+    nur mit dem Feld ohne_pruefer_einstufung (Begruendung). GRENZEN:
+    Die kurzen Kennungen aelterer Berichte (A-01, B-07, N-11) loesen
+    die Pflicht nicht aus. Ob die eingetragene Einstufung die des
+    Berichts ist und ob ein Verzicht berechtigt ist, prueft nichts.
+  - BEGRUENDUNGEN (umbuchung, entsperrt, herabstufung,
+    ohne_pruefer_einstufung, zurueckweisung): Verlangt sind
+    mindestens 20 Zeichen. Ob eine Begruendung traegt, prueft nichts.
+  - HERABSTUFUNG: Das Feld gilt nur fuer die Klasse, die es als "auf"
+    nennt - jede weitere Senkung braucht eine neue, bestaetigte
+    Herabstufung. [Bis 2026-11-15 schaltete ein einmal gesetztes Feld
+    die Klassenregeln dauerhaft ab (F-NK2-B-04).]
+  - FELDER: Ein Befund traegt nur die im Kopf des Registers genannten
+    Felder; ein Tippfehler im Feldnamen ist ein Fehler (F-NK2-B-03).
+  - Die ABSCHLUSS-SPERRE folgt der betroffenen Datei (10.2): Ein
+    offener Befund mit einer Fundstelle im Ordner eines Moduls
+    (base/, modules/; ohne entwuerfe/) muss dessen Paket sperren -
+    eigene Buchung, sperrt_auch oder begruendete Ausnahme in
+    entsperrt. Der REVIEW_TRACKER fuehrt je Paket die Zeile GESPERRT;
+    sie ist an das Register gekoppelt. GRENZEN: Massgeblich sind die
+    EINGETRAGENEN Fundstellen. Betrifft ein Befund eine Moduldatei,
+    ohne sie als Fundstelle zu nennen, greift die Regel nicht (so
+    gefunden und von Hand nachgetragen am 2026-11-15: BF-0001,
+    BF-0046, BF-0050, BF-0056). Fundstellen in model/, decisions/ und
+    den Steuerungsdokumenten sperren nur ueber Buchung und
+    sperrt_auch.
+    [Bis 2026-11-15 folgte die Sperre allein der Buchung. Fuer ein
+    [DONE]-Modul war nur erzwungen, dass Tracker und Liste den Befund
+    in einem Satz nennen - das liess sich durch Umformulieren
+    umgehen (F-NK2-A-14, F-NK2-B-07; BF-0105).]
   - fachstatus PRUEFBEREIT verlangt, dass der Funktions-Freeze
     erklaert ist und alle Pakete bis QS-17 [DONE] sind (EIGENE
     AUSLEGUNG von Betreiberregeln Abschnitt 8: "integrierter und
     eingefrorener Abschlusskandidat"; QS-18 ist das Einfrieren
-    selbst, ueber die Gates entscheidet QS-22). Ob der Kandidat
-    inhaltlich integriert ist, prueft nichts.
+    selbst, ueber die Gates entscheidet QS-22). Auch
+    [DEFERRED]-Pakete zaehlen: Der Startauftrag verlangt "alle
+    benötigten Fach- und Technikmodule"; in die Roadmap gehen nach
+    dem Freeze "optionale Ideen" (Betreiberregeln Abschnitt 4), keine
+    Pakete. Sollte QS-16 dennoch ein ganzes Paket dorthin legen,
+    braucht das eine ausgewiesene Regel an der Liste (F-NK2-B-09).
+    fachstatus NACHBESSERUNG verlangt den erklaerten Freeze; ob ein
+    Pruefbericht ueber den Kandidaten vorliegt, prueft nichts. Ob der
+    Kandidat inhaltlich integriert ist, prueft nichts.
   - Der Vergleich mit dem Vorstand (kein Loeschen, keine stille
     Herabstufung, kein stilles Umbuchen, kein Entfernen oder Mildern
     der Einstufung des Pruefers) laeuft gegen ALLE gesicherten Staende
@@ -916,21 +996,34 @@ bis 2026-11-14 wurde OHNE Kenntnis dieses Standards geprueft.
     gesperrt (governance/UMGEBUNGSPRUEFUNG.yaml, UP-05).
   - Das Inventar des Trackers wird im Abschnitt 1 geprueft. [Bis
     2026-11-15 genuegte eine Erwaehnung an beliebiger Stelle des
-    Dokuments (BF-0104).]
+    Dokuments (BF-0104).] Das Statuswort eines Moduls ist das erste
+    Wort hinter dem Verzeichnis, ohne Ruecksicht auf die Schreibung
+    ("Clean" zaehlt als CLEAN; ein Zusatz "nicht CLEAN" loest nichts
+    aus; F-NK2-B-07).
+  - README-Version: Geprueft werden der Badge-Text, die
+    Badge-Adresse, "Konzeptentwicklung (v...)" und jede
+    Versionsnummer in einer Zeile mit "Projektstand" oder "Concept
+    version". Eine Versionsangabe in einer anderen Zeile bleibt
+    unerkannt (F-NK2-B-11).
   - KR-03 gilt fuer die Steuerungsdokumente und die kanonischen
     Dateien unter base/, modules/, model/ und decisions/ (ohne
     Entwuerfe). 03_CHANGELOG ist die dokumentierte Ausnahme;
     governance/ und qa/ sind nicht erfasst.
   - Jede Fehlermeldung von qa/pruefe_register.py wird von mindestens
     einem Negativtest erwartet (qa/tests/). AUSGEZAEHLT am 2026-11-15
-    mit einem Lauf der ganzen Testsammlung (249 Tests): 192 von 192
-    Meldungen. [Stand am Morgen desselben Tages: 114 von 189; die 75
-    ohne Test: 03_CHANGELOG v2.8.4. Verfahren und Lauf: v2.8.6.]
-    GRENZE DIESER ZAHL: Sie belegt, dass jede MELDUNG ausgeloest werden
-    kann - nicht, dass jede Regel jeden Umgehungsweg erkennt. HINWEISE
-    (keine Fehler) sind nicht gezaehlt, ebenso wenig die Werkzeuge
-    quelleninventar.py und pruefe_extrakte.py (sie haben eigene Tests,
-    aber keine Auszaehlung).
+    mit einem Lauf der ganzen Testsammlung (302 Tests): 202 von 202
+    Meldungen. [Vorher am selben Tag: 114 von 189 (die 75 ohne Test:
+    03_CHANGELOG v2.8.4), dann 192 von 192. Verfahren: v2.8.6.]
+    GRENZEN DIESER ZAHL: Gezaehlt sind AUFRUFSTELLEN, nicht
+    Bedingungen. Eine Stelle kann mehrere Bedingungen tragen
+    (PRUEFBEREIT: Freeze ODER Paketlage); die Zahl ist deshalb eine
+    Obergrenze fuer "jede Regel getestet" (F-NK2-B-12). Eine Zaehlung
+    je Bedingung (Bedingung entfernen, ein Test muss rot werden) gibt
+    es noch nicht. Die Zahl belegt, dass jede MELDUNG ausgeloest
+    werden kann - nicht, dass jede Regel jeden Umgehungsweg erkennt.
+    HINWEISE (keine Fehler) sind nicht gezaehlt, ebenso wenig die
+    Werkzeuge quelleninventar.py und pruefe_extrakte.py (sie haben
+    eigene Tests, aber keine Auszaehlung).
     Eine ungetestete Regel kann unwirksam sein: Am 2026-11-15 haben
     zwei neue Tests genau das gezeigt (README-Version; Inventar des
     Trackers). Die Umgehungsversuche,

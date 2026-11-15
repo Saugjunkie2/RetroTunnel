@@ -173,6 +173,10 @@ class StatusUndGates(Basis):
 
 
 BERICHT = "governance/pruefungen/BASE-070_NACHPRUEFUNG_TEIL_A_2026-11-14.md"
+KENNUNG_IM_BERICHT = "B-01"          # unter dieser Kennung fuehrt der Bericht einen Punkt
+BERICHT_ABGEBROCHEN = "governance/pruefungen/KONSOLIDIERUNG_PRUEFUNG_C_PRUEFWERKZEUGE_2026-11-14_ABGEBROCHEN.md"
+SAMMLUNG = "governance/pruefungen/PRUEFAUFTRAEGE_2026-11-13_BIS_2026-11-15.md"
+GRUND = "Test: eine ausreichend lange Begruendung"
 
 
 class Befunde(Basis):
@@ -207,6 +211,32 @@ class Befunde(Basis):
         with open(p, "w", encoding="utf-8") as f:
             f.write(neu)
 
+    def tracker_gesperrt(self, bezug, kennung, entfernen=False):
+        """Fuegt eine Kennung in die Zeile 'GESPERRT <Paket>' von Abschnitt 1d ein (legt die Zeile bei Bedarf an) oder
+        nimmt sie dort heraus."""
+        def f(t):
+            m = re.search(rf"(?m)^  GESPERRT {re.escape(bezug)}:[^\n]*(?:\n {{4,}}BF-[^\n]*)*", t)
+            if entfernen:
+                self.assertTrue(m, f"Fixture: Zeile GESPERRT {bezug} fehlt im REVIEW_TRACKER")
+                return t[:m.start()] + re.sub(rf" {re.escape(kennung)}\*?(?![\d*])", "", m.group(0)) + t[m.end():]
+            if m:
+                return t[:m.end()] + " " + kennung + t[m.end():]
+            return re.sub(r"(?m)^(  GESPERRT [^\n]*\n)", rf"  GESPERRT {bezug}: {kennung}\n\1", t, count=1)
+        self.tracker(f)
+
+    def gesicherter_sperrvermerk(self, mehrere=False):
+        """Ein offener Befund mit einem Sperrvermerk, den schon der letzte gesicherte Stand (HEAD) kennt - nur dann
+        greift die Verlaufsregel. Rueckgabe: (Register, Befund, Paket)."""
+        alt = yaml.load(subprocess.run(["git", "-C", ROOT, "show", f"HEAD:{BEFUNDE}"],
+                                       capture_output=True, text=True).stdout, Loader=YAML_LESER)
+        vorher = {b["id"]: set(b.get("sperrt_auch") or []) for b in alt["befunde"]}
+        bf = self.lade(BEFUNDE)
+        for b in bf["befunde"]:
+            gemeinsam = [ap for ap in b.get("sperrt_auch") or [] if ap in vorher.get(b["id"], set())]
+            if b.get("status") in ("OFFEN", "IN_ARBEIT") and gemeinsam and (len(b["sperrt_auch"]) > 1 or not mehrere):
+                return bf, b, gemeinsam[-1]
+        self.fail("Fixture: kein offener Befund mit einem Sperrvermerk, den HEAD schon kennt")
+
     def tracker_zaehler(self, offen=0, geschlossen=0):
         def f(t):
             return re.sub(r"Zusammen (\d+) offene von (\d+) Befunden; (\d+) sind",
@@ -217,7 +247,7 @@ class Befunde(Basis):
 
     def test_fundstelle_im_arbeitsstand_wird_aufgeloest(self):
         kopf = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-        self.neu(status="BEHOBEN", behoben_in="README.md", nachpruefung=f"bestaetigt ({BERICHT})",
+        self.neu(status="BEHOBEN", behoben_in="README.md", nachpruefung=f"bestaetigt ({BERICHT}, {KENNUNG_IM_BERICHT})",
                  fundstellen=[f"ZIEL:README.md:1@{kopf}"])
         self.tracker_zaehler(geschlossen=1)
         rc, out = self.lauf()
@@ -323,7 +353,7 @@ class Befunde(Basis):
         self.erwarte_fehler(f"{ziel['id']}: klasse gegenueber einem gesicherten Stand gesenkt")
 
     def test_herabstufung_mit_erfundener_bestaetigung(self):
-        self.neu(herabstufung={"von": "SCHWERWIEGEND", "begruendung": "weil", "bestaetigt_durch": "x"},
+        self.neu(herabstufung={"von": "SCHWERWIEGEND", "auf": "GERINGFUEGIG", "begruendung": GRUND, "bestaetigt_durch": "x"},
                  arbeitspaket="AP-K060")
         self.erwarte_fehler("herabstufung.bestaetigt_durch nennt keinen vorhandenen Bericht")
 
@@ -355,11 +385,101 @@ class Befunde(Basis):
         self.neu(arbeitspaket="AP-K060", sperrt_auch=[fertig["id"]])
         self.erwarte_fehler(f"PRIORITAETENLISTE {fertig['bezug']} ist [DONE], aber Befund {self.bid} sperrt dieses Paket")
 
-    def test_sperrvermerk_im_tracker_fehlt(self):
-        self.neu(arbeitspaket="AP-K060", sperrt_auch=["AP-K090"])
+    def offen_an_m2_060(self, **felder):
+        """Neuer offener Befund am Paket AP-K060 (M2-060); Zeile OFFEN und Summen des Trackers sind nachgezogen."""
+        self.neu(arbeitspaket="AP-K060", **felder)
         self.tracker(lambda t: t.replace("  OFFEN M2-080:", f"  OFFEN M2-060: {self.bid}\n  OFFEN M2-080:", 1))
         self.tracker_zaehler(offen=1)
-        self.erwarte_fehler("Vermerk SPERRT AUCH nennt")
+
+    def test_sperrvermerk_im_tracker_fehlt(self):
+        self.offen_an_m2_060(sperrt_auch=["AP-K090"])
+        self.erwarte_fehler(f"REVIEW_TRACKER 1d: bei GESPERRT M2-090 fehlen sperrende Befunde des Registers: {self.bid}")
+
+    def test_sperrvermerk_im_tracker_besteht(self):
+        self.offen_an_m2_060(sperrt_auch=["AP-K090"])
+        self.tracker_gesperrt("M2-090", self.bid)
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_sperrvermerk_im_tracker_ohne_register(self):
+        # Der Tracker fuehrt eine Sperre, die das Register nicht kennt.
+        self.tracker_gesperrt("M2-090", "BF-0010*")
+        self.erwarte_fehler("REVIEW_TRACKER 1d: bei GESPERRT M2-090 stehen Befunde, die das Paket laut Register nicht "
+                            "(so) sperren: BF-0010*")
+
+    def test_sperrvermerk_im_tracker_verharmlost(self):
+        # Der Stern (kritisch oder schwerwiegend) fehlt in einer Zeile GESPERRT.
+        self.tracker(lambda t: re.sub(r"(?m)^(  GESPERRT M2-100: BF-0090)\*", r"\1", t, count=1))
+        self.erwarte_fehler("REVIEW_TRACKER 1d: bei GESPERRT M2-100 fehlen sperrende Befunde des Registers: BF-0090*")
+
+    # --- Die Sperre folgt der betroffenen Datei (BF-0105; REVIEW_STANDARD 10.2) --------------------------------
+
+    MODULDATEI = "RT:base/BASE-000_SQL_FIRST/BASE-000_010_DATENBANK_UND_SICHERHEITSZONEN.txt:1"
+    ENTWURFSDATEI = "RT:base/BASE-110_WEBSTACK_CORE/entwuerfe/panel-zentrale/VISION_PANEL_ZENTRALE.txt:1"
+
+    def test_befund_an_moduldatei_ohne_sperrvermerk(self):
+        # Ein Befund an einer Datei von BASE-000, gebucht auf ein anderes Paket, ohne das Paket des Moduls zu sperren.
+        self.offen_an_m2_060(fundstellen=[self.MODULDATEI])
+        self.erwarte_fehler(f"BEFUNDE {self.bid}: Fundstelle im Ordner von BASE-000 - das Paket AP-K000 (M2-000) fehlt "
+                            f"in sperrt_auch")
+
+    def test_befund_an_moduldatei_mit_sperrvermerk_besteht(self):
+        self.offen_an_m2_060(fundstellen=[self.MODULDATEI], sperrt_auch=["AP-K000"])
+        self.tracker_gesperrt("M2-000", self.bid)
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_befund_an_moduldatei_des_eigenen_pakets_besteht(self):
+        self.neu(arbeitspaket="AP-K000", fundstellen=[self.MODULDATEI])
+        self.tracker(lambda t: t.replace("  OFFEN M2-040:", f"  OFFEN M2-000: {self.bid}\n  OFFEN M2-040:", 1))
+        self.tracker_zaehler(offen=1)
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_befund_an_moduldatei_mit_begruendeter_ausnahme_besteht(self):
+        self.offen_an_m2_060(fundstellen=[self.MODULDATEI], entsperrt=[{"paket": "AP-K000", "begruendung": GRUND}])
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_befund_an_moduldatei_ausnahme_ohne_begruendung(self):
+        self.offen_an_m2_060(fundstellen=[self.MODULDATEI], entsperrt=[{"paket": "AP-K000", "begruendung": "x"}])
+        self.erwarte_fehler(f"BEFUNDE {self.bid}: Fundstelle im Ordner von BASE-000 - das Paket AP-K000 (M2-000) fehlt "
+                            f"in sperrt_auch")
+
+    def test_befund_am_entwurf_eines_moduls_sperrt_nicht(self):
+        # Entwuerfe sind nicht normativ (KR-01): eine Fundstelle unter entwuerfe/ verpflichtet nicht.
+        self.offen_an_m2_060(fundstellen=[self.ENTWURFSDATEI])
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_geschlossener_befund_an_moduldatei_sperrt_nicht(self):
+        self.neu(status="BEHOBEN", behoben_in="README.md", nachpruefung=f"bestaetigt ({BERICHT}, {KENNUNG_IM_BERICHT})",
+                 fundstellen=[self.MODULDATEI])
+        self.tracker_zaehler(geschlossen=1)
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_befund_an_modul_ohne_indexeintrag(self):
+        # Fehlt dem Modul der Indexeintrag, kann kein Befund sein Paket sperren - das wird gemeldet.
+        ap = self.lade(PAKETE)
+        ap["pakete"] = [p for p in ap["pakete"] if p["id"] != "AP-K000"]
+        self.schreibe(PAKETE, ap)
+        self.erwarte_fehler("Fundstelle im Ordner von BASE-000, aber das Modul hat kein Paket mit Indexeintrag")
+
+    def test_altmodul_wieder_abgeschlossen_trotz_befund_an_seinen_dateien(self):
+        # Der Fall hinter BF-0105: Ein Modul steht [DONE] und CLEAN, waehrend Befunde an seinen Dateien offen sind,
+        # die auf ein anderes Paket gebucht sind.
+        p = os.path.join(self.tmp, "PRIORITAETENLISTE.txt")
+        with open(p, encoding="utf-8") as f:
+            t = f.read()
+        self.assertIn("\nM2-000 [ACTIVE] ", t, "Fixture: M2-000 ist nicht mehr [ACTIVE]")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(t.replace("\nM2-000 [ACTIVE] ", "\nM2-000 [DONE] ", 1))
+        self.tracker(lambda t: re.sub(r"(?m)^(  base/BASE-000_SQL_FIRST\s+)~ PARTIAL", r"\1✓ CLEAN", t, count=1))
+        rc, out = self.lauf()
+        self.assertNotEqual(rc, 0, out)
+        self.assertIn("PRIORITAETENLISTE M2-000 ist [DONE], aber Befund BF-0010 sperrt dieses Paket", out)
+        self.assertIn("REVIEW_TRACKER: base/BASE-000_SQL_FIRST wird als CLEAN gefuehrt, obwohl Befunde offen sind:", out)
 
     def test_tracker_mit_zusatztext_und_umbruch_besteht(self):
         """Zusatztext hinter den Kennungen und ein Umbruch im Summensatz sind zulaessig (kein Fehlalarm)."""
@@ -430,7 +550,8 @@ class Befunde(Basis):
         bf = self.lade(BEFUNDE)
         ziel = next(b for b in bf["befunde"] if b.get("klasse") == "KRITISCH")
         ziel["klasse"] = "GERINGFUEGIG"
-        ziel["herabstufung"] = {"von": "SCHWERWIEGEND", "begruendung": "Test", "bestaetigt_durch": BERICHT}
+        ziel["herabstufung"] = {"von": "SCHWERWIEGEND", "auf": "GERINGFUEGIG", "begruendung": GRUND,
+                                "bestaetigt_durch": f"{BERICHT}, {KENNUNG_IM_BERICHT}"}
         self.schreibe(BEFUNDE, bf)
         self.erwarte_fehler(f"{ziel['id']}: herabstufung.von (SCHWERWIEGEND) nennt nicht die strengste Klasse")
 
@@ -454,7 +575,8 @@ class Befunde(Basis):
 
     def test_herabstufung_von_nicht_strenger(self):
         self.neu(arbeitspaket="AP-K060",
-                 herabstufung={"von": "GERINGFUEGIG", "begruendung": "x", "bestaetigt_durch": BERICHT})
+                 herabstufung={"von": "GERINGFUEGIG", "auf": "GERINGFUEGIG", "begruendung": GRUND,
+                               "bestaetigt_durch": f"{BERICHT}, {KENNUNG_IM_BERICHT}"})
         self.erwarte_fehler("ist nicht strenger als die klasse")
 
     def test_unbekannte_pruefer_einstufung(self):
@@ -464,6 +586,199 @@ class Befunde(Basis):
     def test_sperrt_auch_nennt_unbekanntes_paket(self):
         self.neu(arbeitspaket="AP-K060", sperrt_auch=["AP-GIBTESNICHT"])
         self.erwarte_fehler("sperrt_auch nennt unbekanntes Paket AP-GIBTESNICHT")
+
+
+    # --- Zweite Nachpruefung, Bericht B (F-NK2-B-03 bis -06, -10) ------------------------------------------------
+
+    def schliesse(self, **felder):
+        """Schliesst einen neuen Befund als BEHOBEN; der Tracker wird nachgezogen."""
+        self.neu(status="BEHOBEN", behoben_in="README.md", **felder)
+        self.tracker_zaehler(geschlossen=1)
+
+    def test_bestaetigung_mit_kennung_besteht(self):
+        self.schliesse(nachpruefung=f"bestaetigt ({BERICHT}, {KENNUNG_IM_BERICHT})")
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_bestaetigung_nur_mit_dateinamen_besteht(self):
+        self.schliesse(nachpruefung=f"bestaetigt ({os.path.basename(BERICHT)}, {KENNUNG_IM_BERICHT})")
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_bestaetigung_ohne_kennung_im_bericht(self):
+        # Fall X1b: ein vorhandener Pruefbericht, der den Punkt gar nicht fuehrt
+        self.schliesse(nachpruefung=f"bestaetigt ({BERICHT_ABGEBROCHEN}, Punkt QX-99)")
+        self.erwarte_fehler(f"{self.bid}: nachpruefung nennt keine Kennung, unter der der genannte Bericht den Befund fuehrt")
+
+    def test_bestaetigung_mit_registerkennung_statt_berichtskennung(self):
+        # Kennungen der eigenen Register (BF-, QS-, BM- ...) zaehlen nicht als Stelle im Bericht
+        self.schliesse(nachpruefung=f"bestaetigt ({BERICHT}; siehe QS-07 und BM-0015)")
+        self.erwarte_fehler(f"{self.bid}: nachpruefung nennt keine Kennung, unter der der genannte Bericht den Befund fuehrt")
+
+    def test_bestaetigung_mit_selbst_angelegter_pruefungsdatei(self):
+        # Fall X1c: eine Datei mit PRUEFUNG im Namen, die keinem Pruefauftrag zugeordnet ist
+        with open(os.path.join(self.tmp, "governance/pruefungen/BASE-050_SELBSTPRUEFUNG.md"), "w", encoding="utf-8") as f:
+            f.write("B-01: ok\n")
+        self.schliesse(nachpruefung="bestaetigt (governance/pruefungen/BASE-050_SELBSTPRUEFUNG.md, B-01)")
+        self.erwarte_fehler(f"{self.bid}: BEHOBEN ohne nachpruefung mit einem Bericht")
+        rc, out = self.lauf()
+        self.assertIn("BASE-050_SELBSTPRUEFUNG.md ist weder einem Pruefauftrag als Bericht zugeordnet noch als Arbeitspapier benannt", out)
+
+    def test_bestaetigung_mit_sammlung_der_auftraege(self):
+        self.schliesse(nachpruefung=f"bestaetigt ({SAMMLUNG}, {KENNUNG_IM_BERICHT})")
+        self.erwarte_fehler(f"{self.bid}: BEHOBEN ohne nachpruefung mit einem Bericht")
+
+    def test_kuenftiger_bericht_mit_anderem_namen_besteht(self):
+        # Fall F1: Ein Vollaudit heisst nicht "...PRUEFUNG..."; massgeblich ist die Zuordnung zu einem Auftrag.
+        with open(os.path.join(self.tmp, "governance/pruefungen/VOLLAUDIT_1_TEST.md"), "w", encoding="utf-8") as f:
+            f.write("Vollaudit 1 (Test)\nV1-07: BEHOBEN\n")
+        with open(os.path.join(self.tmp, SAMMLUNG), "a", encoding="utf-8") as f:
+            f.write("\n---\n\n## 99. Vollaudit 1 (Test)\n\n- Bericht: VOLLAUDIT_1_TEST.md\n- Art: Test\n")
+        self.schliesse(nachpruefung="bestaetigt (governance/pruefungen/VOLLAUDIT_1_TEST.md, V1-07)", arbeitspaket=None)
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_sammlung_nennt_fehlenden_bericht(self):
+        with open(os.path.join(self.tmp, SAMMLUNG), "a", encoding="utf-8") as f:
+            f.write("\n---\n\n## 99. Test\n\n- Bericht: GIBT_ES_NICHT.md\n")
+        self.erwarte_fehler("PRUEFUNGEN: Die Sammlung der Pruefauftraege nennt eine Datei, die es nicht gibt: "
+                            "governance/pruefungen/GIBT_ES_NICHT.md")
+
+    def test_zuordnung_im_wortlaut_eines_auftrags_zaehlt_nicht(self):
+        # Eine Zeile "- Bericht: ..." INNERHALB eines woertlichen Auftragstextes ordnet nichts zu.
+        with open(os.path.join(self.tmp, "governance/pruefungen/NOTIZ.md"), "w", encoding="utf-8") as f:
+            f.write("Notiz\n")
+        with open(os.path.join(self.tmp, SAMMLUNG), "a", encoding="utf-8") as f:
+            f.write("\n---\n\n## 99. Test\n\n- Art: Test\n\n~~~~\n- Bericht: NOTIZ.md\n~~~~\n")
+        self.erwarte_fehler("governance/pruefungen/NOTIZ.md ist weder einem Pruefauftrag als Bericht zugeordnet")
+
+    def test_herabstufung_mit_arbeitspapier_als_bestaetigung(self):
+        self.neu(arbeitspaket="AP-K060",
+                 herabstufung={"von": "SCHWERWIEGEND", "auf": "GERINGFUEGIG", "begruendung": GRUND,
+                               "bestaetigt_durch": "governance/pruefungen/BASE-070_BEHEBUNGSPLAN.md, B-01"})
+        self.erwarte_fehler(f"{self.bid}: herabstufung.bestaetigt_durch nennt keinen vorhandenen Bericht")
+
+    def test_herabstufung_bestaetigung_ohne_kennung(self):
+        self.neu(arbeitspaket="AP-K060",
+                 herabstufung={"von": "SCHWERWIEGEND", "auf": "GERINGFUEGIG", "begruendung": GRUND,
+                               "bestaetigt_durch": BERICHT})
+        self.erwarte_fehler(f"{self.bid}: herabstufung.bestaetigt_durch nennt keine Kennung")
+
+    def test_herabstufung_gilt_nicht_fuer_weitere_senkung(self):
+        # Fall HB1: Das Feld herabstufung deckt nur die Klasse, die es nennt.
+        self.neu(arbeitspaket="AP-K060", klasse="VERBESSERUNG",
+                 herabstufung={"von": "SCHWERWIEGEND", "auf": "GERINGFUEGIG", "begruendung": GRUND,
+                               "bestaetigt_durch": f"{BERICHT}, {KENNUNG_IM_BERICHT}"})
+        self.erwarte_fehler(f"{self.bid}: herabstufung.auf nennt nicht die heutige klasse (VERBESSERUNG)")
+
+    def test_herabstufung_mit_zu_kurzer_begruendung(self):
+        self.neu(arbeitspaket="AP-K060",
+                 herabstufung={"von": "SCHWERWIEGEND", "auf": "GERINGFUEGIG", "begruendung": "x",
+                               "bestaetigt_durch": f"{BERICHT}, {KENNUNG_IM_BERICHT}"})
+        self.erwarte_fehler(f"{self.bid}: herabstufung ohne von/begruendung/bestaetigt_durch")
+
+    def test_zurueckweisung_mit_arbeitspapier_als_bestaetigung(self):
+        self.neu(status="ZURUECKGEWIESEN", arbeitspaket="AP-K060",
+                 zurueckweisung={"begruendung": GRUND, "bestaetigt_durch": "governance/pruefungen/BASE-070_BEHEBUNGSPLAN.md, B-01"})
+        self.tracker_zaehler(geschlossen=1)
+        self.erwarte_fehler(f"{self.bid}: ZURUECKGEWIESEN ohne zurueckweisung.begruendung und .bestaetigt_durch")
+
+    def test_zurueckweisung_bestaetigung_ohne_kennung(self):
+        self.neu(status="ZURUECKGEWIESEN", zurueckweisung={"begruendung": GRUND, "bestaetigt_durch": BERICHT})
+        self.tracker_zaehler(geschlossen=1)
+        self.erwarte_fehler(f"{self.bid}: zurueckweisung.bestaetigt_durch nennt keine Kennung")
+
+    def test_zurueckweisung_mit_bestaetigung_besteht(self):
+        self.neu(status="ZURUECKGEWIESEN",
+                 zurueckweisung={"begruendung": GRUND, "bestaetigt_durch": f"{BERICHT}, {KENNUNG_IM_BERICHT}"})
+        self.tracker_zaehler(geschlossen=1)
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_umbuchung_mit_zu_kurzer_begruendung(self):
+        # Fall X4b: "x" ist keine Begruendung
+        bf = self.lade(BEFUNDE)
+        b = next(x for x in bf["befunde"] if x["id"] == "BF-0002")
+        b["arbeitspaket"] = "AP-A06"
+        b["umbuchung"] = {"von": "AP-Q02", "begruendung": "x"}
+        self.schreibe(BEFUNDE, bf)
+        self.erwarte_fehler("BF-0002: arbeitspaket gegenueber einem gesicherten Stand geaendert (AP-Q02 -> AP-A06)")
+
+    def bezug(self, paket):
+        return next(p["bezug"] for p in self.lade(PAKETE)["pakete"] if p["id"] == paket)
+
+    def test_sperrvermerk_still_entfernt(self):
+        # Fall SA1: sperrt_auch verliert ein Paket; der Tracker ist nachgezogen.
+        bf, b, weg = self.gesicherter_sperrvermerk()
+        b["sperrt_auch"].remove(weg)
+        self.schreibe(BEFUNDE, bf)
+        self.tracker_gesperrt(self.bezug(weg), b["id"], entfernen=True)
+        self.erwarte_fehler(f"{b['id']}: sperrt_auch nennt {weg} nicht mehr, ohne Eintrag im Feld entsperrt")
+
+    def test_sperrvermerk_mit_begruendung_entfernt_besteht(self):
+        bf, b, weg = self.gesicherter_sperrvermerk(mehrere=True)
+        b["sperrt_auch"].remove(weg)
+        b["entsperrt"] = (b.get("entsperrt") or []) + [{"paket": weg, "begruendung": GRUND}]
+        self.schreibe(BEFUNDE, bf)
+        self.tracker_gesperrt(self.bezug(weg), b["id"], entfernen=True)
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_sperrvermerk_mit_zu_kurzer_begruendung_entfernt(self):
+        bf, b, weg = self.gesicherter_sperrvermerk(mehrere=True)
+        b["sperrt_auch"].remove(weg)
+        b["entsperrt"] = [{"paket": weg, "begruendung": "x"}]
+        self.schreibe(BEFUNDE, bf)
+        self.tracker_gesperrt(self.bezug(weg), b["id"], entfernen=True)
+        self.erwarte_fehler(f"{b['id']}: sperrt_auch nennt {weg} nicht mehr, ohne Eintrag im Feld entsperrt")
+
+    def test_unbekanntes_feld_am_befund(self):
+        # Fall SA2: Tippfehler im Feldnamen
+        self.neu(arbeitspaket="AP-K060", sperrt_ach=["AP-K090"])
+        self.erwarte_fehler(f"BEFUNDE {self.bid}: Feld sperrt_ach ist nicht vorgesehen")
+
+    def test_einstufung_in_kleinschreibung_besteht(self):
+        # Fall F3: REVIEW_STANDARD 10.2 schreibt die Skala der Pruefer klein
+        self.neu(arbeitspaket="AP-Q02", klasse="SCHWERWIEGEND", pruefer_einstufung="hoch")
+        self.tracker(lambda t: re.sub(r"(OFFEN QS-09:[^\n]*)", lambda m: m.group(1) + " " + self.bid + "*", t, count=1))
+        self.tracker_zaehler(offen=1)
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_einstufung_in_kleinschreibung_schuetzt_die_klasse(self):
+        self.neu(arbeitspaket="AP-K060", klasse="GERINGFUEGIG", pruefer_einstufung="hoch")
+        self.erwarte_fehler(f"{self.bid}: klasse GERINGFUEGIG liegt unter der Einstufung des Pruefers (HOCH)")
+
+    def test_befund_nennt_bericht_nur_mit_dateinamen(self):
+        # Fall X3a: der Bericht ist ohne Pfad genannt
+        self.neu(klasse="VERBESSERUNG", arbeitspaket="AP-K060", beleg=f"Bericht {os.path.basename(BERICHT)}, Punkt X")
+        self.erwarte_fehler(f"BEFUNDE {self.bid}: nennt einen Pruefbericht, fuehrt aber weder pruefer_einstufung")
+
+    def test_befund_nennt_bericht_in_entdeckt_in(self):
+        self.neu(klasse="VERBESSERUNG", arbeitspaket="AP-K060", entdeckt_in=f"Nachpruefung ({BERICHT})")
+        self.erwarte_fehler(f"BEFUNDE {self.bid}: nennt einen Pruefbericht, fuehrt aber weder pruefer_einstufung")
+
+    def test_befund_nennt_bericht_als_fundstelle(self):
+        kopf = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        self.neu(klasse="VERBESSERUNG", arbeitspaket="AP-K060", fundstellen=[f"ZIEL:{BERICHT}:1@{kopf}"])
+        self.erwarte_fehler(f"BEFUNDE {self.bid}: nennt einen Pruefbericht, fuehrt aber weder pruefer_einstufung")
+
+    def test_befund_nennt_nur_die_kennung_des_berichts(self):
+        # Die Herkunft nennt keinen Bericht, aber die Kennung, unter der ein Pruefbericht den Punkt fuehrt.
+        self.neu(klasse="VERBESSERUNG", arbeitspaket="AP-K060", entdeckt_in="Nachpruefung der Einarbeitung, F-NKO-018")
+        self.erwarte_fehler(f"BEFUNDE {self.bid}: nennt einen Pruefbericht, fuehrt aber weder pruefer_einstufung")
+
+    def test_befund_nennt_erfundene_berichtskennung_besteht(self):
+        # Eine Kennung derselben Form, die kein Bericht fuehrt, loest die Pflicht nicht aus (kein Fehlalarm).
+        self.offen_an_m2_060(entdeckt_in="Eigener Fund; vgl. F-XYZ-999")
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_verzicht_auf_einstufung_ohne_begruendung(self):
+        # Fall X3b: "x" ist keine Begruendung
+        self.neu(klasse="VERBESSERUNG", arbeitspaket="AP-K060", beleg=f"Bericht {BERICHT}, Punkt X",
+                 ohne_pruefer_einstufung="x")
+        self.erwarte_fehler(f"BEFUNDE {self.bid}: nennt einen Pruefbericht, fuehrt aber weder pruefer_einstufung")
 
 
 class Arbeitspakete(Basis):
@@ -911,29 +1226,18 @@ class Haertung(DateiHelfer):
         self.erwarte_fehler("Zaehlbereich INV-01..90 stimmt nicht")
 
     def test_beschriebener_stand_mit_vermerk_besteht(self):
-        rc, out = self.lauf()                # der Bestand nennt PF-01..PF-19 und INV-01..84 neben dem Vermerk BF-0010
+        # Ein NEUER Satz mit dem beschriebenen (nicht vorhandenen) Stand und dem Vermerk daneben ist zulaessig.
+        self.datei("01_GLOSSARY.txt", lambda t: t + "\nBeschrieben im Changelog: LT-01..LT-41 (BF-0010).\n")
+        rc, out = self.lauf()
         self.assertEqual(rc, 0, out)
 
-    def test_done_modul_clean_trotz_befund_an_seinen_dateien(self):
+    def test_modul_clean_obwohl_paket_nicht_abgeschlossen(self):
+        # Bis 2026-11-15 pruefte ein eigener Satz je [DONE]-Modul die Kennungen an seinen Dateien (F-NKO-018). Seit
+        # BF-0105 sperrt jeder solche Befund das Paket des Moduls (Zeile GESPERRT in 1d; Tests in der Klasse Befunde).
         self.datei("REVIEW_TRACKER.txt",
-                   lambda t: re.sub(r"(  base/BASE-000_SQL_FIRST\s+)~ PARTIAL", r"\1✓ CLEAN", t))
-        self.erwarte_fehler("wird als CLEAN gefuehrt, obwohl Befunde an seinen Dateien offen sind")
-
-    def test_done_modul_nennt_befund_im_tracker_nicht(self):
-        def f(t):
-            a = t.index("  base/BASE-000_SQL_FIRST")
-            b = t.index("  base/BASE-005_PLATFORM_CORE")
-            return t[:a] + t[a:b].replace("BF-0057", "BF-00xx") + t[b:]
-        self.datei("REVIEW_TRACKER.txt", f)
-        self.erwarte_fehler("ist [DONE], nennt aber offene Befunde an seinen Dateien nicht: BF-0057")
-
-    def test_done_modul_nennt_befund_in_der_liste_nicht(self):
-        def f(t):
-            a = t.index("M2-000 [DONE]")
-            b = t.index("M2-005 [DONE]")
-            return t[:a] + t[a:b].replace("BF-0057", "BF-00xx") + t[b:]
-        self.datei("PRIORITAETENLISTE.txt", f)
-        self.erwarte_fehler("PRIORITAETENLISTE M2-000: [DONE], nennt aber offene Befunde")
+                   lambda t: re.sub(r"(?m)^(  base/BASE-000_SQL_FIRST\s+)~ PARTIAL", r"\1✓ CLEAN", t, count=1))
+        self.erwarte_fehler("REVIEW_TRACKER: base/BASE-000_SQL_FIRST wird als CLEAN gefuehrt, die PRIORITAETENLISTE "
+                            "fuehrt M2-000 als [ACTIVE]")
 
     def test_phasenplan_status_aufstellung_fehlt(self):
         self.datei("04_PHASE_PLAN.txt",
@@ -1560,6 +1864,104 @@ class Grundregeln(DateiHelfer):
     def test_inventar_abschnitt_fehlt(self):
         self.datei("REVIEW_TRACKER.txt", lambda t: t.replace("\n1) DATEI-INVENTAR", "\n0) DATEI-INVENTAR", 1))
         self.erwarte_fehler("REVIEW_TRACKER: Abschnitt 1 (Datei-Inventar) fehlt")
+
+    # --- Zweite Nachpruefung, Bericht B (F-NK2-B-07 bis -11) ---------------------------------------------------
+    def test_status_nachbesserung_ohne_freeze(self):
+        # Fall NB1
+        kopf = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        baum = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD^{tree}"], capture_output=True, text=True).stdout.strip()
+        self.aendere(STATUS, lambda st: st.update(fachstatus="NACHBESSERUNG", kandidat={"commit": kopf, "tree": baum}))
+        self.erwarte_fehler("STATUS: fachstatus NACHBESSERUNG ohne erklaerten Funktions-Freeze")
+
+    def test_status_pruefbereit_nennt_fehlenden_freeze(self):
+        kopf = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        baum = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD^{tree}"], capture_output=True, text=True).stdout.strip()
+        self.aendere(STATUS, lambda st: st.update(fachstatus="PRUEFBEREIT", kandidat={"commit": kopf, "tree": baum}))
+        self.erwarte_fehler("fachstatus PRUEFBEREIT ohne eingefrorenes Konzept (Betreiberregeln Abschnitt 8): "
+                            "Funktions-Freeze nicht erklaert; ")
+
+    def statusregel(self, fachstatus, freeze, offene_pakete):
+        """Ruft die Statusregel des Werkzeugs unmittelbar auf - mit vorgegebener Paketlage und erklaertem oder nicht
+        erklaertem Freeze. Der Weg ueber eine ganze Kopie verlangte, das gesamte Konzept abzuschliessen."""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("pruefe_register_test", os.path.join(ROOT, "qa", "pruefe_register.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        kopf = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        baum = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD^{tree}"], capture_output=True, text=True).stdout.strip()
+        self.aendere(STATUS, lambda st: st.update(fachstatus=fachstatus, kandidat={"commit": kopf, "tree": baum}))
+        self.aendere(VERB, lambda vb: vb.update(freeze_erklaert=freeze))
+        p = mod.Pruefung(self.tmp, ROOT, None)
+        p.offene_pakete_bis = lambda bis: list(offene_pakete)
+        p.pruefe_status(self.lade(STATUS), {"befunde": []})
+        return [f for f in p.fehler if "fachstatus" in f]
+
+    def test_pruefbereit_mit_freeze_und_abgeschlossenen_paketen_besteht(self):
+        # Fehlalarm-Kontrolle zu F-NK2-B-09: Die Regel schweigt, wenn Freeze und Paketlage stimmen.
+        self.assertEqual(self.statusregel("PRUEFBEREIT", True, []), [])
+
+    def test_pruefbereit_mit_freeze_aber_offenem_paket(self):
+        fehler = self.statusregel("PRUEFBEREIT", True, [("M3-010", "DEFERRED")])
+        self.assertEqual(len(fehler), 1, fehler)
+        self.assertIn("1 Pakete bis QS-17 sind nicht [DONE], darunter M3-010", fehler[0])
+        self.assertNotIn("Funktions-Freeze nicht erklaert", fehler[0])
+
+    def test_nachbesserung_mit_freeze_besteht(self):
+        # In der Nachbesserung duerfen Pakete wieder offen sein; verlangt ist nur der erklaerte Freeze.
+        self.assertEqual(self.statusregel("NACHBESSERUNG", True, [("M2-040", "ACTIVE")]), [])
+
+    def test_inventar_clean_in_anderer_schreibung(self):
+        # Fall D1: "Clean" statt "CLEAN"
+        self.datei("REVIEW_TRACKER.txt",
+                   lambda t: re.sub(r"(?m)^(  base/BASE-000_SQL_FIRST\s+)~ PARTIAL", r"\1✓ Clean", t, count=1))
+        self.erwarte_fehler("REVIEW_TRACKER: base/BASE-000_SQL_FIRST wird als CLEAN gefuehrt, die PRIORITAETENLISTE "
+                            "fuehrt M2-000 als [ACTIVE]")
+
+    def test_inventar_nicht_clean_ist_kein_fehlalarm(self):
+        # Fall D3: der Zusatz "nicht CLEAN" hinter dem Statuswort
+        self.datei("REVIEW_TRACKER.txt",
+                   lambda t: re.sub(r"(?m)^(  base/BASE-000_SQL_FIRST\s+~ PARTIAL \([^)\n]*)\)", r"\1; nicht CLEAN)", t, count=1))
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    # Die Faelle D2 und D4 (Kennungen ausserhalb des vorgesehenen Satzes) gibt es nicht mehr: Die Regel, die einen
+    # Satz im Inventar und in der Liste las, ist durch die Sperre nach der betroffenen Datei ersetzt (BF-0105) -
+    # geprueft werden Register und die Zeilen GESPERRT in Abschnitt 1d (Klasse Befunde).
+
+    def zaehlangabe(self, neu):
+        """Ersetzt in der PRIORITAETENLISTE die erste volle Angabe der WT-Invarianten."""
+        self.datei("PRIORITAETENLISTE.txt", lambda t: re.sub(r"WT-01\.\.WT-\d+", neu, t, count=1))
+
+    def test_zaehlangabe_mit_drei_punkten(self):
+        self.zaehlangabe("WT-01...WT-50")                     # Fall Z1
+        self.erwarte_fehler("Zaehlbereich WT-01..50 stimmt nicht mit den Moduldateien ueberein")
+
+    def test_zaehlangabe_mit_strich_ohne_leerzeichen(self):
+        self.zaehlangabe("WT-01–WT-50")                       # Fall Z2
+        self.erwarte_fehler("Zaehlbereich WT-01..50 stimmt nicht mit den Moduldateien ueberein")
+
+    def test_zaehlangabe_im_anker_einer_erfundenen_moduldatei(self):
+        self.zaehlangabe("[BASE-040_999 gesamt WT-01..WT-50]")  # Fall Z4
+        self.erwarte_fehler("Zaehlbereich WT-01..50 stimmt nicht mit den Moduldateien ueberein")
+
+    def test_zaehlangabe_in_klammer_ohne_moduldatei(self):
+        self.zaehlangabe("[siehe Modul: WT-01..WT-50]")       # Fall Z7
+        self.erwarte_fehler("Zaehlbereich WT-01..50 stimmt nicht mit den Moduldateien ueberein")
+
+    def test_zaehlangabe_teilbereich_im_anker_besteht(self):
+        self.zaehlangabe("[BASE-040_095 T-WT-01..05; WT-01..WT-50]")
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_zaehlangabe_im_repository_mit_beschriebenem_wert(self):
+        # Fall V3b: Wer "im Repository" schreibt, wird am Bestand gemessen - auch neben dem Vermerk BF-0010.
+        self.datei("04_PHASE_PLAN.txt", lambda t: re.sub(r"(im Repository\s+INV-01\.\.INV-)\d+", r"\g<1>84", t, count=1))
+        self.erwarte_fehler("Zaehlbereich INV-01..84 stimmt nicht mit den Moduldateien ueberein")
+
+    def test_readme_version_ohne_v(self):
+        # Fall R2: die Meldung nennt den wirklichen Mangel
+        self.datei("README.md", lambda t: re.sub(r"Konzeptentwicklung \(v([\d.]+)\)", r"Konzeptentwicklung (\1)", t, count=1))
+        self.erwarte_fehler("README.md nennt die Version ohne fuehrendes 'v'")
 
     def test_readme_modul_ohne_listeneintrag(self):
         self.datei("README.md",

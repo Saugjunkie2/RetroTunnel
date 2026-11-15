@@ -1,7 +1,7 @@
 # RetroTunnel
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
-![Concept version: v2.8.7](https://img.shields.io/badge/Concept-v2.8.7-blue.svg)
+![Concept version: v2.8.8](https://img.shields.io/badge/Concept-v2.8.8-blue.svg)
 ![Status: M2 In Progress](https://img.shields.io/badge/Phase-M2%20In%20Progress-yellow.svg)
 ![Platform: Debian 13](https://img.shields.io/badge/Platform-Debian%2013-informational.svg)
 
@@ -14,7 +14,7 @@ RetroTunnel ist ein in Entwicklung befindliches Architektur- und Implementierung
 
 Geplant ist ein Full-Tunnel-VPN mit deterministischer Server-Side Policy, SQL-first AAA, rollenbasiertem Enforcement, DNS-Zwang, internem Webpanel und einem auf Produktivbetrieb ausgerichteten Betriebsmodell.
 
-> **Projektstand: Konzeptentwicklung (v2.8.7).** Die dokumentierten Module und Entscheidungen beschreiben den vorgesehenen Systemaufbau. Das Repository stellt derzeit **keine fertig implementierte oder als produktionsreif abgenommene VPN-Gesamtlösung** bereit. Fortschrittsangaben beziehen sich auf die Konzeptarbeit, soweit nicht ausdrücklich anders bezeichnet. Die [Prioritätenliste](PRIORITAETENLISTE.txt) dokumentiert die Arbeitsreihenfolge; der [Phasenplan](04_PHASE_PLAN.txt) beschreibt die erforderlichen Reife- und Abnahmekriterien. Einzelne Quelldateien können eigene Versionsstände führen; v2.8.7 bezeichnet den zentral dokumentierten Projektstand im [Changelog](03_CHANGELOG.txt).
+> **Projektstand: Konzeptentwicklung (v2.8.8).** Die dokumentierten Module und Entscheidungen beschreiben den vorgesehenen Systemaufbau. Das Repository stellt derzeit **keine fertig implementierte oder als produktionsreif abgenommene VPN-Gesamtlösung** bereit. Fortschrittsangaben beziehen sich auf die Konzeptarbeit, soweit nicht ausdrücklich anders bezeichnet. Die [Prioritätenliste](PRIORITAETENLISTE.txt) dokumentiert die Arbeitsreihenfolge; der [Phasenplan](04_PHASE_PLAN.txt) beschreibt die erforderlichen Reife- und Abnahmekriterien. Einzelne Quelldateien können eigene Versionsstände führen; v2.8.8 bezeichnet den zentral dokumentierten Projektstand im [Changelog](03_CHANGELOG.txt).
 
 ## Warum existiert dieses Projekt?
 
@@ -84,7 +84,7 @@ Vollständige Beschreibung: [`00_MANIFEST.txt`](00_MANIFEST.txt) §3.
 
 ## Projektstruktur
 
-> **Reifehinweis:** Der folgende Baum ist eine **Übersicht der Ziel-Architektur**, kein Anspruch auf ein vollständiges Dateiinventar. Mit ✅ markierte Ordner sind als Konzept-Arbeitsschritt abgeschlossen; mit 🚧 markierte sind geschrieben, aber noch nicht abgeschlossen (Prüfung offen). Ordner ohne Markierung sind Platzhalter für zukünftige Arbeitspakete (M2–M4) und möglicherweise noch nicht als Verzeichnis auf GitHub vorhanden (Git verwaltet keine leeren Ordner). `model/` enthält das durchreviewte Denkmodell (DEPRECATED — wird bei Base-Ausarbeitung aufgelöst). Den aktuellen Arbeitsstand je Paket führt die [Prioritätenliste](PRIORITAETENLISTE.txt).
+> **Reifehinweis:** Der folgende Baum ist eine **Übersicht der Ziel-Architektur**, kein Anspruch auf ein vollständiges Dateiinventar. Mit ✅ markierte Ordner sind als Konzept-Arbeitsschritt abgeschlossen (derzeit keiner); mit 🚧 markierte sind geschrieben, aber noch nicht abgeschlossen (Nachzug oder Prüfung offen). Ordner ohne Markierung sind Platzhalter für zukünftige Arbeitspakete (M2–M4) und möglicherweise noch nicht als Verzeichnis auf GitHub vorhanden (Git verwaltet keine leeren Ordner). `model/` enthält das durchreviewte Denkmodell (DEPRECATED — wird bei Base-Ausarbeitung aufgelöst). Den aktuellen Arbeitsstand je Paket führt die [Prioritätenliste](PRIORITAETENLISTE.txt).
 
 ```
 RetroTunnel/
@@ -108,7 +108,7 @@ RetroTunnel/
 │
 ├── model/                          DAS DENKMODELL (Was + Warum)
 │   │                               (wird schrittweise in zuständige Bases aufgelöst)
-│   ├── DOMAIN_MODEL.txt            Entitäten, Beziehungen, Invarianten → BASE-010
+│   ├── DOMAIN_MODEL.txt            Entitäten, Beziehungen, Invarianten → BASE-010, -070, -080, -100, MOD-001
 │   ├── TRUTH_MODEL.txt             Source-of-Truth Map → BASE-000 + BASE-090
 │   ├── NETWORK_MODEL.txt           Pools, Segmente → BASE-010 + BASE-005
 │   └── state_machines/
@@ -118,11 +118,11 @@ RetroTunnel/
 │       └── SM_POLICY_RESTRICT.txt  Enforcement → BASE-080
 │
 ├── base/                           KERN-MODULE (Minimum Viable System)
-│   ├── BASE-000_SQL_FIRST/         SQL-first Governance, Naming, Registry ✅
-│   ├── BASE-005_PLATFORM_CORE/     OS-Baseline, Endpoints, Lifecycle ✅
-│   ├── BASE-010_IDENTITY_CORE/     Customers, Connections, Rollen ✅
-│   ├── BASE-020_AAA_CORE/          FreeRADIUS + SQL-first ✅
-│   ├── BASE-030_TUNNEL_L2TP_IPSEC/ L2TP/IPsec (accel-ppp + strongSwan) ✅
+│   ├── BASE-000_SQL_FIRST/         SQL-first Governance, Naming, Registry 🚧
+│   ├── BASE-005_PLATFORM_CORE/     OS-Baseline, Endpoints, Lifecycle 🚧
+│   ├── BASE-010_IDENTITY_CORE/     Customers, Connections, Rollen 🚧
+│   ├── BASE-020_AAA_CORE/          FreeRADIUS + SQL-first 🚧
+│   ├── BASE-030_TUNNEL_L2TP_IPSEC/ L2TP/IPsec (accel-ppp + strongSwan) 🚧
 │   ├── BASE-040_TUNNEL_WIREGUARD/  AmneziaWireGuard 🚧
 │   ├── BASE-050_FIREWALL_CORE/     nftables, NAT, Peer-Isolation 🚧
 │   ├── BASE-060_DNS_CORE/          Unbound + AdGuard + DNAT53
@@ -231,16 +231,16 @@ Die Statusangaben unten betreffen die **Konzeptausarbeitung** (M0–M4). Insbeso
 |---|---|---|
 | M0 | Fundament (Manifest, Rules, Glossar) | ✅ Done |
 | M1 | Denkmodell (7 Model-Dateien, 2 Decisions) | ✅ Done |
-| M2-000 | BASE-000_SQL_FIRST (Governance, Naming, Registry) | ✅ Done |
-| M2-005 | BASE-005_PLATFORM_CORE (Grundnorm OS/Lifecycle) | ✅ Done |
-| M2-010 | BASE-010_IDENTITY_CORE (Schema, Lifecycle, Write-Path) | ✅ Done |
-| M2-020 | BASE-020_AAA_CORE (Admission, RADIUS, WG-Vertrag) | ✅ Done |
-| M2-030 | BASE-030_TUNNEL_L2TP_IPSEC (accel-ppp + strongSwan) | ✅ Done |
+| M2-000 | BASE-000_SQL_FIRST (Governance, Naming, Registry) | 🚧 In Arbeit |
+| M2-005 | BASE-005_PLATFORM_CORE (Grundnorm OS/Lifecycle) | 🚧 In Arbeit |
+| M2-010 | BASE-010_IDENTITY_CORE (Schema, Lifecycle, Write-Path) | 🚧 In Arbeit |
+| M2-020 | BASE-020_AAA_CORE (Admission, RADIUS, WG-Vertrag) | 🚧 In Arbeit |
+| M2-030 | BASE-030_TUNNEL_L2TP_IPSEC (accel-ppp + strongSwan) | 🚧 In Arbeit |
 | M2-040..110 | Rest der Kern-Module (8 Base-Module) | 🚧 In Arbeit |
 | M3 | Erweiterungs-Module (10 Module) | ⏸ Deferred |
 | M4 | Decisions, Proofs, Implementation | ⏸ Deferred |
 
-Den Stand der einzelnen Pakete – auch welche der acht übrigen Kern-Module geschrieben, geprüft oder offen sind – führt allein die [Prioritätenliste](PRIORITAETENLISTE.txt); diese Tabelle fasst sie zusammen (die Zeilen sind maschinell an die Liste gekoppelt). `✅ Done` bei M2-000 bis M2-030 gilt für den im Changelog beschriebenen Stand: Die Dateien im Repository liegen dahinter und tragen offene Befunde (Überblick: REVIEW_TRACKER.txt, Abschnitte 1 und 1d).
+Den Stand der einzelnen Pakete – auch welche der Kern-Module geschrieben, geprüft oder offen sind – führt allein die [Prioritätenliste](PRIORITAETENLISTE.txt); diese Tabelle fasst sie zusammen (die Zeilen sind maschinell an die Liste gekoppelt). M2-000 bis M2-030 waren am im Changelog beschriebenen Stand vom 2026-05-30 abgeschlossen und sind seit 2026-11-15 wieder geöffnet: Die Dateien im Repository liegen hinter diesem Stand und tragen offene Befunde (Überblick: REVIEW_TRACKER.txt, Abschnitte 1 und 1d). Abgeschlossen werden sie nach dem Nachzug und einer unabhängigen Prüfung.
 
 ## Vorgänger
 
