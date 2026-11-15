@@ -1,7 +1,7 @@
 ================================================================================
 RETROTUNNEL — CLAUDE BRIEFING / HANDOFF DOKUMENT
 ================================================================================
-VERSION: v1.6
+VERSION: v1.7
 DATUM: 2026-05-02
 AKTUALISIERT: 2026-11-15
 ZWECK: Dieses Dokument bringt eine neue Claude-Instanz auf den aktuellen
@@ -63,7 +63,10 @@ VERFASSER: Diesen Teil hat der Hauptarchitekt (Claude) geschrieben, nicht
       entscheiden darf"); Schritt 13; "frage Marco" unter HAEUFIGE
       FEHLER; MANIFEST KR-05; MARCOS_ARBEITSWEISE Muster 4 und Gebot 4
       ("empfehlen, nicht entscheiden"); 04_PHASE_PLAN, STOP-REGEL
-      (Ausnahme und Uebersteuerung durch Marco).
+      (Ausnahme und Uebersteuerung durch Marco); Schritt 7, Format des
+      Befundberichts ("VERBESSERUNGEN (optional, Marcos
+      Entscheidung)"); Regel 8, ABLAGE ("fragt Marco", "Marco
+      entscheidet" ueber unverarbeitete Drittreviews).
       IM AUFTRAG: Technische und funktionale Architekturentscheidungen
       trifft der Hauptarchitekt selbst. Er darf Loesungen ersetzen und
       den Funktionsumfang umgestalten, solange RetroTunnel seinem Zweck
@@ -73,6 +76,11 @@ VERFASSER: Diesen Teil hat der Hauptarchitekt (Claude) geschrieben, nicht
       OP-B07). Marcos ZIELE und BEGRIFFE aendert er nicht; insoweit gilt
       Regel 3 weiter. Dem Betreiber vorbehalten bleibt, was MANIFEST
       KR-05 (a) nennt.
+      Ueber VERBESSERUNGEN entscheidet der Hauptarchitekt nach der
+      Funktions- und Verbesserungsanalyse (Betreiberregeln Abschnitt
+      4; governance/register/VERBESSERUNGEN.yaml). Ein BEFUND ist nie
+      "optional" (BEFUND-REGEL). Unverarbeitete Pruefberichte:
+      REVIEW_STANDARD 10.3 i).
       PFLICHT bleibt die Form: jede Entscheidung mit Quelle, Optionen,
       Begruendung und Folgen in der kanonischen Datei (Dnnn oder
       DEC-xx-nn), zurueckverfolgt und unabhaengig gegengeprueft.
@@ -82,12 +90,17 @@ VERFASSER: Diesen Teil hat der Hauptarchitekt (Claude) geschrieben, nicht
       ist nicht Teil des Auftrags; dort bleibt es bei Marco.
   (b) WARTEN UND RUECKFRAGEN.
       Stellen: Regel 9 ("Regel 12 greift: melden + pausieren");
-      MARCOS_ARBEITSWEISE Muster 12 ("auf Marcos Entscheidung warten");
+      MARCOS_ARBEITSWEISE Muster 12 ("auf Marcos Entscheidung warten",
+      "Workaround NUR nach Marcos OK") und Gebot 12 ("PAUSIEREN ...
+      melden, gemeinsam beheben");
       KONTEXTFENSTER-TRANSPARENZ e); Schritt 8 ("frage Marco, welches
       Thema").
       IM AUFTRAG: Der Kern von Muster 12 bleibt: konkret testen,
       Fehlerklasse bestimmen, offen festhalten (Register, Changelog) -
-      KEIN stiller und kein verharmlosender Workaround. Statt zu
+      KEIN stiller und kein verharmlosender Workaround. Ein Workaround
+      ist eine ausgewiesene Entscheidung des Hauptarchitekten (Register
+      oder Changelog, mit Fehlerklasse und Folgen); zusaetzliche
+      Installationen bleiben dem Betreiber vorbehalten (0.3). Statt zu
       pausieren, wird eine andere zulaessige Strategie gewaehlt und an
       allem Unabhaengigen WEITERGEARBEITET (Startauftrag Abschnitt F).
       Gewartet wird nur auf eine echte Betreiberentscheidung, die die
@@ -841,6 +854,11 @@ PFAD-FALLBACK: Wenn der angegebene Pfad in der aktuellen Claude-Umgebung
        Android brauchte strongSwan-App)
     c) QoS (Speed-Limiting) war bei IKEv2 unlösbar (kein pppX-Interface)
     AmneziaWG löst alle drei Probleme.
+    [STAND 2026-11-15: Zu den zwei Produkt-Tunneln kommt nach BASE-050
+    DEC-FW-16 der Notzugang rtmgmt0 hinzu (WireGuard des Kernels,
+    eigener UDP-Port, einziges Ziel SERVICE_SSH; kein Client-Endpunkt,
+    kein Pool, kein Accounting). Vorschlag des Moduls, bis BASE-050
+    unabhaengig geprueft ist.]
 
   KLASSIFIKATION:
   - Zwei getrennte Felder statt conn_group:
@@ -885,6 +903,14 @@ PFAD-FALLBACK: Wenn der angegebene Pfad in der aktuellen Claude-Umgebung
   ENFORCEMENT:
   - Range-basiert für Rollen (CIDR-Match in nftables, O(1), kein Sync)
   - Dynamische Sets nur für Zustände (restricted, pending, banned)
+    [STAND 2026-11-15, nach BASE-050 (noch nicht unabhaengig
+    geprueft): Dynamische Sets sind connect_pending, restricted und
+    banned, dazu allowed_l2tp_v4 - das Freigabe-Set fuer L2TP;
+    "pending" gilt nur noch fuer WireGuard (DEC-FW-08, Changelog
+    v2.1.15) - und admin_panel_allowed: Verwaltungsdienste nur fuer
+    Adressen, die im ADMIN-Pool liegen UND in diesem Set stehen
+    (DEC-FW-11, MANIFEST DP-07). Ein Regelwerk ohne uebernommene
+    Set-Inhalte sperrt awg0 ganz (Siegel, DEC-FW-04).]
   - DNS-Zwang (DNAT53) für ALLE, keine Ausnahmen
   - DoT (Port 853) wird geblockt (DROP)
     [STAND 2026-11-14: BASE-050 DEC-FW-12 sieht fuer TCP/UDP 853
@@ -902,6 +928,11 @@ PFAD-FALLBACK: Wenn der angegebene Pfad in der aktuellen Claude-Umgebung
   - Keine neue Connection, kein DISABLE+INSERT
   - DISABLE_ROLE_CHANGE als Reason-Code entfällt (kein DISABLE-Event
     bei Rollenwechsel, da Connection ACTIVE bleibt)
+    [STAND 2026-11-15, nach BASE-070 und dem Entwurf BASE-080 (beide
+    nicht abgeschlossen): Die ALTE Adresse geht in die Quarantaene
+    (vpn_ip_quarantine, DEC-SC-16; in D002 offen gelassen). Der Ablauf
+    ist fest: Sperre, EINE Transaktion mit Auftrag, Commit, DANN der
+    Laufzeit-Schnitt, Freigabe (DEC-PA-16, DEC-SC-18).]
 
   NAMING:
   - WireGuard-Felder nutzen Prefix wg_ (NICHT awg_).
@@ -936,6 +967,14 @@ PFAD-FALLBACK: Wenn der angegebene Pfad in der aktuellen Claude-Umgebung
     MANUAL_ONLY), auto_finalize_to_reason_code
   - Materialisierte Deadlines: restrict_finalize_at, quarantine_until
   - connection_lifecycle_log für gesamten Lifecycle (nicht nur State-Changes)
+    [STAND 2026-11-15, nach BASE-070 (nicht abgeschlossen): Beginn und
+    Ende einer NUTZUNG stehen nicht im Lifecycle-Log, sondern in der
+    eigenen Ereignistabelle log_runtime_activity (DEC-SC-03 - dort als
+    Abweichung von einer frueheren Betreiberentscheidung ausgewiesen;
+    das Panel zeigt beide in einer Zeitleiste). Fuer Adressen ohne
+    Connection-Zeile gibt es zusaetzlich vpn_ip_quarantine
+    (DEC-SC-16). Fristgetriebene, unumkehrbare Uebergaenge laufen nur
+    bei bestaetigter Systemzeit (DEC-SC-19, DEC-PA-14).]
   - disabled_by entfällt von Haupttabelle (nur im Lifecycle-Log)
   - Erarbeitet durch: Marco + ChatGPT + Claude (15 Review-Runden, konvergiert)
   - Dokumentiert in: SM_CONNECTION (FINAL), DOMAIN_MODEL
@@ -968,6 +1007,9 @@ PFAD-FALLBACK: Wenn der angegebene Pfad in der aktuellen Claude-Umgebung
   - .6  SERVICE_PMA (phpMyAdmin, ADMIN-only via nftables)
   - .7  FREI (war SERVICE_RADIUS, entfernt — FreeRADIUS läuft auf localhost)
   - .10 SERVICE_GW_PPP (Gateway für Legacy PPP)
+    [STAND 2026-11-15: BASE-040 DEC-WT-12 fuehrt zusaetzlich
+    .11 SERVICE_GW_WG (auf awg0, nicht auf lo). Vorschlag des Moduls,
+    bis BASE-040 abgeschlossen ist.]
 
   INTERNE PANEL-DOMAIN (Marco-Entscheidung 2026-04-17):
   - portal.retrotunnel (DNS-Rewrite via AdGuardHome auf SERVICE_WEB
@@ -1103,9 +1145,11 @@ SCHRITT 0 (seit 2026-11-11; bei JEDER neuen Ausfuehrung und jeder
   Wiederaufnahme, vor jeder inhaltlichen Arbeit):
   a) git fetch in beiden Checkouts; tatsaechlichen Stand von main
      feststellen. Abweichungen zuerst klaeren.
-  b) TEIL 0 lesen. Betreiberregeln (governance/betreiberregeln/) lesen;
-     SHA-256 der Arbeitskopie mit governance/STATUS.yaml vergleichen
-     (nur Kontrolle der Arbeitskopie, KEIN Schutznachweis).
+  b) TEIL 0 lesen. Startauftrag und Betreiberregeln (Arbeitskopien
+     unter governance/betreiberregeln/) lesen; SHA-256 beider
+     Arbeitskopien mit governance/STATUS.yaml vergleichen (nur
+     Kontrolle der Arbeitskopien, KEIN Schutznachweis; die maschinelle
+     Pruefung vergleicht beide Werte bei jedem Lauf).
   c) governance/register/BETREIBERMITTEILUNGEN.yaml: die juengsten
      Mitteilungen im Wortlaut lesen.
   d) PRIORITAETENLISTE und REVIEW_TRACKER (Abschnitt 1 und 1d) lesen.

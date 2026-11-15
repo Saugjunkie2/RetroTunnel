@@ -1,7 +1,7 @@
 ================================================================================
 RetroTunnel — MANIFEST
 ================================================================================
-VERSION: v1.3
+VERSION: v1.4
 DATUM: 2026-11-15
 STATUS: ACTIVE
 OWNER: Marco (Owner) + Claude (Co-Architect)
@@ -78,11 +78,23 @@ DP-04  Fail-Closed — Kein unpoliced Window
 DP-05  Deterministische Enforcement
        nftables + tc, FLUSH+REBUILD Reconcile. Kein Drift.
        Hard-Cut bei Statuswechsel (Conntrack-Flush + Session-Kill).
+       [Stand 2026-11-15, nach BASE-050, BASE-070 und dem Entwurf
+       BASE-080 (keines abgeschlossen; Ziel "kein Drift" unveraendert):
+       Das Regelwerk wird in EINER Transaktion ersetzt, die Inhalte der
+       dynamischen Sets werden dabei uebernommen (DEC-FW-03); der
+       Abgleich bringt die Sets exakt auf den Stand, ohne sie zu leeren
+       (DEC-PA-10). Eingeschraenkt: Sperr-Set, dann Conntrack, Beenden
+       der Sitzung nur als Rueckfall (DEC-PA-08). Gesperrt: Laufzeit
+       zuerst (DEC-PA-09, DEC-SC-10).]
 
 DP-06  Rollen-basiertes Enforcement über IP-Ranges
        Jede access_role hat einen eigenen IP-Pool.
        nftables-Enforcement ist range-basiert (O(1), kein Sync).
        Dynamische Sets nur für Zustände (restricted, pending, banned).
+       [Stand 2026-11-15, nach BASE-050 (nicht unabhaengig geprueft):
+       dazu das L2TP-Freigabe-Set allowed_l2tp_v4 (DEC-FW-08) und
+       admin_panel_allowed (DEC-FW-11, DP-07). Einzelheiten:
+       CLAUDE_BRIEFING 3.1, ENFORCEMENT.]
 
 DP-07  Webpanel ist die Zentrale — kein SSH im Normalbetrieb
        Nur im VPN erreichbar unter portal.retrotunnel (DNS-Rewrite
@@ -197,6 +209,9 @@ DP-08  Plans differenzieren über Leistung, nicht über Sicherheit
   MODERATOR     10.77.3.0/24      fd77:0:0:3::/64    v6_visual: 3
   VIP           10.77.4.0/22      fd77:0:0:4::/64    v6_visual: 4
   USER          10.77.16.0/20     fd77:0:0:16::/64   v6_visual: 16
+  [Stand 2026-11-15: BASE-040 DEC-WT-12 fuehrt als achten Anker
+  SERVICE_GW_WG (10.77.0.11, fd77:0:0:0::11; auf awg0). Vorschlag des
+  Moduls, bis BASE-040 abgeschlossen ist.]
 
   IPv6 VISUELLE KODIERUNG (Connection-Adressen):
   IPv6-Adressen fuer Connections werden NICHT numerisch aus IPv4
@@ -230,6 +245,10 @@ DP-08  Plans differenzieren über Leistung, nicht über Sicherheit
   2. Hard-Cut (Session-Kill)
   3. Lifecycle-Log: ROLE_CHANGE (alte+neue Rolle, alte+neue IP)
   4. Alles in einer atomaren Transaktion (Fail-Closed)
+  [Stand 2026-11-15, nach BASE-070 und dem Entwurf BASE-080 (nicht
+  abgeschlossen): Atomar ist die SQL-Aenderung samt Auftrag an die
+  Durchsetzung; der Hard-Cut folgt NACH dem Commit (DEC-PA-16, D002
+  7.4). Die alte Adresse geht in die Quarantaene (DEC-SC-16).]
 
   L2TP_IPSEC: Credentials bleiben gleich (Login + Passwort),
   neue IP automatisch beim Reconnect. Kein Benutzer-Eingriff nötig.
@@ -257,6 +276,10 @@ in diesem Konzept explizit geändert):
   - SimUse=1 pro Connection
   - Drei-Säulen-Modell (Truth / Guard / Repair) bleibt erhalten
   - Connect-Gate (D1a, No-Unpoliced-Window)
+    [Stand 2026-11-15: Das Schutzziel gilt unveraendert. Die Mechanik
+    ist seit Changelog v2.1.15 tunnelspezifisch (L2TP: Freigabe-Set
+    statt Gate; BASE-050 DEC-FW-08), und ein Gate laeuft nach dem
+    Entwurf BASE-080 nie durch Zeitablauf ab (DEC-PA-11).]
   - DNS-Zwang (DNAT53, keine Ausnahmen)
   - Settings-System (settings_catalog + global/customer/connection)
   - Reason-Code-System (Prioritätenkette, Domains, Outcomes)
@@ -281,6 +304,10 @@ in diesem Konzept explizit geändert):
     auf vpn_session_locks. Die zwischenzeitlich eingefuehrte
     DB-Tabelle vpn_sessions war stille Drift und ist deprecated
     (D004-E02). Siehe decisions/D004_RUNTIME_TRUTH_VS_SQL_PERSISTENZ.txt.
+    [Stand 2026-11-15, nach BASE-070 DEC-SC-02 (nicht abgeschlossen):
+    Fuer L2TP ist die Sitzungstabelle von accel-ppp die Wahrheit;
+    radacct ist das Protokoll dessen, was der Daemon gemeldet hat, das
+    Filesystem-Mapping nur noch Spiegel fuer Hooks und Diagnose.]
   - WIREGUARD Tunnel: IKEv2 (strongSwan) → AmneziaWireGuard
   - conn_group: 1 Feld (3 Werte) → 2 Felder (tunnel_type + access_role)
   - Rollen: 3 (LEGACY/MODERN/ADMIN) → 4 (USER/VIP/MODERATOR/ADMIN)
@@ -290,6 +317,9 @@ in diesem Konzept explizit geändert):
     bzw. ICMP) statt stillem Verwerfen vor; Schutzziel unveraendert.
     Vorschlag des Moduls, bis BASE-050 unabhaengig geprueft ist.]
   - Session-Mapping WIREGUARD: VICI-Listener (IKEv2) → WG-Hook (WireGuard)
+    [Stand 2026-11-15: WireGuard kennt keine Hooks fuer Handshakes;
+    BASE-040 DEC-WT-08 sieht einen Controller vor, der den Kernel
+    abfragt (Polling). Vorschlag des Moduls bis zu dessen Abschluss.]
   - QoS WIREGUARD: OFFEN/unlösbar (IKEv2) → lösbar (awg0-Interface + tc)
   - WG-Feldnamen: Prefix wg_ (nicht awg_). WireGuard ist die Konstante.
   - WG-Server-Config: Komplett in SQL (Option A). Kein Hidden Config File.
@@ -307,6 +337,12 @@ in diesem Konzept explizit geändert):
     L2TP_IPSEC-Auth weiterhin über L2TP/FreeRADIUS, nicht als IKEv2-Gate)
   - WAN-Exposure UDP 500/4500 + ESP (waren IKEv2; entfallen, da WIREGUARD
     eigenen UDP-Port nutzt)
+    [Stand 2026-11-15 - KONSISTENZFEHLER (KR-06), Befund BF-0099: UDP
+    500/4500 und ESP entfallen NICHT. L2TP/IPsec (IKEv1) braucht sie
+    weiter; so fuehrt es die WAN-Tabelle in BASE-050_040. Entfallen
+    ist nur der IKEv2-Dienst dahinter. Am WAN stehen: UDP 500, UDP
+    4500, ESP, der WireGuard-Port und - nach BASE-050 DEC-FW-16 - der
+    Port des Notzugangs.]
 
 ================================================================================
 6) ORDNERSTRUKTUR (SCHICHTENMODELL)
@@ -421,8 +457,9 @@ unabhängigen Kontrolle berichtigt mit v2.8.0. Die Zuordnung unten hat
 der Hauptarchitekt getroffen, nicht der Betreiber.
 
 RANGFOLGE
-  (1) Betreiberregeln (Arbeitskopie: governance/betreiberregeln/) und
-      spätere Mitteilungen des Betreibers (BM-nnnn). Auftragsebene.
+  (1) Startauftrag vom 2026-11-11 und Betreiberregeln (Arbeitskopien:
+      governance/betreiberregeln/) sowie spätere Mitteilungen des
+      Betreibers (BM-nnnn). Auftragsebene.
   (2) Die Steuerungsdokumente des Betreibers (Zeilen 1 bis 11 unten).
       Sie gelten für die Konzeptarbeit. Wo eine ihrer Arbeitsanweisungen
       dem Auftrag vom 2026-11-11 widerspricht, ist das sichtbar markiert
@@ -468,9 +505,10 @@ ZUSTÄNDIGKEITEN
         Ergänzend: governance/register/BEFUNDE.yaml (die Einzelbefunde
         seit 2026-11-11, maschinell geprüft; der Tracker nennt je Paket
         die offenen Kennungen), governance/pruefungen/ (Berichte
-        unabhängiger Prüfer im Wortlaut; dazu Arbeitspapiere des
-        Hauptarchitekten zur Auswertung eines Berichts, als solche
-        benannt), governance/register/MODULPRUEFUNG.yaml (welche Module
+        unabhängiger Prüfer und die Prüfaufträge im Wortlaut; dazu
+        Arbeitspapiere des Hauptarchitekten zur Auswertung eines
+        Berichts, als solche benannt - sie zählen nicht als
+        Bestätigung), governance/register/MODULPRUEFUNG.yaml (welche Module
         die maschinelle Modulprüfung durchlaufen).
    8  Prüfmaßstab und Prüfverfahren
         Maßgeblich: REVIEW_STANDARD.txt
@@ -593,11 +631,18 @@ KR-03  Kein Mischblock: Jede Datei hat genau ein Thema. Wenn eine Datei
       STAND 2026-11-14: Nach dieser Regel geteilt wurden REVIEW_TRACKER
       (zweiter Teil: REVIEW_TRACKER_HISTORIE) und CLAUDE_BRIEFING
       (zweiter Teil: CLAUDE_BRIEFING_ERKENNTNISSE), je als reine
-      Verschiebung. BEKANNTE ABWEICHUNG: 03_CHANGELOG.txt hat rund 4000
-      Zeilen (am Ausgangsstand 3279) und ist als fortlaufendes Protokoll
-      mit EINEM Thema bisher nicht geteilt. Die maschinelle Prüfung
-      führt es als Ausnahme und meldet die Länge bei jedem Lauf; ob es
-      geteilt wird, ist offen.
+      Verschiebung. BEKANNTE ABWEICHUNG: 03_CHANGELOG.txt liegt weit
+      über der Grenze (am Ausgangsstand 3279 Zeilen) und ist als
+      fortlaufendes Protokoll mit EINEM Thema bisher nicht geteilt. Die
+      maschinelle Prüfung führt es als Ausnahme und meldet die Länge
+      bei jedem Lauf; ob es geteilt wird, ist offen.
+      AUSLEGUNG (EIGENE ENTSCHEIDUNG des Hauptarchitekten, 2026-11-15):
+      KR-03 wird auf Konzept- und Steuerungsdateien angewandt. Register
+      und Werkzeuge unter governance/ und qa/ sind Daten bzw. Programme
+      mit je EINEM Thema und werden nicht nach Zeilenzahl geteilt; über
+      1500 Zeilen liegen dort governance/register/BEFUNDE.yaml und
+      QUELLENINVENTAR.yaml. Der Wortlaut ("Jede Datei") ist weiter;
+      ob die Auslegung trägt, entscheidet der Betreiber.
 
 KR-04  Vorgänger als Referenz: xp-vpn-stack liegt unter ../xp-vpn-stack/
       und darf jederzeit konsultiert werden. Entscheidungen daraus werden

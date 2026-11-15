@@ -1,7 +1,7 @@
 ================================================================================
 RETROTUNNEL — PRIORITÄTENLISTE / ABARBEITUNGSPLAN
 ================================================================================
-VERSION: v1.6
+VERSION: v1.7
 DATUM: 2026-11-15
 STATUS: ACTIVE
 
@@ -40,6 +40,10 @@ hierher):
   3. Sonst das erste [ACTIVE]-Paket in der Reihenfolge dieser Datei, das
      nicht ruht und dessen Abhängigkeiten erfüllt sind; danach das erste
      [WAITING]-Paket mit erfüllten Abhängigkeiten.
+     ERFÜLLT heißt für das BEARBEITEN: Jedes Paket, von dem es abhängt,
+     ist mindestens begonnen ([ACTIVE] oder [DONE]; Lesehinweis:
+     "mindestens als Entwurf"). Für den ABSCHLUSS muss jedes davon
+     [DONE] sein (maschinell erzwungen über den Index).
   Mehrere Pakete können zugleich [ACTIVE] sein (geschrieben, Abschluss
   offen). Ruht ein begonnenes Paket, steht dort "Ruht, bis ...".
   [DONE] setzt voraus: alle Punkte unter "OFFEN BIS [DONE]" erledigt UND
@@ -407,7 +411,13 @@ M2-050 [ACTIVE] BASE-050_FIREWALL_CORE
      (5) Abgleich mit den Fundament-Dateien Stufe 1 des Altkonzepts
          (BF-0053 sperrt dieses Paket; Arbeit in QS-09);
      (6) BF-0006 und BF-0011 sind eingearbeitet, aber erst mit der
-         Gegenpruefung bestaetigt.
+         Gegenpruefung bestaetigt;
+     (7) nach der Gegenpruefung die Vermerke "Vorschlag des Moduls"
+         zu DoT/DoQ aufloesen (DEC-FW-12: Abweisung statt DROP) - in
+         02_ASSUMPTIONS_AND_RULES R-01, 00_MANIFEST Abschnitt 5,
+         01_GLOSSARY und CLAUDE_BRIEFING 3.1 - und die uebrigen
+         Stand-Vermerke zu Entscheidungen dieses Moduls dort
+         (00_MANIFEST DP-05, DP-06; CLAUDE_BRIEFING 3.1).
      Review-Stand und offene Befunde: REVIEW_TRACKER Abschnitt 1 und 1d.
   -> nftables: WAN-Stealth, Rollen-Ranges, Service-Allowlist,
      Peer-Isolation, DNS-Zwang (DNAT53), DoT-Block, NAT/Masquerade
@@ -482,7 +492,11 @@ M2-070 [ACTIVE] BASE-070_SESSION_CORE
          REVIEW_STANDARD Abschnitt 7 (korrekt / teilweise / falsch /
          kontextabhaengig / offen) nachtragen;
      (5) Abgleich mit den Fundament-Dateien Stufe 1 des Altkonzepts
-         (BF-0053 sperrt dieses Paket; Arbeit in QS-09).
+         (BF-0053 sperrt dieses Paket; Arbeit in QS-09);
+     (6) Abgleich mit model/DOMAIN_MODEL Abschnitt 4 (Sperren) und
+         den Abschnitten 8, 10 und 11, soweit sie dieses Modul
+         betreffen: lesen, zurueckverfolgen, abgleichen (BF-0090
+         sperrt dieses Paket; Arbeit in QS-08).
      Review-Stand und offene Befunde: REVIEW_TRACKER Abschnitt 1 und 1d.
   -> Session-Mapping fuer beide Tunnel-Typen
   -> /run/vpn-sessions/*.env (oder WireGuard-Aequivalent)
@@ -538,7 +552,11 @@ M2-080 [ACTIVE] BASE-080_POLICY_APPLY_CORE
      (4) Qualitaets-Gate (CLAUDE_BRIEFING Regel 10), Schritte 1 bis 4.
          Pattern-Check vom 2026-11-14: 01 unvollstaendig (BF-0055);
      (5) Abgleich mit den Fundament-Dateien Stufe 1 des Altkonzepts
-         (BF-0053 sperrt dieses Paket; Arbeit in QS-09).
+         (BF-0053 sperrt dieses Paket; Arbeit in QS-09);
+     (6) Abgleich mit model/DOMAIN_MODEL Abschnitt 5 (abgeleitete
+         Policy) und den Abschnitten 8, 10 und 11, soweit sie dieses
+         Modul betreffen (BF-0090 sperrt dieses Paket; Arbeit in
+         QS-08).
      Ruht, bis QS-07 abgeschlossen ist (Betreiberanweisung 2026-11-14).
   -> vpn-policy-apply, FLUSH+REBUILD, Reconcile, Hard-Cut
   -> Single-Writer, Exit-Codes
@@ -577,6 +595,9 @@ M2-100 [WAITING] BASE-100_POLICY_CORE
   -> Altes Konzept: B057 (teilweise), D003 (kanonisch), B030, B058
   -> HINWEIS: Kann parallel zu M2-090 (Settings) bearbeitet werden,
      da Settings und Policy getrennte SQL-first-Domaenen sind (D003-E01).
+  -> IM AUFTRAG (BF-0090 sperrt dieses Paket): model/DOMAIN_MODEL
+     Abschnitt 6 (Policy-System) wartet laut Dateikopf auf dieses
+     Modul - lesen, zurueckverfolgen, abgleichen.
 
 M2-110 [WAITING] BASE-110_WEBSTACK_CORE
   -> Index: AP-K110
@@ -623,8 +644,9 @@ M2-QC [WAITING] QUALITAETS-CHECK NACH M2-ABSCHLUSS
      2026-11-11 nicht gelaufen.
   -> Zusammenstellung der in den Kern-Modulen verteilten Grenzwerte
      und Mengenbremsen als Vorarbeit fuer M3-070 (BF-0069), bemessen
-     gegen das Ziel "mindestens 1.000 gleichzeitige Verbindungen"
-     (02_ASSUMPTIONS_AND_RULES Abschnitt 4, Betreiberanweisung BM-0015).
+     gegen Q-05 und Q-06 ("3 oder 3000 User") UND gegen das Ziel
+     "mindestens 1.000 gleichzeitige Verbindungen" - beide gelten
+     nebeneinander (02_ASSUMPTIONS_AND_RULES Abschnitt 4, BM-0015).
   -> Abhaengigkeit: Alle M2-Bases mindestens als Entwurf (M2-040,
      M2-050, M2-060, M2-070, M2-080, M2-090, M2-100, M2-110)
 
@@ -645,6 +667,9 @@ M3-010 [DEFERRED] MOD-002_RESTRICTED_MODE (Walled Garden)
 M3-020 [DEFERRED] MOD-001_ONBOARDING (Verify/Claim/Grace)
   -> Index: AP-M001
   -> SM_ONBOARDING wird hier aufgeloest.
+  -> IM AUFTRAG (BF-0090 sperrt dieses Paket): model/DOMAIN_MODEL
+     Abschnitt 9 (Verify/Claim) wartet laut Dateikopf auf dieses
+     Modul - lesen, zurueckverfolgen, abgleichen.
   -> Abhaengigkeit: M2-010, M2-110, M3-010
   -> Altes Konzept: B155, D008,
      Anweisungen/entwurf/claimd_process_entwurf.txt (XPN)
@@ -738,14 +763,20 @@ M4-02 [DEFERRED] Tests / Acceptance (proofs/)
     M3-090, M3-100)
   → Altes Konzept: B310 (Acceptance-Katalog)
 
-M4-03 [DEFERRED] Phase-Plan (implementation/PHASE_PLAN.txt)
+M4-03 [DEFERRED] Implementierungs-, Integrations- und Abnahmeplan
   → Index: AP-A03
+  → Bis 2026-11-15 hiess dieses Paket "Phase-Plan
+    (implementation/PHASE_PLAN.txt)"; der Titel ist an den Stand
+    unten angeglichen.
   → Implementierungs-Reihenfolge fuer den Server
   → STAND 2026-11-14: Der Phase-Plan selbst liegt seit 2026-05-26 als
     04_PHASE_PLAN.txt im Root. Dieses Paket ist seit dem Auftrag vom
     2026-11-11 der Implementierungs-, Integrations- und Abnahmeplan
     (Pakete, Reihenfolge, Risiken, Tests; Installation, Migration,
     Upgrade/Rollback) - ein Konzeptartefakt, keine Implementierung.
+  → Dazu gehoert der Rest von OPEN-PHP-04 (04_PHASE_PLAN): fuer JEDE
+    Phase festlegen, wie sie im Notfall abgeschaltet wird
+    (Hardcut-Pfad je Phase; Audit F-014, Rest; BF-0096).
   → Abhaengigkeit: Alle Base-Module mindestens als Entwurf; M4-02
 
 M4-04 [DEFERRED] Build-Guides (implementation/guides/)
@@ -928,8 +959,8 @@ QS-11 [WAITING] Nachzug der Changelog-Entscheidungen in die Moduldateien
 
 GESAMTSCHAU
 
-QS-12 [WAITING] Bedrohungsmodell und Gesamtschau der Sicherheits-
-  invarianten
+QS-12 [WAITING] Bedrohungsmodell und Gesamtschau der
+  Sicherheitsinvarianten
   -> Index: AP-A05
   -> Abhaengigkeit: M2-QC
 
