@@ -1,7 +1,7 @@
 ================================================================================
 RetroTunnel — MANIFEST
 ================================================================================
-VERSION: v1.6
+VERSION: v1.7
 DATUM: 2026-11-15
 STATUS: ACTIVE
 OWNER: Marco (Owner) + Claude (Co-Architect)
@@ -151,6 +151,16 @@ DP-07  Webpanel ist die Zentrale — kein SSH im Normalbetrieb
        Enforcement: Kernel-Level nftables (dynamisches Set aus
        Schnittmenge) + App-Layer AuthZ.
        Kein separates Admin-Panel (Single Surface, rollenbasiert).
+       [Stand 2026-11-15, nach BASE-050 (nicht unabhaengig geprueft):
+       Die Kernel-Schicht (ADMIN-Pool UND Set admin_panel_allowed)
+       schuetzt nach DEC-FW-11 die Verwaltungsdienste AdGuard-
+       Oberflaeche, SSH und phpMyAdmin. Das Panel selbst liegt auf
+       SERVICE_WEB und ist fuer jede zugelassene Connection erreichbar
+       (Single Surface); seine Verwaltungsfunktionen schuetzt bisher
+       nur die Anwendung. Ob sie einen eigenen Endpunkt der Klasse
+       ADMIN_VERWALTUNG erhalten - und damit die hier verlangte
+       Kernel-Schicht -, ist OFFEN; es entscheidet BASE-110
+       (BASE-050_050 Abschnitt 5, ANF-FW-06).]
 
 DP-08  Plans differenzieren über Leistung, nicht über Sicherheit
        Plans dürfen: QoS, Concurrency, Quota, Laufzeit, Preis ändern.
@@ -275,11 +285,19 @@ in diesem Konzept explizit geändert):
   - SQL-first AAA (FreeRADIUS + MariaDB, kein chap-secrets)
   - SimUse=1 pro Connection
   - Drei-Säulen-Modell (Truth / Guard / Repair) bleibt erhalten
+    [Stand 2026-11-15, nach BASE-070 (nicht abgeschlossen): Die drei
+    Saeulen bleiben, ihr Inhalt ist veraendert. Truth fuer L2TP ist
+    die Sitzungstabelle von accel-ppp, radacct nur das Protokoll
+    (DEC-SC-02). Der Schutz gegen Doppelsitzungen hat vier Schichten
+    mit einem Schlussriegel im Daemon, der die Vorgabe "replace"
+    ersetzt (DEC-SC-06). Die Reparatur greift nicht mehr selbsttaetig
+    in Massen ein (DEC-SC-23).]
   - Connect-Gate (D1a, No-Unpoliced-Window)
     [Stand 2026-11-15: Das Schutzziel gilt unveraendert. Die Mechanik
     ist seit Changelog v2.1.15 tunnelspezifisch (L2TP: Freigabe-Set
     statt Gate; BASE-050 DEC-FW-08), und ein Gate laeuft nach dem
-    Entwurf BASE-080 nie durch Zeitablauf ab (DEC-PA-11).]
+    Entwurf BASE-080 nie durch Zeitablauf ab (DEC-PA-11). BASE-050
+    ist nicht unabhaengig geprueft, BASE-080 ein Entwurf.]
   - DNS-Zwang (DNAT53, keine Ausnahmen)
   - Settings-System (settings_catalog + global/customer/connection)
   - Reason-Code-System (Prioritätenkette, Domains, Outcomes)
@@ -289,6 +307,8 @@ in diesem Konzept explizit geändert):
   - Peer-Isolation (kein Client-zu-Client Traffic)
   - WAN Minimal Exposure
   - Deterministic Enforcement (FLUSH+REBUILD, Hard-Cut)
+    [Stand 2026-11-15: verfeinert - siehe den Vermerk an DP-05
+    (Abschnitt 3); die Module dazu sind nicht abgeschlossen.]
   - Logging/Monitoring/Retention (SQL-first + lokale Safety Ceilings)
   - Fail2ban Event-Klassifikation + NAT-Safety
 
@@ -342,7 +362,8 @@ in diesem Konzept explizit geändert):
     weiter; so fuehrt es die WAN-Tabelle in BASE-050_040. Entfallen
     ist nur der IKEv2-Dienst dahinter. Am WAN stehen: UDP 500, UDP
     4500, ESP, der WireGuard-Port und - nach BASE-050 DEC-FW-16 - der
-    Port des Notzugangs.]
+    Port des Notzugangs. BASE-040 und BASE-050 sind nicht
+    abgeschlossen; BASE-050 ist nicht unabhaengig geprueft.]
 
 ================================================================================
 6) ORDNERSTRUKTUR (SCHICHTENMODELL)
@@ -419,6 +440,13 @@ RetroTunnel/
   temp_drittreviews/           Permanenter Arbeitsordner: temporäre Ablage für
                                Full-Audit + Drittreviews (Inhalt flüchtig, wird
                                nach Obsoleszenz gelöscht; nicht normativ)
+                               [Stand 2026-11-15: Im Betreiberauftrag
+                               nicht benutzt - Prüfaufträge und Berichte
+                               liegen dauerhaft unter
+                               governance/pruefungen/ (REVIEW_STANDARD
+                               10.3). Der Ordner bleibt für
+                               Drittreviews, die der Betreiber selbst
+                               einbringt.]
 
   Seit dem Betreiberauftrag vom 2026-11-11 hinzugekommen (alle DIENEND,
   siehe Abschnitt 6a und KR-07):
@@ -431,9 +459,8 @@ RetroTunnel/
                                maschinenlesbaren Register. Keine eigene
                                Projektsteuerung, keine fachlichen
                                Festlegungen.
-    pruefungen/                Berichte unabhängiger Prüfer im Wortlaut
-                               (dauerhaft; temp_drittreviews/ bleibt die
-                               flüchtige Ablage für Prüfpakete).
+    pruefungen/                Berichte unabhängiger Prüfer und die
+                               Prüfaufträge im Wortlaut (dauerhaft).
   qa/                          Prüfwerkzeuge für Konzeptdokumente und
                                Register (kein Produktcode). Sie setzen
                                Teile des REVIEW_STANDARD maschinell um.
