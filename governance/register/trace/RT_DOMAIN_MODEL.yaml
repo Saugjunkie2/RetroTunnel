@@ -1,0 +1,691 @@
+schema: trace/1
+quelle: RT
+datei: model/DOMAIN_MODEL.txt
+einheit: AP-Q01
+vollstaendigkeit: 'TEILWEISE (eingeordnet sind der Kopf, die Abschnitte 4, 5, 8, 10 und 11 und die Aussagen der Abschnitte
+  1, 3, 6 und 9, die BASE-070 und den Entwurf BASE-080 betreffen; offen: Abschnitte 2, 3, 7, 7A, 7B - laut Dateikopf in BASE-010
+  aufgeloest - fuer QS-08/QS-11, Abschnitt 6 fuer BASE-100, Abschnitt 9 fuer MOD-001, die Tests T-DOM-01, -03, -04, -06, -08,
+  -09)'
+records:
+- id: TR-RDM-01
+  zitat: §4 SESSION_LOCKS → wartet auf BASE-070_SESSION_CORE
+  art: ARBEITSANWEISUNG
+  aussage: Abschnitt 4 (Sperren) wartet auf BASE-070.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt#2) TABELLE vpn_session_locks
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-07
+  begruendung: BASE-070_030 fuehrt den Sperrvertrag aus (TR-RDM-06 bis TR-RDM-14). Das Modul nennt als aufgeloeste Quelle
+    nur SM_SESSION; die Aufloesung dieses Abschnitts weist es nicht aus (Befund BF-0100).
+  zeilen:
+  - 24
+  - 24
+- id: TR-RDM-02
+  zitat: §5 DERIVED_POLICY → wartet auf BASE-080_POLICY_APPLY_CORE
+  art: ARBEITSANWEISUNG
+  aussage: Abschnitt 5 (abgeleitete Policy) wartet auf BASE-080.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-05
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-65
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-50
+  - base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt#AV-2
+  begruendung: Der Entwurf BASE-080 fuehrt kein Objekt 'derived_policy'. Der Inhalt des Abschnitts ist ueber BASE-050 (Rollen
+    ueber Adressbereiche), BASE-070 (Pool je Rolle) und BASE-080 (ADMIN nie eingeschraenkt, Anzeige von SOLL und IST) verteilt
+    (TR-RDM-15 bis TR-RDM-22). Ausgewiesen ist die Aufloesung nirgends (Befund BF-0100).
+  zeilen:
+  - 25
+  - 25
+- id: TR-RDM-03
+  zitat: ACTIVE_SESSION_LOCK Atomarer SimUse-Guard (kurzlebig, kein Lifecycle)
+  art: DEFINITION
+  aussage: Die Sperre ist ein kurzlebiger Guard ohne eigenen Lebenszyklus.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt#K-1  Eine Sperre ist ein Mutex, kein Zustand.
+  begruendung: 'Unveraendert: Mutex, kein Zustand; jede Sperre laeuft ab (K-1, K-2).'
+  zeilen:
+  - 100
+  - 100
+- id: TR-RDM-04
+  zitat: VPN_SESSION Session-Truth (offen/closed, SM_SESSION §3)
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Die Sitzungstabelle ist die Wahrheit ueber Sitzungen.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-01
+  - decisions/D004_RUNTIME_TRUTH_VS_SQL_PERSISTENZ.txt#D004-E02
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-01
+  begruendung: 'Ersetzt durch D004 (2026-05-26, nach diesem Dokument): Es gibt keine Tabelle vpn_sessions; ob eine Nutzung
+    besteht, sagt die Laufzeit.'
+  zeilen:
+  - 102
+  - 102
+- id: TR-RDM-05
+  zitat: RADACCT RADIUS Accounting (LEGACY Accounting/Forensik, NICHT mehr Session-Truth. Session-Truth ist vpn_sessions für
+    LEGACY + MODERN, SM_SESSION §1)
+  art: ARCH_ENTSCHEIDUNG
+  aussage: radacct ist nicht die Sitzungswahrheit; das ist vpn_sessions fuer beide Tunnel.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-02
+  - decisions/D004_RUNTIME_TRUTH_VS_SQL_PERSISTENZ.txt#D004-E02
+  begruendung: 'Ersetzt durch D004: Fuer L2TP ist die Sitzungstabelle des Daemons die Wahrheit, radacct das Protokoll des
+    Gemeldeten; beide zusammen sind die Pruefgrundlage. Fuer WireGuard ist es der Kernel-Peer.'
+  zeilen:
+  - 111
+  - 113
+- id: TR-RDM-06
+  zitat: 'Zweck: Atomarer Mutex gegen SimUse-Race. NICHT ein Session-Lifecycle. Session-Truth ist vpn_sessions für LEGACY
+    + MODERN (SM_SESSION §1). Locks sind Guard, nicht Truth.'
+  art: SCHUTZZIEL
+  aussage: Die Sperre ist ein atomarer Mutex gegen den SimUse-Wettlauf, kein Sitzungs-Lebenszyklus und keine Wahrheit.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt#K-1  Eine Sperre ist ein Mutex, kein Zustand.
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-07
+  begruendung: 'Guard, nicht Wahrheit: unveraendert (K-1). Der mittlere Satz (Wahrheit ist vpn_sessions) ist durch D004 ersetzt.'
+  zeilen:
+  - 455
+  - 457
+- id: TR-RDM-07
+  zitat: vpn_connection_id BIGINT UNSIGNED FK, UNIQUE SimUse=1 Guard
+  art: IMPL_DETAIL
+  aussage: Je Connection hoechstens eine Sperre (UNIQUE auf vpn_connection_id).
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - 'base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt#Indices: PRIMARY(vpn_connection_id), INDEX(expires_at)'
+  begruendung: 'Dieselbe Garantie, anders gebaut: vpn_connection_id ist selbst der Primaerschluessel; die kuenstliche id entfaellt.'
+  zeilen:
+  - 469
+  - 469
+- id: TR-RDM-08
+  zitat: session_key VARCHAR(255) NULL Diagnostisch (NAS+User)
+  art: IMPL_DETAIL
+  aussage: Diagnosefeld session_key (NAS und Benutzer).
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt#K-5  Freigeben darf nur der Halter
+  - base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt#10) PANEL-CONSUMABILITY (R-17)
+  begruendung: 'Ersetzt durch purpose und holder: Die Halterkennung ist kein Diagnosefeld, sondern Bedingung der Freigabe
+    (nur die zugelassene Sitzung gibt ihre Sperre frei). Die Diagnose laeuft ueber Zaehler der Statusdatei und die Ablehnungsgruende
+    im AAA-Protokoll.'
+  zeilen:
+  - 470
+  - 470
+- id: TR-RDM-09
+  zitat: acquired_at DATETIME NOT NULL Lock-Zeitpunkt expires_at DATETIME NOT NULL NOW()+Lock-TTL
+  art: IMPL_DETAIL
+  aussage: Zeitpunkt des Erwerbs und Ablauf (jetzt plus Sperr-TTL).
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt#K-2  Jede Sperre laeuft ab.
+  - base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt#K-4  Verglichen wird ausschliesslich mit der Datenbankzeit
+  begruendung: 'Unveraendert; praezisiert: Datenbankzeit, feste Obergrenze je Zweck.'
+  zeilen:
+  - 471
+  - 472
+- id: TR-RDM-10
+  zitat: state ENUM NULL held|released (diagnostisch) release_reason VARCHAR(255) NULL Diagnostisch
+  art: IMPL_DETAIL
+  aussage: Diagnosefelder state (held/released) und release_reason.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - 'base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt#FREIGABE:'
+  - base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt#10) PANEL-CONSUMABILITY (R-17)
+  begruendung: 'Entfallen: Eine freigegebene Sperre wird geloescht, einen Zustand ''released'' gibt es nicht (K-1: Mutex,
+    kein Zustand). Was die Felder zeigen sollten, liefern die Zaehler abgelaufener und entfernter Sperren und das AAA-Protokoll.'
+  zeilen:
+  - 473
+  - 474
+- id: TR-RDM-11
+  zitat: '- Acquire: Am Ende von authorize/attach → INSERT lock expires_at = NOW() + vpn_active_session_lock_ttl_seconds (Settings)
+    [B-03: Key mit kanonischem vpn_-Prefix]'
+  art: FUNKTION
+  aussage: Erwerb am Ende von authorize/attach; Ablauf nach vpn_active_session_lock_ttl_seconds.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt#P4  SPERRE ERWERBEN
+  - base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt#TTL vpn_active_session_lock_ttl_seconds
+  - base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt#ERWERB (zwei Anweisungen
+  begruendung: 'Zeitpunkt und Settings-Key unveraendert (nach der Wahrheitspruefung, vor der Zusage). Angepasst: Erwerb in
+    zwei einzeln festgeschriebenen Anweisungen statt ''Einfuegen oder Aktualisieren''; fuer WireGuard gibt es keinen Attach-Erwerb,
+    dort dient die Sperre dem Aktivitaetsbeginn und den Umbauten.'
+  zeilen:
+  - 478
+  - 480
+- id: TR-RDM-12
+  zitat: '- Release: Nach committed vpn_sessions INSERT (SES-25). Acct-Start allein ist KEIN ausreichender Truth-Commit. Guard
+    schützt das Fenster zwischen Auth-Accept und Session-INSERT. [B-02: Guard-Release korrigiert — nicht mehr bei Acct-Start]'
+  art: FUNKTION
+  aussage: Freigabe erst nach festgeschriebenem Eintrag in vpn_sessions; Accounting-Start allein genuegt nicht.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt#geschriebene radacct-Zeile macht die Nutzung fuer
+    P3 sichtbar
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-19
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-01
+  begruendung: 'Der Zweck bleibt: Freigegeben wird erst, wenn die Nutzung fuer den naechsten Versuch SICHTBAR ist. Seit D004
+    gibt es vpn_sessions nicht mehr; sichtbar macht die Nutzung die geschriebene radacct-Zeile, und die Wahrheitspruefung
+    (P3, P5) liest genau sie. Deshalb gibt der AAA-Dienst bei Accounting-Start NACH dem Schreiben der Zeile frei, und nur
+    mit passender Halterkennung.'
+  zeilen:
+  - 481
+  - 484
+- id: TR-RDM-13
+  zitat: '- Expired: Dürfen im Auth-Pfad ignoriert/gelöscht werden (idempotent)'
+  art: FUNKTION
+  aussage: Abgelaufene Sperren duerfen im Anmeldepfad ignoriert oder geloescht werden.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt#K-3  Eine abgelaufene Sperre ist wirkungslos
+  begruendung: Unveraendert (K-3, Anweisung E1).
+  zeilen:
+  - 485
+  - 485
+- id: TR-RDM-14
+  zitat: '- UNIQUE(vpn_connection_id) erzwingt SimUse=1 auf DB-Ebene'
+  art: SCHUTZZIEL
+  aussage: UNIQUE auf vpn_connection_id erzwingt SimUse=1 auf Datenbankebene.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt#Der Primaerschluessel stellt sicher, dass von gleichzeitigen
+    Erwerbern
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-06
+  begruendung: Der Schluessel entscheidet weiter zwischen gleichzeitigen Versuchen. Die GARANTIE fuer SimUse=1 liegt aber
+    nicht mehr in der Datenbank (die Sperre wird nach dem Start freigegeben, eine Sitzungstabelle gibt es nicht), sondern
+    im Schlussriegel des Daemons (vier Schichten, DEC-SC-06).
+  zeilen:
+  - 486
+  - 486
+- id: TR-RDM-15
+  zitat: DERIVED POLICY IST KEIN DB-FELD. Es ist eine deterministische Funktion, die zur Laufzeit berechnet wird. Sie kann
+    in /diag angezeigt werden.
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Die abgeleitete Policy ist kein Datenbankfeld, sondern eine deterministische Funktion; die Diagnose kann sie anzeigen.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-65
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-50
+  - base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt#AV-2
+  begruendung: 'Kein gespeichertes Feld: unveraendert. Eine benannte Funktion gibt es nicht; die Ableitung steckt in der Pool-Konfiguration
+    je Rolle, im gerenderten Regelwerk und in der Bewertung. Die Anzeige leistet der Lese-Helfer (SOLL und IST je Connection).'
+  zeilen:
+  - 496
+  - 497
+- id: TR-RDM-16
+  zitat: LEGACY v4_only MSCHAPv2/RADIUS accel-ppp MODERN dualstack PublicKey/AWG amneziawg
+  art: FUNKTION
+  aussage: Der Tunneltyp bestimmt IP-Stack, Anmeldeverfahren und Daemon.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt#AV-2
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-49
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-25
+  - base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-08
+  begruendung: 'Unveraendert in den Modulen: L2TP_IPSEC ohne IPv6, WIREGUARD mit beiden Familien; die Zulassung ist tunnelspezifisch.'
+  zeilen:
+  - 503
+  - 504
+- id: TR-RDM-17
+  zitat: USER POOL_USER per Plan Ja Kein Admin VIP POOL_VIP Nein Ja Kein Admin MODERATOR POOL_MOD Nein Ja Teilweise Admin
+    ADMIN POOL_ADMIN Nein Nein Voller Admin
+  art: FUNKTION
+  aussage: Die Rolle bestimmt Pool, Geschwindigkeitsgrenze, Einschraenkbarkeit und Panel-Zugriff.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt#AV-2
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-55
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-05
+  - base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-11
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-PA-20
+  begruendung: 'Pool je Rolle und ''ADMIN nie eingeschraenkt'' unveraendert. Die Geschwindigkeitsgrenze gehoert MOD-003 (BASE-080
+    stellt nur den Haken). Der Panel-Zugriff ist im Kernel enger: Verwaltungsdienste nur fuer Adressen im ADMIN-Pool UND im
+    Set admin_panel_allowed; MODERATOR erhaelt keine Kernel-Freigabe.'
+  zeilen:
+  - 510
+  - 513
+- id: TR-RDM-18
+  zitat: nft_scope = VIP-Range (CIDR 10.77.4.0/22) dns_enforce = Ja (ALLE, keine Ausnahmen)
+  art: FUNKTION
+  aussage: Der Geltungsbereich im Regelwerk ist der Adressbereich der Rolle; der DNS-Zwang gilt fuer alle.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-50
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-49
+  begruendung: Unveraendert.
+  zeilen:
+  - 526
+  - 527
+- id: TR-RDM-19
+  zitat: 'DP-01 Ableitungen sind TOTAL: Für jede Kombination tunnel_type × access_role existiert eine vollständige derived_policy.'
+  art: SCHUTZZIEL
+  aussage: 'Die Ableitung ist total: fuer jede Kombination aus Tunneltyp und Rolle vollstaendig.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-55
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-49
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-41
+  begruendung: 'Folgt aus drei Regeln statt aus einer: genau eine Pool-Zeile je Rolle, gleiche Sicherheitsregeln fuer alle
+    Rollen, Zulassung je Tunneltyp. Einen Test, der alle acht Kombinationen durchlaeuft, gibt es nicht - T-FW-41 prueft je
+    Rolle eine Adresse (Befund BF-0100).'
+  zeilen:
+  - 541
+  - 542
+- id: TR-RDM-20
+  zitat: 'DP-02 Ableitungen sind DETERMINISTISCH: Gleiche Inputs → gleiche Outputs. Keine Hidden Branching, keine Zufallselemente.'
+  art: SCHUTZZIEL
+  aussage: Die Ableitung ist deterministisch.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-PA-02
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-50
+  begruendung: 'Unveraendert: Der Kernel-Zustand folgt allein aus SQL-SOLL, Pool-Konfiguration und Regelwerk.'
+  zeilen:
+  - 543
+  - 544
+- id: TR-RDM-21
+  zitat: 'DP-03 Ableitungen sind NICHT USER-EDITABLE: Nur SYSTEM/ADMIN können tunnel_type oder access_role ändern.'
+  art: SCHUTZZIEL
+  aussage: Nur SYSTEM und ADMIN aendern Tunneltyp oder Rolle.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-010_IDENTITY_CORE/BASE-010_080_WRITE_PATH_MATRIX.txt#access_role
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_060_UMBAUTEN_ROLLENWECHSEL_UND_KASKADEN.txt#RC1  VORPRUEFUNG
+  begruendung: Unveraendert; der Schreibweg gehoert BASE-010, der Rollenwechsel laeuft als benannter Ablauf (BASE-080_060).
+  zeilen:
+  - 545
+  - 546
+- id: TR-RDM-22
+  zitat: 'DP-05 Negative Test: Manipulation an fixed_ip oder Protocol darf derived_policy NICHT ändern (SoT bleibt SQL-Feld).'
+  art: TEST
+  aussage: 'Negativtest: Eine Manipulation an der Adresse oder am Protokoll aendert die abgeleitete Policy nicht.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-49
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-61
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_030_HERSTELLUNG_EINZELZIEL.txt#9) NICHT AUSWERTBARE LAGE (DEC-PA-22)
+  begruendung: 'Niemand rechnet aus einer Adresse Rolle oder Slot zurueck (SC-49), und der Drift-Waechter meldet jede Adresse,
+    die nicht zu Rolle und Slot passt (SC-61). Im KERNEL folgt die Rollenzuordnung aber dem Adressbereich (FW-50): Eine abweichende
+    Adresse wird bis zur Reparatur nach ihrem Bereich behandelt, und die Herstellung fuehrt ''Adresse ausserhalb des Pools
+    der Rolle'' nicht als nicht auswertbare Lage. Offen als BF-0086 b.'
+  zeilen:
+  - 549
+  - 550
+- id: TR-RDM-23
+  zitat: 'SETTINGS-SYSTEM = operationale Parameter (Systemverhalten) Beispiele: Lock-TTL, Retry-Counter, Timeouts, Failsafe-Werte.
+    Auflösung: CONNECTION > CUSTOMER > GLOBAL. Lebt in: settings_catalog + settings_global/customer/connection.'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Settings sind Systemverhalten und werden Connection vor Customer vor Global aufgeloest.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-24
+  begruendung: Die Aufloesung gehoert BASE-090. Die vier Module lesen Settings nur ueber sie und fuehren keine eigenen Rueckfallwerte;
+    ihre Keys gelten global.
+  zeilen:
+  - 554
+  - 557
+- id: TR-RDM-24
+  zitat: 'Zählt: ACTIVE, RESTRICTED. Zählt NICHT: DISABLED, PREPROVISIONED, revoked.'
+  art: FUNKTION
+  aussage: Das Aktiv-Budget zaehlt ACTIVE und RESTRICTED, nicht DISABLED, PREPROVISIONED, revoked.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_020_BEWERTUNG_UND_LIFECYCLE_LAUF.txt#A-1  PLAN-LIMIT
+  begruendung: Welche Connections bei ueberschrittenem Limit als ueberzaehlig gelten, bestimmt allein MOD-010 (Auskunft A-1);
+    der Bewerter uebernimmt das Ergebnis. Die Zaehlregel selbst bleibt BASE-100/MOD-010 (dort zurueckzuverfolgen).
+  zeilen:
+  - 688
+  - 689
+- id: TR-RDM-25
+  zitat: SimUse=1 gilt PRO CONNECTION (nicht pro Customer). Ein VIP mit 3 Connections kann 3 Geräte GLEICHZEITIG nutzen, aber
+    jede Connection hat maximal 1 aktive Session.
+  art: SCHUTZZIEL
+  aussage: SimUse=1 gilt je Connection, nicht je Customer.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - 'base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt#SimUse=1: Je vpn_connection_id besteht hoechstens
+    EINE Nutzung.'
+  begruendung: Unveraendert.
+  zeilen:
+  - 728
+  - 730
+- id: TR-RDM-26
+  zitat: 'a) SHARED (pro Account) Quota/Traffic-Volumen gilt für den GESAMTEN Kunden. Alle Connections teilen sich ein Budget.
+    Beispiel: Customer hat 500 GB, verteilt auf 3 Connections. Enforcement: SUM(traffic) aller Connections des Customers.'
+  art: FUNKTION
+  aussage: Bei geteiltem Kontingent zaehlt die Summe ueber alle Connections des Customers.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_020_BEWERTUNG_UND_LIFECYCLE_LAUF.txt#A-2  KONTINGENT
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-14
+  begruendung: Gebucht wird je Connection (BASE-070); teilen sich mehrere ein Kontingent, liefert die Kontingent-Auskunft
+    die Summe. Die Bewertung gehoert BASE-080, das Limit BASE-100/MOD-010.
+  zeilen:
+  - 749
+  - 753
+- id: TR-RDM-27
+  zitat: 'BANDWIDTH/QoS: Immer PRO CONNECTION (technische Notwendigkeit, Shaping passiert am Interface/Peer). Der Speed-Wert
+    kommt aber vom Plan des Customers.'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Bandbreite und QoS gelten immer je Connection.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-PA-20
+  begruendung: 'Unveraendert: Die Formung wird je Connection im Ablauf der Herstellung gesetzt; wie sie aussieht, gehoert
+    MOD-003.'
+  zeilen:
+  - 766
+  - 768
+- id: TR-RDM-28
+  zitat: vpn_connections (1) ←──── (0..1) active_session_locks Pro Connection maximal 1 Lock (SimUse=1 Guard). Lock existiert
+    nur während Auth→Accounting-Start Fenster.
+  art: FUNKTION
+  aussage: Je Connection hoechstens eine Sperre; sie besteht nur im Fenster von der Zusage bis zum Accounting-Start.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_030_SIMUSE_UND_SPERRVERTRAG.txt#5) ZWECKE
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-07
+  begruendung: 'Fuer die Zulassungssperre unveraendert. Erweitert: Dieselbe Tabelle dient als Mutex fuer Umbauten (Schluesselrotation,
+    Rollenwechsel, Hard-Cut, Aktivitaetsbeginn bei WireGuard), je mit Zweck, Halter und Ablauf.'
+  zeilen:
+  - 985
+  - 987
+- id: TR-RDM-29
+  zitat: 'vpn_connections (1) ←──── (0..n) vpn_sessions Session-Truth (EINZIGE Quelle für "Session aktiv", SM_SESSION §1).
+    Offene Session = closed_at IS NULL. SimUse=1 pro Connection. Mehrere historische Sessions pro Connection möglich. [v0.6:
+    vpn_sessions als primäre Session-Truth ergänzt]'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: vpn_sessions ist die einzige Quelle fuer 'Sitzung aktiv'.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-01
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-01
+  begruendung: Ersetzt durch D004 (siehe TR-RDM-04).
+  zeilen:
+  - 989
+  - 993
+- id: TR-RDM-30
+  zitat: 'vpn_connections (1) ←──── (0..n) radacct LEGACY Accounting/Forensik. NICHT MEHR alleinige Session-Truth. Session-Truth
+    ist vpn_sessions (SM_SESSION §1). radacct bleibt für LEGACY als zusätzliche Accounting-Quelle. [v0.6: Rolle klargestellt
+    — nicht mehr "Session-Truth"]'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: radacct ist Accounting und Forensik, nicht die alleinige Sitzungswahrheit.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-02
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-11
+  begruendung: 'Weiter kein alleiniger Lebendbeweis. Angepasst: radacct ist das Protokoll des Gemeldeten und zusammen mit
+    der Laufzeit die Pruefgrundlage; der L2TP-Verbrauch wird aus radacct gebucht.'
+  zeilen:
+  - 995
+  - 999
+- id: TR-RDM-31
+  zitat: vpn_connections (1) ←──── (0..n) connection_lifecycle_log Vollständige Lifecycle-Historie pro Connection. Append-only,
+    kein UPDATE/DELETE.
+  art: BETRIEB
+  aussage: Das Lifecycle-Log haelt die vollstaendige Historie je Connection, nur anfuegend.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-03
+  begruendung: Fuer Zustandswechsel und Verwaltungshandlungen unveraendert (BASE-010_060). Beginn und Ende einer Nutzung stehen
+    seit BASE-070 in einer eigenen Ereignistabelle; das Panel zeigt beide in einer Zeitleiste. Dort als Abweichung von einer
+    frueheren Betreiberentscheidung ausgewiesen.
+  zeilen:
+  - 1020
+  - 1022
+- id: TR-RDM-32
+  zitat: '- Wirkung: Walled Garden (nur SERVICE_NET erreichbar, kein Internet) - op_status=RESTRICTED → nftables Restricted-Set
+    → Walled Garden'
+  art: FUNKTION
+  aussage: 'RESTRICTED heisst: Sperr-Set im Kernel, nur das Dienstnetz bleibt erreichbar.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-10
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-PA-08
+  begruendung: Unveraendert.
+  zeilen:
+  - 1047
+  - 1048
+- id: TR-RDM-33
+  zitat: '- op_status=DISABLED → Auth reject (kein Tunnel)'
+  art: FUNKTION
+  aussage: 'DISABLED heisst: Anmeldung wird abgewiesen, kein Tunnel.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-PA-09
+  begruendung: 'Unveraendert fuer neue Anmeldungen (BASE-020). Ergaenzt: Eine bestehende Nutzung wird beendet - Laufzeit zuerst,
+    bei L2TP vorher die Freigabe entzogen.'
+  zeilen:
+  - 1049
+  - 1049
+- id: TR-RDM-34
+  zitat: '- ADMIN ist NICHT restricted-fähig (R-08, Not-Aus = DISABLE)'
+  art: SCHUTZZIEL
+  aussage: ADMIN kann nicht eingeschraenkt werden; der Notaus ist die Sperrung.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-05
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-05
+  begruendung: Unveraendert.
+  zeilen:
+  - 1051
+  - 1051
+- id: TR-RDM-35
+  zitat: '- Hard-Cut bei Statuswechsel (Conntrack-Flush)'
+  art: FUNKTION
+  aussage: Harter Schnitt bei Statuswechsel durch Loeschen der Verbindungsverfolgung.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-PA-08
+  - base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-09
+  begruendung: 'Angepasst: Das Sperr-Set wirkt ab dem naechsten Paket, weil die Zustands-Sperren vor dem Durchlass bestehender
+    Fluesse stehen; das Loeschen der Verbindungsverfolgung bleibt Pflicht, ist aber nicht mehr die einzige Sicherung.'
+  zeilen:
+  - 1052
+  - 1052
+- id: TR-RDM-36
+  zitat: '- Verify (Panel) darf NIE op_status=RESTRICTED auslösen - Claim-Requirement (Panel) darf NIE op_status=RESTRICTED
+    auslösen - Nur zeitgesteuerte Events (Grace/Deadline/Quota/Expiry) oder Admin/Customer-Aktionen dürfen op_status ändern'
+  art: SCHUTZZIEL
+  aussage: Bestaetigung der E-Mail und Claim-Pflicht loesen nie eine Einschraenkung aus; nur Fristen, Quota, Laufzeit oder
+    Handlungen von Admin und Kunde aendern den Status.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_020_BEWERTUNG_UND_LIFECYCLE_LAUF.txt#2) BEDINGUNGSQUELLEN (abschliessend)
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_020_BEWERTUNG_UND_LIFECYCLE_LAUF.txt#KEINE WEITEREN QUELLEN
+  begruendung: Die Liste der Quellen ist weiter abschliessend und enthaelt weder Bestaetigung noch Claim-Pflicht. Sie ist
+    um das Plan-Limit erweitert (aus SM_CONNECTION 5.4, dem juengeren Stand).
+  zeilen:
+  - 1064
+  - 1067
+- id: TR-RDM-37
+  zitat: 'OPEN-DOM-02: AWG-Auth-Brücke → SQL-first AAA WireGuard authentifiziert per PublicKey (kein Username/Password). Wie
+    wird die Brücke zu FreeRADIUS/SQL-first AAA hergestellt? Optionen: A) AWG-Hook prüft PublicKey gegen DB, RADIUS bleibt
+    für Accounting B) AWG-Hook generiert synthetischen RADIUS Auth-Request C) AWG-Auth ist standalone (nur DB), RADIUS nur
+    für Legacy Wird in BASE-30_TUNNEL_AWG + BASE-20_AAA_CORE entschieden.'
+  art: OFFEN
+  aussage: 'Offen: Wie wird WireGuard an die SQL-first-Zulassung angebunden?'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-020_AAA_CORE/BASE-020_040_WIREGUARD_ADMISSION.txt
+  - base/BASE-050_FIREWALL_CORE/BASE-050_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-FW-08
+  begruendung: 'Entschieden mit BASE-020_040 (2026-04-18): eigener Vertragspfad, die Peer-Praesenz ist die Zulassung. Die
+    neuen Module bauen darauf auf.'
+  zeilen:
+  - 1080
+  - 1087
+- id: TR-RDM-38
+  zitat: 'OPEN-DOM-03: Hybrid-Connection (Legacy + Modern gleichzeitig) Kann eine vpn_connection theoretisch beide tunnel_types
+    haben? Annahme: NEIN. Eine Connection hat exakt einen tunnel_type. Ein Customer kann aber Connections beider Typen besitzen.'
+  art: OFFEN
+  aussage: 'Annahme: Eine Connection hat genau einen Tunneltyp.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_030_HERSTELLUNG_EINZELZIEL.txt#mit mehreren Auth-Zeilen
+  begruendung: 'Als Annahme uebernommen: Die Herstellung behandelt einen zugelassenen Status ohne oder mit mehreren Auth-Zeilen
+    als nicht auswertbare Lage.'
+  zeilen:
+  - 1089
+  - 1092
+- id: TR-RDM-39
+  zitat: 'OPEN-DOM-04: AWG-spezifische Session-Felder [TEILWEISE BEANTWORTET] WireGuard hat kein natives Session-Start/Stop
+    Event. Welche Felder braucht die Session-Erkennung? KONZEPTIONELL BEANTWORTET durch SM_SESSION: - vpn_sessions Schema
+    (§3): 14 Felder inkl. session_token, last_seen_at, runtime_ref, truth_source - MODERN Session Controller (§7): Handshake-basierte
+    Erkennung - VALID-Definition (§8.2): Peer + AllowedIPs + Handshake-Freshness NOCH OFFEN: Operative Implementierung in
+    BASE-70_SESSION_CORE (Controller-Daemon, Polling-Mechanik, Runtime-Mapping-Format).'
+  art: OFFEN
+  aussage: 'Offen: Controller-Daemon, Polling-Mechanik und Laufzeit-Mapping fuer WireGuard.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-WT-08
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-WT-09
+  - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-WT-10
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-01
+  begruendung: 'Entschieden in BASE-040: Polling-Daemon, Liveness-Schwelle, Mapping ohne Dateien. Die im Text als beantwortet
+    genannte Sitzungstabelle (14 Felder) ist durch D004 entfallen.'
+  zeilen:
+  - 1094
+  - 1103
+- id: TR-RDM-40
+  zitat: 'OPEN-DOM-05: Admin/Mod-Aktionslog + E-Mail-Benachrichtigung Jede ADMIN- und MODERATOR-Interaktion im Panel wird:
+    1. Geloggt (Webpanel-Log): Wer, Was, Wann, welche Connection/Customer 2. Automatisch per E-Mail an den Owner (Marco) zugestellt
+    Die E-Mail enthält einen detaillierten Log der Aktion. Zweck: Sofortige Transparenz über alle privilegierten Aktionen.
+    Betrifft: Alle schreibenden Panel-Operationen von ADMIN/MODERATOR (Connection erstellen/disablen/restricten, Rolle ändern,
+    Customer suspenden, Settings ändern, Token rotieren, etc.) Scope: MOD-06_PANEL_FEATURES + MOD-07_LOGGING_MONITORING (M3).'
+  art: OFFEN
+  aussage: Jede schreibende Panel-Handlung von ADMIN und MODERATOR wird protokolliert und dem Betreiber per E-Mail zugestellt.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - PRIORITAETENLISTE.txt#OPEN-DOM-05
+  begruendung: Die Anforderung des Betreibers hatte ausserhalb dieser Datei keine Fuehrung (Befund BF-0101). Sie steht jetzt
+    als Pflicht an M3-060 und M3-070 der PRIORITAETENLISTE; erfuellt ist sie erst mit MOD-006 und MOD-007. Die Module ab BASE-040
+    protokollieren ihre privilegierten Handlungen bereits mit Akteur.
+  zeilen:
+  - 1105
+  - 1114
+- id: TR-RDM-41
+  zitat: 'T-DOM-02: Derived Policy Determinismus - Für jede Kombination tunnel_type × access_role wird die erwartete derived_policy
+    berechnet. - Negative Test: Manipulation an fixed_ip ändert derived_policy NICHT.'
+  art: TEST
+  aussage: 'Test: Fuer jede Kombination wird die erwartete Policy berechnet; Manipulation der Adresse aendert sie nicht.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-41
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-61
+  begruendung: 'Teilweise: T-FW-41 prueft die Rollenzuordnung je Rolle, der Drift-Waechter erkennt abweichende Adressen. Ein
+    Test ueber alle acht Kombinationen und der Negativtest fehlen (BF-0100, BF-0086 b).'
+  zeilen:
+  - 1126
+  - 1129
+- id: TR-RDM-42
+  zitat: 'T-DOM-05: Ebenentrennung Verify/Claim/Restricted - Verify pending → kein op_status-Wechsel - Claim required → kein
+    op_status-Wechsel - UNCLAIMED_OVERDUE → op_status=RESTRICTED - ADMIN → nie restricted'
+  art: TEST
+  aussage: 'Test: Bestaetigung und Claim-Pflicht aendern den Status nicht; ueberfaelliger Claim schraenkt ein; ADMIN nie.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_020_BEWERTUNG_UND_LIFECYCLE_LAUF.txt#RESTRICT_UNCLAIMED_OVERDUE
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-05
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-05
+  begruendung: In der Bewertung abgebildet (Quellenliste abschliessend; ADMIN nie RESTRICTED). Die Tests fuer Bestaetigung
+    und Claim im Panel gehoeren MOD-001.
+  zeilen:
+  - 1140
+  - 1144
+- id: TR-RDM-43
+  zitat: 'T-DOM-07: Rollenwechsel Atomicity (D002) - access_role Änderung + IP-Neuallokation + Hard-Cut in einer Transaktion
+    - In-place Mutation derselben Connection (kein DISABLE+INSERT) - LEGACY: subaccount_login + nt_hash bleiben gleich - MODERN:
+    wg_public_key bleibt gleich, neue Config-Ausgabe - Lifecycle-Log: ROLE_CHANGE Event mit altem+neuem Zustand - Bei Fehler:
+    alter Zustand bleibt erhalten (Fail-Closed)'
+  art: TEST
+  aussage: 'Test Rollenwechsel: Rollenaenderung, neue Adresse und harter Schnitt in einer Transaktion; bei Fehler bleibt der
+    alte Zustand.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-PA-16
+  - 'base/BASE-080_POLICY_APPLY_CORE/BASE-080_060_UMBAUTEN_ROLLENWECHSEL_UND_KASKADEN.txt#RC3  TRANSAKTION (UB2):'
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-53
+  begruendung: Atomar sind Rollenaenderung, neue Adresse und der Auftrag an die Durchsetzung. Der harte Schnitt ist eine Kernel-Handlung
+    und folgt NACH dem Commit (so schon D002 7.4); das Fenster dazwischen decken Auftragsbuch und Rollen-Netze. Die alte Adresse
+    geht in die Quarantaene.
+  zeilen:
+  - 1150
+  - 1156
+- id: TR-RDM-44
+  zitat: VC-07 Rollenwechsel erzeugt neue IP-Allokation (alter Slot → Quarantäne).
+  art: FUNKTION
+  aussage: Beim Rollenwechsel geht der alte Slot in die Quarantaene.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-53
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-16
+  begruendung: Unveraendert; BASE-070 schliesst die bisher offene Luecke mit vpn_ip_quarantine.
+  zeilen:
+  - 389
+  - 389
+- id: TR-RDM-45
+  zitat: IP-INV-01 ip_slot MUSS innerhalb des durch access_role definierten Pool-Bereichs liegen (2..max_slot, siehe NETWORK_MODEL
+    5.1).
+  art: SCHUTZZIEL
+  aussage: Der Slot liegt im Bereich des Pools der Rolle.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt#AV-2
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-61
+  begruendung: Unveraendert; der Drift-Waechter prueft es laufend.
+  zeilen:
+  - 424
+  - 425
+- id: TR-RDM-46
+  zitat: IP-INV-02 ip_slot=0 ist verboten (Netzadresse). IP-INV-03 ip_slot=1 ist SYSTEM-RESERVED (Gateway-Anchor) und darf
+    NIEMALS an eine VPN-Connection vergeben werden — auch nicht per Break-Glass oder Admin-Override. Die .1 Adresse jedes
+    Pools ist systemreserviert, unabhängig vom Pool. Break-Glass nutzt ausschließlich die Tail-Reserve.
+  art: SCHUTZZIEL
+  aussage: Slot 0 ist verboten, Slot 1 systemreserviert - auch nicht fuer Ausnahmen.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt#Slot 1                   Anker des Pools       SYSTEM-RESERVIERT
+  begruendung: Unveraendert.
+  zeilen:
+  - 426
+  - 431
+- id: TR-RDM-47
+  zitat: IP-INV-04 Slots in der Tail-Reserve (letzte N Slots) dürfen nur per Break-Glass (ADMIN) alloziert werden.
+  art: SCHUTZZIEL
+  aussage: Die Reserve am Ende des Slot-Raums wird nur als Ausnahme durch ADMIN vergeben.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_060_ADRESSVERGABE_UND_QUARANTAENE.txt#Slot MAX-R+1 .. MAX      Reserve               nur
+    mit Freigabe
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-56
+  begruendung: Unveraendert.
+  zeilen:
+  - 433
+  - 434
+- id: TR-RDM-48
+  zitat: IP-INV-06 Keine zwei AKTIVEN Connections dürfen denselben ip_slot innerhalb desselben Pools haben.
+  art: SCHUTZZIEL
+  aussage: Keine zwei aktiven Connections tragen denselben Slot desselben Pools.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-50
+  - base/BASE-070_SESSION_CORE/BASE-070_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-SC-16
+  begruendung: 'Strenger: Ein Slot ist gesperrt, solange IRGENDEINE Connection-Zeile ihn traegt oder die Quarantaene ihn fuehrt
+    - nicht nur bei aktiven.'
+  zeilen:
+  - 437
+  - 438
+- id: TR-RDM-49
+  zitat: '- Niemals "aus IP-Ranges ableiten/erraten" (kein Hidden Inference).'
+  art: SCHUTZZIEL
+  aussage: Rolle und Tunneltyp werden nie aus Adressbereichen abgeleitet oder erraten.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-070_SESSION_CORE/BASE-070_090_INVARIANTEN.txt#SC-49
+  begruendung: 'Unveraendert fuer SQL und fuer jede Entscheidung der Module: Niemand rechnet aus einer Adresse Rolle oder
+    Slot zurueck. Dass der Kernel Rollen ueber Adressbereiche unterscheidet, ist keine Ableitung der Rolle, sondern das in
+    Abschnitt 5.3 dieser Datei vorgesehene Mittel der Durchsetzung (nft_scope); zur Folge bei abweichender Adresse siehe TR-RDM-22.'
+  zeilen:
+  - 238
+  - 238
