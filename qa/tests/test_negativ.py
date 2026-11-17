@@ -197,6 +197,7 @@ class StatusUndGates(Basis):
 BERICHT = "governance/pruefungen/BASE-070_NACHPRUEFUNG_TEIL_A_2026-11-14.md"
 KENNUNG_IM_BERICHT = "B-01"          # unter dieser Kennung fuehrt der Bericht einen Punkt
 BERICHT_ABGEBROCHEN = "governance/pruefungen/KONSOLIDIERUNG_PRUEFUNG_C_PRUEFWERKZEUGE_2026-11-14_ABGEBROCHEN.md"
+BERICHT_T3 = "governance/pruefungen/KONSOLIDIERUNG_NACHPRUEFUNG_3_T_TEXTBEFUNDE_2026-11-15.md"
 SAMMLUNG = "governance/pruefungen/PRUEFAUFTRAEGE_2026-11-13_BIS_2026-11-15.md"
 GRUND = "Test: eine ausreichend lange Begruendung"
 
@@ -635,6 +636,23 @@ class Befunde(Basis):
     def test_bestaetigung_mit_registerkennung_statt_berichtskennung(self):
         # Kennungen der eigenen Register (BF-, QS-, BM- ...) zaehlen nicht als Stelle im Bericht
         self.schliesse(nachpruefung=f"bestaetigt ({BERICHT}; siehe QS-07 und BM-0015)")
+        self.erwarte_fehler(f"{self.bid}: nachpruefung nennt keine Kennung, unter der der genannte Bericht den Befund fuehrt")
+
+    def test_bestaetigung_mit_verbundkennung_des_berichts_besteht(self):
+        # Verbundkennung: Registerkennung MIT Zusatz, die ein Pruefauftrag als Urteilskennung vergibt und die der
+        # Bericht fuehrt (dritte Nachpruefung, Bericht T: "BF-0114-M2-080"). Bis 2026-11-17 schloss die Regel sie
+        # wegen des Praefixes "BF-" aus; ein so bestaetigter Befund liess sich nicht schliessen (BF-0122).
+        self.schliesse(nachpruefung=f"bestaetigt ({BERICHT_T3}, Abschnitt 2.3: BF-0114-M2-080)")
+        rc, out = self.lauf()
+        self.assertEqual(rc, 0, out)
+
+    def test_bestaetigung_mit_verbundkennung_die_nicht_im_bericht_steht(self):
+        self.schliesse(nachpruefung=f"bestaetigt ({BERICHT_T3}, Abschnitt 2.3: BF-0114-GIBT-ES-NICHT)")
+        self.erwarte_fehler(f"{self.bid}: nachpruefung nennt keine Kennung, unter der der genannte Bericht den Befund fuehrt")
+
+    def test_bestaetigung_mit_blosser_befundkennung_die_im_bericht_steht(self):
+        # Die blosse Registerkennung zaehlt auch dann nicht, wenn der Bericht sie nennt (Bericht T nennt "BF-0053").
+        self.schliesse(nachpruefung=f"bestaetigt ({BERICHT_T3}; siehe BF-0053)")
         self.erwarte_fehler(f"{self.bid}: nachpruefung nennt keine Kennung, unter der der genannte Bericht den Befund fuehrt")
 
     def test_bestaetigung_mit_selbst_angelegter_pruefungsdatei(self):

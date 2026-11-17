@@ -51,6 +51,10 @@ BF_FELDER = {"id", "klasse", "status", "stand", "titel", "beschreibung", "fundst
 # der eigenen Register und der Liste.
 KENNUNG = re.compile(r"\b[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\d{1,4}\b")
 KEINE_BERICHTSKENNUNG = re.compile(r"^(?:BF|QS|BM|UP|AP|VB|OP|BL|TR|M\d)-")
+# Verbundkennung: eine Befund- oder Mitteilungskennung MIT Zusatz ("BF-0114-M2-080", "BF-0115-EINARBEITUNG",
+# "BM-0019-NR-1"), die ein Pruefauftrag dem Pruefer als Urteilskennung zuweist. Sie zaehlt als Stelle im Bericht, wenn
+# der Bericht sie fuehrt; die blosse Registerkennung ("BF-0114") zaehlt weiter nicht (seit 2026-11-17, BF-0122).
+VERBUNDKENNUNG = re.compile(r"\b(?:BF|BM)-\d{4}-[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*\b")
 BEGRUENDUNG_MIN = 20      # eine "Begruendung" aus weniger Zeichen gilt als fehlend; ob sie traegt, prueft nichts
 # Befundkennungen der Pruefberichte mit eigenem Namensraum (F-AST-006, F-NKO-018, F-NK2-B-03): Nennt die Herkunft
 # eines Befunds eine solche Kennung und fuehrt ein Pruefbericht sie, gilt der Bericht als genannt (F-NK2-B-06).
@@ -627,8 +631,11 @@ class Pruefung:
 
     def bestaetigt(self, text):
         """Eine Bestaetigung nennt einen Pruefbericht UND eine Kennung, unter der dieser Bericht den Punkt fuehrt
-        (sie muss im Bericht stehen). Ob das Urteil dort traegt, prueft das nicht."""
-        kennungen = [k for k in KENNUNG.findall(str(text or "")) if not KEINE_BERICHTSKENNUNG.match(k)]
+        (sie muss im Bericht stehen): eine Kennung des Pruefers oder eine Verbundkennung aus Registerkennung und
+        Zusatz. Ob das Urteil dort traegt, prueft das nicht."""
+        t = str(text or "")
+        kennungen = [k for k in KENNUNG.findall(t) if not KEINE_BERICHTSKENNUNG.match(k)]
+        kennungen += VERBUNDKENNUNG.findall(t)
         return any(k in self.lies_text(p) for p in self.berichte(text) for k in kennungen)
 
     def pruefe_pruefungsordner(self):
