@@ -1524,6 +1524,7 @@ Altmodule (S); Pruefwerkzeuge (W1, W2); Zahlen und Register (C); Vergleich mit d
 - Länge: 6957 Zeichen
 - Denkaufwand: xhigh (zweithöchste Stufe). Grund: Urteil je Kennung am Text und an den Daten, eigene Zählungen und Gegenproben; hohe Beweistiefe, großer Kontext.
 - Verlauf: Lauf vom 2026-11-15 am Limit des eingesetzten Modells abgebrochen (Teilbericht in einer Arbeitsdatei); Fortsetzung am 2026-11-17 mit demselben Auftrag und derselben Stufe.
+- Bericht: KONSOLIDIERUNG_NACHPRUEFUNG_3_C_CHANGELOG_UND_REGISTER_2026-11-17.md
 
 ~~~~
 PRUEFAUFTRAG C - DRITTE NACHPRUEFUNG: CHANGELOG, ZAHLEN, BEFUNDREGISTER, ANTWORT ZUM ABSCHLUSS VON QS-07 (2026-11-15)
@@ -1995,6 +1996,7 @@ return { ergebnisse, nicht_gestartet: reihe.slice(ergebnisse.length).map(s => s.
 - Art: Auftrag an einen neuen Prüfer (Auftragsdatei), Fassung vom 2026-11-17: gekürzt um Doppeltes (Betreiberanweisung BM-0021 Nr. 5); ersetzt für den Lauf die Fassung in Abschnitt 28
 - Länge: 6457 Zeichen
 - Denkaufwand: high. Grund: nach der Kürzung überwiegend vorgegebene Experimente mit klarem Ergebnis (Wiederholung der Fälle aus Bericht B, sieben Experimente zu BF-0117); die Sperrregel hat Prüfer S geprüft.
+- Verlauf: am 2026-11-17 nach rund 20 Minuten angehalten (Betreibernachricht BM-0024); kein Bericht. Die Aufträge der Abschnitte 32 bis 34 sind nicht gestartet.
 
 ~~~~
 PRUEFAUFTRAG W2 - DRITTE NACHPRUEFUNG: PRUEFWERKZEUGE II - AENDERUNGEN DER SERIE (2026-11-15)
