@@ -16,7 +16,7 @@ ZWECK:
 
   Ein Statuswechsel besteht aus zwei Teilen: der Aenderung in SQL und der
   Herstellung im Kernel. Dazwischen kann der ausloesende Prozess enden,
-  der Einzel-Lock belegt sein oder ein Kernel-Schritt scheitern. Ohne
+  der Kernel-Lock belegt sein oder ein Kernel-Schritt scheitern. Ohne
   weitere Vorkehrung bliebe die Aenderung bis zum naechsten Abgleich
   wirkungslos - bei einer Sperrung wegen Missbrauchs oder nach einem
   kompromittierten Schluessel sind das Minuten.
@@ -96,7 +96,9 @@ ZWECK:
            origin             := CHANGE, sobald ein Schreibweg aus
                                  Abschnitt 3 eintraegt; RETRY aendert ein
                                  bestehendes CHANGE nicht
-           attempts := 0; next_try_at := jetzt
+           attempts := 0; next_try_at := jetzt (einzige Ausnahme: Der
+                                 Kennwortwechsel traegt einen spaeteren
+                                 Zeitpunkt ein, BASE-080_060 Abschnitt 6)
     AB-4 ERLEDIGEN darf nur vpn-policy-apply, und nur nach der
          Schlusspruefung am Kernel (BASE-080_030 Schritt H8):
            DELETE ... WHERE scope = :s AND ref_id = :r
@@ -112,10 +114,13 @@ ZWECK:
     AB-5 Der Auftrag traegt KEINEN Zielzustand. Die Herstellung liest SQL
          immer frisch (DEC-PA-02); ein alter Auftrag kann nie einen
          ueberholten Zustand herstellen.
-    AB-6 Es schreibt nur der DB-User system (Uebergangsroutinen von
-         BASE-010, Bewerter, Umbauten, vpn-policy-apply). Der DB-User
-         radius hat keinen Zugriff; der DB-User webpanel liest nur ueber
-         eine Sicht ohne Adressen.
+    AB-6 Es schreibt nur der DB-User system - ueber die Schreibwege aus
+         Abschnitt 3 (Uebergangsroutinen von BASE-010, Bewerter,
+         Umbauten, Rotation von BASE-040_040, Formungsvorgabe von MOD-003
+         und MOD-010, Wiederherstellung von MOD-008, Verwaltungshandlungen
+         ueber den privilegierten Auftragsweg von BASE-110) und ueber
+         vpn-policy-apply selbst. Der DB-User radius hat keinen Zugriff;
+         der DB-User webpanel liest nur ueber eine Sicht ohne Adressen.
     AB-7 Die Tabelle enthaelt keine Geheimnisse. prev_ipv4 und prev_ipv6
          sind Tunneladressen, keine Gegenstellen.
 
@@ -138,11 +143,23 @@ ZWECK:
                         Adress-Reparatur) nennt SQL nur noch die neue
                         Adresse. Freigabe, Sperr-Set und conntrack der
                         ALTEN Adresse muessen trotzdem geraeumt und eine
-                        L2TP-Sitzung auf ihr beendet werden.
-  Fehlt ein Merkmal (Auftrag von einem aelteren Stand, Eintrag ohne
-  Angabe), bleibt die Herstellung richtig, nur weniger gezielt: Den
-  Fluss-Schnitt holt der Abgleich nach, eine Sitzung auf einer Adresse
-  ohne Connection beendet die Aufsicht (BASE-080_030 Abschnitt 6.1).
+                        L2TP-Sitzung auf ihr beendet werden. Gehalten
+                        wird nur der AELTESTE Stand (AB-3). Wechselt die
+                        Adresse mehrmals, bevor hergestellt ist, steht
+                        eine mittlere Adresse in keinem Feld; eine
+                        Sitzung auf ihr faengt die Regel des folgenden
+                        Absatzes.
+  FEHLT EIN MERKMAL (Auftrag von einem aelteren Stand, Eintrag ohne
+  Angabe, mittlere Adresse), gilt:
+    - Eine Sitzung auf einer Adresse, die nicht mehr die der Connection
+      ist, beenden l2tp_ensure ueber den Anmeldenamen (BASE-080_030 Fall
+      L-E), der Abgleich (BASE-080_040 Schritt V1 e2) und der
+      L2TP-Abgleich von BASE-070 (Schritt L7). Reste in den Sets raeumt
+      der Abgleich.
+    - Ein fehlendes Merkmal "Schnitt ausstehend" laesst sich NICHT
+      nachholen: Steht die Adresse einmal im Sperr-Set, zeigt nichts mehr
+      den Eintritt. Deshalb sichert jede Herstellung das Merkmal, BEVOR
+      sie einen Eintritt ausfuehrt (BASE-080_030 Schritt F1a).
 
 ================================================================================
 3) WER EINEN AUFTRAG SCHREIBT
@@ -199,10 +216,18 @@ ZWECK:
   ein Modul ihn definiert), Wiederherstellung einer Datensicherung
   (MOD-008).
 
-  vpn-policy-apply SELBST traegt einen Auftrag ein (origin RETRY), wenn
-  ein Aufruf ohne Auftrag mit Ergebnis 4, 5 oder 8 scheitert und die
-  Datenbank erreichbar ist (zum Beispiel --l2tp-up): So geht auch dieser
-  Versuch in die Wiederholung. Bei Ergebnis 6 traegt es KEINEN Auftrag
+  vpn-policy-apply SELBST traegt einen Auftrag ein (origin RETRY),
+    a) wenn ein Aufruf ohne Auftrag mit Ergebnis 4, 5 oder 8 scheitert,
+       die Datenbank erreichbar und die Connection BESTIMMT ist (zum
+       Beispiel --l2tp-up nach der Zuordnung): So geht auch dieser
+       Versuch in die Wiederholung. Ist die Connection noch nicht
+       bestimmt - ein Sitzungsbeginn, der schon am Lock oder am Zustand
+       der Firewall scheitert -, entsteht kein Auftrag; den erneuten
+       Versuch fuehrt die Aufsicht (Schritt AL6);
+    b) VOR einem Eintritt in den eingeschraenkten Zustand, fuer den das
+       Buch das Merkmal "Schnitt ausstehend" noch nicht traegt
+       (BASE-080_030 Schritt F1a) - im Einzelziel wie im Abgleich.
+  Bei Ergebnis 6 traegt es KEINEN Auftrag
   ein. Ein Auftrag der Herkunft RETRY gilt in der Mengenbremse des
   Abgleichs nicht als Auftrag (BASE-080_040 Regeln MB-1, MB-7): Eine
   zurueckgestellte Massenkorrektur darf nicht ueber selbst erzeugte
@@ -213,7 +238,7 @@ ZWECK:
 ================================================================================
 
   Zeitgeber im festen Raster vpn_policy_pending_interval_seconds
-  (Vorschlag 5 s). Eigener Einzel-Lock des Laufs (nicht der Kernel-Lock):
+  (Vorschlag 5 s). Eigener Lauf-Lock (nicht der Kernel-Lock):
   Ein zweiter Lauf endet sofort. Der Lauf selbst haelt den Kernel-Lock
   NIE durchgehend; jeder Auftrag erwirbt ihn fuer sich (Abschnitt 6).
 
@@ -227,6 +252,9 @@ ZWECK:
          zu warten; den Abgleich anfordern (BASE-080_040 Abschnitt 2),
          sobald policy_eval_last_run_at juenger ist als die festgestellte
          Rueckkehr - spaetestens nach vpn_policy_eval_interval_seconds.
+         Die AUFTRAEGE laufen im selben Durchgang weiter (AL3), auch
+         oeffnende: Sie setzen festgeschriebene Uebergaenge um. Nur der
+         Abgleich wartet auf den Bewerter (BASE-080_040 Abschnitt 8).
     AL3  FAELLIGE AUFTRAEGE lesen (next_try_at <= jetzt) und in dieser
          REIHENFOLGE bearbeiten, bis das Zeitbudget des Durchgangs (ein
          Raster) verbraucht ist:
@@ -240,9 +268,15 @@ ZWECK:
          Lesung nicht zugelassen ist oder deren Zeile fehlt, oder der ein
          Merkmal traegt (alte Adressen, runtime_cut_before,
          flow_cut_pending).
-         WARUM NEUE VOR GESCHEITERTEN: Ein gescheiterter schliessender
-         Auftrag hinterlaesst einen Zustand, der hoechstens strenger ist
-         als sein Ziel (BASE-080_030 Abschnitt 10); er darf neue
+         NIE VERSUCHT im Sinn dieser Reihenfolge ist ein Auftrag ohne
+         letztes Ergebnis oder mit dem letzten Ergebnis 2, 5 oder 8:
+         Dann ist am Kernel nichts geschehen. Als gescheiterter Versuch
+         zaehlt nur ein letztes Ergebnis 4, 6 oder 7.
+         WARUM NEUE VOR GESCHEITERTEN: Eine schliessende Abfolge entzieht
+         die Admission zuerst (BASE-080_030 Abschnitt 10). Ist sie danach
+         gescheitert, ist die Connection in aller Regel schon gesperrt,
+         und was fehlt - das Ende einer Sitzung, ein Schnitt -, scheitert
+         oft aus demselben Grund erneut. Ein solcher Auftrag darf neue
          Auftraege nicht verdraengen.
     AL4  JE AUFTRAG: Herstellung fuer das Einzelziel (BASE-080_030,
          Schritte H2 bis H8) mit den Merkmalen des Auftrags (Abschnitt 5).
@@ -250,16 +284,21 @@ ZWECK:
            sonst             -> attempts + 1, last_result, last_try_at;
                                 next_try_at nach Abschnitt 7
     AL5  AUFTRAG DER ART GESAMT: den Abgleich anfordern und starten, falls
-         keiner laeuft. Erledigt wird der Auftrag (mit seinem Zaehler,
-         wie AB-4), sobald ein Abgleich mit Ergebnis 0 vorliegt, der NACH
-         queued_at BEGONNEN hat (Wert der Marke
-         policy_reconcile_last_ok_at). Bis dahin gilt die Wiederholung
-         nach Abschnitt 7 mit dem Ergebnis des Abgleichs: Ein dauerhaft
-         nicht fehlerfreier Abgleich laeuft nicht in jedem Durchgang.
+         keiner laeuft. Erledigt wird der Auftrag wie in AB-4 - mit dem
+         ZAEHLER, den der letzte Abgleich mit Ergebnis 0 vor seiner
+         Lesung vorgefunden und in seiner Statusdatei vermerkt hat
+         (BASE-080_040 Abschnitt 9). Wurde der Auftrag seither
+         fortgeschrieben, trifft das DELETE nicht, und es folgt ein
+         weiterer Abgleich. Verglichen wird nie die Zeit: queued_at ist
+         die Zeit der Anweisung, nicht die des Commits. Bis dahin gilt
+         die Wiederholung nach Abschnitt 7 mit dem Ergebnis des
+         Abgleichs: Ein dauerhaft nicht fehlerfreier Abgleich laeuft
+         nicht in jedem Durchgang.
     AL6  AUFSICHT OHNE DATENBANK (BASE-080_030 Abschnitt 6.5): nicht
          freigegebene L2TP-Sitzungen pruefen, Reste beendeter Sitzungen
          raeumen. Dieser Schritt braucht kein SQL und laeuft immer, sofern
-         der Zustand der Firewall das Schreiben erlaubt.
+         der Zustand der Firewall das Schreiben erlaubt. Beendet wird
+         ueber den Hard-Cut-Kern, ohne Kernel-Lock (NB-8).
     AL7  ANFORDERUNGEN DES ABGLEICHS pruefen und den Abgleich starten,
          falls angefordert und keiner laeuft; ebenso, solange der Zustand
          der Firewall VERSIEGELT ist - nach einem gescheiterten Versuch
@@ -278,7 +317,7 @@ ZWECK:
 
   ZUSAGE (SZ-3): Eine festgeschriebene Aenderung ist im ungestoerten
   Betrieb nach hoechstens einem Raster des Auftragslaufs zuzueglich der
-  Wartezeit auf den Einzel-Lock und der Dauer der Herstellung im Kernel
+  Wartezeit auf den Kernel-Lock und der Dauer der Herstellung im Kernel
   wirksam. Der direkte Aufruf durch den Ausloeser verkuerzt das auf die
   Dauer der Herstellung.
 
@@ -304,19 +343,37 @@ ZWECK:
        (BASE-070_060); sie koennen in dieser Zeit keiner anderen
        Connection gehoeren.
   MK2  LAUFZEIT-SCHNITT (runtime_cut_before gesetzt): Laufzeit der
-       Connection, die laut Adapter VOR diesem Zeitpunkt begann, wird
-       beendet (L2TP: Hard-Cut-Kern von BASE-070 fuer genau diese
-       Sitzungen; WireGuard: Remove und Wiedereintrag). Ist der Beginn
-       einer Sitzung nicht feststellbar, gilt sie als vorher begonnen.
-       Laufzeit, die danach begann, bleibt.
+       Connection, die VOR diesem Zeitpunkt begann, wird beendet.
+         L2TP       Sitzungen, deren Beginn laut list() des Adapters vor
+                    dem Zeitpunkt liegt oder ihm gleicht (Gleichheit gilt
+                    als vorher): Hard-Cut-Kern von BASE-070 fuer genau
+                    diese Sitzungen, ohne Kernel-Lock (NB-8). Ist der
+                    Beginn nicht feststellbar, gilt die Sitzung als
+                    vorher begonnen. Sitzungen, die danach begannen,
+                    bleiben.
+         WireGuard  Ein Peer hat keinen Beginn. Der Peer wird EINMAL
+                    entfernt und neu eingetragen (Remove und
+                    Wiedereintrag ueber den Treiber); danach ist das
+                    Merkmal abgehakt.
   MK3  FLUSS-SCHNITT (flow_cut_pending gesetzt): Nach dem Herstellen des
        Policy-Zustands wird der Fluss-Schnitt ausgefuehrt, auch wenn die
        Adresse schon im Sperr-Set stand - sofern die Connection
        eingeschraenkt ist und eine Kernel-Repraesentation hat. Ist sie es
        nicht mehr, entfaellt er.
 
-  Die Merkmale gelten als erfuellt, wenn die Herstellung mit Ergebnis 0
-  endet; sie fallen mit dem Auftrag weg (AB-4).
+  DIE MERKMALE WERDEN EINZELN ABGEHAKT: Ist die Handlung eines Merkmals
+  ausgefuehrt und bestaetigt (am Kernel bzw. vom Adapter), loescht das
+  Werkzeug dieses Merkmal am Auftrag - mit dem gelesenen Zaehler und ohne
+  ihn zu erhoehen:
+      UPDATE ... SET <Merkmal> = 0 bzw. NULL
+       WHERE scope = :s AND ref_id = :r AND revision = :gelesen
+  Trifft die Anweisung nicht, wurde der Auftrag fortgeschrieben; das
+  Merkmal gilt dann neu. Entfaellt eine Handlung (MK3: Die Connection ist
+  nicht mehr eingeschraenkt), wird das Merkmal ebenso geloescht. So
+  fuehrt die Wiederholung eines Auftrags eine bestaetigte Handlung nicht
+  ein zweites Mal aus - kein zweiter Fluss-Schnitt, kein zweites Ersetzen
+  eines Peers. Was nicht abgehakt ist, bleibt geschuldet und faellt erst
+  mit dem Auftrag weg (AB-4).
 
 ================================================================================
 6) NEBENLAEUFIGKEIT
@@ -326,11 +383,11 @@ ZWECK:
 
     1  Sperre in vpn_session_locks      nur Umbauten (BASE-080_060) und
        (Owner BASE-070)                 der Hard-Cut von BASE-070
-    2  Einzel-Lock des jeweiligen       Auftragslauf, Abgleich, Bewerter
+    2  Lauf-Lock des jeweiligen         Auftragslauf, Abgleich, Bewerter
        Laufs                            je einer; verhindert nur doppelte
                                         Laeufe derselben Art
     3  Kernel-Lock                      /run/vpn-policy-apply.lock;
-       (Einzel-Lock, R-11)              serialisiert ALLE Schreibzugriffe
+       (der Einzel-Lock nach R-11)      serialisiert ALLE Schreibzugriffe
                                         auf Sets, Peers, conntrack und
                                         Verkehrsformung - auch die von
                                         vpn-fw-load (BASE-050_070)
@@ -344,8 +401,10 @@ ZWECK:
     NB-2  Unter dem Kernel-Lock wird keine Datenbanktransaktion offen
           gehalten, die auf eine fremde Zeilensperre warten koennte:
           Gelesen wird ohne Sperre im festgeschriebenen Stand; die
-          wenigen Schreibzugriffe (Erledigen, Buchung des WG-Treibers)
-          sind einzelne kurze Transaktionen mit Zeitlimit.
+          wenigen Schreibzugriffe (Erledigen eines Auftrags, Abhaken
+          eines Merkmals, Eintragen eines Auftrags der Herkunft RETRY,
+          Buchung des WG-Treibers) sind einzelne kurze Transaktionen mit
+          Zeitlimit.
     NB-3  DAS WARTEN AUF DEN KERNEL-LOCK IST BEGRENZT
           (vpn_policy_lock_wait_seconds). Danach TEMPFAIL_LOCKED ohne
           Wirkung; der Auftrag bleibt.
@@ -357,13 +416,29 @@ ZWECK:
     NB-5  DER ABGLEICH HAELT DEN KERNEL-LOCK NUR ABSCHNITTSWEISE
           (vpn_reconcile_section_seconds) und liest SQL in jedem
           Abschnitt frisch (BASE-080_040 Abschnitt 3). Ein
-          Verbindungsaufbau wartet hoechstens einen Abschnitt.
+          Verbindungsaufbau wartet hoechstens einen Abschnitt. Ausnahme
+          ist der unteilbare Siegel-Abschnitt nach einem Neuladen des
+          Regelwerks; seine Obergrenze ist
+          vpn_policy_apply_timeout_seconds (BASE-080_040 Abschnitt 6).
     NB-6  KEIN PROGRAMM RUFT vpn-policy-apply, WAEHREND ES DEN KERNEL-LOCK
           HAELT - mit einer Ausnahme: Beim Loesen des Siegels uebergibt
           der Abgleich den gehaltenen Lock an vpn-fw-load (BASE-080_040
           Schritt SG3, ANF-PA-08).
     NB-7  Registrierte Helfer laufen im Prozess des Werkzeugs unter dessen
           Lock; sie erwerben ihn nicht selbst (BASE-080_070).
+    NB-8  KEIN WARTEN AUF EIN SITZUNGSENDE UNTER DEM KERNEL-LOCK. Unter
+          dem Lock geschieht nur, was sofort wirkt: Admission entziehen
+          (Freigabe, Peer), Sets schreiben, Fluesse schneiden. Das
+          Beenden einer L2TP-Sitzung - kill() des Adapters mit seinem
+          Zeitlimit vpn_hardcut_kill_timeout_seconds - laeuft IMMER nach
+          dem Loesen des Locks; fuer den Abschluss wird er neu erworben.
+          Die Sitzung ist in der Zwischenzeit gesperrt (keine Freigabe).
+          GRUND: Das Ende einer Sitzung loest den Hook --l2tp-down aus,
+          und der braucht denselben Lock. Ein Warten unter dem Lock
+          hielte ihn und jeden Verbindungsaufbau um das Zeitlimit des
+          Kerns auf. Das ist die mittelbare Seite von NB-6: Wer unter dem
+          Lock etwas anstoesst, dessen Folge dieses Werkzeug ruft, wartet
+          nicht auf diese Folge.
 
   WER GLEICHZEITIG LAUFEN DARF:
     Bewerter und Herstellung       ja - der Bewerter beruehrt den Kernel
@@ -374,7 +449,7 @@ ZWECK:
     zwei Herstellungen             nacheinander (Kernel-Lock)
     Herstellung und Abgleich       nacheinander je Abschnitt
     Herstellung und vpn-fw-load    nacheinander (derselbe Kernel-Lock)
-    zwei Abgleiche                 nein (Einzel-Lock des Abgleichs)
+    zwei Abgleiche                 nein (Lauf-Lock des Abgleichs)
 
   WETTLAEUFE, DIE DER ENTWURF AUSSCHLIESST:
     Statuswechsel waehrend einer      Die Herstellung liest SQL unter dem
@@ -421,6 +496,11 @@ ZWECK:
          Laufzeit-Schnitt duerfen nicht an einer Wartezeit haengen. Nach
          den Ergebnissen 6 und 7 bleibt die Verzoegerung (BASE-080_030
          Regel EC-2: melden, nicht blind wiederholen).
+         AUSNAHME: Ist allein das BEENDEN einer Sitzung gescheitert
+         (Adapter meldet FAILED; die Freigabe ist entzogen, die Sitzung
+         gesperrt), gilt die wachsende Verzoegerung. Jeder weitere
+         Versuch kostet das Zeitlimit des Hard-Cut-Kerns; ohne Abstand
+         verbrauchte ein solcher Auftrag das Zeitbudget jedes Durchgangs.
     W-3  Jede Fortschreibung des Auftrags (AB-3) setzt attempts auf 0.
 
 ================================================================================
@@ -448,6 +528,10 @@ ZWECK:
   WG-Controller findet Peer ohne  --connection-id               Pflicht
   Berechtigung (Admission-                                      (BASE-040_050
   Waechter)                                                     B2)
+  L2TP-Abgleich findet Sitzung    --connection-id; ohne         Pflicht
+  ohne Berechtigung               bestimmbare Connection:       (ANF-PA-14;
+  (Zulassungswaechter)            Anforderung des Abgleichs     BASE-070_020
+                                                                L7)
   WG-Schnittstelle neu gestartet  Anforderung des Abgleichs     Pflicht
   Regelwerk neu geladen           Anforderung des Abgleichs     Pflicht
   (vpn-fw-load recover)

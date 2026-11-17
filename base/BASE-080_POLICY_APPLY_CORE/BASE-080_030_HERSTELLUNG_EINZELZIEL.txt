@@ -87,7 +87,7 @@ ZWECK:
       hoechstens vpn_policy_lock_wait_seconds. Nicht erhalten: Code 5.
       Der Lock endet mit dem Prozess; er wird bis H8 gehalten - ausser
       waehrend des Wartens auf das Ende einer Sitzung: Dafuer wird er
-      geloest und danach neu erworben (BASE-080_050 Regel NB-7).
+      geloest und danach neu erworben (BASE-080_050 Regel NB-8).
   H3  FIREWALL-ZUSTAND LESEN (/run/retrotunnel/fw/status.json und
       Bestaetigung am Kernel, BASE-050_070): BETRIEB oder VERSIEGELT
       erlaubt das Schreiben der Sets; RIEGEL und KEIN_REGELWERK: Code 8.
@@ -321,7 +321,7 @@ ZWECK:
            Hard-Cut-Kern von BASE-070 (Schritte K4, K5; Grund
            CONNECTION_DISABLED bzw. der Grund des ausloesenden Umbaus).
            Auf das Ende der Sitzung wird nie unter dem Kernel-Lock
-           gewartet (BASE-080_050 Regel NB-7). FAILED: Ergebnis 4, Alarm
+           gewartet (BASE-080_050 Regel NB-8). FAILED: Ergebnis 4, Alarm
            CRITICAL; die Sitzung bleibt gesperrt (HC-5), der Auftrag
            bleibt - der naechste Versuch findet "nicht zugelassen,
            Sitzung besteht" vor und beendet erneut.
@@ -524,6 +524,13 @@ ZWECK:
 
   ABFOLGE (verbindlich):
     F1  Vorzustand lesen (je Familie).
+    F1a MERKMAL SICHERN: Traegt das Auftragsbuch fuer die Connection das
+        Merkmal "Schnitt ausstehend" noch nicht, wird es VOR dem
+        Schreiben des Sets eingetragen (Auftrag der Herkunft RETRY bzw.
+        Fortschreibung des bestehenden; BASE-080_050 Abschnitt 3). So
+        ist der Schnitt auch dann geschuldet, wenn die Abfolge nach F2
+        abbricht. Gelingt der Eintrag nicht, laeuft die Abfolge trotzdem:
+        Das Einschraenken haengt nie am Auftragsbuch.
     F2  Sets schreiben (eine Transaktion fuer beide Familien). Ab dem
         naechsten Paket gilt der eingeschraenkte Zustand auch fuer
         bestehende Fluesse (DEC-FW-09).
@@ -544,6 +551,10 @@ ZWECK:
     F5  Ereignis POLICY_HARDCUT mit Connection, Familien und
         hard_cut = flush | session_kill. Ist auch der Rueckfall
         gescheitert: POLICY_HARDCUT_FAILED (CRITICAL).
+    F6  MERKMAL ABHAKEN: Nach bestaetigtem Schnitt (F4 "weiter" oder
+        gelungener Rueckfall) wird das Merkmal am Auftrag geloescht
+        (BASE-080_050 Abschnitt 5). Eine Wiederholung schneidet nicht
+        erneut.
 
   WARUM DER SCHNITT NACH DEM SET STEHT: Wuerde zuerst geloescht, koennte
   ein Fluss zwischen Loeschen und Set-Eintrag neu entstehen und haette
@@ -588,7 +599,7 @@ ZWECK:
   ist, mit dem Grund-Hinweis. Das gilt auch fuer Sitzungen ohne
   Connection (Adresse unbekannt), fuer den Beginn ohne Datenbank (6.3)
   und fuer die Aufsicht (6.5).
-  KEIN WARTEN UNTER DEM KERNEL-LOCK (BASE-080_050 Regel NB-7): Unter dem
+  KEIN WARTEN UNTER DEM KERNEL-LOCK (BASE-080_050 Regel NB-8): Unter dem
   Lock wird die Admission entzogen und werden die Fluesse geschnitten -
   das wirkt sofort. Auf das Verschwinden der Sitzung wartet der Kern
   danach, ohne den Lock.
@@ -754,10 +765,11 @@ ZWECK:
   Auftragslauf, spaetestens vom Abgleich. Fuer "Einschraenken" heisst
   das: Der Schnitt wird nachgeholt, obwohl die Adresse dann schon im Set
   steht - der Auftrag traegt dafuer das Merkmal "Schnitt ausstehend"
-  (BASE-080_050). Stellt der ABGLEICH einen Eintritt selbst fest
-  (Abweichung ohne Auftrag), traegt er VOR dem Einfuegen einen Auftrag
-  mit diesem Merkmal ein (BASE-080_040 Abschnitt 3); so geht der Schnitt
-  auch bei einem Abbruch des Abgleichs nicht verloren.
+  (BASE-080_050). Fuehrt eine Herstellung einen Eintritt OHNE Auftrag
+  aus (Abweichung, die der Abgleich oder ein Waechter findet; Beginn der
+  Sitzung einer eingeschraenkten Connection), sichert sie das Merkmal
+  VOR dem Schreiben des Sets (Schritt F1a); so geht der Schnitt auch bei
+  einem Abbruch nicht verloren.
 
 ================================================================================
 11) FEHLERBILDER
