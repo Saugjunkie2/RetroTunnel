@@ -65,7 +65,8 @@ BEWERTUNG
             Bewerters ausloesen (T-02, T-03, T-05 als Freigabe und als
             Grundwechsel, T-04 und T-06 nach claim_deadline, T-06
             Finalisierung, Widerruf, Tombstone): Felder, Zeitstempel, genau
-            ein Lifecycle-Ereignis und der Auftrag stehen nach dem Commit;
+            ein Lifecycle-Ereignis und der Auftrag stehen nach dem Commit -
+            beim reinen Grundwechsel Felder und Ereignis, aber KEIN Auftrag;
             ein erzwungener Fehler nach dem Lifecycle-Ereignis verwirft
             alles - weder Status noch Ereignis noch Auftrag sind
             geschrieben. [PA-02, PA-09, PA-46]
@@ -104,12 +105,20 @@ BEWERTUNG
             zuruecksetzen: kein Uebergang. [PA-06, PA-09]
 
   T-PA-07  [L] Unbekannte Auskunft: Die Kontingent-Auskunft fuer eine
-            Connection nicht lesbar bzw. widerspruechlich machen: Die
-            Connection wird in diesem Lauf weder eingeschraenkt noch
-            freigegeben - auch nicht wegen eines ANDEREN Grundes, der
-            eintritt oder entfaellt; POLICY_EVAL_INPUT_UNKNOWN. Die uebrigen
-            Connections werden normal bewertet. Auskunft wieder lesbar: Der
-            naechste Lauf holt nach. [PA-07]
+            Connection nicht lesbar bzw. widerspruechlich machen: (a)
+            ACTIVE, kein Grund bekannt aktiv: bleibt ACTIVE. (b) ACTIVE;
+            Verwaltungs-Einschraenkung bzw. Pause wird gesetzt bzw. die
+            Laufzeit laeuft ab: RESTRICTED mit dem hoechstprioren bekannt
+            aktiven Grund - bei der Handlung mit dem Commit. (c)
+            RESTRICTED, der gespeicherte Grund entfaellt: KEINE Freigabe
+            und kein Grundwechsel. (d) RESTRICTED mit abgelaufener
+            restrict_finalize_at: KEINE Finalisierung. (e) T-08 ohne
+            bekannt aktiven Grund: abgelehnt, keine Aenderung; mit bekannt
+            aktivem Grund: RESTRICTED. (f) Jeweils
+            POLICY_EVAL_INPUT_UNKNOWN; faellt die Auskunft fuer alle
+            Connections aus: ALERT. Die uebrigen Connections werden normal
+            bewertet. (g) Auskunft wieder lesbar: Der naechste Lauf holt
+            Freigabe, Grundwechsel bzw. Finalisierung nach. [PA-07, PA-10]
 
   T-PA-08  [L] Reihenfolge je Connection: (a) Customer SUSPENDED und
             zugleich ein neuer Grund: Sperrung mit
@@ -297,13 +306,21 @@ HERSTELLUNG
 
   T-PA-28  [L] Nicht auswertbar: (a) op_status ausserhalb des Wertevorrats
             bei bestehendem Peer bzw. bestehender Sitzung: Ergebnis 6,
-            POLICY_STATE_UNDETERMINED; Peer, Freigabe und Mitgliedschaften
-            sind unveraendert - nichts eingefuegt, nichts entfernt, nichts
-            beendet. (b) ACTIVE ohne Auth-Zeile, mit zwei Auth-Zeilen, ohne
-            Adresse: ebenso. (c) Andere Connections werden im selben Lauf
-            hergestellt. (d) Neue L2TP-Sitzung mit nicht auswertbarer Zeile:
-            keine Freigabe, die Sitzung wird beendet. (e) Das Werkzeug
-            traegt bei Ergebnis 6 keinen Auftrag ein. [PA-25]
+            POLICY_STATE_UNDETERMINED mit der Art ENUM_DRIFT; Peer, Freigabe
+            und Mitgliedschaften sind unveraendert - nichts eingefuegt,
+            nichts entfernt, nichts beendet. (b) ACTIVE ohne Auth-Zeile, mit
+            zwei Auth-Zeilen, ohne Adresse: ebenso, Art INVARIANT_BROKEN.
+            (c) Andere Connections werden im selben Lauf hergestellt. (d)
+            Neue L2TP-Sitzung mit nicht auswertbarer Zeile: keine Freigabe,
+            die Sitzung wird beendet. (e) Das Werkzeug traegt bei Ergebnis 6
+            keinen Auftrag ein. (f) Ein Pflicht-Setting des Schritts
+            loeschen: Art SETTINGS_DRIFT. (g) Die Lesung der Zeile am
+            Zeitlimit der Abfrage scheitern lassen: Ergebnis 2 (nicht
+            lesbar), keine Wirkung. (h) Das Ereignis traegt als Art nur ein
+            Kennwort der festen Liste - keinen Anmeldenamen, keine Adresse.
+            (i) Nicht auswertbare Connection mit Peer bzw. Sitzung, dann
+            "recover": Der Peer erhaelt ein Gate-Element, die Sitzung keine
+            neue Freigabe und endet nach Fristablauf. [PA-25, PA-63, PA-42]
 
   T-PA-29  [L, E] Policy vor Freigabe (L2TP): Die Herstellung zwischen
             Policy-Schritt und Freigabe um 10 s verzoegern: In dieser Zeit
@@ -571,7 +588,7 @@ ABGLEICH UND SIEGEL
             eingeschraenkte zuerst; keine Sitzung beendet. (c) Rueckkehr der
             Datenbank: erst der Bewerter, dann der Abgleich; eine
             Connection, deren Kontingent waehrend der Stoerung erschoepft
-            wurde, wird nicht erst geoeffnet. (d) WireGuard- Schnittstelle
+            wurde, wird nicht erst geoeffnet. (d) WireGuard-Schnittstelle
             neu gestartet: Abgleich angefordert, Peers ueber das Gate. (e)
             L2TP-Daemon neu gestartet: Die Freigaben der beendeten Sitzungen
             sind entfernt. [PA-45]
@@ -583,7 +600,8 @@ AUFTRAGSBUCH UND NEBENLAEUFIGKEIT
   T-PA-56  [L] Auftrag in der Transaktion: Fuer jeden Schreibweg aus
             BASE-080_050 Abschnitt 3 (Anlage, T-02 bis T-08, Tombstone,
             Widerruf, Rollenwechsel, Adress-Reparatur, Rotation,
-            Kennwortwechsel, vorzeitige Loeschung): Nach dem Commit steht
+            Kennwortwechsel, vorzeitige Loeschung, geaenderte
+            Formungsvorgabe): Nach dem Commit steht
             genau ein Auftrag mit den genannten Merkmalen; wird die
             Transaktion verworfen, steht keiner; ist das Auftragsbuch nicht
             schreibbar, scheitert die Aenderung als Ganzes. Wechsel nur des
@@ -739,7 +757,12 @@ HELFER, BETRIEB, BEOBACHTBARKEIT, GRENZEN
             Peer-Eintrag gerufen, beim Abbau nach dem Entzug (Protokoll).
             Sein Fehler: Ergebnis 4, die Connection ist nicht geoeffnet.
             Formungsreste nach dem Verlust eines Peers: Der Abgleich ruft
-            "sync" im Abschnitt "Hygiene"; die Reste sind entfernt. [PA-60]
+            "sync" im Abschnitt "Hygiene"; die Reste sind entfernt.
+            Geaenderte Formungsvorgabe bei bestehendem Peer bzw.
+            bestehender Sitzung: Der Schreibweg traegt den Auftrag ein; die
+            Herstellung ruft "set", und die neue Vorgabe gilt innerhalb der
+            Wirkzeit eines Auftrags; ohne Auftrag holt der Abgleich sie
+            nach. [PA-60, PA-46]
 
   T-PA-73  [K, L] Units und Takt: Ein Takt-Setting aendern: Es wirkt ohne
             neue Unit-Datei. Kein Tunnel-Dienst haengt von einer Unit dieses

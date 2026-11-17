@@ -154,8 +154,10 @@ ZWECK:
     quota_period_start/_end         gehoeren BASE-070
     Auth-Tabellen                   kein Schluessel- und kein
                                     Kennwort-Write (Routinen der Owner)
-    web_*, settings_*, policy_*     kein Panel-, Settings- oder
-                                    Limit-Write
+    Tabellen web_*, settings_*,     kein Panel-, Settings- oder
+    policy_*                        Limit-Write (die MARKEN policy_*
+                                    dieses Moduls stehen in
+                                    vpn_runtime_marks)
 
   PRINZIP (R-15): Der Bewerter ENTSCHEIDET als Runner der Regeln von
   BASE-010 und schreibt ueber deren Routinen. Die Herstellung SETZT DURCH
@@ -216,8 +218,12 @@ ZWECK:
              Waechter ruft die Herstellung
   BASE-070_040 Schritt K6  Hard-Cut ruft   _050 Abschnitt 8
              die Herstellung
-  SM_CONNECTION 5.4  Vertrag des           _020 Abschnitte 2 bis 5
-             Policy-Evaluators
+  SM_CONNECTION 4.6, 4.9, 5.4, 5.5         _020 Abschnitte 2 bis 5; _030
+             Vertrag des Policy-           Abschnitt 7 (nur der Eintritt
+             Evaluators; Neubewertung      schneidet)
+  B166 Abschnitt 9, Trigger 3              _050 Abschnitt 3; _030
+             geaenderte Formungsvorgabe    Abschnitt 5; ANF-PA-10
+             ("Speed change")
   R-15 (Beispiel Fristenlauf), LR-02       _020 Schritte E3, E4, E7
   B052  Datenbankausfall und nicht         DEC-PA-18, DEC-PA-22; _030
              eindeutig ableitbarer         Abschnitt 9
@@ -271,6 +277,13 @@ ZWECK:
     g) BASE-010_095 fuehrt die Tests T-PA-01 und T-PA-02 (Sicht des
        Panels auf Zugangsdaten). Die Kennung T-PA gehoert diesem Modul;
        die beiden Tests sind umzubenennen.
+    h) BASE-010_070 nennt fuer T-06 "NOW() > restrict_finalize_at".
+       Massgeblich ist wie in SM_CONNECTION 4.7 und hier (_020 Schritt
+       E7) "jetzt >= restrict_finalize_at": kein Schwebezustand im
+       Fristzeitpunkt (wie bei claim_deadline).
+    i) T-08 wird abgelehnt, wenn kein Grund bekannt aktiv ist und der
+       Bewertungskern wegen einer nicht lesbaren Auskunft nicht
+       feststellen kann, dass keiner aktiv ist (_020 Abschnitt 5).
 
   ANF-PA-02 (BASE-100, MOD-010)
     Auskuenfte AK-1 (Plan-Limit je Connection, deterministisch) und AK-2
@@ -354,9 +367,12 @@ ZWECK:
     vpn_connect_gate_ttl_seconds vermerken; Obergrenze 300 fuer
     vpn_reconcile_interval_seconds (DEC-PA-24).
 
-  ANF-PA-10 (MOD-003)
+  ANF-PA-10 (MOD-003; fuer den Planwechsel auch MOD-010)
     Formungs-Helfer nach _070 Abschnitt 1 (set, del, sync; Fehlerarten,
-    bei denen die Herstellung fortfahren darf).
+    bei denen die Herstellung fortfahren darf). Wer die Formungsvorgabe
+    einer Connection aendert, schreibt in SEINER Transaktion den Auftrag
+    der Connection (_050 Abschnitt 3); bei einer Aenderung mit Wirkung
+    auf viele einen Auftrag der Art GESAMT.
 
   ANF-PA-11 (MOD-005)
     Sperr-Helfer nach _070 Abschnitt 1 (add mit Ablauf, del, sync).
@@ -484,6 +500,18 @@ ZWECK:
               Fehler der Herstellung, DEC-PA-20).
   OPEN-PA-03  WIEDERHERSTELLEN NACH AUFHEBEN EINER CUSTOMER-SPERRUNG:
               ANF-PA-01 e.
+  OPEN-PA-04  UMSETZUNGEN NUR FUER EINGESCHRAENKTE CLIENTS UND DIE
+              FREIGABE: Bei der Freigabe wird nicht geschnitten (_030
+              Abschnitt 7). Fuehrt MOD-002 die Portal-Umleitung ein
+              (BASE-050_050 Abschnitt 6) oder BASE-060 eine Antwort nur
+              fuer eingeschraenkte Clients, blieben umgesetzte Fluesse
+              und zwischengespeicherte Antworten nach der Freigabe
+              bestehen (der Vorgaenger nennt dafuer kurze Gueltigkeit
+              und das Leeren des Zwischenspeichers: B150 Abschnitte 8
+              und 9). Das Modul, das die Umsetzung einfuehrt, legt fest,
+              wie sie endet - ueber die Antwort selbst oder ueber einen
+              gezielten Schnitt allein der umgesetzten Fluesse, den es
+              dann hier anfordert.
 
 ================================================================================
 9) VERBLEIB DER INVARIANTEN UND TESTS AUS SM_POLICY_RESTRICT

@@ -2,8 +2,8 @@ schema: trace/1
 quelle: XPN
 datei: blocks/B150_Walled_Garden_Restricted_Mode_(QuotaExpiryManual).txt
 einheit: AP-K050
-vollstaendigkeit: TEILWEISE (Kernel-Enforcement des Restricted Mode; Ausloeser, Reason-Codes, Portal und Ablaeufe werden in
-  AP-M002/AP-K080 zugeordnet)
+vollstaendigkeit: TEILWEISE (Kernel-Enforcement des Restricted Mode; seit AP-K080 auch Ausloeser, harter Schnitt, Anstoss
+  und Abgleich; Reason-Codes, Portal und Kundenablaeufe werden in AP-M002 zugeordnet)
 records:
 - id: TR-XB150-01
   zitat: 'Kein externes Captive-Portal: Walled Garden ist ausschließlich intern im SERVICE_NET erreichbar (SERVICE_*), nie
@@ -251,6 +251,7 @@ records:
   einordnung: UEBERNOMMEN
   erfuellt_in:
   - base/BASE-050_FIREWALL_CORE/BASE-050_095_TESTS.txt#T-FW-37
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-31
   begruendung: Uebernommen.
   zeilen:
   - 202
@@ -262,6 +263,7 @@ records:
   einordnung: ERSETZT
   erfuellt_in:
   - base/BASE-050_FIREWALL_CORE/BASE-050_030_SETS_UND_ZUSTANDS_ENFORCEMENT.txt#ADMIN-Connections sind nie enthalten
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-05
   begruendung: 'RetroTunnel R-08: ADMIN ist nie eingeschraenkt; Not-Aus ist DISABLE.'
   zeilen:
   - 20
@@ -286,3 +288,203 @@ records:
   zeilen:
   - 193
   - 193
+- id: TR-XB150-26
+  zitat: '- Der Wechsel in den Restricted Mode (egal aus welchem Grund: QUOTA / EXPIRY / MANUAL / UNCLAIMED_OVERDUE) ist ein
+    HARD CUT.'
+  art: SCHUTZZIEL
+  aussage: Der Eintritt in den eingeschraenkten Zustand ist ein harter Schnitt, gleich aus welchem Grund.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-32
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#SZ-4  EINSCHRAENKUNG UND SPERRUNG WIRKEN
+    SOFORT
+  begruendung: Der Fluss-Schnitt folgt aus dem Kernel-Vorzustand und nicht aus dem Grund (DEC-PA-02, DEC-PA-08).
+  zeilen:
+  - 96
+  - 96
+- id: TR-XB150-27
+  zitat: '- QUOTA / EXPIRY / UNCLAIMED_OVERDUE / kundengetriebene Restricted-Policies werden für ADMIN NICHT bewertet/ausgelöst.'
+  art: SCHUTZZIEL
+  aussage: Bedingungen der Einschraenkung werden fuer ADMIN nicht ausgewertet.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-05
+  begruendung: Fuer eine ADMIN-Connection ist die Menge der aktiven Gruende leer (BASE-080_020 Abschnitt 3).
+  zeilen:
+  - 98
+  - 98
+- id: TR-XB150-28
+  zitat: '- Für ADMIN kann RESTRICTED nur durch MANUAL/Not-Aus gesetzt werden (Variante A).'
+  art: FUNKTION
+  aussage: ADMIN nur von Hand einschraenkbar (Variante A).
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-05
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#SZ-10 ADMIN-CONNECTIONS WERDEN NIE EINGESCHRAENKT
+  begruendung: 'Ersetzt durch R-08 von RetroTunnel: Eine ADMIN-Connection wird nie eingeschraenkt, auch nicht von Hand; ihr
+    Notaus ist das Sperren.'
+  zeilen:
+  - 99
+  - 99
+- id: TR-XB150-29
+  zitat: '- Beim Transition von UNRESTRICTED -> RESTRICTED wird nach dem Kernel-Enforcement (nftables/tc) primär der Conntrack-State
+    der Client-IP gelöscht (bidirektional).'
+  art: FUNKTION
+  aussage: Nach dem Setzen der Durchsetzung wird der conntrack-Zustand der Adresse in beiden Richtungen geloescht.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_030_HERSTELLUNG_EINZELZIEL.txt#F3  conntrack-Eintraege ALLER Tunneladressen der
+    Connection loeschen
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-32
+  begruendung: 'Abfolge F1 bis F5: Vorzustand lesen, Sets schreiben, conntrack loeschen.'
+  zeilen:
+  - 105
+  - 105
+- id: TR-XB150-30
+  zitat: '- Falls Conntrack-Flush fehlschlägt oder unavailable ist, MUSS als Fail-Safe die PPP-Session der betroffenen aktiven
+    Verbindung beendet werden (PPP Session Kill), damit der Hard Cut deterministisch erfüllt ist.'
+  art: FUNKTION
+  aussage: Scheitert das Loeschen, wird die Sitzung beendet.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-32
+  - 'base/BASE-080_POLICY_APPLY_CORE/BASE-080_030_HERSTELLUNG_EINZELZIEL.txt#RUECKFALL: Laufzeit beenden'
+  begruendung: Rueckfall ist das Beenden der Laufzeit ueber den Hard-Cut-Kern von BASE-070 (L2TP) bzw. Remove und Wiedereintrag
+    des Peers (WireGuard) statt des Prozess-Kills.
+  zeilen:
+  - 106
+  - 107
+- id: TR-XB150-31
+  zitat: '- Safety-Net (Drift-Fix): Wenn Reconcile eine zuvor nicht-restricted IP wieder als restricted erkennt (missed event),
+    MUSS der Hard Cut für genau diese neu-restricted IP ebenfalls ausgelöst werden (B166; im Reconcile best-effort, aber verpflichtend
+    zu versuchen).'
+  art: FUNKTION
+  aussage: Der Abgleich schneidet fuer jede Adresse, die er neu in das Sperr-Set einfuegt.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_040_ABGLEICH_UND_SIEGEL.txt#FEHLENDE Mitglieder von restricted_* einfuegen
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-48
+  begruendung: Abschnitt Schliessen des Abgleichs, Schritt V1 e4.
+  zeilen:
+  - 109
+  - 110
+- id: TR-XB150-32
+  zitat: '- Bei Statusänderungen über Panel (Claim/Unclaim/Quota/Expiry/Manual) MUSS ein Sync erfolgen, damit Wirkung sofort
+    greift (HARD CUT: Enforcement setzen + Conntrack-State flush bei Eintritt in Restricted; siehe 2.2 und B166).'
+  art: FUNKTION
+  aussage: Statusaenderungen ueber das Panel muessen sofort im Kernel wirken.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-46
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-50
+  begruendung: 'Verschaerft: Der Anstoss ist nicht nur Pflicht des Panels, sondern als Auftrag Teil der Transaktion der Aenderung
+    (DEC-PA-03).'
+  zeilen:
+  - 146
+  - 147
+- id: TR-XB150-33
+  zitat: '- Zusätzlich MUSS ein periodischer Reconcile laufen (z.B. alle 5 Minuten), der den Restricted-Zustand aus SQL deterministisch
+    neu aufbaut.'
+  art: BETRIEB
+  aussage: Regelmaessiger Abgleich baut den eingeschraenkten Zustand aus SQL neu auf.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-36
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-PA-24
+  begruendung: Der Abgleich laeuft nie seltener als alle fuenf Minuten.
+  zeilen:
+  - 150
+  - 150
+- id: TR-XB150-34
+  zitat: '- Ziel: Drift-Reparatur (wenn Hook/Panel-Trigger ausfällt), stale IPs entfernen, konsistenter Ist-Zustand.'
+  art: BETRIEB
+  aussage: 'Ziel des Abgleichs: Abweichungen beheben, Reste entfernen.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-36
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-39
+  begruendung: Exaktheit der Sets nach den Abschnitten Schliessen und Oeffnen.
+  zeilen:
+  - 151
+  - 151
+- id: TR-XB150-35
+  zitat: '- Reconcile ist idempotent: wiederholtes Anwenden führt immer zum gleichen Ergebnis.'
+  art: SCHUTZZIEL
+  aussage: Der Abgleich ist wiederholbar.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-19
+  begruendung: Jede Herstellung ist zustandsbasiert und wiederholbar.
+  zeilen:
+  - 152
+  - 152
+- id: TR-XB150-36
+  zitat: '- manual_restricted (pro Connection) -> restricted (Not-Aus/Manual Restrict; gilt für alle conn_groups inkl. ADMIN)'
+  art: FUNKTION
+  aussage: Einschraenkung von Hand je Connection.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-03
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-05
+  begruendung: Quelle RESTRICT_ADMIN_MANUAL (Tatsache admin_manual_restricted_at); sie gilt nicht fuer ADMIN (R-08).
+  zeilen:
+  - 165
+  - 165
+- id: TR-XB150-37
+  zitat: '- Quota <= 0 (pro Connection) -> restricted'
+  art: FUNKTION
+  aussage: Erschoepftes Kontingent schraenkt ein.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-03
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-16
+  begruendung: Quelle RESTRICT_QUOTA_EXHAUSTED ueber die Auskunft AK-2.
+  zeilen:
+  - 167
+  - 167
+- id: TR-XB150-38
+  zitat: '- Expiry überschritten (pro Connection) -> restricted'
+  art: FUNKTION
+  aussage: Abgelaufene Laufzeit schraenkt ein.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-03
+  begruendung: Quelle RESTRICT_EXPIRY_PASSED.
+  zeilen:
+  - 168
+  - 168
+- id: TR-XB150-39
+  zitat: '- Restricted Mode / Walled Garden Policy aktiv (Customer Policy; falls genutzt) -> restricted'
+  art: FUNKTION
+  aussage: Kundenbezogene Einschraenkung.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-03
+  begruendung: 'In RetroTunnel sind es zwei Quellen: die Pause durch den Kunden (RESTRICT_CUSTOMER_PAUSED) und das Plan-Limit
+    (RESTRICT_PLAN_LIMIT_EXCEEDED, Auskunft AK-1).'
+  zeilen:
+  - 169
+  - 169
+- id: TR-XB150-40
+  zitat: '- UNCLAIMED_OVERDUE (customer_id IS NULL AND now > unclaimed_grace_until) -> restricted'
+  art: FUNKTION
+  aussage: Frist ohne Claim ueberschritten schraenkt ein.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-03
+  begruendung: Quelle RESTRICT_UNCLAIMED_OVERDUE.
+  zeilen:
+  - 170
+  - 170
+- id: TR-XB150-41
+  zitat: '- Quota reset/renew -> restricted Set wird entfernt -> Internet sofort frei.'
+  art: TEST
+  aussage: Aufgefuelltes Kontingent gibt sofort frei.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-16
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-31
+  begruendung: Periodenwechsel und Auffuellen in T-PA-16; das Entfernen aus dem Sperr-Set ohne Schnitt in T-PA-31.
+  zeilen:
+  - 204
+  - 204

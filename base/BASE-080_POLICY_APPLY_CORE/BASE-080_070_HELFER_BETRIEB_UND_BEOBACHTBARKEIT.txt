@@ -60,6 +60,10 @@ ZWECK:
   DER FORMUNGS-HELFER IM ABLAUF DER HERSTELLUNG (DEC-PA-20): Er wird im
   selben Schritt gerufen wie das Herstellen des Policy-Zustands - vor
   der Freigabe bzw. dem Peer-Eintrag, und beim Abbau nach dem Entzug.
+  Seine Operation "set" ist wiederholbar und laeuft bei JEDER
+  Herstellung einer Connection mit Laufzeit: Eine geaenderte
+  Formungsvorgabe wirkt ueber den Auftrag der Connection (BASE-080_050
+  Abschnitt 3).
   Bis MOD-003 es anders bestimmt, ist sein Fehler ein Fehler der
   Herstellung: Die Connection wird nicht geoeffnet. MOD-003 kann fuer
   einzelne Fehlerarten festlegen, dass die Herstellung fortfaehrt
@@ -171,7 +175,7 @@ ZWECK:
   vpn_policy_pending_interval_seconds       5          2..60      neu
   vpn_policy_lock_wait_seconds              10         1..60      neu
   vpn_policy_apply_timeout_seconds          30         5..300     neu
-  vpn_policy_retry_max_seconds              300        10..3600   neu
+  vpn_policy_retry_max_seconds              300        10..300    neu
   vpn_policy_outbox_alert_seconds           60         10..3600   neu
   vpn_reconcile_section_seconds             5          1..30      neu
   vpn_reconcile_mass_close_limit            20         1..10000   neu
@@ -213,6 +217,9 @@ ZWECK:
   Schwelle, ab der ein haengendes WireGuard-Gate als Stoerung gilt, und
   (b) die Frist, nach der eine nicht freigegebene L2TP-Sitzung beendet
   wird.
+
+  vpn_policy_retry_max_seconds reicht nur bis 300: Mehr liesse Regel
+  KP-f nicht zu, seit der Abgleich-Takt hoechstens 300 s betraegt.
 
   NEUE OBERGRENZE EINES BELEGTEN KEYS: TRUTH_MODEL 7.1 nennt fuer
   vpn_reconcile_interval_seconds nur die Untergrenze 60. Die Obergrenze
@@ -389,8 +396,11 @@ ZWECK:
                                    CRITICAL  Schwelle (schliessend:
                                              CRITICAL)
   POLICY_PENDING_OVERDUE           ALERT     Auftragslauf laeuft nicht
-  POLICY_EVAL_INPUT_UNKNOWN        WARN      Auskunft nicht lesbar;
-                                             Connection unveraendert
+  POLICY_EVAL_INPUT_UNKNOWN        WARN /    Auskunft nicht lesbar: keine
+                                   ALERT     Freigabe, keine
+                                             Finalisierung (ALERT, wenn
+                                             eine Auskunft fuer ALLE
+                                             Connections ausfaellt)
   POLICY_EVAL_ADMIN_FACT           ALERT     Einschraenkungs-Tatsache an
                                              einer ADMIN-Connection
   POLICY_EVAL_HELD                 ALERT     unumkehrbare Uebergaenge

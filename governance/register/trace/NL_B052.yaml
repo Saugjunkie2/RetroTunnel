@@ -2,8 +2,9 @@ schema: trace/1
 quelle: NL
 datei: nachlieferung/B052_DB_OUTAGE_CONTRACT.txt
 einheit: AP-K080
-vollstaendigkeit: TEILWEISE (Aussagen zum nicht eindeutig ableitbaren Zustand, soweit BASE-040 sie umsetzt; die vollstaendige
-  Rueckverfolgung folgt mit BASE-080 in AP-K080)
+vollstaendigkeit: TEILWEISE (Verhalten von Herstellung, Abgleich und Bewertung bei Ausfall und bei nicht eindeutig
+  ableitbarem Zustand - BASE-040 und BASE-080; offen sind Abschnitt 2 zur Anmeldung (BASE-020) und Abschnitt 5 zu
+  Ereignisformat und Diagnose, soweit sie MOD-007 und BASE-110 betreffen)
 records:
 - id: TR-NB052-01
   zitat: '- Kernregel: DB_UNKNOWN verhält sich EXAKT wie DB_DOWN (Enforcement identisch); Unterschiede sind nur Observability
@@ -14,6 +15,7 @@ records:
   erfuellt_in:
   - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_030_PEER_LIFECYCLE.txt#UNBESTIMMT HEISST EINFRIEREN
   - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_090_INVARIANTEN.txt#WT-53
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-PA-22
   begruendung: 'Uebernommen fuer den WireGuard-Pfad: Ergibt die Zeile einer Connection kein eindeutiges SOLL, bleibt ihr Peer,
     wie er ist. Im Bestand fehlte die Regel bis zum Abgleich mit der Nachlieferung (BF-0040); die Soll-Funktion kannte nur
     PRESENT und ABSENT und haette solche Peers entfernt.'
@@ -29,6 +31,7 @@ records:
   - 'base/BASE-040_TUNNEL_WIREGUARD/BASE-040_030_PEER_LIFECYCLE.txt#- NICHTS UMSCHALTEN: ein vorhandener Peer wird weder entfernt
     noch'
   - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_090_INVARIANTEN.txt#WT-53
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-22
   begruendung: 'Uebernommen: Ein vorhandener Peer wird weder entfernt noch ersetzt; sein Policy-Zustand bleibt.'
   zeilen:
   - 51
@@ -42,6 +45,7 @@ records:
   - 'base/BASE-040_TUNNEL_WIREGUARD/BASE-040_030_PEER_LIFECYCLE.txt#- NICHTS OEFFNEN: kein Peer wird eingetragen, kein Gate
     geloest.'
   - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_090_INVARIANTEN.txt#WT-53
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-25
   begruendung: 'Uebernommen: kein Peer-Eintrag, kein Loesen des Gates.'
   zeilen:
   - 52
@@ -53,6 +57,7 @@ records:
   einordnung: UEBERNOMMEN
   erfuellt_in:
   - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_030_PEER_LIFECYCLE.txt#op_status oder tunnel_type ausserhalb des Wertevorrats;
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_030_HERSTELLUNG_EINZELZIEL.txt#ENUM_DRIFT        Wert ausserhalb des Wertevorrats
   begruendung: Uebernommen als Fall der dritten Einordnung UNBESTIMMT.
   zeilen:
   - 70
@@ -64,9 +69,220 @@ records:
   einordnung: UEBERNOMMEN
   erfuellt_in:
   - base/BASE-040_TUNNEL_WIREGUARD/BASE-040_030_PEER_LIFECYCLE.txt#zugelassener Status ohne Tunneladresse;
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_030_HERSTELLUNG_EINZELZIEL.txt#INVARIANT_BROKEN  widerspruechliche Felder oder Zuordnung
   begruendung: 'Uebernommen: Widerspruechliche Felder ohne eindeutige Aussage (zugelassener Status ohne Adresse, ohne oder
     mit mehreren Auth-Rows) ergeben UNBESTIMMT. Abgrenzung: Sperrung und Widerruf sind eindeutige Aussagen und fuehren immer
     zum Entfernen des Peers (Verweigern geht vor).'
   zeilen:
   - 71
   - 71
+- id: TR-NB052-06
+  zitat: '- Keine Neuinterpretation von Policy in Outage-Zuständen: Keine automatischen "Fallback-Allows" und keine Blind-Umschaltung
+    auf RESTRICT.'
+  art: SCHUTZZIEL
+  aussage: Im Stoerfall keine Ersatzfreigabe und kein blindes Umschalten auf eingeschraenkt.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-PA-18
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-22
+  begruendung: Ohne lesbare Datenbank aendert die Herstellung nichts; es gibt keinen Ersatzzustand.
+  zeilen:
+  - 18
+  - 18
+- id: TR-NB052-07
+  zitat: '- DB_UNKNOWN hat EXAKT DIESELBEN OUTCOMES wie DB_DOWN.'
+  art: SCHUTZZIEL
+  aussage: Nicht eindeutig ableitbarer Zustand hat dieselben Folgen wie ein Ausfall.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-PA-22
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-25
+  begruendung: 'Uebernommen je Connection statt fuer das ganze System: Ein Fehler in einer Zeile sperrt nicht alle.'
+  zeilen:
+  - 31
+  - 31
+- id: TR-NB052-08
+  zitat: '- bei TEMPFAIL_SQL/ERROR/TIMEOUT bleibt das Gate aktiv und ip-up terminiert die PPP-Session (Fail-Closed).'
+  art: FUNKTION
+  aussage: Scheitert die Herstellung beim Verbindungsaufbau, bleibt gesperrt und die Sitzung endet.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-PA-07
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-30
+  begruendung: L2TP ist bis zur Freigabe vollstaendig gesperrt (Positivliste statt Gate). Die Sitzung endet bei nicht lesbarer
+    Datenbank sofort, bei voruebergehender Ursache im Kernelzugriff nach begrenzter Frist.
+  zeilen:
+  - 41
+  - 41
+- id: TR-NB052-09
+  zitat: '- Es gibt KEIN Fallback auf Portal/Restricted/Walled-Garden für neue Sessions im Outage/Unknown.'
+  art: SCHUTZZIEL
+  aussage: Kein Ausweichen auf Portal oder eingeschraenkten Zustand fuer neue Sitzungen.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-30
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-22
+  begruendung: Ohne Freigabe verwirft die Firewall allen Verkehr der Sitzung.
+  zeilen:
+  - 42
+  - 42
+- id: TR-NB052-10
+  zitat: '- Keine Policy-Änderungen an bestehenden Sessions (kein Rebuild, keine Umschaltung).'
+  art: SCHUTZZIEL
+  aussage: Keine Aenderung an bestehenden Sitzungen im Stoerfall.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-22
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-25
+  begruendung: Nichts oeffnen, nichts umschalten.
+  zeilen:
+  - 48
+  - 48
+- id: TR-NB052-11
+  zitat: '- vpn-policy-apply/Reconcile muss deterministisch abbrechen: - TEMPFAIL_SQL (Exit 2) / "keine Änderung möglich".'
+  art: FUNKTION
+  aussage: Herstellung und Abgleich brechen mit TEMPFAIL_SQL ab.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-21
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-22
+  begruendung: Ergebnis 2 laesst den Kernel unveraendert.
+  zeilen:
+  - 49
+  - 50
+- id: TR-NB052-12
+  zitat: '- darf NUR bei DB_OK durch Reconcile/Policy-Apply gesetzt werden.'
+  art: FUNKTION
+  aussage: Eingeschraenkt wird nur bei vollstaendig ableitbarer Lage.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#ABWEICHUNG von B052 Abschnitt 3
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_020_BEWERTUNG_UND_LIFECYCLE_LAUF.txt#Z-1  UNBEKANNT OEFFNET NICHTS UND FINALISIERT
+    NICHTS
+  begruendung: 'Fuer die Herstellung uebernommen (nicht auswertbare Zeile: nichts umschalten). Fuer die Bewertung angepasst:
+    Ist die Bedingung EINES Grundes nicht lesbar, ein ANDERER Grund aber bekannt aktiv, steht der Zielstatus fest und der
+    Bewerter schraenkt ein. Das ist kein Ersatzzustand bei unklarer Lage, den B052 ausschliesst; ohne die Anpassung bliebe
+    eine Verwaltungs-Einschraenkung wirkungslos, solange eine fremde Auskunft ausfaellt.'
+  zeilen:
+  - 57
+  - 57
+- id: TR-NB052-13
+  zitat: '- bei DB_DOWN/DB_UNKNOWN ist eine aktive Umschaltung auf RESTRICT NICHT zulässig.'
+  art: SCHUTZZIEL
+  aussage: Im Stoerfall kein aktives Umschalten auf eingeschraenkt.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_030_HERSTELLUNG_EINZELZIEL.txt#N-2  NICHTS UMSCHALTEN
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-25
+  begruendung: Regel N-2 der Herstellung; es gibt keinen Wechsel nach eingeschraenkt als Ersatz.
+  zeilen:
+  - 58
+  - 58
+- id: TR-NB052-14
+  zitat: '- SETTINGS_DRIFT: Required SQL-first Setting-Key fehlt oder ist ungültig (B057-Kanon verletzt).'
+  art: DEFINITION
+  aussage: 'Ausloeser: Pflicht-Setting fehlt oder ist ungueltig.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_030_HERSTELLUNG_EINZELZIEL.txt#SETTINGS_DRIFT    Pflicht-Setting fehlt oder ist
+    ungueltig
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-62
+  begruendung: Art SETTINGS_DRIFT des Ereignisses POLICY_STATE_UNDETERMINED; die Notwerte der Bremsen sind die strengsten.
+  zeilen:
+  - 69
+  - 69
+- id: TR-NB052-15
+  zitat: '- LOCK_TX_ANOMALY: Lock/Tx-Anomalie führt dazu, dass effective Policy-Facts nicht deterministisch ableitbar sind.'
+  art: DEFINITION
+  aussage: 'Ausloeser: Sperr- oder Transaktionsanomalie.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_030_HERSTELLUNG_EINZELZIEL.txt#ABGRENZUNG ZUR NICHT LESBAREN DATENBANK
+  begruendung: Eine Lesung, die nicht als ein Lesestand zustande kommt, gilt als nicht lesbar (Ergebnis 2) und nicht als eigene
+    Art; die Folge ist dieselbe.
+  zeilen:
+  - 72
+  - 72
+- id: TR-NB052-16
+  zitat: '- Detail ist `NA` oder Token `^[A-Z0-9_]+$`.'
+  art: PARAMETER
+  aussage: Einzelangabe eines Ereignisses ist ein festes Kennwort.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_030_HERSTELLUNG_EINZELZIEL.txt#ART der Lage als festem Kennwort
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-63
+  begruendung: Die Art wird als festes Kennwort gemeldet.
+  zeilen:
+  - 101
+  - 101
+- id: TR-NB052-17
+  zitat: '- Detail enthält KEINE Secrets/PII (keine SQL-Queries, keine Usernames, keine Keys).'
+  art: SCHUTZZIEL
+  aussage: Keine Geheimnisse und keine personenbezogenen Daten in Ereignissen.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-63
+  begruendung: Ereignisse nennen Connections nur als connection_ref.
+  zeilen:
+  - 102
+  - 102
+- id: TR-NB052-18
+  zitat: '- DB_STATE=UNKNOWN: SETTINGS_DRIFT | ENUM_DRIFT | INVARIANT_BROKEN | LOCK_TX_ANOMALY'
+  art: PARAMETER
+  aussage: Empfohlene Kennwoerter fuer den nicht eindeutig ableitbaren Zustand.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_030_HERSTELLUNG_EINZELZIEL.txt#ART der Lage als festem Kennwort
+  begruendung: Drei Kennwoerter uebernommen; LOCK_TX_ANOMALY ist keine Art, sondern nicht lesbar (Ergebnis 2); neu sind ADDR_DRIFT
+    und MASS_HOLD.
+  zeilen:
+  - 106
+  - 106
+- id: TR-NB052-19
+  zitat: '- Test B (DB_DOWN): bestehende Session + DB fällt aus -> Kernel-Enforcement bleibt unverändert; vpn-policy-apply=TEMPFAIL;
+    keine Änderung möglich.'
+  art: TEST
+  aussage: 'Test B: Bestand bleibt bei Ausfall unveraendert.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-24
+  begruendung: Herstellung ohne Datenbank.
+  zeilen:
+  - 119
+  - 119
+- id: TR-NB052-20
+  zitat: '- Test C (DB_UNKNOWN): injiziere UNKNOWN (invalid enum / missing setting) -> neue Logins DENY/REJECT; bestehende
+    Sessions FREEZE; vpn-policy-apply=TEMPFAIL.'
+  art: TEST
+  aussage: 'Test C: unbekannter Wert bzw. fehlendes Setting.'
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-28
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-74
+  begruendung: Je Connection geprueft (T-PA-28); fehlende Settings dieses Moduls fuehren auf die Notwerte des Katalogs (T-PA-74).
+  zeilen:
+  - 120
+  - 120
+- id: TR-NB052-21
+  zitat: '- Test D (Connect-Gate): bei TEMPFAIL/ERROR/TIMEOUT -> PPP wird beendet; kein Portal/Restricted Fallback.'
+  art: TEST
+  aussage: 'Test D: Sitzung endet, kein Ausweichen auf Portal.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-25
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-35
+  begruendung: Beginn gelingt nicht; zulaessig ohne Datenbank.
+  zeilen:
+  - 121
+  - 121
+- id: TR-NB052-22
+  zitat: '- Events (B340): Reason/Detail sind korrekt (DOWN vs UNKNOWN sichtbar; keine Secrets/PII).'
+  art: TEST
+  aussage: 'Test E: Ereignisse ohne Geheimnisse und personenbezogene Daten.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-75
+  begruendung: Statusdateien und Ereignisse durchsucht.
+  zeilen:
+  - 123
+  - 123

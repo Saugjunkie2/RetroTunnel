@@ -1,0 +1,212 @@
+schema: trace/1
+quelle: XPN
+datei: decisions/D009_CONNECT_GATING_D1A_SQL_FIRST.txt
+einheit: AP-K080
+vollstaendigkeit: VOLLSTAENDIG (Kopf, Verweise und der Abschnitt CHANGELOG sind keine Aussagen)
+records:
+- id: TR-XD009-01
+  zitat: '- Ziel: Es darf keinen Zustand geben, in dem eine PPP-Session aktiv ist, aber die Kernel-Policy (restricted/full
+    + QoS + Abuses) nicht deterministisch angewendet wurde.'
+  art: SCHUTZZIEL
+  aussage: Keine aktive Sitzung ohne angewandte Policy.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#SZ-1  KEIN VERKEHR OHNE HERGESTELLTEN
+    ZUSTAND
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-26
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-30
+  begruendung: 'Schutzziel SZ-1: Policy vor Freigabe fuer beide Tunnel.'
+  zeilen:
+  - 14
+  - 15
+- id: TR-XD009-02
+  zitat: '- Gleichzeitig soll es KEIN „Default Restricted“ Fallback geben (D1b wird abgelehnt), damit bei SQL-Ausfall kein
+    BANNED User plötzlich Zugriff auf interne Services (Portal/DNS) erhält.'
+  art: SCHUTZZIEL
+  aussage: Kein Ersatzzustand eingeschraenkt bei Ausfall der Datenbank.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-PA-18
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-22
+  begruendung: Ein gesperrter Nutzer erreicht bei einem Ausfall keine internen Dienste.
+  zeilen:
+  - 16
+  - 17
+- id: TR-XD009-03
+  zitat: '- Architektur-Pattern: SQL ist Control-Plane (SoT), Kernel ist Data-Plane (Enforcement).'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: SQL steuert, der Kernel setzt durch.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#SZ-2  SQL IST MASSGEBLICH
+  begruendung: Schutzziel SZ-2.
+  zeilen:
+  - 18
+  - 18
+- id: TR-XD009-04
+  zitat: 'A) Neues nftables set: connect_pending_v4 (IPv4 addresses) - Semantik: Wenn ip saddr @connect_pending_v4 => DROP
+    ALL im forward path (egal wohin).'
+  art: FUNKTION
+  aussage: Eigenes Sperr-Set fuer den Verbindungsaufbau.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-18
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-28
+  begruendung: connect_pending_* ist das Gate des WireGuard-Pfads (Treiber von BASE-040). L2TP ist bis zur Freigabe in allowed_l2tp_v4
+    gesperrt (Positivliste, BASE-050).
+  zeilen:
+  - 25
+  - 26
+- id: TR-XD009-05
+  zitat: '- Dieses Gate ist NICHT „Restricted/Walled Garden“. Es ist ein reines „deny-all“, bis Policy applied ist.'
+  art: DEFINITION
+  aussage: Das Gate ist kein eingeschraenkter Zustand, sondern sperrt alles.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_030_HERSTELLUNG_EINZELZIEL.txt#Es gibt in keinem dieser Faelle einen Ersatzzustand
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-30
+  begruendung: Bis zur Freigabe erreicht die Sitzung weder Portal noch Namensaufloesung.
+  zeilen:
+  - 27
+  - 27
+- id: TR-XD009-06
+  zitat: 1) Sofort CLIENT_IP in connect_pending_v4 eintragen (VOR jedem SQL Zugriff).
+  art: FUNKTION
+  aussage: Der Hook traegt die Adresse sofort in das Gate ein.
+  einordnung: ERSETZT
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-PA-07
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-19
+  begruendung: 'Ersetzt: Eine L2TP-Sitzung ist ohne Freigabe von selbst gesperrt; der Hook schreibt kein Set.'
+  zeilen:
+  - 30
+  - 30
+- id: TR-XD009-07
+  zitat: '2) vpn-policy-apply ausführen (SQL Truth -> Kernel State: restricted_v4 / full state / tc / etc.).'
+  art: FUNKTION
+  aussage: Danach wird die Policy aus SQL hergestellt.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_030_HERSTELLUNG_EINZELZIEL.txt#SB4  l2tp_ensure(c)
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-26
+  begruendung: 'Sitzungsbeginn: Schritte SB1 bis SB5.'
+  zeilen:
+  - 31
+  - 31
+- id: TR-XD009-08
+  zitat: '3) Nur bei SUCCESS (Exit 0): CLIENT_IP wieder aus connect_pending_v4 entfernen.'
+  art: FUNKTION
+  aussage: Nur bei Erfolg wird das Gate geloest.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_030_HERSTELLUNG_EINZELZIEL.txt#B4  FREIGABE - letzter Schritt
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-29
+  begruendung: Statt ein Gate zu entfernen, wird als letzter Schritt die Freigabe eingetragen.
+  zeilen:
+  - 32
+  - 32
+- id: TR-XD009-09
+  zitat: '4) Bei TEMPFAIL_SQL/ERROR/TIMEOUT: FAIL-CLOSED => PPP Kill; Gate bleibt bis Cleanup.'
+  art: FUNKTION
+  aussage: Bei jedem Fehler wird die Sitzung beendet.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-PA-07
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-30
+  begruendung: Uebernommen fuer endgueltige Ursachen und den Datenbankausfall; bei voruebergehender Ursache im Kernelzugriff
+    um eine begrenzte Frist aufgeschoben, weil die Sitzung bis zur Freigabe ohnehin vollstaendig gesperrt ist.
+  zeilen:
+  - 33
+  - 33
+- id: TR-XD009-10
+  zitat: '- connect_pending_v4 MUSS best-effort bereinigt werden (CLIENT_IP delete), damit Reconnect nicht „hängend“ bleibt.'
+  art: FUNKTION
+  aussage: Das Sitzungsende raeumt das Gate.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_030_HERSTELLUNG_EINZELZIEL.txt#L-A  KEINE SITZUNG (S leer)
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-31
+  begruendung: Das Sitzungsende raeumt Freigabe und Sperr-Set; ein Gate-Element gibt es fuer L2TP nicht.
+  zeilen:
+  - 36
+  - 37
+- id: TR-XD009-11
+  zitat: + Kein Traffic-Leak vor Policy Apply (No-Unpoliced-Window wird technisch garantiert).
+  art: SCHUTZZIEL
+  aussage: Kein Verkehr vor hergestellter Policy.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-26
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-29
+  begruendung: Geprueft mit verzoegerter Herstellung.
+  zeilen:
+  - 42
+  - 42
+- id: TR-XD009-12
+  zitat: + Kein Portal/DNS Zugriff als „Fallback“ bei SQL-Ausfall (kein Default-Restricted).
+  art: SCHUTZZIEL
+  aussage: Kein Portal und keine Namensaufloesung als Ausweichweg.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-30
+  begruendung: Kein Ersatzzustand.
+  zeilen:
+  - 43
+  - 43
+- id: TR-XD009-13
+  zitat: '+ SQL-First bleibt wahr: Wenn SQL nicht erreichbar ist, wird die Session beendet (FAIL-CLOSED).'
+  art: SCHUTZZIEL
+  aussage: Ohne SQL wird die Sitzung beendet.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-PA-07
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-25
+  begruendung: Bei nicht lesbarer Datenbank sofort.
+  zeilen:
+  - 44
+  - 44
+- id: TR-XD009-14
+  zitat: '- Minimaler zusätzlicher nftables Set-Lookup im forward path (nur relevant während Connect-Phase).'
+  art: IMPL_DETAIL
+  aussage: Aufwand des zusaetzlichen Set-Vergleichs.
+  einordnung: NICHT_ANWENDBAR
+  begruendung: Aufwandsangabe zum Gate des Vorgaengers; Aufbau und Reihenfolge des Regelwerks gehoeren BASE-050.
+  zeilen:
+  - 45
+  - 45
+- id: TR-XD009-15
+  zitat: '- connect_pending_v4 DROP muss vor allen accept rules im forward path evaluated werden.'
+  art: FUNKTION
+  aussage: Das Gate wird vor allen erlaubenden Regeln ausgewertet.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-050_FIREWALL_CORE/BASE-050_090_INVARIANTEN.txt#FW-18
+  begruendung: Regelwerk von BASE-050.
+  zeilen:
+  - 50
+  - 50
+- id: TR-XD009-16
+  zitat: '- ip-up darf connect_pending_v4 erst nach erfolgreichem policy-apply entfernen.'
+  art: FUNKTION
+  aussage: Der Hook loest das Gate erst nach erfolgreicher Herstellung.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-29
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_080_OWNER_GRENZEN.txt#GP-7
+  begruendung: Die Freigabe ist der letzte Schritt der Herstellung; der Hook schreibt kein Set und enthaelt keine eigene Logik.
+  zeilen:
+  - 51
+  - 51
+- id: TR-XD009-17
+  zitat: '- Bei SQL/Apply Fehlern: Session wird beendet (FAIL-CLOSED), kein Fallback auf Portal/Restricted.'
+  art: SCHUTZZIEL
+  aussage: Bei Fehlern endet die Sitzung; kein Ausweichen auf Portal.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-PA-07
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-30
+  begruendung: 'Wie Record 09: sofort bei endgueltiger Ursache und Datenbankausfall, sonst nach begrenzter Frist; nie ein
+    Ausweichzustand.'
+  zeilen:
+  - 52
+  - 52

@@ -192,6 +192,9 @@ ZWECK:
     Der Vergleich ist familienweise; fehlt nur eine Familie, wird sie
     ergaenzt und der Schnitt trotzdem fuer BEIDE Familien ausgefuehrt
     (DEC-PA-08).
+    Danach der Formungs-Haken (Operation "set", wiederholbar): So wirkt
+    eine geaenderte Formungsvorgabe auch fuer einen bestehenden Peer
+    (BASE-080_050 Abschnitt 3).
 
   NICHT ZUGELASSEN: Remove-Sequenz des Treibers (BASE-040_030 Abschnitt
     4): letzte Buchung, Peer entfernen, conntrack, Sets raeumen,
@@ -335,7 +338,8 @@ ZWECK:
     ------------------------------------ ----------------------------------
     nicht zugelassen (L-C)               Sitzung wird beendet
     Zuordnung widerspruechlich,          keine Freigabe; Sitzung wird
-    Adresse unbekannt (6.1)              beendet
+    Adresse unbekannt (6.1); Zeile       beendet
+    nicht auswertbar (Abschnitt 9, N-4)
     Datenbank nicht lesbar (Code 2)      keine Freigabe; Sitzung wird
                                          SOFORT beendet (kill() des
                                          Adapters fuer genau diese
@@ -343,10 +347,11 @@ ZWECK:
                                          Schnittstelle laut list(),
                                          sonst ihre Tunneladresse)
     Lock, Firewall-Zustand, Kernel-      keine Freigabe; die Sitzung
-    Schritt (Codes 5, 8, 4)              bleibt GESPERRT; Auftrag fuer die
-                                         Connection wird eingetragen;
-                                         erneuter Versuch im Takt des
-                                         Auftragslaufs
+    Schritt (Codes 5, 8, 4);             bleibt GESPERRT; Auftrag fuer die
+    unerwarteter Fehler (Code 7)         Connection wird eingetragen (bei
+                                         5, 8 und 4); erneuter Versuch im
+                                         Takt des Auftragslaufs (auch
+                                         ohne Auftrag: Aufsicht 6.5)
     nach vpn_connect_gate_ttl_seconds    Sitzung wird beendet (6.5)
     immer noch ohne Freigabe
 
@@ -447,6 +452,24 @@ ZWECK:
   Diensten und raeumt Adressumsetzungen ab. Die Sperre Richtung Internet
   haengt nicht an ihm - sie wirkt schon mit F2.
 
+  NUR DER EINTRITT SCHNEIDET - VERHAELTNIS ZUM BESTAND: SM_CONNECTION 4.6
+  nannte den Schnitt bei jedem Wechsel von Status ODER Grund;
+  SM_POLICY_RESTRICT 5.1 und der Vorgaenger (B150 2.2; B166 Abschnitt 6,
+  Schritt 3.1) nur beim Eintritt - fuer die Freigabe ausdruecklich
+  nicht. Uebernommen ist das Zweite:
+    - Ein GRUNDWECHSEL aendert im Kernel nichts; ein Schnitt wuerde nur
+      die erlaubten Fluesse (Namensaufloesung, Portal) unterbrechen.
+    - Eine FREIGABE erweitert den Zugang. Im Kern haengt keine
+      Adressumsetzung am eingeschraenkten Zustand (der DNS-Zwang gilt
+      fuer alle Zustaende, BASE-050 DEC-FW-12); nach dem Entfernen aus
+      dem Set bleibt nichts zurueck, was die Freigabe verzoegert. Ein
+      Schnitt wuerde die Verbindung zum Panel trennen, ueber die der
+      Kunde gerade handelt.
+    - Fuehrt ein Modul eine Umsetzung NUR fuer eingeschraenkte Clients
+      ein (Portal-Umleitung, BASE-050_050 Abschnitt 6), regelt es den
+      Verbleib solcher Fluesse nach der Freigabe (BASE-080_080
+      OPEN-PA-04).
+
 ================================================================================
 8) BEENDEN NICHT ZUGELASSENER LAUFZEIT ("LAUFZEIT ZUERST")
 ================================================================================
@@ -521,10 +544,33 @@ ZWECK:
          bleibt, wie er ist. Es gibt keinen Wechsel nach "eingeschraenkt"
          als Ersatz und kein vorsorgliches Beenden.
     N-3  Ergebnis 6, Ereignis POLICY_STATE_UNDETERMINED (ALERT) mit der
-         Art des Widerspruchs - ohne personenbezogene Inhalte.
+         ART der Lage als festem Kennwort - ohne personenbezogene
+         Inhalte:
+           ENUM_DRIFT        Wert ausserhalb des Wertevorrats
+           INVARIANT_BROKEN  widerspruechliche Felder oder Zuordnung
+           SETTINGS_DRIFT    Pflicht-Setting fehlt oder ist ungueltig
+           ADDR_DRIFT        Adresse passt nicht zu Rolle und Slot
+           MASS_HOLD         zurueckgestellte Massenkorrektur
+                             (Abschnitt 8)
+         Die ersten drei Kennwoerter stammen aus B052 (Abschnitte 4 und
+         5.2).
     N-4  Eine NEUE L2TP-Sitzung, deren Lage nicht auswertbar ist, wird
          nicht freigegeben und nach 6.3 beendet: Das ist kein Umschalten
          eines Bestands, sondern das Verweigern einer neuen Zulassung.
+
+  ABGRENZUNG ZUR NICHT LESBAREN DATENBANK: Kommt eine Lesung nicht
+  zustande oder ist sie nicht als EIN Lesestand gesichert (Zeitlimit der
+  Abfrage, Abbruch der Transaktion; in B052 der Ausloeser
+  LOCK_TX_ANOMALY), ist das "nicht lesbar": Code 2, keine Wirkung
+  (Schritt H4). Die Folge ist dieselbe - nichts oeffnen, nichts
+  umschalten.
+
+  NACH EINEM NEULADEN DES REGELWERKS sind Siegel-Durchlass und Freigaben
+  fort. Fuer eine nicht auswertbare Connection wird dann nichts NEU
+  geoeffnet: Ihr Peer erhaelt vor dem Loesen des Siegels ein Gate-Element
+  (BASE-080_040 Abschnitt 6), ihre L2TP-Sitzung keine neue Freigabe und
+  endet nach 6.5. N-2 schuetzt den Bestand vor dem Umschalten, nicht
+  vor dem Verlust durch ein Neuladen.
 
   ADRESS-DRIFT IM BESONDEREN (DEC-PA-25): Die Lage bleibt, bis die
   Adress-Reparatur (BASE-080_060 Abschnitt 7) sie behebt; die Reparatur

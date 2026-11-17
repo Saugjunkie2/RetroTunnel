@@ -37,8 +37,9 @@ ZWECK:
     - Was ein Status im Kernel bedeutet: BASE-050; Herstellung: _030.
 
   ER SCHREIBT NIE SELBST einen Status: Jeder Uebergang laeuft ueber die
-  Uebergangsroutine von BASE-010 (Felder, Zeitstempel, Lifecycle-Log,
-  Auftrag im Auftragsbuch - eine Transaktion; ANF-PA-01).
+  Uebergangsroutine von BASE-010 (Felder, Zeitstempel, Lifecycle-Log und
+  - wo sich der herzustellende Zustand aendert - der Auftrag im
+  Auftragsbuch: eine Transaktion; ANF-PA-01).
 
 ================================================================================
 2) BEDINGUNGSQUELLEN (abschliessend)
@@ -98,11 +99,23 @@ ZWECK:
                                    precedence_rank (INV-22)
 
   REGELN:
-    Z-1  UNBEKANNT AENDERT NICHTS: Ist die Bedingung irgendeines Grundes
-         UNBEKANNT, wird fuer diese Connection in diesem Lauf kein
-         Uebergang aus den Abschnitten 4 (E5 bis E7) ausgefuehrt - weder
-         einschraenken noch freigeben. Zaehler und Meldung
-         POLICY_EVAL_INPUT_UNKNOWN (SZ-7).
+    Z-1  UNBEKANNT OEFFNET NICHTS UND FINALISIERT NICHTS: Ist die
+         Bedingung irgendeines Grundes UNBEKANNT, gilt fuer diese
+         Connection in diesem Durchgang:
+           a) keine Freigabe, kein Grundwechsel (T-05) und keine
+              Finalisierung (E7): Der gespeicherte Zustand bleibt.
+           b) Der EINTRITT in RESTRICTED aus ACTIVE (T-02, T-03) findet
+              statt, wenn die Bedingung mindestens eines Grundes BEKANNT
+              aktiv ist - mit dem hoechstprioren unter den bekannt
+              aktiven Gruenden. Das ist kein Ersatzzustand: Der
+              Zielstatus steht fest; offen ist nur, ob ein unbekannter
+              Grund vorgeht. Das berichtigt der naechste Durchgang mit
+              lesbarer Auskunft als Grundwechsel.
+         Zaehler und Meldung POLICY_EVAL_INPUT_UNKNOWN (SZ-7).
+         WARUM b): Eine Verwaltungs-Einschraenkung, eine Pause oder eine
+         abgelaufene Laufzeit darf nicht wirkungslos bleiben, weil eine
+         ANDERE Auskunft gerade nicht lesbar ist (SZ-4). Verhaeltnis zu
+         B052: DEC-PA-22.
     Z-2  Tatsachen einer ADMIN-Connection (Pause, Verwaltungs-
          Einschraenkung) sind unzulaessig; findet der Bewerter sie vor,
          meldet er POLICY_EVAL_ADMIN_FACT und laesst die Connection
@@ -161,7 +174,10 @@ ZWECK:
         -> T-06 Trigger A mit auto_finalize_to_reason_code des geltenden
            Grundes. UNUMKEHRBAR (Abschnitt 7).
   E8  ABSCHLUSS: Commit. Jeder ausgefuehrte Uebergang hat ueber die
-      Uebergangsroutine Felder, Lifecycle-Log und Auftrag geschrieben.
+      Uebergangsroutine Felder und Lifecycle-Log geschrieben - und den
+      Auftrag, wo er den herzustellenden Zustand aendert: bei jedem
+      Statuswechsel und beim Widerruf, nicht beim reinen Grundwechsel
+      (BASE-080_050 Abschnitt 3).
 
   WARUM E5/E6 VOR E7: Ein Grund, der inzwischen entfallen ist, darf nicht
   mehr zur endgueltigen Sperrung fuehren. Erst wird festgestellt, was
@@ -211,6 +227,17 @@ ZWECK:
 
   ABGRENZUNG: Der Kern prueft keine Fristen (E3, E4, E7) und loest keine
   Kaskaden aus; das bleibt dem Lauf vorbehalten.
+
+  UNBEKANNTE AUSKUNFT IM KERN (Regel Z-1): Die Handlung selbst wird
+  festgeschrieben (Tatsache gesetzt oder geloescht, Claim, geaenderte
+  Laufzeit); fuer den Status gilt Z-1: Der Eintritt aus einem bekannt
+  aktiven Grund wirkt mit dem Commit, eine Freigabe folgt erst mit
+  lesbarer Auskunft. T-08 im Besonderen: Ist ein Grund bekannt aktiv,
+  kommt die Connection eingeschraenkt zurueck. Ist keiner bekannt aktiv,
+  aber eine Bedingung UNBEKANNT, wird die Wiederherstellung ABGELEHNT
+  (keine Aenderung; Meldung an den Aufrufer): Ob die Connection frei
+  sein duerfte, ist nicht feststellbar - fehlendes Wissen oeffnet nichts
+  (SZ-7).
 
 ================================================================================
 6) DER LAUF (vpn-policy-eval)
@@ -385,8 +412,10 @@ ZWECK:
   ------------------------------- -------------------------------------------
   Datenbank nicht erreichbar      Lauf ohne Wirkung; keine Entscheidung;
                                   nach Rueckkehr vollstaendige Bewertung
-  Auskunft AK-1/AK-2 nicht lesbar   Bedingung UNBEKANNT: betroffene
-                                  Connections bleiben unveraendert; Meldung
+  Auskunft AK-1/AK-2 nicht lesbar Bedingung UNBEKANNT (Regel Z-1): keine
+                                  Freigabe, kein Grundwechsel, keine
+                                  Finalisierung; Eintritt nur aus einem
+                                  bekannt aktiven Grund; Meldung
   Uebergangsroutine scheitert     Transaktion verworfen; kein Teilzustand;
                                   naechster Lauf wiederholt
   Lauf bricht ab                  bereits abgeschlossene Connections sind

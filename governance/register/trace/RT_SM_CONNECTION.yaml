@@ -1,0 +1,243 @@
+schema: trace/1
+quelle: RT
+datei: model/state_machines/SM_CONNECTION.txt
+einheit: AP-K080
+vollstaendigkeit: 'TEILWEISE (Anteil des Policy-Evaluators: Abschnitte 4.6, 4.9, 5.4 und 5.5; Uebergaenge und Invarianten
+  im Uebrigen sind in BASE-010 aufgeloest und werden mit dem Nachzug AP-Q04 zurueckverfolgt)'
+records:
+- id: TR-RSMC-01
+  zitat: '- Reconcile re-evaluiert ALLE aktiven Bedingungen (INV-27)'
+  art: FUNKTION
+  aussage: Die Neubewertung betrachtet alle aktiven Bedingungen.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_020_BEWERTUNG_UND_LIFECYCLE_LAUF.txt#E5  GRUENDE BESTIMMEN
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-04
+  begruendung: Der Bewerter (vpn-policy-eval) ist der dort Reconcile genannte Runner der Bewertung (DEC-PA-01).
+  zeilen:
+  - 293
+  - 293
+- id: TR-RSMC-02
+  zitat: '- Source-Fact Verdrahtung (Löschung bei Akteur-Aktion): Customer Reaktivieren: customer_paused_at = NULL Admin hebt
+    Manual Restrict auf: admin_manual_restricted_at = NULL'
+  art: FUNKTION
+  aussage: Reaktivieren und Aufheben loeschen die gespeicherte Tatsache.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_020_BEWERTUNG_UND_LIFECYCLE_LAUF.txt#Pause / Reaktivieren (Kunde)
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_080_OWNER_GRENZEN.txt#ANF-PA-01
+  begruendung: Die Tatsachen setzt und loescht die Routine von BASE-010; der Bewertungskern laeuft in derselben Transaktion.
+  zeilen:
+  - 294
+  - 296
+- id: TR-RSMC-03
+  zitat: '- KANONISCHE EINGANGSMENGE für aktive Restrict-Gründe: Die Gesamtmenge der aktuell gültigen RESTRICT-Bedingungen
+    wird durch den Policy-Evaluator bestimmt (BASE-80_POLICY_APPLY_CORE).'
+  art: ARCH_ENTSCHEIDUNG
+  aussage: Die Menge der gueltigen Bedingungen bestimmt der Policy-Evaluator dieses Moduls.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-PA-12
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-03
+  begruendung: Der Bewerter sammelt alle sechs Quellen.
+  zeilen:
+  - 297
+  - 299
+- id: TR-RSMC-04
+  zitat: 'Dieser liest aus folgenden kanonischen Quellen: Quota-Stand → vpn_connections + Accounting-Deltas Expiry → vpn_connections.expiry_date
+    vs NOW() Plan-Limits → Plan-Engine (MOD-10_PLANS) Customer-Pause → customer_paused_at IS NOT NULL (Source Fact) Admin-Manual
+    → admin_manual_restricted_at IS NOT NULL (Source Fact) Unclaimed-Overdue → customer_id IS NULL + unclaimed_grace_until'
+  art: FUNKTION
+  aussage: 'Sechs Quellen: Kontingent, Laufzeit, Plan-Limit, Pause, Verwaltung, Frist ohne Claim.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_020_BEWERTUNG_UND_LIFECYCLE_LAUF.txt#2) BEDINGUNGSQUELLEN (abschliessend)
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-03
+  begruendung: Tabelle der Bedingungsquellen; Kontingent und Plan-Limit ueber die Auskuenfte der Owner.
+  zeilen:
+  - 300
+  - 306
+- id: TR-RSMC-05
+  zitat: Der Evaluator gibt eine geordnete Liste aktiver Gründe zurück. Reconcile wählt den höchstprioren (niedrigster precedence_rank).
+  art: FUNKTION
+  aussage: Geordnete Liste der aktiven Gruende; es gilt der hoechstpriore.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-04
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_020_BEWERTUNG_UND_LIFECYCLE_LAUF.txt#vpn-policy-eval --explain <id>
+  begruendung: Zielzustand nach Abschnitt 3; alle aktiven Gruende zeigt der lesende Aufruf.
+  zeilen:
+  - 307
+  - 308
+- id: TR-RSMC-06
+  zitat: '- Wenn KEIN Grund mehr aktiv: op_status = ACTIVE, op_reason_code = NULL restricted_at = NULL, restrict_finalize_at
+    = NULL'
+  art: FUNKTION
+  aussage: 'Kein Grund mehr aktiv: frei, Grund und Fristen geloescht.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-04
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-04
+  begruendung: Uebergang T-05 als Freigabe ueber die Routine von BASE-010.
+  zeilen:
+  - 309
+  - 311
+- id: TR-RSMC-07
+  zitat: '- Wenn ein ANDERER Grund noch aktiv: op_reason_code = nächsthöchster Grund (Precedence §5.3) restrict_finalize_at
+    wird ggf. neu materialisiert'
+  art: FUNKTION
+  aussage: 'Anderer Grund aktiv: Grundwechsel mit neu bestimmter Frist.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_020_BEWERTUNG_UND_LIFECYCLE_LAUF.txt#T-05 (Grundwechsel);
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-04
+  begruendung: 'Schritt E6: restrict_finalize_at wird aus dem neuen Grund bestimmt.'
+  zeilen:
+  - 312
+  - 314
+- id: TR-RSMC-08
+  zitat: '- HARD-CUT UND LOGGING NUR BEI DELTA: Wenn die Re-Evaluation ein Delta erzeugt (Status- oder Reason- Wechsel): Hard-Cut
+    (Conntrack-Flush) + Lifecycle-Log STATUS_CHANGE.'
+  art: FUNKTION
+  aussage: Schnitt und Protokoll bei jeder Aenderung von Status oder Grund.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_030_HERSTELLUNG_EINZELZIEL.txt#NUR DER EINTRITT SCHNEIDET - VERHAELTNIS ZUM BESTAND
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-32
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-06
+  begruendung: 'Das Lifecycle-Ereignis entsteht bei jedem Uebergang. Der Fluss-Schnitt gilt nur fuer den Eintritt in den eingeschraenkten
+    Zustand - wie in SM_POLICY_RESTRICT 5.1 und im Vorgaenger (B150 2.2; B166 Abschnitt 6, Schritt 3.1): Ein Grundwechsel aendert im Kernel nichts,
+    und eine Freigabe erweitert nur.'
+  zeilen:
+  - 315
+  - 317
+- id: TR-RSMC-09
+  zitat: 'Wenn KEIN Delta (identische Eingaben, identisches Ergebnis): KEIN Hard-Cut, KEIN Lifecycle-Log, KEINE Schreiboperation.
+    (INV-31: Idempotenz gilt für den gesamten Effekt, nicht nur DB.)'
+  art: SCHUTZZIEL
+  aussage: Ohne Aenderung kein Schnitt, kein Protokoll, kein Schreibzugriff.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-06
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_020_BEWERTUNG_UND_LIFECYCLE_LAUF.txt#Z-4  Gleicher Zielzustand wie gespeichert
+  begruendung: Regel Z-4.
+  zeilen:
+  - 318
+  - 320
+- id: TR-RSMC-10
+  zitat: '- POLICY-RE-EVALUATION (MUST): Nach Löschung der Disable-Felder wird der Policy-Evaluator (BASE-80) sofort ausgeführt.
+    Dieser prüft alle berechneten'
+  art: FUNKTION
+  aussage: Die Wiederherstellung fuehrt sofort die Bewertung aus.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-10
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_060_UMBAUTEN_ROLLENWECHSEL_UND_KASKADEN.txt#WH1  TRANSAKTION
+  begruendung: Der Bewertungskern laeuft in der Transaktion der Wiederherstellung.
+  zeilen:
+  - 387
+  - 389
+- id: TR-RSMC-11
+  zitat: Restore ist KEIN Bypass aktueller Policy-Realität.
+  art: SCHUTZZIEL
+  aussage: Wiederherstellung umgeht die geltenden Bedingungen nicht.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-10
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-10
+  begruendung: Ergebnis ACTIVE nur ohne aktiven Grund; ist eine Auskunft nicht lesbar und kein Grund bekannt aktiv, wird die
+    Wiederherstellung abgelehnt (Regel Z-1).
+  zeilen:
+  - 396
+  - 396
+- id: TR-RSMC-12
+  zitat: 'POLICY-EVALUATOR-VERTRAG: Der Policy-Evaluator (BASE-80) sammelt ALLE sechs Quellen: 1. customer_paused_at IS NOT
+    NULL → RESTRICT_CUSTOMER_PAUSED aktiv 2. admin_manual_restricted_at IS NOT NULL → RESTRICT_ADMIN_MANUAL aktiv 3. customer_id
+    IS NULL AND NOW()>grace → RESTRICT_UNCLAIMED_OVERDUE aktiv 4. Quota erschöpft → RESTRICT_QUOTA_EXHAUSTED aktiv 5. Expiry
+    abgelaufen → RESTRICT_EXPIRY_PASSED aktiv 6. Plan-Limit überschritten → RESTRICT_PLAN_LIMIT_EXCEEDED aktiv'
+  art: FUNKTION
+  aussage: 'Vertrag des Policy-Evaluators: alle sechs Quellen.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt#DEC-PA-12
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_020_BEWERTUNG_UND_LIFECYCLE_LAUF.txt#2) BEDINGUNGSQUELLEN (abschliessend)
+  begruendung: Entscheidung DEC-PA-12.
+  zeilen:
+  - 587
+  - 594
+- id: TR-RSMC-13
+  zitat: Aus der Menge aktiver Gründe wählt er den mit niedrigstem precedence_rank und schreibt diesen als op_reason_code.
+  art: FUNKTION
+  aussage: Es gilt der Grund mit dem niedrigsten Rang; er wird als Grund gespeichert.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-04
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-02
+  begruendung: Geschrieben wird ueber die Uebergangsroutine von BASE-010.
+  zeilen:
+  - 595
+  - 596
+- id: TR-RSMC-14
+  zitat: INV-30 op_reason_code ist IMMER der höchstpriore aus der aktuellen Gesamtmenge aktiver Gründe (keine veralteten Werte).
+  art: SCHUTZZIEL
+  aussage: Der gespeicherte Grund ist immer der hoechstpriore aller aktiven Gruende.
+  einordnung: ANGEPASST
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-04
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_020_BEWERTUNG_UND_LIFECYCLE_LAUF.txt#Z-1  UNBEKANNT OEFFNET NICHTS UND FINALISIERT
+    NICHTS
+  begruendung: Gilt fuer alle lesbaren Bedingungen. Solange eine Auskunft nicht lesbar ist, bleibt der gespeicherte Grund
+    bzw. gilt beim Eintritt der hoechstpriore bekannt aktive (Regel Z-1); der naechste Durchgang mit lesbarer Auskunft stellt
+    die Rangfolge her.
+  zeilen:
+  - 601
+  - 602
+- id: TR-RSMC-15
+  zitat: 'REGEL: Reconcile/Policy-Evaluator führt bei jeder Evaluation eine vollständige Re-Evaluation durch, unabhängig davon
+    ob op_status sich ändert oder gleich bleibt.'
+  art: FUNKTION
+  aussage: Vollstaendige Neubewertung bei jeder Bewertung, auch ohne Statuswechsel.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_020_BEWERTUNG_UND_LIFECYCLE_LAUF.txt#E6  VERGLEICHEN UND UEBERGEHEN
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-04
+  begruendung: Schritte E5 und E6.
+  zeilen:
+  - 610
+  - 612
+- id: TR-RSMC-16
+  zitat: '- restrict_finalize_at wird ggf. NEU materialisiert (aus dem neuen Reason, nicht dem alten)'
+  art: FUNKTION
+  aussage: Die Frist wird aus dem neuen Grund bestimmt.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_020_BEWERTUNG_UND_LIFECYCLE_LAUF.txt#Bei Eintritt und bei Grundwechsel wird restrict_finalize_at
+    aus
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_095_TESTS.txt#T-PA-08
+  begruendung: Schritt E6.
+  zeilen:
+  - 617
+  - 618
+- id: TR-RSMC-17
+  zitat: 'd) Gleicher Grund bleibt, keine Änderung: - Keine Schreiboperation (Idempotenz)'
+  art: SCHUTZZIEL
+  aussage: 'Gleicher Grund: kein Schreibzugriff.'
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-06
+  begruendung: Geschrieben wird nur bei einer Aenderung.
+  zeilen:
+  - 629
+  - 630
+- id: TR-RSMC-18
+  zitat: 'INV-31 Reason-Re-Evaluation ist idempotent: mehrfaches Ausführen mit gleichen Eingaben erzeugt denselben Endzustand.'
+  art: SCHUTZZIEL
+  aussage: Die Neubewertung ist wiederholbar.
+  einordnung: UEBERNOMMEN
+  erfuellt_in:
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-06
+  - base/BASE-080_POLICY_APPLY_CORE/BASE-080_090_INVARIANTEN.txt#PA-04
+  begruendung: Deterministischer Zielzustand; ein Lauf ohne geaenderte Eingaben schreibt nichts.
+  zeilen:
+  - 644
+  - 645

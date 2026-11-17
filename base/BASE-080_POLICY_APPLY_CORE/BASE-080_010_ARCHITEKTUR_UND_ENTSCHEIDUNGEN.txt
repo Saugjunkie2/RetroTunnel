@@ -264,11 +264,12 @@ DEC-PA-12  DER BEWERTER SAMMELT ALLE SECHS QUELLEN
 
 DEC-PA-13  REIHENFOLGE DER BEWERTUNG JE CONNECTION
   (1) Kaskade aus dem Customer-Status, (2) harte Frist ohne Claim,
-  (3) Gruende neu bestimmen, (4) Finalisierungsfrist des danach noch
-  geltenden Grundes, (5) Widerruf nach Ablauf des Restore-Fensters.
-  Begruendung zu (3) vor (4): Eine Connection, deren Grund inzwischen
-  entfallen ist, darf nicht wegen einer abgelaufenen Frist dieses Grundes
-  endgueltig gesperrt werden.
+  (3) bei einer gesperrten Connection allein der Widerruf nach Ablauf
+  des Restore-Fensters, (4) Gruende neu bestimmen, (5)
+  Finalisierungsfrist des danach noch geltenden Grundes (Schritte E2 bis
+  E7 in BASE-080_020). Begruendung zu (4) vor (5): Eine Connection, deren
+  Grund inzwischen entfallen ist, darf nicht wegen einer abgelaufenen
+  Frist dieses Grundes endgueltig gesperrt werden.
 
 DEC-PA-14  SCHUTZ VOR UNUMKEHRBAREN MASSENFOLGEN
   Fristgetriebene Uebergaenge, die sich nicht zuruecknehmen lassen
@@ -345,8 +346,7 @@ DEC-PA-22  NICHT AUSWERTBAR HEISST: NICHTS OEFFNEN, NICHTS UMSCHALTEN
   widerspruechliche Zuordnung von Sitzung und Connection, fehlendes
   Pflicht-Setting), behandelt BASE-080 die betroffene Connection wie bei
   einer Datenbankstoerung: keine neue Zulassung, kein Wechsel eines
-  bestehenden Kernel-Zustands, Meldung. Der Bewerter verfaehrt ebenso
-  (BASE-080_020 Regel Z-1).
+  bestehenden Kernel-Zustands, Meldung.
   HERKUNFT: B052 Abschnitt 1 und 4 ("DB_UNKNOWN verhaelt sich exakt wie
   DB_DOWN"; Ausloeser SETTINGS_DRIFT, ENUM_DRIFT, INVARIANT_BROKEN,
   LOCK_TX_ANOMALY). Im Bestand ist davon nur die Auswirkung auf einzelne
@@ -354,6 +354,18 @@ DEC-PA-22  NICHT AUSWERTBAR HEISST: NICHTS OEFFNEN, NICHTS UMSCHALTEN
   Regel fuer nicht auswertbare Zeilen fehlte.
   ANWENDUNG je Connection, nicht fuer das ganze System: Ein Fehler in
   einer Zeile sperrt nicht alle. Einzelheiten: BASE-080_030 Abschnitt 9.
+  DER BEWERTER (BASE-080_020 Regel Z-1): Ist die Bedingung eines Grundes
+  nicht lesbar, gibt er nichts frei, wechselt keinen Grund und
+  finalisiert nichts. Den Eintritt in RESTRICTED fuehrt er aus, wenn ein
+  ANDERER Grund bekannt aktiv ist.
+  ABWEICHUNG von B052 Abschnitt 3 (RESTRICT darf "NUR bei DB_OK" gesetzt
+  werden): Dort ist jede Umschaltung nach RESTRICT untersagt, solange
+  nicht alle Tatsachen ableitbar sind - gemeint ist der Ersatzzustand
+  bei unklarer Lage. Hier steht der Zielstatus fest (ein Grund ist
+  aktiv); unbekannt ist allein, ob ein anderer Grund vorgeht. Ohne die
+  Abweichung bliebe eine Verwaltungs-Einschraenkung wirkungslos, solange
+  eine fremde Auskunft ausfaellt (SZ-4). Die HERSTELLUNG bleibt bei
+  B052: Fuer eine nicht auswertbare Zeile schaltet sie nichts um.
 
 DEC-PA-23  EINGRIFFSPFAD JE AUTOMATISMUS; DIE BEWERTUNG HAT EINEN HALT
   Der Phasenplan verlangt fuer jeden Automatismus einen Eingriffspfad des
@@ -435,7 +447,12 @@ DEC-PA-25  EINE ADRESSE, DIE NICHT ZU ROLLE UND SLOT PASST, IST NICHT
                                                    BASE-080_070
   OPEN-POL-05  Units, Lock, Hooks               -> BASE-080_050, _070
   Heimat des Policy-Evaluators (SM_CONNECTION   -> BASE-080_020
-  4.6, 4.9, 5.4)
+  4.6, 4.9, 5.4, 5.5)
+  Schnitt bei Freigabe und Grundwechsel         -> BASE-080_030 Abschnitt
+  (SM_CONNECTION 4.6 gegen SM_POLICY_RESTRICT      7: nur der Eintritt
+  5.1)                                             schneidet
+  Geaenderte Formungsvorgabe als Ausloeser      -> BASE-080_050 Abschnitt
+  (B166 Abschnitt 9: "Speed change")               3; ANF-PA-10
   Heimat der Fristenlaeufe (R-15, LR-02, T-06)  -> BASE-080_020
   Lebenszyklus allowed_l2tp_v4 (ANF-FW-03 a)    -> BASE-080_030, _040
   Vorbedingung zum Loesen des Siegels           -> BASE-080_040
