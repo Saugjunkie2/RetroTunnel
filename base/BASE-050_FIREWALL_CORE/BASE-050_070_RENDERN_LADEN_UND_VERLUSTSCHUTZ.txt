@@ -140,7 +140,8 @@ ZWECK:
 
   Alle Operationen laufen als root unter dem Single-Writer-Lock
   /run/vpn-policy-apply.lock (R-11). Jede Aenderung am Kernel ist EINE
-  nft-Transaktion.
+  nft-Transaktion. unseal erwirbt den Lock nicht selbst: Es laeuft unter
+  dem Lock, den sein Aufrufer vpn-policy-apply haelt (unten).
 
   boot      (ExecStart von nftables.service)
     1  Weiterleitung aus (IPv4 und IPv6)
@@ -179,7 +180,11 @@ ZWECK:
        kein volles Regelwerk laden: Weiterleitung aus (dieser Schritt
        wartet NICHT auf den Lock)
     3  nach erfolgreichem Laden eines vollen Regelwerks: Weiterleitung an
-    4  vollstaendigen Abgleich bei BASE-080 anstossen
+    4  vollstaendigen Abgleich bei BASE-080 anstossen: eine leere Datei
+       mit eindeutigem Namen unter
+       /run/retrotunnel/policy/reconcile.request.d/ ablegen und die Unit
+       des Abgleichs starten, ohne auf sie zu warten (BASE-080_040
+       Abschnitt 2)
     Die Set-Inhalte sind verloren; deshalb Siegel. Bis zum Abgleich ist
     WireGuard gesperrt und L2TP ohne Freigaben - beides geschlossen.
     Begruendung der Reihenfolge: Das versiegelte Laden schliesst den
@@ -199,6 +204,12 @@ ZWECK:
     Wirkung: Kette seal wird geleert. Idempotent. Ohne bestaetigte
     Vorbedingung wird die Operation abgelehnt. Wie der Abgleich die
     Vorbedingung herstellt (Reihenfolge der Schritte), legt BASE-080 fest.
+    LOCK: unseal laeuft unter dem vom Aufrufer GEHALTENEN
+    Single-Writer-Lock - der Aufrufer uebergibt ihn (vererbter
+    Dateideskriptor), unseal erwirbt ihn nicht neu. Zwischen dem Nachweis
+    der Vorbedingung und dem Loesen kommt so kein anderer Schreiber zum
+    Zug. Ohne uebergebenen Lock wird die Operation abgelehnt (BASE-080
+    ANF-PA-08; BASE-080_040 Schritt SG3).
 
   stop      (ExecStop) Weiterleitung aus, dann alles entfernen. Die
             Tunnel-Units enden ueber ihre Requires-Bindung.

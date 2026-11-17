@@ -2,8 +2,8 @@
 BASE-080 — POLICY APPLY CORE (INDEX)
 ================================================================================
 DATEI: BASE-080_INDEX.txt
-VERSION: v1.0
-DATUM: 2026-11-14
+VERSION: v1.1
+DATUM: 2026-11-17
 STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
 
 ================================================================================
@@ -71,13 +71,13 @@ STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
                                             Transaktion, nie ein leeres
                                             Sperr-Set
     Hard-Cut                                _030 Abschnitte 7, 8
-    Aufloesung von SM_POLICY_RESTRICT       _080 Abschnitt 8
+    Aufloesung von SM_POLICY_RESTRICT       _080 Abschnitt 9
     Freigabe nach dem Verbindungsaufbau     _030 Abschnitte 5, 6 -
-    (WireGuard: Gate loesen ; L2TP:         angepasst: Massgeblich ist der
-    Eintrag in allowed_l2tp_v4) ; bei       Bestand am Kernel (Peer bzw.
+    (WireGuard: Gate loesen; L2TP:         angepasst: Massgeblich ist der
+    Eintrag in allowed_l2tp_v4); bei       Bestand am Kernel (Peer bzw.
     Scheitern kein offener Weg              Schnittstelle), nicht eine
                                             Abrechnungsmeldung oder ein
-                                            Handshake ; Beenden nach
+                                            Handshake; Beenden nach
                                             DEC-PA-07
 
 ================================================================================
@@ -87,7 +87,7 @@ STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
   BASE-080_INDEX.txt                                 Dieses Dokument
   BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt    Schutzziele, Begriffe,
                                                      Komponenten,
-                                                     DEC-PA-01..23
+                                                     DEC-PA-01..25
   BASE-080_020_BEWERTUNG_UND_LIFECYCLE_LAUF.txt      vpn-policy-eval:
                                                      Quellen, Zielzustand,
                                                      Ablauf, Kern, Lauf,
@@ -114,11 +114,15 @@ STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
                                                      Status, Ereignisse,
                                                      Eingriffspfade
   BASE-080_080_OWNER_GRENZEN.txt                     Besitz, Grenzregeln,
-                                                     ANF-PA-01..16,
+                                                     Lese- und
+                                                     Schreibgrenzen,
+                                                     ANF-PA-01..17,
                                                      E-PA-01..08, Verbleib
                                                      der POL-Invarianten
-  BASE-080_090_INVARIANTEN.txt                       PA-01..PA-68
-  BASE-080_095_TESTS.txt                             T-PA-01..T-PA-88
+                                                     und von DOMAIN_MODEL
+                                                     Abschnitt 5
+  BASE-080_090_INVARIANTEN.txt                       PA-01..PA-69
+  BASE-080_095_TESTS.txt                             T-PA-01..T-PA-90
 
 ================================================================================
 4) TABELLEN DIESES MODULS
@@ -147,7 +151,7 @@ STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
               Abgleichs, Einzel-Locks),
               /usr/local/lib/retrotunnel/policy-helpers/
   Bereitschaft POLICY_READY (ein fehlerfreier Abgleich seit dem Start und
-              Zustand BETRIEB der Firewall) ; KEINE Voraussetzung fuer
+              Zustand BETRIEB der Firewall); KEINE Voraussetzung fuer
               andere Dienste
   Einzelheiten: BASE-080_070 Abschnitt 2.
 
@@ -157,7 +161,7 @@ STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
 
   - Kein Verkehr vor hergestellter Policy - fuer beide Tunnel und jeden
     Weg (PA-26, PA-30).
-  - Ein Schreiber, ein Lock ; jede Herstellung ist wiederholbar (PA-18,
+  - Ein Schreiber, ein Lock; jede Herstellung ist wiederholbar (PA-18,
     PA-19).
   - Kein Statuswechsel geht verloren: Auftrag in der Transaktion der
     Aenderung, Wirkung im Kernel nach einem Raster (PA-46, PA-50).
@@ -166,8 +170,10 @@ STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
   - Fehlendes Wissen oeffnet nichts und schaltet nichts um (PA-22, PA-25).
   - Nichts Unumkehrbares und nichts in Massen aus einem Einzelfehler
     (PA-11, PA-43).
-  - Ein Gate laeuft nie ab ; das Siegel wird nur mit Nachweis geloest
+  - Ein Gate laeuft nie ab; das Siegel wird nur mit Nachweis geloest
     (PA-41, PA-42).
+  - Der Abgleich laeuft nie seltener als alle fuenf Minuten (PA-36).
+  - Eine verfaelschte Adresse oeffnet nichts (PA-69).
   - ADMIN-Connections werden nie eingeschraenkt (PA-05).
   - Jeder Automatismus hat einen Eingriffspfad des Betreibers (PA-68).
 
@@ -178,8 +184,8 @@ STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
   Je Detaildatei ein Abschnitt "Panel-Consumability". Zusammengefasst
   liefert BASE-080 dem Panel: je Connection alle aktiven Gruende mit
   Fristen und Zielzustand, SOLL und IST im Kernel, den offenen Auftrag
-  ("Aenderung noch nicht im Netz wirksam") ; die Betriebsseite mit
-  Statusdateien, Marken und Alarmen ; die Handlungen des privilegierten
+  ("Aenderung noch nicht im Netz wirksam"); die Betriebsseite mit
+  Statusdateien, Marken und Alarmen; die Handlungen des privilegierten
   Auftragswegs (Zustand jetzt herstellen, jetzt abgleichen, Bewertung
   jetzt, Freigaben, Halt der Bewertung, Rollenwechsel). Das Panel
   bearbeitet weder Sets noch Auftraege, Marken oder Status.
@@ -194,10 +200,10 @@ STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
     model/state_machines/SM_CONNECTION.txt 4.6, 4.9,   Policy-Evaluator
     5.4                                                uebernommen
     BASE-010_070 (Uebergaenge), BASE-010_080           Runner und
-                                                       Bewertungskern ;
+                                                       Bewertungskern;
                                                        Nachzug AP-Q04
     BASE-030_040 (Hooks, Stand vor diesem Modul)       ersetzt durch
-                                                       DEC-PA-07 ; Nachzug
+                                                       DEC-PA-07; Nachzug
                                                        AP-Q04
     BASE-005 (boot-reconcile, Zeitgeber, PF-18)        Vertrag erfuellt
     04_PHASE_PLAN (PH6, PH8)                           Proof-Anker in
@@ -215,14 +221,22 @@ STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
 ================================================================================
 
   Dokumentiert und in einer Selbstpruefung logisch durchgegangen
-  (Abbruchstellen: _030 Abschnitt 10 ; Wettlaeufe: _050 Abschnitt 6).
+  (Abbruchstellen: _030 Abschnitt 10; Wettlaeufe: _050 Abschnitt 6).
   Maschinell geprueft ist allein die formale Konsistenz (Nummerierung,
   Verweise, Rueckverfolgung) durch qa/pruefe_register.py. Kein Test dieses
-  Moduls wurde ausgefuehrt ; die Annahmen E-PA-01 bis E-PA-08 sind nicht
+  Moduls wurde ausgefuehrt; die Annahmen E-PA-01 bis E-PA-08 sind nicht
   praktisch bestaetigt.
 
-  GEGENPRUEFUNG: steht aus. Die Fassung v1.0 ist noch von keinem
-  unabhaengigen Pruefer gelesen.
+  FASSUNG v1.1 (2026-11-17): Nach der Anfangspruefung des Bestands
+  (03_CHANGELOG v2.9.8) ergaenzt um DEC-PA-24 (Obergrenze des
+  Abgleich-Takts; BF-0085) und DEC-PA-25 (Adress-Drift; BF-0086 b), die
+  Lese- und Schreibgrenzen (BF-0055), den Verbleib von DOMAIN_MODEL
+  Abschnitt 5 und den Test ueber alle Kombinationen aus Tunneltyp und
+  Rolle (BF-0100), ANF-PA-17 und die Proof-Rueckverweise; lokale
+  Kennungen, die globalen Praefixen glichen, sind umbenannt (BF-0056).
+
+  GEGENPRUEFUNG: steht aus. Weder die Fassung v1.0 noch die Fassung v1.1
+  ist von einem unabhaengigen Pruefer gelesen.
 
 ================================================================================
 CHANGELOG

@@ -10,8 +10,8 @@ ZWECK:
   Wiederherstellung, Schluessel- und Kennwortwechsel, Adress-Reparatur
   und die Verwaltungshandlungen an einer einzelnen Connection. Setzt
   DEC-PA-16 um. Die fachlichen Regeln (wer darf, mit welchem Grund, mit
-  welchen Feldern) gehoeren BASE-010 ; die Mechanik der Adressen und der
-  Sperren BASE-070 ; die Peer-Sequenzen BASE-040. Dieses Modul legt die
+  welchen Feldern) gehoeren BASE-010; die Mechanik der Adressen und der
+  Sperren BASE-070; die Peer-Sequenzen BASE-040. Dieses Modul legt die
   REIHENFOLGE fest und haelt sie zusammen.
 
 ================================================================================
@@ -22,19 +22,19 @@ ZWECK:
 
     UB1  SPERREN (nur wo unten verlangt): Sperre je Connection in
          vpn_session_locks nach BASE-070_030 Abschnitt 6 - bei mehreren
-         Connections in aufsteigender Reihenfolge der Kennung ; gelingt
+         Connections in aufsteigender Reihenfolge der Kennung; gelingt
          eine nicht, werden alle zurueckgegeben und der Umbau endet ohne
          Wirkung (TEMPFAIL_LOCKED).
     UB2  EINE TRANSAKTION: die fachliche Aenderung ueber die Routine des
-         Owners (BASE-010 ; mit Allokator und Quarantaene von BASE-070,
+         Owners (BASE-010; mit Allokator und Quarantaene von BASE-070,
          wo Adressen wechseln), das Lifecycle-Ereignis und der AUFTRAG
          je betroffener Connection (BASE-080_050). Alles oder nichts.
     UB3  COMMIT. Ab jetzt gilt der neue Zustand in SQL: Die Anmeldung
          entscheidet nach ihm, und der Auftrag steht.
     UB4  HERSTELLEN: vpn-policy-apply fuer jede betroffene Connection
          (--connection-id bzw. --customer-id). Darin: Laufzeit beenden,
-         wo sie nicht mehr zugelassen ist oder der Auftrag es verlangt ;
-         Policy-Zustand ; Fluss-Schnitt ; Freigabe bzw. Peer.
+         wo sie nicht mehr zugelassen ist oder der Auftrag es verlangt;
+         Policy-Zustand; Fluss-Schnitt; Freigabe bzw. Peer.
     UB5  SPERREN FREIGEBEN (erst nach UB4, gleich mit welchem Ergebnis).
     UB6  FOLGEHANDLUNGEN ohne Wirkung auf den Schutz: neues Profil
          ausstellen und zustellen (WireGuard), Benachrichtigung, Anzeige.
@@ -45,16 +45,16 @@ ZWECK:
   bereits nach dem neuen Zustand ab bzw. vergibt die neue Adresse.
 
   WAS DAS FENSTER ZWISCHEN UB3 UND UB4 DECKT:
-    - Die alten Adressen liegen weiter im Netz ihrer alten Rolle ; die
+    - Die alten Adressen liegen weiter im Netz ihrer alten Rolle; die
       Regeln der Firewall fuer dieses Netz gelten unveraendert.
     - Eine neue Anmeldung wird durch die Sperre aus UB1 abgewiesen bzw.
-      erhaelt den neuen Zustand ; ohne Freigabe fliesst kein Verkehr.
+      erhaelt den neuen Zustand; ohne Freigabe fliesst kein Verkehr.
     - Der Auftrag stellt her, auch wenn der Umbau an dieser Stelle endet.
 
   ABBRUCH DES UMBAUS:
-    vor UB3       nichts ist geschehen ; Sperren laufen ab
-    nach UB3      der Auftragslauf vollendet UB4 binnen eines Rasters ;
-                  die Sperren laufen nach ihrer Frist ab ; UB6 wird vom
+    vor UB3       nichts ist geschehen; Sperren laufen ab
+    nach UB3      der Auftragslauf vollendet UB4 binnen eines Rasters;
+                  die Sperren laufen nach ihrer Frist ab; UB6 wird vom
                   Owner der Folgehandlung nachgeholt (Abschnitt 9)
   Kein Abbruch hinterlaesst einen Zustand, in dem SQL und Kernel dauerhaft
   auseinanderliegen.
@@ -65,34 +65,34 @@ ZWECK:
   (BASE-080_020 Schritt E2). Schritt UB4 laeuft als root.
 
 ================================================================================
-2) ROLLENWECHSEL (T-09 ; D002 Abschnitt 7)
+2) ROLLENWECHSEL (T-09; D002 Abschnitt 7)
 ================================================================================
 
   Werkzeug: vpn-role-change <customer_id> <neue_rolle> --actor <Kennung>
-  (privilegierter Auftragsweg ; Klasse C: erneute Anmeldung). Eingaben
-  streng geprueft ; die Rolle aus dem festen Wertevorrat.
+  (privilegierter Auftragsweg; Klasse C: erneute Anmeldung). Eingaben
+  streng geprueft; die Rolle aus dem festen Wertevorrat.
 
   BETROFFEN: alle Connections des Customers, gleich in welchem Status
   (D002 7.3: auch DISABLED - sie erhalten Rolle und Adresse neu, aber
   keinen Schnitt). Connections ohne Customer sind nicht betroffen.
 
   ABLAUF:
-    RC1  VORPRUEFUNG ohne Wirkung: Customer vorhanden ; Zielrolle
-         zulaessig ; Budget der Zielrolle (BASE-010, D002 7.6) ;
+    RC1  VORPRUEFUNG ohne Wirkung: Customer vorhanden; Zielrolle
+         zulaessig; Budget der Zielrolle (BASE-010, D002 7.6);
          Freimenge des Zielpools reicht fuer ALLE Connections mit Slot
          (D002 7.5). Diese Pruefung dient der fruehen, verstaendlichen
-         Absage ; massgeblich ist die Pruefung in der Transaktion (RC3).
+         Absage; massgeblich ist die Pruefung in der Transaktion (RC3).
     RC2  SPERREN (UB1): Zweck ROLE_CHANGE fuer jede Connection des
          Customers, aufsteigend.
     RC3  TRANSAKTION (UB2):
            a) Pools sperren - Quell- und Zielpool, feste Reihenfolge
               (BASE-070_060 RW0)
            b) Freimenge des Zielpools gegen die Zahl der Connections
-              pruefen (RW1) ; reicht sie nicht: Abbruch ohne Aenderung
+              pruefen (RW1); reicht sie nicht: Abbruch ohne Aenderung
            c) Rolle des Customers aendern (Owner der Kundendaten)
-           d) je Connection: alte Adresse in Quarantaene (RW2) ; neuer
+           d) je Connection: alte Adresse in Quarantaene (RW2); neuer
               Slot und neue Adressen ueber den Allokator, access_role
-              (RW3) ; Lifecycle-Ereignisse ROLE_CHANGE und SLOT_CHANGE
+              (RW3); Lifecycle-Ereignisse ROLE_CHANGE und SLOT_CHANGE
               (RW4)
            e) je Connection ein Auftrag mit prev_ipv4, prev_ipv6 und -
               bei Status ACTIVE oder RESTRICTED - runtime_cut_before =
@@ -101,24 +101,24 @@ ZWECK:
          als Ganzes wiederholt (BASE-070_060 AL7).
     RC4  COMMIT (UB3).
     RC5  HERSTELLEN (UB4) je Connection:
-           ACTIVE, RESTRICTED   Laufzeit auf den alten Adressen beenden ;
+           ACTIVE, RESTRICTED   Laufzeit auf den alten Adressen beenden;
                                 Freigabe, Sperr-Set und conntrack der
-                                alten Adressen raeumen ; WireGuard: Peer
+                                alten Adressen raeumen; WireGuard: Peer
                                 mit den neuen Adressen ueber das Gate
                                 eintragen (Policy vor Freigabe)
            DISABLED             nur Reste der alten Adressen raeumen
     RC6  SPERREN FREIGEBEN (UB5).
     RC7  FOLGE (UB6): WireGuard-Profile neu ausstellen und in EINER
-         Nachricht zustellen (BASE-040_040, BASE-110) ; L2TP-Zugangsdaten
+         Nachricht zustellen (BASE-040_040, BASE-110); L2TP-Zugangsdaten
          bleiben gleich, das Geraet verbindet sich neu.
 
   EIGENSCHAFTEN:
     - ALLES ODER NICHTS (D002 7.4): Keine Connection hat die neue Rolle,
       solange nicht alle umgestellt sind.
-    - Der Grund einer Einschraenkung bleibt ; die Rolle aendert sich, der
+    - Der Grund einer Einschraenkung bleibt; die Rolle aendert sich, der
       Status nicht. AUSNAHME ZIELROLLE ADMIN: Eine ADMIN-Connection wird
       nie eingeschraenkt (SZ-10). Der Bewertungskern laeuft deshalb in
-      RC3 mit ; eine eingeschraenkte Connection wird dabei frei.
+      RC3 mit; eine eingeschraenkte Connection wird dabei frei.
     - quota_used und die Periode bleiben (BASE-070 SC-44).
     - Ein Wechsel zurueck ergibt andere Adressen (die alten stehen in
       Quarantaene).
@@ -139,14 +139,14 @@ ZWECK:
     KA2  Der Bewerter fuehrt je Connection Schritt E2 aus - je Connection
          EINE Transaktion ueber die Routine von BASE-010:
            SUSPENDED   ACTIVE oder RESTRICTED -> DISABLED mit
-                       DISABLE_CUSTOMER_SUSPENDED (wiederherstellbar ;
+                       DISABLE_CUSTOMER_SUSPENDED (wiederherstellbar;
                        Restore-Fenster laut Registry)
            DELETED     Tombstone (BASE-010_070 Abschnitt 5): DISABLED mit
                        DISABLE_CUSTOMER_DELETED, sofortiger Widerruf,
                        Auth-Zeile geloescht - auch fuer bereits
                        gesperrte Connections
          jeweils mit Auftrag.
-    KA3  Herstellung je Connection (Auftrag ; der Auftragsweg ruft
+    KA3  Herstellung je Connection (Auftrag; der Auftragsweg ruft
          zusaetzlich --customer-id): Laufzeit beenden, Zustand raeumen.
 
   NETZ: Unterbleibt KA1 zum Teil (Abbruch nach dem Schreiben des
@@ -164,7 +164,7 @@ ZWECK:
   AUFHEBEN EINER SPERRUNG DES CUSTOMERS: hebt die Sperrung der
   Connections NICHT selbsttaetig auf. Jede Connection wird einzeln
   wiederhergestellt (Abschnitt 4) - oder der Betreiber stoesst die
-  Wiederherstellung aller an ; in beiden Faellen prueft die Routine von
+  Wiederherstellung aller an; in beiden Faellen prueft die Routine von
   BASE-010 je Connection Frist und Wiederherstellbarkeit.
 
 ================================================================================
@@ -174,14 +174,14 @@ ZWECK:
   Vorbedingungen und Felder: BASE-010 (wiederherstellbarer Grund, Frist
   nicht abgelaufen, nicht widerrufen).
 
-    WH1  TRANSAKTION: Uebergangsroutine T-08 ; DARIN der Bewertungskern
+    WH1  TRANSAKTION: Uebergangsroutine T-08; DARIN der Bewertungskern
          (BASE-080_020 Abschnitt 5): Ergebnis ACTIVE oder - wenn ein
          Grund aktiv ist - RESTRICTED mit dem hoechstprioren Grund.
-         Auftrag ; bei Ergebnis RESTRICTED ohne flow_cut (es gibt keine
+         Auftrag; bei Ergebnis RESTRICTED ohne flow_cut (es gibt keine
          Fluesse).
-    WH2  COMMIT ; Herstellung: WireGuard - Peer ueber das Gate eintragen
-         (Policy vor Freigabe ; der eingeschraenkte Zustand steht, bevor
-         das erste Paket fliesst). L2TP - nichts ; das Geraet meldet sich
+    WH2  COMMIT; Herstellung: WireGuard - Peer ueber das Gate eintragen
+         (Policy vor Freigabe; der eingeschraenkte Zustand steht, bevor
+         das erste Paket fliesst). L2TP - nichts; das Geraet meldet sich
          neu an.
 
   WIEDERHERSTELLUNG IST KEIN UMGEHEN: Eine Connection, deren Quota
@@ -196,13 +196,13 @@ ZWECK:
   in das Muster:
 
     SR1  SPERRE KEY_ROTATION (UB1).
-    SR2  TRANSAKTION: neuer PublicKey und PresharedKey in der Auth-Zeile ;
-         Lifecycle-Ereignis ; Auftrag.
-    SR3  COMMIT ; Herstellung: Der Treiber findet einen Peer mit den
+    SR2  TRANSAKTION: neuer PublicKey und PresharedKey in der Auth-Zeile;
+         Lifecycle-Ereignis; Auftrag.
+    SR3  COMMIT; Herstellung: Der Treiber findet einen Peer mit den
          Adressen der Connection unter einem ANDEREN Schluessel - er
          entfernt ihn (Remove-Sequenz, Ende mit AUTH_KEY_ROTATED) und
          traegt den Peer mit dem neuen Schluessel ueber das Gate ein.
-    SR4  SPERRE FREIGEBEN ; neues Profil zustellen.
+    SR4  SPERRE FREIGEBEN; neues Profil zustellen.
 
   Keine Laufzeit besteht unter dem alten Schluessel fort: Der alte Peer
   ist entfernt, bevor der neue eingetragen wird.
@@ -217,10 +217,10 @@ ZWECK:
     KW1  SPERRE KEY_ROTATION (UB1). Ist sie belegt - etwa weil gerade
          eine Anmeldung mit dem alten Kennwort ihre Sperre haelt -,
          wartet der Wechsel begrenzt (BASE-070_030 Abschnitt 6, U1).
-    KW2  TRANSAKTION: neues Kennwort (als Hash) ; credential_version + 1 ;
-         Lifecycle-Ereignis ; Auftrag mit runtime_cut_before = jetzt und
+    KW2  TRANSAKTION: neues Kennwort (als Hash); credential_version + 1;
+         Lifecycle-Ereignis; Auftrag mit runtime_cut_before = jetzt und
          Grund AUTH_KEY_ROTATED.
-    KW3  COMMIT ; die Bestaetigung an den Nutzer wird ausgeliefert,
+    KW3  COMMIT; die Bestaetigung an den Nutzer wird ausgeliefert,
          BEVOR die Laufzeit endet (er aendert das Kennwort unter
          Umstaenden ueber den Tunnel).
     KW4  HERSTELLEN: Jede Sitzung der Connection, die vor dem Wechsel
@@ -234,7 +234,7 @@ ZWECK:
   wird in der Nachpruefung am geaenderten Credential-Stand abgewiesen
   (BASE-070_030 Schritt P5 b).
 
-  ENDET DER WECHSEL NACH KW3: Der Auftrag fuehrt KW4 aus ; die Sperre
+  ENDET DER WECHSEL NACH KW3: Der Auftrag fuehrt KW4 aus; die Sperre
   laeuft ab. Der Zeitpunkt im Auftrag sorgt dafuer, dass der verspaetete
   Schnitt keine Sitzung trifft, die schon mit dem neuen Kennwort lebt.
 
@@ -244,17 +244,18 @@ ZWECK:
 
   Verwaltungshandlung je Connection nach BASE-070_060 Abschnitt 4 (AR1
   bis AR3), wenn der Drift-Waechter eine Abweichung zwischen Slot und
-  Adresse gemeldet hat.
+  Adresse gemeldet hat. Bis zur Reparatur ist die Connection nicht
+  auswertbar (DEC-PA-25): keine neue Zulassung, der Bestand bleibt.
 
     AD1  SPERRE ROLE_CHANGE.
-    AD2  TRANSAKTION: Pool sperren ; bisherigen Slot und bisher
-         materialisierte Adresse in Quarantaene (Ursache DRIFT_REPAIR) ;
-         neuer Slot ueber den Allokator ; Lifecycle-Ereignis SLOT_CHANGE
-         mit Akteur ; Auftrag mit prev_ipv4, prev_ipv6 und
+    AD2  TRANSAKTION: Pool sperren; bisherigen Slot und bisher
+         materialisierte Adresse in Quarantaene (Ursache DRIFT_REPAIR);
+         neuer Slot ueber den Allokator; Lifecycle-Ereignis SLOT_CHANGE
+         mit Akteur; Auftrag mit prev_ipv4, prev_ipv6 und
          runtime_cut_before = jetzt, Grund CONNECTION_ADDRESS_REPAIR.
          Gesperrt werden ALLE betroffenen Pools (BASE-070_060 AR2).
-    AD3  COMMIT ; Herstellung wie beim Rollenwechsel (RC5) ; Sperre
-         freigeben ; WireGuard: neues Profil.
+    AD3  COMMIT; Herstellung wie beim Rollenwechsel (RC5); Sperre
+         freigeben; WireGuard: neues Profil.
 
   Eine Reparatur fuer viele Connections in einem Schritt gibt es nicht
   (BASE-070 DEC-SC-23).
@@ -265,23 +266,23 @@ ZWECK:
 
   Handlung (Owner der Regel)       Transaktion                Herstellung
   -------------------------------- -------------------------- ---------------
-  Sperren T-04 / T-07 (BASE-010)   Uebergangsroutine ;        Laufzeit
-                                   Auftrag                    beenden ;
+  Sperren T-04 / T-07 (BASE-010)   Uebergangsroutine;         Laufzeit
+                                   Auftrag                    beenden;
                                                               raeumen
-  Verwaltungs-Einschraenkung       Tatsache setzen bzw.       Sperr-Set ;
-  setzen / aufheben                loeschen ; Bewertungskern  bei Eintritt
-                                   ; Auftrag (bei Eintritt    Fluss-Schnitt
+  Verwaltungs-Einschraenkung       Tatsache setzen bzw.       Sperr-Set;
+  setzen / aufheben                loeschen; Bewertungskern;  bei Eintritt
+                                   Auftrag (bei Eintritt      Fluss-Schnitt
                                    mit flow_cut)
   Pause / Reaktivieren durch den   wie oben                   wie oben
   Kunden
-  Claim T-01 (BASE-010, MOD-001)   Uebergangsroutine ;        ggf. aus dem
-                                   Bewertungskern ; Auftrag   Sperr-Set
+  Claim T-01 (BASE-010, MOD-001)   Uebergangsroutine;         ggf. aus dem
+                                   Bewertungskern; Auftrag   Sperr-Set
                                    nur bei Statuswechsel      entfernen
-  Laufzeit verlaengern, Kontingent fachliche Aenderung ;      wie Ergebnis
+  Laufzeit verlaengern, Kontingent fachliche Aenderung;       wie Ergebnis
   auffuellen, Planwechsel, Limit   Bewertungskern in der      des Kerns
   aendern, Grace zuruecksetzen     Transaktion oder
                                    unmittelbar danach
-  Widerruf von Hand (LR-03)        Uebergangsroutine ;        Reste raeumen
+  Widerruf von Hand (LR-03)        Uebergangsroutine;         Reste raeumen
                                    Auftrag
   Verwaltungs-Hard-Cut ohne        keine (BASE-070_040        Schritt K6 des
   Statuswechsel                    Abschnitt 6)               Werkzeugs ruft
@@ -289,7 +290,7 @@ ZWECK:
   "Zustand jetzt herstellen"       keine                      --connection-id
 
   REGEL FUER ALLE: Die fachliche Aenderung und der Auftrag stehen in
-  EINER Transaktion ; die Herstellung folgt dem Commit. Keine Handlung
+  EINER Transaktion; die Herstellung folgt dem Commit. Keine Handlung
   schreibt ein Set, einen Peer oder beendet eine Sitzung an diesem
   Werkzeug vorbei (SZ-5).
 
@@ -298,8 +299,8 @@ ZWECK:
   der Handlung und dem Ende bestehender Fluesse liegen nur der Commit,
   das Warten auf den Kernel-Lock und der Fluss-Schnitt.
 
-  EINE ADMIN-CONNECTION wird nie eingeschraenkt (SZ-10 ; R-08). Die
-  Routine von BASE-010 lehnt das Setzen der Tatsachen fuer ADMIN ab ; der
+  EINE ADMIN-CONNECTION wird nie eingeschraenkt (SZ-10; R-08). Die
+  Routine von BASE-010 lehnt das Setzen der Tatsachen fuer ADMIN ab; der
   Notaus fuer eine ADMIN-Connection ist das Sperren.
 
 ================================================================================
@@ -315,7 +316,7 @@ ZWECK:
       "Profil faellig" in der Transaktion des Umbaus und arbeitet ihn
       unabhaengig vom Umbau ab (ANF-PA-07 b).
     - BASE-080 zeigt je Connection, dass die Herstellung abgeschlossen
-      ist ; das Profil darf erst danach zugestellt werden - sonst traefe
+      ist; das Profil darf erst danach zugestellt werden - sonst traefe
       es auf einen Server ohne den neuen Peer.
 
 ================================================================================
@@ -325,20 +326,20 @@ ZWECK:
   Stoerung                         Verhalten
   -------------------------------- ------------------------------------------
   Sperre nicht erhalten            Umbau endet ohne Wirkung
-                                   (TEMPFAIL_LOCKED) ; erneut versuchen
-  Zielpool zu klein                Abbruch in RC3 b ; nichts geaendert ;
+                                   (TEMPFAIL_LOCKED); erneut versuchen
+  Zielpool zu klein                Abbruch in RC3 b; nichts geaendert;
                                    Meldung mit benoetigter und freier Zahl
-  Transaktion scheitert            nichts geaendert ; Sperren freigeben
-  Umbau endet nach dem Commit      Auftraege vollenden die Herstellung ;
-                                   Sperren laufen ab ; Folgehandlung wird
+  Transaktion scheitert            nichts geaendert; Sperren freigeben
+  Umbau endet nach dem Commit      Auftraege vollenden die Herstellung;
+                                   Sperren laufen ab; Folgehandlung wird
                                    nachgeholt
-  Herstellung scheitert fuer eine  Auftrag bleibt offen und wird gemeldet ;
-  Connection                       die uebrigen sind hergestellt ; die
+  Herstellung scheitert fuer eine  Auftrag bleibt offen und wird gemeldet;
+  Connection                       die uebrigen sind hergestellt; die
                                    betroffene Connection ist hoechstens
                                    strenger gestellt als ihr Ziel
   Laufzeit laesst sich nicht       Freigabe bleibt entzogen bzw. Adressen
-  beenden                          stehen im Gate ; CRITICAL
-  Datenbank faellt nach dem        Herstellung nach Rueckkehr (Auftrag) ;
+  beenden                          stehen im Gate; CRITICAL
+  Datenbank faellt nach dem        Herstellung nach Rueckkehr (Auftrag);
   Commit aus                       bis dahin gilt im Kernel der alte Stand
                                    der bestehenden Laufzeit - neue
                                    Anmeldungen sind ohne Datenbank ohnehin
@@ -354,10 +355,10 @@ ZWECK:
     Auftragswegs mit festem Schema (Kennungen, feste Werte, kein freier
     Text), protokolliert mit Akteur.
   - Rollenwechsel: Vorab-Auskunft (Zahl der Connections, freie Adressen
-    im Zielpool, Hinweis auf neue WireGuard-Profile) ; danach Fortschritt
+    im Zielpool, Hinweis auf neue WireGuard-Profile); danach Fortschritt
     je Connection (umgestellt, hergestellt, Profil zugestellt).
   - Sperrung und Loeschung eines Customers: Zahl der betroffenen
-    Connections vor der Bestaetigung ; danach offener Rest sichtbar.
+    Connections vor der Bestaetigung; danach offener Rest sichtbar.
   - Kennwortwechsel: Die Seite sagt dem Nutzer vorab, dass die Verbindung
     getrennt wird.
 

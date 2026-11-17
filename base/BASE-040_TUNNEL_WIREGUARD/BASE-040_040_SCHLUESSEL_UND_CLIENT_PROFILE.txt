@@ -166,8 +166,9 @@ ZWECK:
     K2  Neues Schluesselpaar + neuer PSK; neues Profil im Speicher rendern.
     K3  Neues Profil verschluesselt ablegen (neuer Digest, eigener Name).
     K4  EINE Transaktion: wg_connection_auth (wg_public_key,
-        wg_preshared_key_enc, rotated_at) aktualisieren; Ereignis
-        KEY_ROTATED in log_connection_lifecycle. COMMIT.
+        wg_preshared_key_enc, rotated_at, profile_due_since)
+        aktualisieren; Ereignis KEY_ROTATED in log_connection_lifecycle;
+        Auftrag in vpn_policy_outbox (BASE-080_050 Abschnitt 3). COMMIT.
     K5  vpn-policy-apply fuer die Connection: alter Peer wird entfernt
         (Hard-Cut, Grund AUTH_KEY_ROTATED), neuer Peer ueber die Gate-
         Sequenz eingetragen.
@@ -178,9 +179,11 @@ ZWECK:
     - Abbruch vor K4: nichts geaendert; die Datei aus K3 ist veraltet und
       wird aufgeraeumt.
     - Abbruch nach K4, vor K5: SQL verlangt den neuen Schluessel, im Kernel
-      steht noch der alte Peer. Das ist Drift WG_PEER_UNKNOWN /
-      WG_PEER_MISSING und wird spaetestens in der Reconcile-Frist behoben;
-      der Ausloeser wiederholt K5 bis zum Erfolg.
+      steht noch der alte Peer. Der Auftrag aus K4 fuehrt K5 binnen
+      eines Rasters des Auftragslaufs aus (BASE-080_050 Abschnitt 4);
+      darunter liegt der Abgleich (Drift WG_PEER_UNKNOWN /
+      WG_PEER_MISSING). Der Vermerk "Profil faellig" steht und wird
+      abgearbeitet (Abschnitt 6).
     - Die alte Konfiguration funktioniert nach K5 nicht mehr.
 
   5.3 TOMBSTONE / DISABLE MIT REVOCATION
@@ -211,6 +214,14 @@ ZWECK:
   Adresse des Kunden bei: Provisioning, Rotation, Rollenwechsel, REISSUE.
   Begruendung Rollenwechsel/REISSUE: Nach dem Schnitt ist das Panel fuer das
   Geraet nicht erreichbar. Inhalt, Passwortweg und Versand: BASE-110.
+  ZUSTELLUNG ERST NACH DER HERSTELLUNG (BASE-080 ANF-PA-07 b, PA-58):
+  Rotation, Rollenwechsel und Adress-Reparatur setzen in IHRER
+  Transaktion den Vermerk "Profil faellig" (profile_due_since in
+  wg_connection_auth; ANF-WT-11). Zugestellt wird erst, wenn fuer die
+  Connection kein Auftrag in vpn_policy_outbox mehr offen ist - vorher
+  traefe das Profil auf einen Server ohne den neuen Peer. Nach der
+  Zustellung wird der Vermerk geloescht; endet der Umbau vorher, bleibt
+  er und wird unabhaengig vom Umbau abgearbeitet.
   QR-CODE: wird im Panel aus dem entschluesselten Profil im Speicher
   erzeugt und nicht abgelegt.
   PANEL WAEHREND DB-STOERUNG: keine Profilanzeige (Digest nicht berechenbar),

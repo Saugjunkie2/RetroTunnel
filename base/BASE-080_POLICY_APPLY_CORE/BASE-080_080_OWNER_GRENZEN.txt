@@ -5,11 +5,11 @@ DATEI: BASE-080_080_OWNER_GRENZEN.txt
 STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
 
 ZWECK:
-  Was BASE-080 besitzt und was nicht ; Grenzregeln ; Antworten auf
-  Anforderungen anderer Module ; Anforderungen an andere Module
-  (ANF-PA-xx) ; zu verifizierende Annahmen mit Ausweichweg (E-PA-xx) ;
-  offene Punkte ; Verbleib der Invarianten und Tests aus
-  SM_POLICY_RESTRICT.
+  Was BASE-080 besitzt und was nicht; Grenzregeln; Lese- und
+  Schreibgrenzen; Antworten auf Anforderungen anderer Module;
+  Anforderungen an andere Module (ANF-PA-xx); zu verifizierende Annahmen
+  mit Ausweichweg (E-PA-xx); offene Punkte; Verbleib der Invarianten und
+  Tests aus SM_POLICY_RESTRICT und von DOMAIN_MODEL Abschnitt 5.
 
 ================================================================================
 1) BASE-080 OWNT
@@ -19,8 +19,8 @@ ZWECK:
      von Kaskade, Fristen und Gruenden, den Schutz vor unumkehrbaren
      Massenfolgen und den Halt der Bewertung (_020).
   b) Die Herstellung: vpn-policy-apply mit Aufrufen, Ergebniscodes und
-     gemeinsamem Rahmen ; die tunnelneutrale Soll-Funktion ; die Routine
-     l2tp_ensure ; den Fluss-Schnitt ; die Reihenfolgen "Policy vor
+     gemeinsamem Rahmen; die tunnelneutrale Soll-Funktion; die Routine
+     l2tp_ensure; den Fluss-Schnitt; die Reihenfolgen "Policy vor
      Freigabe" und "Admission zuerst entziehen" (_030).
   c) Den Abgleich mit seinen Abschnitten, die Hygiene von
      connect_pending, die Mengenbremse und das Herstellen und Nachweisen
@@ -72,7 +72,7 @@ ZWECK:
   GP-1  Kein Programm ausser vpn-policy-apply schreibt restricted_*,
         allowed_l2tp_v4, connect_pending_*, das Peer-Set, conntrack oder
         die Verkehrsformung. BASE-050 definiert die Sets, BASE-040 die
-        Peer-Sequenzen ; beides laeuft IN diesem Werkzeug.
+        Peer-Sequenzen; beides laeuft IN diesem Werkzeug.
   GP-2  BASE-080 schreibt keinen Status, keinen Grund und keine Frist an
         den Uebergangsroutinen von BASE-010 vorbei - auch nicht "nur zur
         Korrektur".
@@ -87,57 +87,128 @@ ZWECK:
   GP-6  Policy haengt an der Connection und ihrer Laufzeit-Repraesentation,
         nie an Beginn oder Ende einer Aktivitaetsepisode (GW-5).
   GP-7  Hooks, Panel und Laeufe anderer Module enthalten keine eigene
-        Logik zur Durchsetzung ; sie rufen dieses Werkzeug bzw. schreiben
+        Logik zur Durchsetzung; sie rufen dieses Werkzeug bzw. schreiben
         einen Auftrag.
   GP-8  BASE-080 definiert keine Regel der Firewall und keine
-        Tunnel-Mechanik neu ; wo es eine Reihenfolge festlegt, benutzt
+        Tunnel-Mechanik neu; wo es eine Reihenfolge festlegt, benutzt
         es die Bausteine der Owner unveraendert.
 
 ================================================================================
-4) ANTWORTEN AUF ANFORDERUNGEN ANDERER MODULE
+4) LESE-/SCHREIBGRENZEN (Zusammenfassung)
+================================================================================
+
+  BASE-080 LIEST:
+    vpn_connections                 Status, Grund, Fristen, Tatsachen der
+                                    Einschraenkung, Rolle, Slot, Adressen
+    vpn_connection_l2tp_ipsec_auth, Bestehen der Auth-Zeile; Anmeldename
+    wg_connection_auth              (Gegenprobe); Schluesselmaterial nur
+                                    beim Eintragen eines Peers (Treiber)
+    web_customers                   Status des Customers (nur der Bewerter)
+    vpn_reason_registry             Rang, Fristen und Folgegrund je Grund
+    vpn_pool_config                 Pool-Zeile der Rolle (Regel S-5)
+    Auskuenfte AK-1, AK-2           Sichten bzw. Routinen von BASE-100 und
+                                    MOD-010 (nur der Bewerter)
+    Settings                        ueber die Aufloesung von BASE-090
+    vpn_policy_outbox,              eigene Tabelle; eigene Marken
+    vpn_runtime_marks
+
+  BASE-080 SCHREIBT (als Owner):
+    vpn_policy_outbox               Auftrag eintragen (RETRY), Versuche
+                                    fortschreiben, erledigen. Auftraege der
+                                    Herkunft CHANGE tragen die Routinen von
+                                    BASE-010 in IHRER Transaktion ein - als
+                                    Runner fuer dieses Modul (ANF-PA-01 a)
+    vpn_runtime_marks               nur die Marken policy_* (Tabelle und
+                                    Regeln: BASE-070)
+
+  BASE-080 SCHREIBT (als Runner, ueber die Routinen der Owner):
+    vpn_connections: op_status,     vpn-policy-eval ueber die
+    op_reason_code, Fristfelder,    Uebergangsroutinen von BASE-010 -
+    revoked_at, quarantine_until    nie mit eigenen Anweisungen (GP-2)
+    log_connection_lifecycle        ueber dieselben Routinen
+    access_role, ip_slot, fixed_ip, vpn-role-change und die
+    fixed_ipv6; vpn_ip_quarantine   Adress-Reparatur ueber die Routinen von
+                                    BASE-010 und den Allokator von BASE-070
+    Gruppe D (Verbrauch, Cursor),   der WG-Treiber innerhalb von
+    log_usage_daily                 vpn-policy-apply: Schlussbuchung und
+                                    Cursor-Reset nach BASE-070 SV-4
+    log_runtime_activity,           der WG-Treiber meldet das Ende einer
+    Hinweisfelder                   Episode ueber SV-2 von BASE-070
+                                    (Remove-Sequenz, Schritt R6)
+    vpn_l2tp_acct_state             Grund-Hinweis ueber den Hard-Cut-Kern
+    (end_reason_hint)               von BASE-070
+
+  BASE-080 TRIGGERT (aber schreibt NICHT selbst):
+    L2TP-Abgleich (BASE-030/-070)   Ende melden, Rest buchen
+    vpn-fw-load unseal (BASE-050)   Siegel loesen
+    Helfer "sync" (MOD-005,         Sperrliste, Verwaltungsfreigabe,
+    BASE-110, MOD-003)              Verkehrsformung
+    Profil faellig (BASE-040,       Folgehandlung nach einem Umbau
+    BASE-110)
+
+  BASE-080 SCHREIBT NICHT:
+    vpn_session_locks               nie - auch nicht lesend als Beleg
+                                    (PA-35, GP-4)
+    radacct, radpostauth            Tabellen des AAA-Kerns
+    log_quota_period,               Periodenwechsel und Periodenfelder
+    quota_period_start/_end         gehoeren BASE-070
+    Auth-Tabellen                   kein Schluessel- und kein
+                                    Kennwort-Write (Routinen der Owner)
+    web_*, settings_*, policy_*     kein Panel-, Settings- oder
+                                    Limit-Write
+
+  PRINZIP (R-15): Der Bewerter ENTSCHEIDET als Runner der Regeln von
+  BASE-010 und schreibt ueber deren Routinen. Die Herstellung SETZT DURCH
+  und schreibt in SQL nur ihr Auftragsbuch, ihre Marken und - ueber den
+  Treiber - die Buchung. B345 (Schreibwege) des Vorgaengers fuehrt den
+  Grund einer Einschraenkung als allein vom System geschrieben; das
+  bleibt, der Schreiber heisst hier Bewerter (ANF-PA-01 d).
+
+================================================================================
+5) ANTWORTEN AUF ANFORDERUNGEN ANDERER MODULE
 ================================================================================
 
   Anforderung                              Erfuellt in
   ---------------------------------------- --------------------------------
-  ANF-WT-07  WG-Treiber bei jedem          _030 Abschnitt 5 ; _050
-             Uebergang, bei Anlage,        Abschnitte 3, 8 ; _060 ; _040
-             Rotation und im Abgleich ;    Abschnitt 3 (Zuordnung S1 bis
+  ANF-WT-07  WG-Treiber bei jedem          _030 Abschnitt 5; _050
+             Uebergang, bei Anlage,        Abschnitte 3, 8; _060; _040
+             Rotation und im Abgleich;     Abschnitt 3 (Zuordnung S1 bis
              Reihenfolge des               S9)
              Massenabgleichs
   ANF-WT-08  ohne lesbares SQL keine       _030 Abschnitt 2 (Code 2),
-             Kernel-Aenderung ; keine      Schritt H4 ; DEC-PA-18
+             Kernel-Aenderung; keine      Schritt H4; DEC-PA-18
              Herstellung aus Cache
-  ANF-FW-03 a  Lebenszyklus der            _030 Abschnitt 6 ; _040
+  ANF-FW-03 a  Lebenszyklus der            _030 Abschnitt 6; _040
              L2TP-Freigabe                 Schritte V1 e3, V3 Schritt 1
-  ANF-FW-03 b  Policy vor Freigabe         DEC-PA-05 ; _030 Abschnitt 5
+  ANF-FW-03 b  Policy vor Freigabe         DEC-PA-05; _030 Abschnitt 5
                                            (A3), 6.2 (L-B)
-  ANF-FW-03 c  Adressen ins Gate, wenn     _030 Abschnitt 5 ; _040
+  ANF-FW-03 c  Adressen ins Gate, wenn     _030 Abschnitt 5; _040
              ein Peer sich nicht           Schritt V1 e
              entfernen laesst
-  ANF-FW-03 d  Vorbedingung des Siegels ;  _040 Abschnitte 6, 8
+  ANF-FW-03 d  Vorbedingung des Siegels;   _040 Abschnitte 6, 8
              Abgleich nach recover und
              Systemstart
   ANF-FW-03 e  registrierte Helfer         _070 Abschnitt 1
-  ANF-FW-03 f  Ergebniscodes von           _030 Schritt H3, Code 8 ; _050
-             vpn-fw-load ; keine           Schritt AL1 ; _040 Schritt V0
+  ANF-FW-03 f  Ergebniscodes von           _030 Schritt H3, Code 8; _050
+             vpn-fw-load; keine           Schritt AL1; _040 Schritt V0
              Herstellung bei RIEGEL oder
              ohne Regelwerk
   ANF-FW-03 g  conntrack-Loeschen als      _030 Abschnitt 7
              Teil jedes Fluss-Schnitts
-  ANF-SC-07 a  Quota-Bewertung im kurzen   _020 Abschnitte 6, 8 ; _050
-             Takt ; Neubewertung nach      Abschnitt 8 ; _040 Abschnitt 8
+  ANF-SC-07 a  Quota-Bewertung im kurzen   _020 Abschnitte 6, 8; _050
+             Takt; Neubewertung nach      Abschnitt 8; _040 Abschnitt 8
              Periodenwechsel und
              Datenbankstoerung
   ANF-SC-07 b  Hard-Cut-Kern mit           _030 Abschnitte 6.2 (L-C), 8
              "Laufzeit zuerst"
   ANF-SC-07 c  Rollenwechsel-Kaskade,      _060 Abschnitte 2, 7
              Adress-Reparatur
-  ANF-SC-07 d  Marken des Abgleichs und    _040 Abschnitt 9 ; _020 Schritt
+  ANF-SC-07 d  Marken des Abgleichs und    _040 Abschnitt 9; _020 Schritt
              des Bewerters                 BL7
-  ANF-SC-01 f  Kennwortwechsel als Umbau   _060 Abschnitt 6 ; _050 Merkmal
-  (BASE-070 an BASE-010 ; Ablauf hier)     MK2
+  ANF-SC-01 f  Kennwortwechsel als Umbau   _060 Abschnitt 6; _050 Merkmal
+  (BASE-070 an BASE-010; Ablauf hier)     MK2
   PF-18 (BASE-005)  Abweichung binnen      _040 Abschnitt 1, Schritt V1 e4
-             Takt behoben ; Fluss-Schnitt
+             Takt behoben; Fluss-Schnitt
              beim Wiedereinfuegen
   BASE-005_070  boot-reconcile.service,    _070 Abschnitt 2
              Zeitgeber des Abgleichs
@@ -148,23 +219,29 @@ ZWECK:
   SM_CONNECTION 5.4  Vertrag des           _020 Abschnitte 2 bis 5
              Policy-Evaluators
   R-15 (Beispiel Fristenlauf), LR-02       _020 Schritte E3, E4, E7
-  B052  Datenbankausfall und nicht         DEC-PA-18, DEC-PA-22 ; _030
+  B052  Datenbankausfall und nicht         DEC-PA-18, DEC-PA-22; _030
              eindeutig ableitbarer         Abschnitt 9
              Zustand
-  D009-Alt  kein Verkehr vor               DEC-PA-07 ; _030 Abschnitt 6.3
+  D009-Alt  kein Verkehr vor               DEC-PA-07; _030 Abschnitt 6.3
              hergestellter
-             Policy ; kein Ersatzzustand
-  04_PHASE_PLAN K-PH6-05, I-PH6-05         DEC-PA-23 ; _020 Abschnitt 11 ;
+             Policy; kein Ersatzzustand
+  04_PHASE_PLAN K-PH6-05, I-PH6-05         DEC-PA-23; _020 Abschnitt 11;
              Eingriffspfad je              _070 Abschnitt 9
              Automatismus
-  04_PHASE_PLAN K-PH8-05  Ausloesung       DEC-PA-02, DEC-PA-03 ; _050
+  04_PHASE_PLAN K-PH8-05  Ausloesung       DEC-PA-02, DEC-PA-03; _050
              und Idempotenz der
              Herstellung
-  04_PHASE_PLAN K-PH8-06  Abgrenzung zu    Abschnitt 2 ; Regel GP-3
+  04_PHASE_PLAN K-PH8-06  Abgrenzung zu    Abschnitt 2; Regel GP-3
              BASE-100
+  DOMAIN_MODEL Abschnitt 5 (abgeleitete    Abschnitt 10
+             Policy; DP-01 bis DP-05)
+  B058 / DOMAIN_MODEL DP-05  Manipulation  DEC-PA-25; _030 Regel S-5,
+             an der Adresse                Abschnitt 9
+  00_MASTER, B166  Abgleich spaetestens    DEC-PA-24; _040 Abschnitt 1
+             nach fuenf Minuten
 
 ================================================================================
-5) ANFORDERUNGEN AN ANDERE MODULE
+6) ANFORDERUNGEN AN ANDERE MODULE
 ================================================================================
 
   ANF-PA-01 (BASE-010, Nachzug AP-Q04)
@@ -175,15 +252,15 @@ ZWECK:
     b) T-08, T-01, Pause und Verwaltungs-Einschraenkung rufen in ihrer
        Transaktion den Bewertungskern (_020 Abschnitt 5).
     c) Die Routinen sind die EINZIGEN Schreibwege fuer op_status,
-       op_reason_code und die Fristfelder ; sie pruefen ihre
+       op_reason_code und die Fristfelder; sie pruefen ihre
        Vorbedingungen selbst und lehnen Einschraenkungs-Tatsachen fuer
        ADMIN-Connections ab.
     d) Der Bestand nennt "Reconcile" als Akteur der Bewertung
        (BASE-010_070 T-05) und "Apply/Reconcile" als Schreiber von
        op_status (BASE-010_080). Zu ersetzen durch: Bewerter
-       (vpn-policy-eval) ; die Herstellung schreibt keinen Status.
+       (vpn-policy-eval); die Herstellung schreibt keinen Status.
     e) Was mit den Connections geschieht, wenn die Sperrung eines
-       Customers aufgehoben wird, ist in BASE-010 festzulegen ; dieses
+       Customers aufgehoben wird, ist in BASE-010 festzulegen; dieses
        Modul setzt voraus: keine selbsttaetige Wiederherstellung
        (_060 Abschnitt 3).
     f) Schreibwege, die den Bewerter nach einer HANDLUNG rufen (_020
@@ -192,16 +269,16 @@ ZWECK:
        Bewertung (_020 Abschnitt 11). Gilt ebenso fuer MOD-010
        (Planwechsel, Auffuellen) und MOD-001 (Grace-Reset).
     g) BASE-010_095 fuehrt die Tests T-PA-01 und T-PA-02 (Sicht des
-       Panels auf Zugangsdaten). Die Kennung T-PA gehoert diesem Modul ;
+       Panels auf Zugangsdaten). Die Kennung T-PA gehoert diesem Modul;
        die beiden Tests sind umzubenennen.
 
   ANF-PA-02 (BASE-100, MOD-010)
-    Auskuenfte A-1 (Plan-Limit je Connection, deterministisch) und A-2
+    Auskuenfte AK-1 (Plan-Limit je Connection, deterministisch) und AK-2
     (wirksames Limit und dagegen zu rechnender Verbrauch), mengenweise in
-    SQL abfragbar, ohne Nebenwirkung ; "nicht lesbar" ist von "nicht
+    SQL abfragbar, ohne Nebenwirkung; "nicht lesbar" ist von "nicht
     aktiv" unterscheidbar (_020 Abschnitt 2).
 
-  ANF-PA-03 (BASE-110, MOD-006 ; BASE-005)
+  ANF-PA-03 (BASE-110, MOD-006; BASE-005)
     a) Privilegierter Auftragsweg fuer die Handlungen aus _070 Abschnitt
        8 und _060 Abschnitt 8: festes Schema, numerische Kennungen,
        Akteur, Klasse C mit erneuter Anmeldung, wo verlangt. Der Weg
@@ -210,9 +287,9 @@ ZWECK:
     b) Der Webprozess fuehrt vpn-policy-apply, vpn-policy-eval und
        vpn-role-change NIE selbst aus. Die Regel in BASE-005_050
        ("www-data ... NOPASSWD: /usr/local/bin/vpn-policy-apply *")
-       entfaellt ; ein Aufruf mit frei waehlbaren Argumenten aus dem
+       entfaellt; ein Aufruf mit frei waehlbaren Argumenten aus dem
        Webprozess waere ein zweiter Eingang zum Kernel-Zustand.
-    c) Anzeigen laut den Abschnitten "Panel-Consumability" ; keine
+    c) Anzeigen laut den Abschnitten "Panel-Consumability"; keine
        Bearbeitung von Sets, Auftraegen, Status oder Marken.
     d) Helfer der Verwaltungsfreigabe nach _070 Abschnitt 1.
 
@@ -226,7 +303,7 @@ ZWECK:
        Abgleich an.
     b) Kein Hook liest SQL, schreibt ein Set, loescht conntrack oder
        beendet eine Sitzung selbst.
-    c) Der Hook wartet auf das Ergebnis ; ein Ergebnis ungleich 0
+    c) Der Hook wartet auf das Ergebnis; ein Ergebnis ungleich 0
        aendert an seinem weiteren Ablauf nichts (die Folgen regelt
        dieses Werkzeug, _030 Abschnitt 6.3).
     d) BASE-030_040 ("die Sitzung laeuft ohne Freigabe weiter") durch
@@ -234,7 +311,7 @@ ZWECK:
 
   ANF-PA-05 (BASE-030, BASE-020)
     Die Tunneladresse einer L2TP-Sitzung stammt allein aus fixed_ip der
-    Connection (Antwort des Anmeldedienstes) ; der Daemon fuehrt keinen
+    Connection (Antwort des Anmeldedienstes); der Daemon fuehrt keinen
     eigenen Adressvorrat und vergibt keine zweite Adresse je Sitzung.
     (Gleichlautend: BASE-070 ANF-SC-03 a.)
 
@@ -242,53 +319,61 @@ ZWECK:
     Lokal lesbares Signal "Systemzeit synchronisiert" (_020 Abschnitt 7,
     Bedingung U-1). (Gleichlautend: BASE-070 ANF-SC-14 b.)
 
-  ANF-PA-07 (BASE-040) - a, c und d sind in BASE-040 umgesetzt
+  ANF-PA-07 (BASE-040) - a bis f sind in BASE-040 umgesetzt
     a) Die Remove-Sequenz raeumt conntrack und Sets fuer die Adressen,
        die der entfernte Peer TATSAECHLICH fuehrte - nicht nur fuer die
        aktuellen Adressen der Connection (Adresswechsel, _050 Merkmal
        MK1).
     b) "Profil faellig" als dauerhafter Vermerk in der Transaktion eines
-       Umbaus, unabhaengig abgearbeitet ; Zustellung erst nach
+       Umbaus, unabhaengig abgearbeitet; Zustellung erst nach
        abgeschlossener Herstellung (_060 Abschnitt 9).
     c) Das dritte Ergebnis UNBESTIMMT der Soll-Funktion ist umgesetzt
-       (BASE-040_030 Abschnitt 1) ; hier nur der Verweis.
+       (BASE-040_030 Abschnitt 1); hier nur der Verweis.
     d) Der Admission-Waechter des Controllers (BASE-040_050 Schritt B2)
        erhaelt Ergebnis 6, solange der Abgleich eine Massenkorrektur
-       zurueckhaelt (_040 Regel M-7) ; der Peer bleibt dann, die Lage ist
+       zurueckhaelt (_040 Regel MB-7); der Peer bleibt dann, die Lage ist
        gemeldet. Der Controller meldet in diesem Fall keinen Beginn.
+    e) Die Soll-Funktion des Treibers ordnet eine Connection, deren
+       Adressen nicht der Ableitung aus access_role und ip_slot
+       entsprechen oder deren Pool-Zeile ungueltig ist, als UNBESTIMMT
+       ein (DEC-PA-25, _030 Regel S-5).
+    f) Die Rotation schreibt den Auftrag in IHRER Transaktion (Schritt
+       K4; _050 Abschnitt 3) - wie jeder Schreibweg, der den
+       herzustellenden Zustand aendert.
 
   ANF-PA-08 (BASE-050)
     vpn-fw-load unseal uebernimmt den vom Aufrufer gehaltenen
     Kernel-Lock (vererbter Dateideskriptor) und erwirbt ihn nicht neu
-    (_040 Schritt G3). Die Anforderung des Abgleichs (Datei mit
+    (_040 Schritt SG3). Die Anforderung des Abgleichs (Datei mit
     eindeutigem Namen im Verzeichnis reconcile.request.d) und das
     Anstossen nach recover wie in _040 Abschnitt 2.
 
   ANF-PA-09 (BASE-090)
     Keys aus _070 Abschnitt 3 katalogisieren (Grenzen, Konsistenzregeln
-    KP-a bis KP-f, Fehlerklasse und Notwert) ; geaenderte Bedeutung von
-    vpn_connect_gate_ttl_seconds vermerken.
+    KP-a bis KP-f, Fehlerklasse und Notwert); geaenderte Bedeutung von
+    vpn_connect_gate_ttl_seconds vermerken; Obergrenze 300 fuer
+    vpn_reconcile_interval_seconds (DEC-PA-24).
 
   ANF-PA-10 (MOD-003)
-    Formungs-Helfer nach _070 Abschnitt 1 (set, del, sync ; Fehlerarten,
+    Formungs-Helfer nach _070 Abschnitt 1 (set, del, sync; Fehlerarten,
     bei denen die Herstellung fortfahren darf).
 
   ANF-PA-11 (MOD-005)
     Sperr-Helfer nach _070 Abschnitt 1 (add mit Ablauf, del, sync).
 
   ANF-PA-12 (MOD-007)
-    Meldeweg der Ereignisse aus _070 Abschnitt 6, auch ohne Datenbank ;
+    Meldeweg der Ereignisse aus _070 Abschnitt 6, auch ohne Datenbank;
     Ueberwachung der Statusdateien (POLICY_PENDING_OVERDUE).
 
   ANF-PA-13 (BASE-005, Nachzug AP-Q04)
     Registry: Units, Werkzeuge und Pfade aus _070 Abschnitt 2 (neu:
     vpn-policy-pending, vpn-policy-eval, vpn-role-change, das
-    Helfer-Verzeichnis) ; Systembenutzer des Bewerters ; die Startfolge
-    (Startabgleich nach dem Laden des Regelwerks) ; Wegfall der
-    sudo-Regel (ANF-PA-03 b) ; die Lock-Dateien werden beim Systemstart
+    Helfer-Verzeichnis); Systembenutzer des Bewerters; die Startfolge
+    (Startabgleich nach dem Laden des Regelwerks); Wegfall der
+    sudo-Regel (ANF-PA-03 b); die Lock-Dateien werden beim Systemstart
     angelegt und im Betrieb nie geloescht oder ersetzt (_070 Regel UP-6).
 
-  ANF-PA-14 (BASE-070) - a, b und d sind in BASE-070 umgesetzt, die
+  ANF-PA-14 (BASE-070) - a, b, d und e sind in BASE-070 umgesetzt, die
   Marken aus c dort verzeichnet
     a) Der L2TP-Adapter nennt je Sitzung Schnittstelle, Sitzungskennung
        und Beginn (fuer die Zuordnung Schnittstelle zu Sitzung und fuer
@@ -297,27 +382,36 @@ ZWECK:
        bestimmt und die Adresse prueft das Werkzeug, nicht der Hook.
     c) Die Marken policy_eval_time_anomaly_at, policy_mass_hold_since
        und policy_eval_hold_since in das Verzeichnis der Marken
-       aufnehmen (BASE-070_070 Regel M-5) ;
+       aufnehmen (BASE-070_070 Regel M-5);
        fuer die vier schon verzeichneten Marken dieses Moduls gilt als
        Wert der BEGINN des Laufs (_070 Abschnitt 5).
     d) BASE-070_020 Schritt L7 (Mengenbremse) sagt, der Verkehr nicht
        berechtigter Connections bleibe ueber die Policy gesperrt. Das
-       gilt fuer jede ordentliche Sperrung (Auftrag ; Freigabe entzogen).
+       gilt fuer jede ordentliche Sperrung (Auftrag; Freigabe entzogen).
        Fuer Abweichungen OHNE Auftrag gilt die Mengenbremse des Abgleichs
        (_040 Abschnitt 7): Dort bleibt Bestehendes stehen, bis der
        Betreiber entscheidet. Der Satz ist entsprechend zu fassen.
+    e) BASE-070_060 Abschnitt 4 (Drift-Waechter) verweist auf DEC-PA-25:
+       Bis zur Adress-Reparatur erhaelt die Connection keine neue
+       Zulassung.
 
   ANF-PA-15 (MOD-001)
-    Bedeutung und Setzen von unclaimed_grace_until und claim_deadline ;
+    Bedeutung und Setzen von unclaimed_grace_until und claim_deadline;
     Grace-Reset ruft den Bewertungskern (_020 Abschnitt 5).
 
   ANF-PA-16 (MOD-008)
     Nach dem Zurueckspielen einer Datensicherung: Auftrag der Art GESAMT
-    (_050 Abschnitt 3) ; die Mengenbremse des Abgleichs (_040 Abschnitt
+    (_050 Abschnitt 3); die Mengenbremse des Abgleichs (_040 Abschnitt
     7) ist dabei zu erwarten und vom Betreiber zu bestaetigen.
 
+  ANF-PA-17 (BASE-000, Nachzug AP-Q04)
+    Registry: Tabelle vpn_policy_outbox (Zone VPN; Owner BASE-080; _050
+    Abschnitt 2) mit den Rechten aus _070 Abschnitt 4 - radius: keine;
+    webpanel: Lesen ueber eine Sicht ohne Adressen; system: alle.
+    (Entsprechend BASE-070 ANF-SC-02.)
+
 ================================================================================
-6) ZU VERIFIZIERENDE ANNAHMEN
+7) ZU VERIFIZIERENDE ANNAHMEN
 ================================================================================
 
   Die folgenden Punkte stuetzen sich auf dokumentiertes Verhalten fremder
@@ -325,42 +419,42 @@ ZWECK:
   Annahme ist der Ausweichweg genannt, falls sie nicht haelt.
 
   E-PA-01  nftables schreibt Aenderungen an mehreren Sets beider
-           Adressfamilien in EINER Transaktion atomar ; ein Element in
+           Adressfamilien in EINER Transaktion atomar; ein Element in
            einem Sperr-Set wirkt ab dem naechsten Paket auch auf
            bestehende Fluesse (BASE-050 DEC-FW-09).
-           AUSWEICHWEG: keiner mit gleichem Schutz ; dann ist der
+           AUSWEICHWEG: keiner mit gleichem Schutz; dann ist der
            Fluss-Schnitt bei JEDEM Eintritt ueber das Beenden der
            Laufzeit zu fuehren.
   E-PA-02  conntrack-Eintraege lassen sich je Tunneladresse in beiden
-           Richtungen und fuer beide Familien gezielt loeschen ; das
+           Richtungen und fuer beide Familien gezielt loeschen; das
            Werkzeug ist vorab pruefbar und bei 5.000 Connections schnell
            genug.
            AUSWEICHWEG: Rueckfall "Laufzeit beenden" (_030 Abschnitt 7).
   E-PA-03  Index, Name und Gegenstellen-Adresse der ppp-Schnittstellen
-           sind ohne den Daemon aus dem Kernel lesbar ; ein
+           sind ohne den Daemon aus dem Kernel lesbar; ein
            Schnittstellen-Index wird fuer eine neue Schnittstelle nicht
            wiederverwendet, solange das System laeuft.
            AUSWEICHWEG: Zuordnung ueber list() des Adapters und den
-           Laufzeit-Spiegel ; bei wiederverwendbarem Index wird die
+           Laufzeit-Spiegel; bei wiederverwendbarem Index wird die
            Freigabe zusaetzlich bei jedem Sitzungsbeginn auf "genau ein
            Element je Adresse" geprueft (_030 Schritt B1) - das geschieht
            ohnehin.
   E-PA-04  Der Kernel-Lock laesst sich an einen Kindprozess uebergeben
-           (vererbter Dateideskriptor) ; er endet erst mit dem letzten
+           (vererbter Dateideskriptor); er endet erst mit dem letzten
            Halter.
            AUSWEICHWEG: Das Loesen des Siegels wird als Bibliotheksaufruf
            im Prozess des Abgleichs ausgefuehrt.
   E-PA-05  accel-ppp ruft ip-up und ip-down je Sitzung mit Schnittstelle,
-           Anmeldename und Adresse ; bis zur Freigabe verwirft die
+           Anmeldename und Adresse; bis zur Freigabe verwirft die
            Firewall den Verkehr der Sitzung, gleich wie lange der Hook
            braucht.
            AUSWEICHWEG: Aufsicht des Auftragslaufs (_030 Abschnitt 6.5)
            uebernimmt Freigabe und Raeumen im Raster.
   E-PA-06  Der Abgleich bleibt bei den Zielgroessen (5.000 Peers, einige
            hundert L2TP-Sitzungen) je Abschnitt unter
-           vpn_reconcile_section_seconds ; der Auftragslauf ist im Raster
+           vpn_reconcile_section_seconds; der Auftragslauf ist im Raster
            von 5 s tragbar.
-           AUSWEICHWEG: kleinere Buendel ; groesseres Raster mit
+           AUSWEICHWEG: kleinere Buendel; groesseres Raster mit
            laengerer Wirkzeit.
   E-PA-07  Der Adapter nennt den Beginn jeder Sitzung genau genug, um
            "vor dem Wechsel begonnen" zu entscheiden.
@@ -370,11 +464,11 @@ ZWECK:
   E-PA-08  Die Uebergangsroutinen von BASE-010 lassen sich so bauen, dass
            fachliche Aenderung, Lifecycle-Ereignis und Auftrag eine
            Transaktion bilden.
-           AUSWEICHWEG: keiner ; ohne das gilt SZ-3 nur im Raster des
+           AUSWEICHWEG: keiner; ohne das gilt SZ-3 nur im Raster des
            Abgleichs.
 
 ================================================================================
-7) OFFENE PUNKTE
+8) OFFENE PUNKTE
 ================================================================================
 
   OPEN-PA-01  WARTUNGSMODUS: Der Vorgaenger nennt einen globalen
@@ -392,54 +486,54 @@ ZWECK:
               ANF-PA-01 e.
 
 ================================================================================
-8) VERBLEIB DER INVARIANTEN UND TESTS AUS SM_POLICY_RESTRICT
+9) VERBLEIB DER INVARIANTEN UND TESTS AUS SM_POLICY_RESTRICT
 ================================================================================
 
   SM_POLICY_RESTRICT     Verbleib
   ---------------------- --------------------------------------------------
-  POL-01                 PA-19, PA-36 (SQL massgeblich ; Abgleich)
-  POL-02                 PA-18 (ein Werkzeug ; keine doppelte Logik)
+  POL-01                 PA-19, PA-36 (SQL massgeblich; Abgleich)
+  POL-02                 PA-18 (ein Werkzeug; keine doppelte Logik)
   POL-03                 PA-19 (wiederholbar)
   POL-04                 PA-27 (ohne Laufzeit kein Kernel-Zustand), PA-41
                          (harmlose und kritische Reste)
-  POL-05, POL-06         PA-27, PA-39 ; angepasst: "aktive Sitzung" ist
+  POL-05, POL-06         PA-27, PA-39; angepasst: "aktive Sitzung" ist
                          "Kernel-Repraesentation" (Peer bzw. Sitzung)
-  POL-07                 PA-27, PA-39 (eine Transaktion ; kein Augenblick
+  POL-07                 PA-27, PA-39 (eine Transaktion; kein Augenblick
                          ohne Soll-Mitglied)
-  POL-08                 PA-27 (beide Familien ; L2TP nur IPv4)
-  POL-09, POL-10         PA-32 (Eintritt familienweise ; Schnitt fuer
+  POL-08                 PA-27 (beide Familien; L2TP nur IPv4)
+  POL-09, POL-10         PA-32 (Eintritt familienweise; Schnitt fuer
                          beide Familien)
-  POL-11, POL-12         PA-32, PA-21 (Rueckfall ; nie stiller
-                         Fehlschlag) ; angepasst: L2TP ueber den
+  POL-11, POL-12         PA-32, PA-21 (Rueckfall; nie stiller
+                         Fehlschlag); angepasst: L2TP ueber den
                          Hard-Cut-Kern von BASE-070 statt Prozess-Kill
-  POL-13                 PA-26, PA-29, PA-30 ; angepasst: L2TP ueber die
+  POL-13                 PA-26, PA-29, PA-30; angepasst: L2TP ueber die
                          Freigabe (Positivliste) statt connect_pending
-  POL-14                 PA-30 ; angepasst nach DEC-PA-07 (sofortiges
+  POL-14                 PA-30; angepasst nach DEC-PA-07 (sofortiges
                          Beenden bei endgueltiger Ursache und
-                         Datenbankausfall ; begrenzte Frist bei
+                         Datenbankausfall; begrenzte Frist bei
                          voruebergehender Ursache). WireGuard: PA-28,
                          PA-33 (Peer nicht entfernbar: Gate, CRITICAL)
-  POL-15                 PA-41 ; Gate-Loesen nur nach Verifikation
+  POL-15                 PA-41; Gate-Loesen nur nach Verifikation
                          (BASE-040 WT-13)
   POL-16                 PA-18, PA-51
   POL-17                 PA-44, PA-21 (Ergebnis 1 bei Einzelfehlern)
   POL-18                 PA-36
   POL-19                 ersetzt: Reste der L2TP-Freigabe (PA-40, PA-31)
-                         und des Laufzeit-Spiegels (Owner BASE-030 ;
-                         BASE-070_040 Schritt J3) ; vpn_sessions entfaellt
+                         und des Laufzeit-Spiegels (Owner BASE-030;
+                         BASE-070_040 Schritt J3); vpn_sessions entfaellt
                          (D004)
   POL-20                 PA-53
-  POL-21                 PA-41 ; angepasst nach DEC-PA-11 (kein Entfernen
+  POL-21                 PA-41; angepasst nach DEC-PA-11 (kein Entfernen
                          nach Alter)
   POL-22                 PA-36, PA-41, PA-59, PA-60 (Verkehrsformung ueber
                          den Helfer)
   POL-23                 BASE-040 WT-06, WT-13, WT-14 (Gate vor
-                         Peer-Eintrag) ; PA-26, PA-28
+                         Peer-Eintrag); PA-26, PA-28
 
   Tests                  Verbleib
   ---------------------- --------------------------------------------------
   T-POL-01               T-PA-29, T-PA-31
-  T-POL-02               T-PA-30 ; BASE-040 T-WT-12
+  T-POL-02               T-PA-30; BASE-040 T-WT-12
   T-POL-03               T-PA-38
   T-POL-04               T-PA-31, T-PA-16
   T-POL-05               T-PA-21
@@ -447,15 +541,15 @@ ZWECK:
   T-POL-07               T-PA-39
   T-POL-08, -08b         T-PA-20, T-PA-40
   T-POL-09               T-PA-29 (L2TP: Verzoegerung der Herstellung)
-  T-POL-09b              BASE-040 T-WT-13 (Gate und Peer) ; L2TP:
+  T-POL-09b              BASE-040 T-WT-13 (Gate und Peer); L2TP:
                          T-PA-35 (Freigabe scheitert: Sitzung bleibt
                          gesperrt)
   T-POL-09c              T-PA-32, T-PA-51
-  T-POL-10               T-PA-51 ; BASE-040 T-WT-52
+  T-POL-10               T-PA-51; BASE-040 T-WT-52
   T-POL-11               T-PA-45
   T-POL-12, -13          T-PA-48
   T-POL-14               T-PA-49
-  T-POL-15               T-PA-50 (Freigabe-Reste) ; Spiegel: BASE-070
+  T-POL-15               T-PA-50 (Freigabe-Reste); Spiegel: BASE-070
                          T-SC-38
   T-POL-16               T-PA-24
   T-POL-17               T-PA-25
@@ -464,14 +558,51 @@ ZWECK:
   T-POL-20, -21          T-PA-31
   T-POL-22               T-PA-40
   T-POL-23, -23c, -23d   T-PA-51
-  T-POL-23b              ERSETZT (DEC-PA-11): kein Entfernen nach Alter ;
+  T-POL-23b              ERSETZT (DEC-PA-11): kein Entfernen nach Alter;
                          massgeblich ist allein, ob ein Peer die Adresse
                          fuehrt - der Fall ist mit T-PA-51 gedeckt
   T-POL-24               T-PA-72 (sync des Formungs-Helfers)
   T-POL-25               T-PA-23
   T-POL-26               T-PA-54
-  T-POL-INV-01           T-PA-82 ; dazu die Modulpruefung: jede
+  T-POL-INV-01           T-PA-82; dazu die Modulpruefung: jede
                          Invariante hat mindestens einen Test
+
+================================================================================
+10) VERBLEIB VON DOMAIN_MODEL ABSCHNITT 5 (ABGELEITETE POLICY)
+================================================================================
+
+  Der Kopf von model/DOMAIN_MODEL.txt (DEPRECATED) laesst Abschnitt 5 auf
+  dieses Modul warten. RetroTunnel fuehrt kein Objekt "abgeleitete
+  Policy" und kein Feld dafuer; was der Abschnitt ableitet, ist auf
+  mehrere Module verteilt. Massgeblich sind allein tunnel_type und
+  access_role der Connection-Zeile.
+
+  DOMAIN_MODEL            Verbleib
+  ----------------------- --------------------------------------------------
+  5.1 Tunneltyp:          Adressfamilien: BASE-070 AV-2, SC-49 (L2TP ohne
+      Adressfamilien,     IPv6). Anmeldung und Dienst: BASE-020, BASE-030
+      Anmeldung, Dienst   (L2TP), BASE-040 (WireGuard). Hier: der
+                          Zulassungsweg je Tunnel (_030 Abschnitte 5, 6)
+  5.2 Rolle: Pool         BASE-070_060 (vpn_pool_config; AV-2, SC-55)
+      Geschwindigkeit     Verkehrsformung: MOD-003 ueber den Haken
+                          (DEC-PA-20); Limits: BASE-100, MOD-010
+      einschraenkbar      PA-05 (ADMIN nie); _020 Abschnitt 3
+      Verwaltungszugang   BASE-050 DEC-FW-11, FW-49, FW-50; Panel: BASE-110
+  5.3 Kreuzprodukt        T-PA-90 (alle acht Kombinationen)
+      Geltungsbereich im  BASE-050: Rollen-Netze des Regelwerks aus
+      Regelwerk je Rolle  vpn_pool_config (DEC-FW-08, DEC-FW-11)
+      DNS-Zwang fuer alle BASE-050 DEC-FW-12
+  DP-01 vollstaendig      Soll-Funktion mit genau einem von drei
+                          Ergebnissen je Zeile (_030 Abschnitt 4); T-PA-90
+  DP-02 deterministisch   PA-04 (Bewertung), PA-19 (Herstellung)
+  DP-03 nicht vom Nutzer  Schreibrechte je Rolle: BASE-010; PA-02, PA-64;
+        aenderbar         Rollenwechsel nur ueber _060 Abschnitt 2
+  DP-04 kein Feld der     es gibt kein solches Feld; SOLL und IST zeigt
+        Datenbank         der Lese-Helfer (PA-65)
+  DP-05 Manipulation an   DEC-PA-25, PA-69, T-PA-89
+        der Adresse
+  5.5 Settings und Policy BASE-090 (Settings), BASE-100 (Policy); hier nur
+      getrennt            die Abgrenzung (GP-3)
 
 ================================================================================
 CHANGELOG

@@ -4,13 +4,14 @@ BASE-080 — INVARIANTEN (Policy-Apply-Kern)
 DATEI: BASE-080_090_INVARIANTEN.txt
 STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
 
-Harter Vertrag. Jede Verletzung ist ein Fehler. Kennungen PA-01..PA-68.
+Harter Vertrag. Jede Verletzung ist ein Fehler. Kennungen PA-01..PA-69.
 Regelkennungen in Klammern verweisen auf die Detaildateien dieses Moduls
-(DEC-PA-, SZ- in _010; A-, Z-, E, BL, U-, HL- in _020; H, EC-, S-, L-, SB, SE,
-F, N- in _030; V, P-, G, M- in _040; Q-, AL, MK, NB-, W- in _050; UB, RC,
-KA, WH, SR, KW, AD in _060; HF-, UP-, KP- in _070; GP- in _080).
+(DEC-PA-, SZ- in _010; AK-, Z-, E, BL, U-, HL- in _020; H, EC-, S-, L-, SB,
+SE, F, N- in _030; V, P-, SG, MB- in _040; AB-, AL, MK, NB-, W- in _050;
+UB, RC, KA, WH, SR, KW, AD in _060; HF-, UP-, KP- in _070; GP- in _080).
 Herkunft je Invariante: Rueckverfolgungs-Records unter
 governance/register/trace/ (Feld erfuellt_in) bzw. NEU_BEGRUENDET.yaml.
+Die Kennung PA-69 ist nachgetragen und steht sachlich bei ihrem Thema.
 
 ================================================================================
 BEWERTUNG
@@ -55,7 +56,7 @@ BEWERTUNG
          widerspruechlich, gilt ihre Bedingung als UNBEKANNT - nie als
          "nicht aktiv". Fuer die betroffene Connection wird in diesem
          Lauf weder eingeschraenkt noch freigegeben; die Lage wird
-         gemeldet (A-4, Z-1).
+         gemeldet (AK-4, Z-1).
 
   PA-08  Je Connection gilt die Reihenfolge: Kaskade aus dem
          Customer-Status, harte Frist ohne Claim, Gruende neu bestimmen,
@@ -172,6 +173,14 @@ HERSTELLUNG
          zwischen Anmeldename und Adresse einer Sitzung (N-1 bis N-4,
          DEC-PA-22).
 
+  PA-69  Eine Connection, deren Tunneladressen nicht der Ableitung aus
+         access_role, ip_slot und der Pool-Konfiguration entsprechen, ist
+         nicht auswertbar: Sie erhaelt keine neue Zulassung, und ihr
+         bestehender Kernel-Zustand wird nicht umgeschaltet. Eine
+         Aenderung an einer gespeicherten Adresse fuehrt nie dazu, dass
+         Verkehr unter den Regeln einer anderen Rolle zugelassen wird.
+         Sperrung und Widerruf wirken auch dann (DEC-PA-25, S-5).
+
   PA-26  POLICY VOR FREIGABE, ADMISSION ZUERST ENTZIEHEN - fuer beide
          Tunnel und jeden Weg: Beim Aufbau steht der Policy-Zustand,
          bevor Peer bzw. Freigabe eingetragen werden; beim Abbau wird
@@ -253,11 +262,12 @@ ABGLEICH UND SIEGEL
 
   PA-36  Der Abgleich bringt Peers, restricted_* und allowed_l2tp_v4 fuer
          ALLE Connections auf den Stand von SQL und Laufzeit. Jede
-         Abweichung, die kein Einzelauftrag behebt, ist spaetestens nach
-         vpn_reconcile_interval_seconds zuzueglich des Rasters erkannt
-         und - soweit behebbar - behoben; ein Eingriff von Hand an den
-         dynamischen Zustaenden ueberlebt ihn nicht (BASE-080_040
-         Abschnitt 1).
+         Abweichung, die kein Einzelauftrag behebt, ist spaetestens mit
+         dem naechsten Lauf erkannt und - soweit behebbar - behoben;
+         zwischen den Anfaengen zweier Laeufe liegen hoechstens
+         vpn_reconcile_interval_seconds und nie mehr als fuenf Minuten.
+         Ein Eingriff von Hand an den dynamischen Zustaenden ueberlebt
+         ihn nicht (BASE-080_040 Abschnitt 1, DEC-PA-24).
 
   PA-37  Der Abgleich bewertet keine Bedingungen, schreibt keinen Status
          und erledigt keine Auftraege (BASE-080_040 Abschnitt 1).
@@ -297,7 +307,7 @@ ABGLEICH UND SIEGEL
          durchgehend gehaltenem Kernel-Lock, der an vpn-fw-load
          uebergeben wird. Peers nicht auswertbarer Connections erhalten
          vorher ein Gate-Element. Es gibt keinen Weg, das Siegel ohne
-         Nachweis zu loesen (G1 bis G4).
+         Nachweis zu loesen (SG1 bis SG4).
 
   PA-43  MENGENBREMSE: Findet der Abgleich schliessende Abweichungen
          ohne Auftrag der Herkunft CHANGE in einer Zahl oberhalb der
@@ -307,7 +317,7 @@ ABGLEICH UND SIEGEL
          solchen Auftrag. Die Bremse oeffnet nichts und verweigert keine
          ordentliche Sperrung: Handlungen mit Auftrag laufen immer. Sie
          endet durch Wegfall der Ursache oder durch Freigabe des
-         Betreibers fuer einen Lauf (M-1 bis M-8).
+         Betreibers fuer einen Lauf (MB-1 bis MB-8).
 
   PA-44  Ein Abgleich gilt nur als fehlerfrei, wenn kein Schritt
          gescheitert ist, nichts zurueckgestellt wurde und sich die
@@ -330,19 +340,19 @@ AUFTRAGSBUCH UND NEBENLAEUFIGKEIT
          Connection aendert, schreibt in DERSELBEN Transaktion den
          Auftrag. Es gibt keinen Statuswechsel ohne Auftrag und keinen
          Auftrag ohne Aenderung; je Ziel besteht hoechstens ein Auftrag
-         (Q-1 bis Q-3, GP-5).
+         (AB-1 bis AB-3, GP-5).
 
   PA-47  Einen Auftrag erledigt nur vpn-policy-apply, nur nach der
          Schlusspruefung am Kernel, nur mit Vergleich des gelesenen
          Zaehlers und - je Connection - nur unter dem Kernel-Lock. Ein
          waehrend der Herstellung fortgeschriebener Auftrag bleibt
-         bestehen (Q-4, H8).
+         bestehen (AB-4, H8).
 
   PA-48  Der Auftrag traegt keinen Zielzustand; die Herstellung liest SQL
          immer frisch. Seine Merkmale (alte Adressen, Laufzeit-Schnitt
          vor einem Zeitpunkt, Schnitt ausstehend) ergaenzen die
          Herstellung nur um schliessende Handlungen und oeffnen nie etwas
-         (Q-5, MK1 bis MK3).
+         (AB-5, MK1 bis MK3).
 
   PA-49  Ein Auftrag wird nie aufgegeben oder geloescht, weil er zu oft
          gescheitert ist. Schliessende Auftraege werden vor allen anderen
@@ -370,7 +380,7 @@ AUFTRAGSBUCH UND NEBENLAEUFIGKEIT
   PA-52  Das Auftragsbuch schreibt nur der DB-User system. Der DB-User
          radius hat keinen Zugriff; das Panel liest nur ueber eine Sicht
          ohne Adressen und kann keinen Auftrag anlegen, aendern oder
-         loeschen. Die Tabelle enthaelt keine Geheimnisse (Q-6, Q-7).
+         loeschen. Die Tabelle enthaelt keine Geheimnisse (AB-6, AB-7).
 
   PA-53  Kein Kernel-Zustand haengt an Beginn oder Ende einer
          Aktivitaetsepisode, an der E-Mail-Bestaetigung eines Customers
@@ -461,7 +471,7 @@ HELFER, BETRIEB, BEOBACHTBARKEIT, GRENZEN
          festem Schema. Das Panel kann weder Sets noch Auftraege noch
          Marken noch einen Status am Werkzeug vorbei bearbeiten; es gibt
          keine Handlung "Auftrag loeschen" und keine Handlung "Siegel
-         loesen" (BASE-080_080 Abschnitt 5, ANF-PA-03).
+         loesen" (BASE-080_080 Abschnitt 6, ANF-PA-03).
 
   PA-65  Der Lese-Helfer zeigt SOLL und IST einer Connection ohne
          Kernel-Lock, ohne Schreibzugriff, ohne Schluesselmaterial und

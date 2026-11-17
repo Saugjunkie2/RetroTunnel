@@ -239,7 +239,7 @@ DEC-PA-10  ABGLEICH: VOLLSTAENDIG, EXAKT, IN ABSCHNITTEN
   den aus SQL und Laufzeit bestimmten Stand, entfernt aus
   connect_pending_* nur bestaetigt harmlose Reste und loest danach das
   Siegel. Er arbeitet in Abschnitten und liest SQL in jedem Abschnitt
-  frisch ; erst kommen alle schliessenden Handlungen, dann die
+  frisch; erst kommen alle schliessenden Handlungen, dann die
   oeffnenden. Offene Auftraege erledigt er nicht - das bleibt dem
   Auftragslauf vorbehalten (BASE-080_040 Abschnitt 1).
 
@@ -380,6 +380,48 @@ DEC-PA-23  EINGRIFFSPFAD JE AUTOMATISMUS; DIE BEWERTUNG HAT EINEN HALT
   Der Bestand nennt die Anforderung, aber keine Mechanik. Verbesserung
   VB-0025.
 
+DEC-PA-24  DER ABGLEICH LAEUFT NIE SELTENER ALS ALLE FUENF MINUTEN
+  vpn_reconcile_interval_seconds ist auf 60 bis 300 s begrenzt (Vorschlag
+  300). Der Lauf ist faellig, sobald bis zum naechsten Rasterpunkt des
+  Zeitgebers mehr als der Takt seit dem Beginn des letzten Laufs
+  vergangen waere: Zwischen den Anfaengen zweier Laeufe liegt nie mehr
+  als der Takt.
+  HERKUNFT: 00_MASTER und B166 des Vorgaengers sagen zu, dass der
+  Abgleich eine Abweichung "spaetestens innerhalb <= 5 Minuten" behebt.
+  Die Fassung v1.0 liess 3600 s zu; das Netz unter den Einzelauftraegen
+  haette sich damit auf eine Stunde dehnen lassen, ohne dass das als
+  Abweichung benannt war (BF-0085). TRUTH_MODEL 7.1 nennt nur die
+  Untergrenze; die Obergrenze ist Antrag an BASE-090 (ANF-PA-09). Ein
+  kuerzerer Takt bleibt moeglich; Regel KP-f bleibt erfuellt.
+
+DEC-PA-25  EINE ADRESSE, DIE NICHT ZU ROLLE UND SLOT PASST, IST NICHT
+           AUSWERTBAR
+  Die Herstellung rechnet die Tunneladressen einer Connection aus
+  access_role, ip_slot und der Pool-Zeile nach (BASE-070_060 Abschnitt
+  3). Weichen fixed_ip oder fixed_ipv6 davon ab, oder ist die Pool-Zeile
+  ungueltig, ist die Connection nicht auswertbar (DEC-PA-22): keine neue
+  Zulassung, kein Wechsel eines bestehenden Kernel-Zustands, Meldung.
+  BEGRUENDUNG: Die Regeln der Firewall haengen am Netz der Adresse
+  (Rollen-Netze, Grenzen, Zaehler; BASE-050). Eine Adresse im Netz einer
+  anderen Rolle erhielte deren Regeln. Der Drift-Waechter von BASE-070
+  (SC-61) meldet eine solche Abweichung, aendert aber nichts; ohne diese
+  Entscheidung haette die Herstellung die abweichende Adresse bei der
+  naechsten Zulassung eingetragen.
+  HERKUNFT: B058 und DOMAIN_MODEL DP-05 verlangen als Negativtest, dass
+  eine Manipulation an der Adresse die abgeleitete Policy nicht aendert;
+  DOMAIN_MODEL 3.2 verbietet, Rolle oder Tunneltyp aus Adressbereichen
+  abzuleiten. Im Bestand nicht entschieden (BF-0086 b).
+  WAS UNBERUEHRT BLEIBT: Sperrung und Widerruf wirken auch bei
+  Adress-Drift (Verweigern geht vor). Verwaltungsdienste und die
+  Ausnahme von der Einschraenkung haengen nicht allein an der Adresse
+  (access_role und Verwaltungsfreigabe aus SQL). Die Berichtigung ist
+  die Adress-Reparatur je Connection (BASE-080_060 Abschnitt 7).
+  ABWAEGUNG: Eine verfaelschte Pool-Zeile macht alle Connections der
+  Rolle nicht auswertbar - neue Zulassungen der Rolle unterbleiben,
+  Bestehendes bleibt. Das folgt aus SZ-7 und entspricht BASE-070_060:
+  Bei ungueltiger Pool-Konfiguration wird auch nicht vergeben und kein
+  Regelwerk gerendert.
+
 ================================================================================
 6) DAMIT GESCHLOSSENE OFFENE PUNKTE
 ================================================================================
@@ -402,7 +444,7 @@ DEC-PA-23  EINGRIFFSPFAD JE AUTOMATISMUS; DIE BEWERTUNG HAT EINEN HALT
   (Changelog v1.9: CONNECT_PURGE_DEFERRED)
   Nicht auswertbare Lage (B052: DB_UNKNOWN)     -> DEC-PA-22,
                                                    BASE-080_030 Abschnitt 9
-  ANF-WT-07, ANF-WT-08, ANF-SC-07               -> BASE-080_080 Abschnitt 4
+  ANF-WT-07, ANF-WT-08, ANF-SC-07               -> BASE-080_080 Abschnitt 5
   boot-reconcile.service, Reconcile-Zeitgeber   -> BASE-080_070
   (BASE-005_070)
   Eingriffspfad je Automatismus (04_PHASE_PLAN  -> DEC-PA-23,
@@ -413,6 +455,11 @@ DEC-PA-23  EINGRIFFSPFAD JE AUTOMATISMUS; DIE BEWERTUNG HAT EINEN HALT
   (04_PHASE_PLAN K-PH8-05)                         BASE-080_050
   Abgrenzung zu BASE-100 (04_PHASE_PLAN         -> BASE-080_080 Abschnitt
   K-PH8-06)                                        2, Regel GP-3
+  Obergrenze des Abgleich-Takts (BF-0085)       -> DEC-PA-24
+  Adress-Drift und Herstellung (BF-0086 b;      -> DEC-PA-25,
+  DOMAIN_MODEL DP-05)                              BASE-080_030 Abschnitt 9
+  Verbleib von DOMAIN_MODEL Abschnitt 5         -> BASE-080_080 Abschnitt
+  (BF-0100)                                        10
 
 ================================================================================
 CHANGELOG
