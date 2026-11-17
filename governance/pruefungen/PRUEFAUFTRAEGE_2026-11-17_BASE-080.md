@@ -319,10 +319,11 @@ K9  BASE-080_060 Abschnitt 8 "Keine Handlung ... beendet eine Sitzung an diesem 
 
 ## 3. Gegenprüfung BASE-080: Auftrag B (Bewertung, Umbauten, Owner-Grenzen, Invarianten, Tests, Rückverfolgung)
 
-- Zeitpunkt: 2026-11-17, Beginn 20:43 UTC
+- Zeitpunkt: 2026-11-17, 20:43 bis 21:03 UTC
 - Art, Modell und Denkaufwand wie Auftrag A (Grund für xhigh hier: Fallunterscheidung der Regel Z-1, Schutz vor
   unumkehrbaren Massenfolgen, Vergleichsoperatoren an Fristen).
-- Der Bericht wird nach Abschluss hier zugeordnet.
+- Laufdaten kontrolliert: Modellstufe und Denkaufwand wie gewählt; zwölf Arbeitsschritte.
+- Bericht: BASE-080_GEGENPRUEFUNG_B_BEWERTUNG_UND_GRENZEN_2026-11-17.md
 
 ~~~~
 PRUEFAUFTRAG B - GEGENPRUEFUNG BASE-080: BEWERTUNG, UMBAUTEN, OWNER-GRENZEN, INVARIANTEN, TESTS, RUECKVERFOLGUNG (Fassung 2 vom 2026-11-17)
