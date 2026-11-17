@@ -100,6 +100,11 @@ ZWECK:
           entscheidet aus seinem Setting und seiner Marke "zuletzt
           begonnen", ob er faellig ist. Eine Aenderung des Takts braucht
           keine neue Unit-Datei.
+          DER ABGLEICH ist ausserdem faellig, wenn eine Anforderung
+          vorliegt, der Zustand der Firewall VERSIEGELT ist oder ein
+          Auftrag der Art GESAMT faellig ist (BASE-080_040 Abschnitt 2).
+          Sonst bliebe ein Start aus diesen Anlaessen wirkungslos, solange
+          der Takt nicht abgelaufen ist. Der Startabgleich laeuft immer.
     UP-2  KEIN TUNNEL-DIENST HAENGT VON EINER UNIT DIESES MODULS AB, und
           keine Unit dieses Moduls verlangt die Datenbank als harte
           Startbedingung. Ohne Datenbank enden die Laeufe ohne Wirkung;
@@ -140,15 +145,26 @@ ZWECK:
       reconcile.request.d/                Anforderungen des Abgleichs
                                           (root 0700; BASE-080_040
                                           Abschnitt 2)
-      pending.lock, reconcile.lock,       Einzel-Locks der Laeufe
+      pending.lock, reconcile.lock,       Lauf-Locks der Laeufe
       eval.lock
       l2tp-seen/                          erste Sichtung nicht
                                           freigegebener Sitzungen
                                           (root 0700; BASE-080_030
                                           Abschnitt 6.5)
+      gate-seen/                          erste Sichtung stehender
+                                          Gate-Elemente (root 0700;
+                                          BASE-080_040 Regel P-6)
+      close-window                        Zeitpunkte schliessender
+                                          Korrekturen ohne Auftrag
+                                          (root 0600; BASE-080_040
+                                          Regel MB-2 c)
     /usr/local/lib/retrotunnel/           Verzeichnis und Programme der
       policy-helpers/                     Helfer (root, nicht
                                           beschreibbar fuer Dienste)
+
+  ABLAGEN UNTER /run gehen mit einem Neustart verloren; Fristen und
+  Fenster beginnen danach neu. Das ist unschaedlich: Nach einem Neustart
+  besteht keine Laufzeit, und die Firewall startet versiegelt.
 
   BEREITSCHAFT: POLICY_READY gilt, wenn seit dem Systemstart ein
   Abgleich ohne Fehler abgeschlossen ist und der Zustand der Firewall
@@ -170,7 +186,7 @@ ZWECK:
   Key                                       Vorschlag  Grenzen    Herkunft
   ----------------------------------------- ---------- ---------- ---------
   vpn_reconcile_interval_seconds            300        60..300    belegt
-  vpn_connect_gate_ttl_seconds              120        30..600    belegt
+  vpn_connect_gate_ttl_seconds              120        30..600    belegt *
   vpn_policy_eval_interval_seconds          60         10..600    neu
   vpn_policy_pending_interval_seconds       5          2..60      neu
   vpn_policy_lock_wait_seconds              10         1..60      neu
@@ -180,10 +196,19 @@ ZWECK:
   vpn_reconcile_section_seconds             5          1..30      neu
   vpn_reconcile_mass_close_limit            20         1..10000   neu
   vpn_reconcile_mass_close_percent          10         1..100     neu
+  vpn_reconcile_mass_close_per_hour         60         1..100000  neu
   vpn_policy_eval_gap_hold_seconds          3600       300..86400 neu
+  vpn_policy_eval_quiet_seconds             3600       300..86400 neu
   vpn_policy_eval_max_irreversible_per_run  25         1..10000   neu
   vpn_policy_eval_restrict_alert_per_run    100        1..100000  neu
   vpn_policy_eval_hold_max_seconds          86400      60..604800 neu
+  vpn_policy_eval_sources_off               (leer)     Liste **   neu
+
+    *  Die Grenzen 30..600 sind NEU; der Bestand nennt fuer diesen Key
+       keine. Die Untergrenze haengt zusaetzlich an Regel KP-g.
+    ** Liste aus dem festen Wertevorrat PLAN_LIMIT, QUOTA. Der Vorschlag
+       ist die leere Liste: Jede Quelle gilt als eingerichtet
+       (BASE-080_020 Regel AK-5).
 
   FEHLERKLASSE UND NOTWERT JE KEY (TM = aus TRUTH_MODEL Abschnitt 7.1
   uebernommen; sonst Antrag an BASE-090):
@@ -201,10 +226,22 @@ ZWECK:
   vpn_reconcile_section_seconds             HARDCAP  5        kleiner
   vpn_reconcile_mass_close_limit            HARDCAP  1        kleiner
   vpn_reconcile_mass_close_percent          HARDCAP  1        kleiner
+  vpn_reconcile_mass_close_per_hour         HARDCAP  1        kleiner
   vpn_policy_eval_gap_hold_seconds          HARDCAP  600      kleiner
+  vpn_policy_eval_quiet_seconds             HARDCAP  3600     groesser
   vpn_policy_eval_max_irreversible_per_run  HARDCAP  1        kleiner
   vpn_policy_eval_restrict_alert_per_run    HARDCAP  100      kleiner
   vpn_policy_eval_hold_max_seconds          HARDCAP  86400    -
+  vpn_policy_eval_sources_off               HARDCAP  (leer)   kuerzer
+
+    ZWEI KEYS FUER ZEITLUECKE UND RUHEZEIT: Die erlaubte Luecke
+    (vpn_policy_eval_gap_hold_seconds) ist strenger, je kleiner sie ist;
+    die Ruhezeit (vpn_policy_eval_quiet_seconds), je laenger. Ein
+    gemeinsamer Key haette als Notwert nur eine der beiden Seiten streng
+    gemacht (BASE-080_020 Regel U-2).
+    vpn_policy_eval_sources_off: Ohne gueltigen Wert gilt die leere
+    Liste - jede Quelle ist eingerichtet, und eine nicht lesbare Auskunft
+    bleibt UNBEKANNT. Kein Fehler der Settings nimmt eine Quelle aus.
 
     "Strenger" heisst bei den Bremsen (Mengen, Zeitluecke): Der Lauf
     haelt frueher an und ueberlaesst die Entscheidung dem Betreiber. Das
@@ -216,7 +253,8 @@ ZWECK:
   Ein Gate laeuft hier nie ab (DEC-PA-11). Der Key ist jetzt (a) die
   Schwelle, ab der ein haengendes WireGuard-Gate als Stoerung gilt, und
   (b) die Frist, nach der eine nicht freigegebene L2TP-Sitzung beendet
-  wird.
+  wird - gezaehlt ab ihrer ersten Sichtung ohne Freigabe (BASE-080_030
+  Abschnitt 6.5).
 
   vpn_policy_retry_max_seconds reicht nur bis 300: Mehr liesse Regel
   KP-f nicht zu, seit der Abgleich-Takt hoechstens 300 s betraegt.
@@ -231,7 +269,7 @@ ZWECK:
     vpn_l2tp_kill_hold_threshold             Owner BASE-070 (Mengenbremse,
                                              BASE-080_040 Regel MB-2 b)
     vpn_session_lock_operation_ttl_seconds   Owner BASE-070 (Regel KP-e)
-    vpn_hardcut_kill_timeout_seconds         Owner BASE-070
+    vpn_hardcut_kill_timeout_seconds         Owner BASE-070 (Regel KP-h)
     vpn_quarantine_days                      Owner BASE-070 (Widerruf)
 
   KONSISTENZREGELN:
@@ -251,11 +289,25 @@ ZWECK:
     KP-f  vpn_policy_retry_max_seconds <= vpn_reconcile_interval_seconds
           (ein gescheiterter Auftrag wird mindestens so oft versucht,
           wie der Abgleich laeuft)
-  Verletzt eine Kombination eine Regel, gelten fuer die beteiligten Keys
-  DIESES Moduls die Notwerte (POLICY_SETTING_FALLBACK). Liegt die
-  Ursache in einem fremden Key (KP-e), bleibt der Konflikt gemeldet
-  (POLICY_SETTING_CONFLICT). Die Notwerte erfuellen KP-a bis KP-d und
-  KP-f untereinander.
+    KP-g  vpn_policy_lock_wait_seconds + vpn_policy_apply_timeout_seconds
+          < vpn_connect_gate_ttl_seconds (der erste Versuch eines
+          Sitzungsbeginns darf Wartezeit und Zeitlimit ausschoepfen; die
+          Aufsicht beendet eine berechtigte Sitzung nicht, bevor er
+          abgeschlossen ist)
+    KP-h  vpn_hardcut_kill_timeout_seconds <
+          vpn_policy_apply_timeout_seconds (das Warten auf das Ende einer
+          Sitzung endet, bevor die Dienstverwaltung das Werkzeug beendet)
+  VERLETZTE REGEL: Der Schreibweg der Settings lehnt eine Aenderung ab,
+  nach der eine Regel verletzt waere; eine Verletzung kann nur an ihm
+  vorbei entstehen. Dann gilt fuer jeden beteiligten Key DIESES Moduls
+  der STRENGERE von eigenem Wert und Notwert (Key ohne Richtung: der
+  Notwert; POLICY_SETTING_FALLBACK). Ein Wert, den der Betreiber
+  strenger gewaehlt hat als der Notwert, wird so nie gelockert. Ist die
+  Regel danach noch verletzt oder liegt die Ursache in einem fremden Key
+  (KP-e, KP-h), bleibt der Konflikt gemeldet (POLICY_SETTING_CONFLICT),
+  bis der Betreiber ihn aufloest. Die Notwerte erfuellen KP-a bis KP-d,
+  KP-f und KP-g untereinander. Die Regel selbst fuehrt der Settings-Kern
+  (BASE-090).
 
   LESEN DER SETTINGS: je Lauf; vpn-policy-apply fuer ein Einzelziel
   liest die wenigen Werte, die es braucht, zusammen mit der Connection.
@@ -386,12 +438,21 @@ ZWECK:
                                    spaeter   Peer die Adresse fuehrt
                                    ALERT
   POLICY_UNSEALED                  INFO      Siegel geloest
+  POLICY_UNSEAL_TIMEOUT            CRITICAL  Siegel-Abschnitt hat seine
+                                             Obergrenze ueberschritten;
+                                             Siegel bleibt
   POLICY_RECONCILE_MASS_HOLD       CRITICAL  schliessende Korrekturen ohne
                                              Auftrag zurueckgestellt
+  POLICY_RECONCILE_MASS_RELEASED   INFO      Mengenbremse beendet; mit
+                                             gemeldeter und vorgefundener
+                                             Zahl
   POLICY_RECONCILE_FAILED          ALERT     Abgleich wiederholt nicht
                                              fehlerfrei
-  POLICY_RECONCILE_OVERDUE         ALERT     Marke des Abgleichs aelter
-                                             als das Doppelte des Takts
+  POLICY_RECONCILE_OVERDUE         ALERT     letzter Beginn eines
+                                             Abgleichs aelter als das
+                                             Doppelte des Takts (aus der
+                                             Statusdatei, auch ohne
+                                             Datenbank)
   POLICY_OUTBOX_STUCK              ALERT /   Auftrag aelter als die
                                    CRITICAL  Schwelle (schliessend:
                                              CRITICAL)
@@ -401,6 +462,12 @@ ZWECK:
                                              Finalisierung (ALERT, wenn
                                              eine Auskunft fuer ALLE
                                              Connections ausfaellt)
+  POLICY_EVAL_SOURCE_OFF           WARN      Dauermeldung: eine berechnete
+                                             Quelle ist als nicht
+                                             eingerichtet festgelegt
+  POLICY_EVAL_HOLD_CLOCK           ALERT     Marke eines Halts lag in der
+                                             Zukunft und wurde auf jetzt
+                                             gesetzt
   POLICY_EVAL_ADMIN_FACT           ALERT     Einschraenkungs-Tatsache an
                                              einer ADMIN-Connection
   POLICY_EVAL_HELD                 ALERT     unumkehrbare Uebergaenge
@@ -478,12 +545,12 @@ ZWECK:
   - Betriebsseite "Policy": Inhalte der drei Statusdateien, Marken mit
     Alter, Zustand der Firewall, offene Alarme dieses Moduls.
   - Settings dieses Moduls ueber die Settings-Verwaltung (BASE-090) mit
-    Anzeige der Konsistenzregeln KP-a bis KP-f.
+    Anzeige der Konsistenzregeln KP-a bis KP-h.
   - Handlungen des privilegierten Auftragswegs: Zustand einer Connection
-    jetzt herstellen; jetzt abgleichen; Bewertung jetzt; Freigabe
-    zurueckgestellter Uebergaenge bzw. einer zurueckgestellten
-    Massenkorrektur (Klasse C); Bewertung anhalten und fortsetzen
-    (Klasse C); Rollenwechsel (Klasse C).
+    jetzt herstellen; jetzt abgleichen; Bewertung jetzt;
+    Betreiber-Freigabe zurueckgestellter Uebergaenge bzw. einer
+    zurueckgestellten Massenkorrektur (Klasse C); Bewertung anhalten und
+    fortsetzen (Klasse C); Rollenwechsel (Klasse C).
   - Keine Bearbeitung von Sets, Auftraegen, Marken oder Status am
     Werkzeug vorbei; kein Anhalten von Auftragslauf oder Abgleich
     (Abschnitt 9).
@@ -500,9 +567,21 @@ ZWECK:
     anstossen     "Bewertung jetzt" je Connection oder Customer (Panel)
     anhalten      Halt der Bewertung (Panel, Klasse C; BASE-080_020
                   Abschnitt 11) - befristet
-    ueberstimmen  zurueckgestellte unumkehrbare Uebergaenge freigeben:
-                  --release-held, auf Wunsch mit --confirm-time (Panel,
-                  Klasse C; BASE-080_020 Abschnitt 7)
+    ueberstimmen  Betreiber-Freigabe zurueckgestellter unumkehrbarer
+                  Uebergaenge: --release-held, auf Wunsch mit
+                  --confirm-time (Panel, Klasse C; BASE-080_020 Abschnitt
+                  7). Das ist ein Lauf --all.
+    Quelle        eine berechnete Quelle (Plan, Quota) als NICHT
+    ausnehmen     EINGERICHTET festlegen: Setting
+                  vpn_policy_eval_sources_off ueber die
+                  Settings-Verwaltung, mit Urheber und Grund (BASE-080_020
+                  Regel AK-5). Das ist der Zustand vor der Inbetriebnahme
+                  des Owners der Quelle und der Eingriff, wenn eine
+                  Auskunft dauerhaft nicht lesbar ist: Ohne ihn bleibt
+                  jede Connection, deren Zielzustand an dieser Auskunft
+                  haengt, wo sie ist - gemeldet, aber ohne Ende. Die
+                  Dauermeldung POLICY_EVAL_SOURCE_OFF steht, solange der
+                  Eintrag gilt.
 
   AUFTRAGSLAUF (vpn-policy-apply --pending) UND AUFSICHT
     anstossen     "Zustand jetzt herstellen" je Connection (Panel)
@@ -513,9 +592,9 @@ ZWECK:
   ABGLEICH (vpn-policy-apply --reconcile-all)
     anstossen     "jetzt abgleichen" (Panel)
     anhalten      nur am System (unten)
-    ueberstimmen  zurueckgestellte Massenkorrektur freigeben:
-                  --confirm-mass-close <Zahl> (Panel, Klasse C;
-                  BASE-080_040 Regel MB-5)
+    ueberstimmen  Betreiber-Freigabe einer zurueckgestellten
+                  Massenkorrektur: --confirm-mass-close <Zahl> (Panel,
+                  Klasse C; BASE-080_040 Regel MB-5)
 
   EINZELNE CONNECTION (kein Automatismus, aber der Notaus)
     Verwaltungs-Einschraenkung (nicht ADMIN) bzw. Sperren; Aufheben und

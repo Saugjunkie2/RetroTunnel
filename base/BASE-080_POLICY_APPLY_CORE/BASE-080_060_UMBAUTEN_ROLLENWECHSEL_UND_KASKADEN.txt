@@ -35,7 +35,7 @@ ZWECK:
          (--connection-id bzw. --customer-id). Darin: Laufzeit beenden,
          wo sie nicht mehr zugelassen ist oder der Auftrag es verlangt;
          Policy-Zustand; Fluss-Schnitt; Freigabe bzw. Peer.
-    UB5  SPERREN FREIGEBEN (erst nach UB4, gleich mit welchem Ergebnis).
+    UB5  SPERREN LOESEN (erst nach UB4, gleich mit welchem Ergebnis).
     UB6  FOLGEHANDLUNGEN ohne Wirkung auf den Schutz: neues Profil
          ausstellen und zustellen (WireGuard), Benachrichtigung, Anzeige.
 
@@ -44,9 +44,15 @@ ZWECK:
   erhielte noch den alten Zustand. Nach dem Commit lehnt die Anmeldung
   bereits nach dem neuen Zustand ab bzw. vergibt die neue Adresse.
 
-  WAS DAS FENSTER ZWISCHEN UB3 UND UB4 DECKT:
+  DAS FENSTER ZWISCHEN UB3 UND UB4:
     - Die alten Adressen liegen weiter im Netz ihrer alten Rolle; die
-      Regeln der Firewall fuer dieses Netz gelten unveraendert.
+      Regeln der Firewall fuer dieses Netz gelten unveraendert. Bei einer
+      HERABSTUFUNG behaelt bestehende Laufzeit so bis zur Herstellung die
+      Rechte der alten Rolle. Das ist HINGENOMMEN, nicht gedeckt (D002
+      7.4: Die Umstellung wirkt mit der Herstellung). Die Dauer ist die
+      der Herstellung, im Fehlerfall die des Auftrags. Wer sofort
+      entziehen muss, sperrt die Connection (Abschnitt 8) - das ist der
+      Notaus.
     - Eine neue Anmeldung wird durch die Sperre aus UB1 abgewiesen bzw.
       erhaelt den neuen Zustand; ohne Freigabe fliesst kein Verkehr.
     - Der Auftrag stellt her, auch wenn der Umbau an dieser Stelle endet.
@@ -87,16 +93,32 @@ ZWECK:
     RC3  TRANSAKTION (UB2):
            a) Pools sperren - Quell- und Zielpool, feste Reihenfolge
               (BASE-070_060 RW0)
-           b) Freimenge des Zielpools gegen die Zahl der Connections
-              pruefen (RW1); reicht sie nicht: Abbruch ohne Aenderung
-           c) Rolle des Customers aendern (Owner der Kundendaten)
-           d) je Connection: alte Adresse in Quarantaene (RW2); neuer
+           b) MENGE FESTSTELLEN: die Connections des Customers unter der
+              Pool-Sperre lesen und mit der in RC2 gesperrten Menge
+              vergleichen. Weicht sie ab (zwischen RC2 und RC3 kam eine
+              Connection hinzu, etwa durch einen Claim): Abbruch ohne
+              Aenderung, Sperren loesen, TEMPFAIL - erneut versuchen
+           c) VERBINDLICH PRUEFEN: Budget der Zielrolle (BASE-010, D002
+              7.6) und Freimenge des Zielpools gegen die Zahl der
+              Connections (RW1); reicht eines nicht: Abbruch ohne
+              Aenderung
+           d) Rolle des Customers aendern (Routine des Owners der
+              Kundendaten)
+           e) je Connection: alte Adresse in Quarantaene (RW2); neuer
               Slot und neue Adressen ueber den Allokator, access_role
               (RW3); Lifecycle-Ereignisse ROLE_CHANGE und SLOT_CHANGE
               (RW4)
-           e) je Connection ein Auftrag mit prev_ipv4, prev_ipv6 und -
+           f) je Connection der BEWERTUNGSKERN (BASE-080_020 Abschnitt
+              5) - bei JEDEM Rollenwechsel: Mit der Rolle aendert sich,
+              welche Gruende gelten koennen. Beim Wechsel NACH ADMIN
+              loescht die Routine von BASE-010 zuvor die Tatsachen der
+              Connection (Pause, Verwaltungs-Einschraenkung) mit
+              Lifecycle-Ereignis (ANF-PA-01)
+           g) je Connection ein Auftrag mit prev_ipv4, prev_ipv6 und -
               bei Status ACTIVE oder RESTRICTED - runtime_cut_before =
-              jetzt, Grund CONNECTION_ROLE_CHANGE
+              jetzt, Grund CONNECTION_ROLE_CHANGE; fuer jede
+              WireGuard-Connection (gleich in welchem Status) der Vermerk
+              "Profil faellig" ueber die Routine des Owners (Abschnitt 9)
          Bricht die Datenbank die Transaktion wiederholbar ab, wird sie
          als Ganzes wiederholt (BASE-070_060 AL7).
     RC4  COMMIT (UB3).
@@ -107,18 +129,25 @@ ZWECK:
                                 mit den neuen Adressen ueber das Gate
                                 eintragen (Policy vor Freigabe)
            DISABLED             nur Reste der alten Adressen raeumen
-    RC6  SPERREN FREIGEBEN (UB5).
+    RC6  SPERREN LOESEN (UB5).
     RC7  FOLGE (UB6): WireGuard-Profile neu ausstellen und in EINER
-         Nachricht zustellen (BASE-040_040, BASE-110); L2TP-Zugangsdaten
-         bleiben gleich, das Geraet verbindet sich neu.
+         Nachricht zustellen (BASE-040_040, BASE-110; wann sie hinausgeht:
+         Abschnitt 9); L2TP-Zugangsdaten bleiben gleich, das Geraet
+         verbindet sich neu.
 
   EIGENSCHAFTEN:
     - ALLES ODER NICHTS (D002 7.4): Keine Connection hat die neue Rolle,
       solange nicht alle umgestellt sind.
-    - Der Grund einer Einschraenkung bleibt; die Rolle aendert sich, der
-      Status nicht. AUSNAHME ZIELROLLE ADMIN: Eine ADMIN-Connection wird
-      nie eingeschraenkt (SZ-10). Der Bewertungskern laeuft deshalb in
-      RC3 mit; eine eingeschraenkte Connection wird dabei frei.
+    - STATUS UND GRUND FOLGEN DEM BEWERTUNGSKERN (RC3 f): Was mit der
+      neuen Rolle weiter gilt, bleibt; was nicht mehr gelten kann,
+      entfaellt mit dem Wechsel - bei Zielrolle ADMIN jede Einschraenkung
+      (SZ-10), bei einer Rolle ohne Plan die Gruende, die an einem Plan
+      haengen (BASE-010 INV-41); beim Wechsel WEG von ADMIN gelten die
+      Bedingungen wieder. Ohne den Kern truege die Connection bis zum
+      naechsten Lauf einen Status, der nicht zu ihrer Rolle passt.
+    - DIE PRUEFUNG IN RC1 BINDET NICHT: Budget, Freimenge und Menge der
+      Connections gelten erst, wie die Transaktion sie vorfindet (RC3 b
+      und c).
     - quota_used und die Periode bleiben (BASE-070 SC-44).
     - Ein Wechsel zurueck ergibt andere Adressen (die alten stehen in
       Quarantaene).
@@ -144,7 +173,9 @@ ZWECK:
            DELETED     Tombstone (BASE-010_070 Abschnitt 5): DISABLED mit
                        DISABLE_CUSTOMER_DELETED, sofortiger Widerruf,
                        Auth-Zeile geloescht - auch fuer bereits
-                       gesperrte Connections
+                       gesperrte Connections, aber nur, solange die
+                       Connection diesen Grund noch nicht traegt (der
+                       Schritt ist wiederholbar)
          jeweils mit Auftrag.
     KA3  Herstellung je Connection (Auftrag; der Auftragsweg ruft
          zusaetzlich --customer-id): Laufzeit beenden, Zustand raeumen.
@@ -156,10 +187,16 @@ ZWECK:
   KEINE SPERRE IN vpn_session_locks noetig: Mit dem Commit je Connection
   lehnt die Anmeldung ueber den Status ab (BASE-070_030 Abschnitt 6).
 
-  NICHT GEBREMST: Kaskaden folgen einer ausdruecklichen
-  Verwaltungshandlung und unterliegen nicht dem Schutz vor unumkehrbaren
-  Massenfolgen (BASE-080_020 Abschnitt 7). Die Handlung selbst verlangt
-  im Panel die erneute Anmeldung.
+  MIT AKTEUR NICHT GEBREMST: KA1 folgt einer ausdruecklichen
+  Verwaltungshandlung (im Panel mit erneuter Anmeldung) und wirkt sofort.
+  DAS NETZ IST GEBREMST: Findet der LAUF - ohne Akteur - Connections
+  eines Customers mit Status DELETED, steht hinter dem Tombstone in
+  diesem Aufruf keine Handlung: Der Wert kann auch durch einen Fehler in
+  die Daten gekommen sein, und der Tombstone ist nicht umkehrbar. Er
+  unterliegt deshalb der Mengenbremse und dem Halt (BASE-080_020
+  Abschnitt 7). Die Kaskade SUSPENDED aus dem Netz ist umkehrbar und wird
+  nicht gebremst; sie zaehlt in der Meldeschwelle der
+  Masseneinschraenkungen und ruht waehrend eines Halts.
 
   AUFHEBEN EINER SPERRUNG DES CUSTOMERS: hebt die Sperrung der
   Connections NICHT selbsttaetig auf. Jede Connection wird einzeln
@@ -183,6 +220,10 @@ ZWECK:
          (Policy vor Freigabe; der eingeschraenkte Zustand steht, bevor
          das erste Paket fliesst). L2TP - nichts; das Geraet meldet sich
          neu an.
+    WH3  FOLGE: Steht fuer eine WireGuard-Connection der Vermerk "Profil
+         faellig" - ihre Adressen haben sich waehrend der Sperrung
+         geaendert -, wird das Profil jetzt ausgestellt und zugestellt
+         (Abschnitt 9).
 
   WIEDERHERSTELLUNG IST KEIN UMGEHEN: Eine Connection, deren Quota
   ausgeschoepft oder deren Laufzeit abgelaufen ist, kommt eingeschraenkt
@@ -202,7 +243,7 @@ ZWECK:
          Adressen der Connection unter einem ANDEREN Schluessel - er
          entfernt ihn (Remove-Sequenz, Ende mit AUTH_KEY_ROTATED) und
          traegt den Peer mit dem neuen Schluessel ueber das Gate ein.
-    SR4  SPERRE FREIGEBEN; neues Profil zustellen.
+    SR4  SPERRE LOESEN; neues Profil zustellen.
 
   Keine Laufzeit besteht unter dem alten Schluessel fort: Der alte Peer
   ist entfernt, bevor der neue eingetragen wird.
@@ -219,14 +260,29 @@ ZWECK:
          wartet der Wechsel begrenzt (BASE-070_030 Abschnitt 6, U1).
     KW2  TRANSAKTION: neues Kennwort (als Hash); credential_version + 1;
          Lifecycle-Ereignis; Auftrag mit runtime_cut_before = jetzt und
-         Grund AUTH_KEY_ROTATED.
+         Grund AUTH_KEY_ROTATED. Der Auftrag wird NICHT sofort faellig
+         eingetragen: next_try_at = jetzt +
+         vpn_policy_apply_timeout_seconds (BASE-080_050 Regel AB-3).
+         Besteht fuer die Connection schon ein Auftrag, bleibt dessen
+         Faelligkeit.
     KW3  COMMIT; die Bestaetigung an den Nutzer wird ausgeliefert,
          BEVOR die Laufzeit endet (er aendert das Kennwort unter
          Umstaenden ueber den Tunnel).
-    KW4  HERSTELLEN: Jede Sitzung der Connection, die vor dem Wechsel
+    KW4  HERSTELLEN - durch den Umbau selbst, NACH der Auslieferung der
+         Bestaetigung: Jede Sitzung der Connection, die vor dem Wechsel
          begann, wird beendet (BASE-080_050 Merkmal MK2). Eine Sitzung,
          die danach mit dem neuen Kennwort entstand, bleibt.
-    KW5  SPERRE FREIGEBEN.
+    KW5  SPERRE LOESEN.
+
+  DER AUFTRAG IST HIER DAS NETZ, NICHT DER WEG: Waere er sofort faellig,
+  fuehrte ihn der Auftragslauf binnen eines Rasters aus - unter
+  Umstaenden, bevor die Bestaetigung den Nutzer erreicht hat. Die
+  spaetere Faelligkeit verlaengert keine Gefahr: Eine neue Anmeldung mit
+  dem alten Kennwort ist ab dem Commit ausgeschlossen (KW1,
+  Nachpruefung); bestehen bleibt fuer diese Frist hoechstens die Sitzung,
+  die schon vor dem Wechsel lief. Muss sie sofort enden, ist der Weg das
+  Sperren oder der Verwaltungs-Hard-Cut. Bestand schon ein Auftrag, kann
+  der Schnitt der Bestaetigung zuvorkommen - hingenommen.
 
   ZUSAMMENSPIEL MIT DER ANMELDUNG: Eine Anmeldung, die das alte Kennwort
   noch pruefen konnte, haelt entweder ihre Sperre (dann wartet KW1, und
@@ -234,9 +290,10 @@ ZWECK:
   wird in der Nachpruefung am geaenderten Credential-Stand abgewiesen
   (BASE-070_030 Schritt P5 b).
 
-  ENDET DER WECHSEL NACH KW3: Der Auftrag fuehrt KW4 aus; die Sperre
-  laeuft ab. Der Zeitpunkt im Auftrag sorgt dafuer, dass der verspaetete
-  Schnitt keine Sitzung trifft, die schon mit dem neuen Kennwort lebt.
+  ENDET DER WECHSEL NACH KW3: Der Auftrag fuehrt KW4 aus, sobald er
+  faellig ist; die Sperre laeuft ab. Der Zeitpunkt im Auftrag sorgt
+  dafuer, dass der verspaetete Schnitt keine Sitzung trifft, die schon
+  mit dem neuen Kennwort lebt.
 
 ================================================================================
 7) ADRESS-REPARATUR
@@ -252,10 +309,12 @@ ZWECK:
          materialisierte Adresse in Quarantaene (Ursache DRIFT_REPAIR);
          neuer Slot ueber den Allokator; Lifecycle-Ereignis SLOT_CHANGE
          mit Akteur; Auftrag mit prev_ipv4, prev_ipv6 und
-         runtime_cut_before = jetzt, Grund CONNECTION_ADDRESS_REPAIR.
+         runtime_cut_before = jetzt, Grund CONNECTION_ADDRESS_REPAIR;
+         WireGuard: Vermerk "Profil faellig" ueber die Routine des
+         Owners (Abschnitt 9).
          Gesperrt werden ALLE betroffenen Pools (BASE-070_060 AR2).
     AD3  COMMIT; Herstellung wie beim Rollenwechsel (RC5); Sperre
-         freigeben; WireGuard: neues Profil.
+         loesen; WireGuard: neues Profil.
 
   Eine Reparatur fuer viele Connections in einem Schritt gibt es nicht
   (BASE-070 DEC-SC-23).
@@ -293,8 +352,15 @@ ZWECK:
 
   REGEL FUER ALLE: Die fachliche Aenderung und der Auftrag stehen in
   EINER Transaktion; die Herstellung folgt dem Commit. Keine Handlung
-  schreibt ein Set, einen Peer oder beendet eine Sitzung an diesem
-  Werkzeug vorbei (SZ-5).
+  DIESES MODULS schreibt ein Set oder einen Peer oder beendet eine
+  Sitzung an vpn-policy-apply vorbei (SZ-5).
+  ANDERE MODULE beenden Laufzeit aus eigenem Recht - der
+  Verwaltungs-Hard-Cut (vpn-session-kill, BASE-070_040), der
+  L2TP-Abgleich fuer haengende, unabgerechnete und mehrfache Sitzungen
+  (BASE-070_020 Schritt L7a), die Stop-Aktion der WG-Schnittstelle
+  (BASE-040_060). Sie schreiben dabei keine Sets dieses Moduls; wo ihr
+  Eingriff den Policy-Zustand beruehrt, rufen sie die Herstellung
+  (BASE-080_050 Abschnitt 8).
 
   EINSCHRAENKEN WIRKT SOFORT (SZ-4): Die Verwaltungs-Einschraenkung ist
   der Notaus fuer eine einzelne Connection, die nicht ADMIN ist. Zwischen
@@ -315,13 +381,24 @@ ZWECK:
   Ohne neues Profil kann ein WireGuard-Kunde nach Rollenwechsel,
   Rotation oder Adress-Reparatur nicht mehr verbinden.
 
-    - Der Owner der Folgehandlung (BASE-040_040 fuer Profile, BASE-110
-      fuer die Zustellung) fuehrt einen eigenen, dauerhaften Vermerk
-      "Profil faellig" in der Transaktion des Umbaus und arbeitet ihn
-      unabhaengig vom Umbau ab (ANF-PA-07 b).
-    - BASE-080 zeigt je Connection, dass die Herstellung abgeschlossen
-      ist; das Profil darf erst danach zugestellt werden - sonst traefe
-      es auf einen Server ohne den neuen Peer.
+    - DER VERMERK "Profil faellig" ist dauerhaft und gehoert dem Owner
+      der Folgehandlung (BASE-040_040 fuer Profile, BASE-110 fuer die
+      Zustellung). GESETZT wird er in der Transaktion des Umbaus - von
+      dessen Schritt RC3 g, SR2 bzw. AD2 - ueber die Routine des Owners,
+      die dafuer in einer fremden Transaktion aufrufbar ist (ANF-PA-07).
+      Der Owner arbeitet ihn unabhaengig vom Umbau ab.
+    - ZUSTELLUNG ERST NACH DER HERSTELLUNG: BASE-080 zeigt je Connection,
+      ob noch ein Auftrag offen ist; das Profil darf erst danach
+      zugestellt werden - sonst traefe es auf einen Server ohne den neuen
+      Peer.
+    - EINE NACHRICHT JE ROLLENWECHSEL: Sie geht hinaus, sobald fuer
+      KEINE betroffene zugelassene Connection mehr ein Auftrag offen ist.
+      Bleibt ein Auftrag laenger als vpn_policy_outbox_alert_seconds
+      offen, geht sie mit den fertigen Profilen hinaus; die uebrigen
+      folgen einzeln, und der Rest ist gemeldet (POLICY_OUTBOX_STUCK).
+    - GESPERRTE CONNECTIONS: Solange eine Connection DISABLED ist, bleibt
+      ihr Vermerk stehen. Er wird nach ihrer Wiederherstellung
+      abgearbeitet (Schritt WH3).
 
 ================================================================================
 10) FEHLERBILDER
@@ -331,16 +408,19 @@ ZWECK:
   -------------------------------- ------------------------------------------
   Sperre nicht erhalten            Umbau endet ohne Wirkung
                                    (TEMPFAIL_LOCKED); erneut versuchen
-  Zielpool zu klein                Abbruch in RC3 b; nichts geaendert;
+  Zielpool zu klein                Abbruch in RC3 c; nichts geaendert;
                                    Meldung mit benoetigter und freier Zahl
-  Transaktion scheitert            nichts geaendert; Sperren freigeben
+  Transaktion scheitert            nichts geaendert; Sperren loesen
+  Menge der Connections hat sich   Abbruch in RC3 b; nichts geaendert;
+  seit dem Sperren geaendert       Sperren loesen; erneut versuchen
   Umbau endet nach dem Commit      Auftraege vollenden die Herstellung;
                                    Sperren laufen ab; Folgehandlung wird
                                    nachgeholt
   Herstellung scheitert fuer eine  Auftrag bleibt offen und wird gemeldet;
   Connection                       die uebrigen sind hergestellt; die
-                                   betroffene Connection ist hoechstens
-                                   strenger gestellt als ihr Ziel
+                                   betroffene Connection ist nie offener
+                                   gestellt als vor dem Umbau (ihre
+                                   Admission wird zuerst entzogen)
   Laufzeit laesst sich nicht       Freigabe bleibt entzogen bzw. Adressen
   beenden                          stehen im Gate; CRITICAL
   Datenbank faellt nach dem        Herstellung nach Rueckkehr (Auftrag);
