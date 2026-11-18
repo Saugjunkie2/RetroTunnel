@@ -92,12 +92,18 @@ ZWECK:
          Customers, aufsteigend.
     RC3  TRANSAKTION (UB2):
            a) Pools sperren - Quell- und Zielpool, feste Reihenfolge
-              (BASE-070_060 RW0)
-           b) MENGE FESTSTELLEN: die Connections des Customers unter der
-              Pool-Sperre lesen und mit der in RC2 gesperrten Menge
+              (BASE-070_060 RW0); DANACH die Zeile des Customers sperren
+              (SELECT ... FOR UPDATE). Der Claim (T-01) nimmt dieselbe
+              Zeilensperre, bevor er dem Customer eine Connection
+              zuordnet (ANF-PA-01 q). Reihenfolge der Sperren: Pools,
+              Customer, Connections - der Claim nimmt keine Pool-Sperre
+           b) MENGE FESTSTELLEN: die Connections des Customers unter
+              diesen Sperren lesen und mit der in RC2 gesperrten Menge
               vergleichen. Weicht sie ab (zwischen RC2 und RC3 kam eine
               Connection hinzu, etwa durch einen Claim): Abbruch ohne
-              Aenderung, Sperren loesen, TEMPFAIL - erneut versuchen
+              Aenderung, Sperren loesen, TEMPFAIL - erneut versuchen.
+              Stimmt sie, kann bis zum Commit keine mehr hinzukommen:
+              Ein Claim wartet an der Zeile des Customers
            c) VERBINDLICH PRUEFEN: Budget der Zielrolle (BASE-010, D002
               7.6) und Freimenge des Zielpools gegen die Zahl der
               Connections (RW1); reicht eines nicht: Abbruch ohne
@@ -127,7 +133,7 @@ ZWECK:
                                 Freigabe, Sperr-Set und conntrack der
                                 alten Adressen raeumen; WireGuard: Peer
                                 mit den neuen Adressen ueber das Gate
-                                eintragen (Policy vor Freigabe)
+                                eintragen (Policy vor Zulassung)
            DISABLED             nur Reste der alten Adressen raeumen
     RC6  SPERREN LOESEN (UB5).
     RC7  FOLGE (UB6): WireGuard-Profile neu ausstellen und in EINER
@@ -145,6 +151,16 @@ ZWECK:
       haengen (BASE-010 INV-41); beim Wechsel WEG von ADMIN gelten die
       Bedingungen wieder. Ohne den Kern truege die Connection bis zum
       naechsten Lauf einen Status, der nicht zu ihrer Rolle passt.
+      ABWEICHUNG VON D002 7.3 UND SM_CONNECTION 4.10 (ausgewiesen): Dort
+      bleiben Status, Grund und Finalisierungsfrist beim Rollenwechsel
+      unveraendert ("die Rolle aendert sich, der Enforcement-Status
+      nicht"). Das gilt weiter fuer alles, was nicht an der Rolle haengt.
+      Es KANN nicht gelten, wo eine vorrangige Regel dem widerspricht:
+      R-08 (eine ADMIN-Connection ist nie eingeschraenkt) und INV-41
+      (ein Grund aus einem Plan besteht nicht ohne Plan). D002 ist eine
+      Entscheidung des Betreibers; die Abweichung ist ihm gemeldet
+      (03_CHANGELOG v2.9.19). Die Routine T-09 von BASE-010 ist um den
+      Aufruf des Kerns zu erweitern (ANF-PA-01 b).
     - DIE PRUEFUNG IN RC1 BINDET NICHT: Budget, Freimenge und Menge der
       Connections gelten erst, wie die Transaktion sie vorfindet (RC3 b
       und c).
@@ -163,8 +179,10 @@ ZWECK:
 
   ABLAUF:
     KA1  Die Handlung schreibt den Customer-Status und ruft UNMITTELBAR
-         danach vpn-policy-eval --customer-id mit Akteur und --operator
-         (privilegierter Auftragsweg; Handlung des Betreibers).
+         danach vpn-policy-eval --customer-id mit --actor, --operator
+         und --cascade (privilegierter Auftragsweg, Klasse C; Aufrufart
+         A5 in BASE-080_020 Abschnitt 6). Nur dieser Aufruf ist der
+         VOLLZUG der Loeschung bzw. Sperrung.
     KA2  Der Bewerter fuehrt je Connection Schritt E2 aus - je Connection
          EINE Transaktion ueber die Routine von BASE-010:
            SUSPENDED   ACTIVE oder RESTRICTED -> DISABLED mit
@@ -175,7 +193,9 @@ ZWECK:
                        Auth-Zeile geloescht - auch fuer bereits
                        gesperrte Connections, aber nur, solange die
                        Connection diesen Grund noch nicht traegt (der
-                       Schritt ist wiederholbar)
+                       Schritt ist wiederholbar). War sie aus anderem
+                       Grund schon widerrufen, beginnen Widerruf und
+                       Quarantaene neu (BASE-010 INV-84 b)
          jeweils mit Auftrag.
     KA3  Herstellung je Connection (Auftrag; der Auftragsweg ruft
          zusaetzlich --customer-id): Laufzeit beenden, Zustand raeumen.
@@ -187,18 +207,24 @@ ZWECK:
   KEINE SPERRE IN vpn_session_locks noetig: Mit dem Commit je Connection
   lehnt die Anmeldung ueber den Status ab (BASE-070_030 Abschnitt 6).
 
-  ALS HANDLUNG DES BETREIBERS NICHT GEBREMST: KA1 folgt einer
-  ausdruecklichen Verwaltungshandlung (im Panel mit erneuter Anmeldung)
-  und wirkt sofort. Der Folgeaufruf einer Kundenhandlung fuehrt nie eine
-  Kaskade aus (BASE-080_020 Abschnitt 6).
-  DAS NETZ IST GEBREMST: Findet der LAUF - ohne Akteur - Connections
-  eines Customers mit Status DELETED, steht hinter dem Tombstone in
-  diesem Aufruf keine Handlung: Der Wert kann auch durch einen Fehler in
-  die Daten gekommen sein, und der Tombstone ist nicht umkehrbar. Er
-  unterliegt deshalb der Mengenbremse und dem Halt (BASE-080_020
-  Abschnitt 7). Die Kaskade SUSPENDED aus dem Netz ist umkehrbar und wird
-  nicht gebremst; sie zaehlt in der Meldeschwelle der
-  Masseneinschraenkungen und ruht waehrend eines Halts.
+  IM VOLLZUG NICHT GEBREMST: KA1 folgt einer ausdruecklichen
+  Verwaltungshandlung (im Panel mit erneuter Anmeldung) und wirkt
+  sofort - auch der Tombstone, auch waehrend eines Halts. Der
+  Folgeaufruf einer Kundenhandlung fuehrt nie eine Kaskade aus
+  (BASE-080_020 Abschnitt 6, Aufrufarten A3 und A5).
+  JEDER ANDERE WEG IST GEBREMST: Findet der LAUF - ohne Akteur - oder
+  die Handlung "Bewertung jetzt" (Aufrufart A4) Connections eines
+  Customers mit Status DELETED, steht hinter dem Tombstone in diesem
+  Aufruf keine Loeschung: Der Wert kann auch durch einen Fehler in die
+  Daten gekommen sein, und der Tombstone ist nicht umkehrbar. Er
+  unterliegt deshalb dem Schutz vor unumkehrbaren Massenfolgen und ruht
+  im Halt (BASE-080_020 Abschnitt 7). SOLANGE ER ZURUECKGESTELLT IST,
+  wird die Connection gesperrt wie bei SUSPENDED (BASE-080_020 Schritt
+  E2): Ein als geloescht gefuehrter Customer behaelt keinen Zugang.
+  Die Kaskade SUSPENDED aus dem Netz wird nicht gebremst; sie zaehlt in
+  der Meldeschwelle der Masseneinschraenkungen und ruht waehrend eines
+  Halts. Sie ist im Status umkehrbar, nicht in den Tatsachen
+  (BASE-080_020 Abschnitt 7).
 
   AUFHEBEN EINER SPERRUNG DES CUSTOMERS: hebt die Sperrung der
   Connections NICHT selbsttaetig auf. Jede Connection wird einzeln
@@ -218,8 +244,13 @@ ZWECK:
          Grund aktiv ist - RESTRICTED mit dem hoechstprioren Grund.
          Auftrag; bei Ergebnis RESTRICTED ohne flow_cut (es gibt keine
          Fluesse).
+         ABLEHNUNG: Ist kein Grund bekannt aktiv, aber eine Bedingung
+         UNBEKANNT, lehnt die Routine ab - keine Aenderung, Meldung mit
+         restore_until (BASE-080_020 Abschnitt 5; ANF-PA-01 i). Der
+         Widerruf nach Ablauf des Restore-Fensters ruht in dieser Zeit
+         (BASE-080_020 Schritt E4).
     WH2  COMMIT; Herstellung: WireGuard - Peer ueber das Gate eintragen
-         (Policy vor Freigabe; der eingeschraenkte Zustand steht, bevor
+         (Policy vor Zulassung; der eingeschraenkte Zustand steht, bevor
          das erste Paket fliesst). L2TP - nichts; das Geraet meldet sich
          neu an.
     WH3  FOLGE: Steht fuer eine WireGuard-Connection der Vermerk "Profil
@@ -240,7 +271,9 @@ ZWECK:
 
     SR1  SPERRE KEY_ROTATION (UB1).
     SR2  TRANSAKTION: neuer PublicKey und PresharedKey in der Auth-Zeile;
-         Lifecycle-Ereignis; Auftrag.
+         Lifecycle-Ereignis; Auftrag; Vermerk "Profil faellig" (die
+         Rotation von BASE-040_040 setzt ihn in dieser Transaktion
+         selbst, Schritt K4).
     SR3  COMMIT; Herstellung: Der Treiber findet einen Peer mit den
          Adressen der Connection unter einem ANDEREN Schluessel - er
          entfernt ihn (Remove-Sequenz, Ende mit AUTH_KEY_ROTATED) und
@@ -393,11 +426,14 @@ ZWECK:
       ob noch ein Auftrag offen ist; das Profil darf erst danach
       zugestellt werden - sonst traefe es auf einen Server ohne den neuen
       Peer.
-    - EINE NACHRICHT JE ROLLENWECHSEL: Sie geht hinaus, sobald fuer
-      KEINE betroffene zugelassene Connection mehr ein Auftrag offen ist.
+    - EINE NACHRICHT JE ROLLENWECHSEL (D002 7.2 Schritt 3): Sie geht
+      hinaus, sobald fuer KEINE betroffene zugelassene Connection mehr
+      ein Auftrag offen ist. NUR IM STOERFALL weicht das von D002 ab:
       Bleibt ein Auftrag laenger als vpn_policy_outbox_alert_seconds
-      offen, geht sie mit den fertigen Profilen hinaus; die uebrigen
-      folgen einzeln, und der Rest ist gemeldet (POLICY_OUTBOX_STUCK).
+      offen, geht die Nachricht mit den fertigen Profilen hinaus; die
+      uebrigen folgen einzeln, und der Rest ist gemeldet
+      (POLICY_OUTBOX_STUCK). Sonst wartete der Kunde wegen einer
+      einzelnen haengenden Connection auf alle Profile.
     - GESPERRTE CONNECTIONS: Solange eine Connection DISABLED ist, bleibt
       ihr Vermerk stehen. Er wird nach ihrer Wiederherstellung
       abgearbeitet (Schritt WH3).

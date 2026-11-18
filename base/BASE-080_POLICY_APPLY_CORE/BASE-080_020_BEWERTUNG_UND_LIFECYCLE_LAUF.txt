@@ -78,7 +78,13 @@ ZWECK:
     AK-1 PLAN-LIMIT: je Connection ja/nein. Welche Connections eines
          Customers bei einem ueberschrittenen Limit als ueberzaehlig
          gelten, bestimmt allein MOD-010 - deterministisch, damit
-         wiederholte Bewertung dasselbe Ergebnis liefert.
+         wiederholte Bewertung dasselbe Ergebnis liefert. Fuer eine
+         Connection, die kein Plan-Limit treffen KANN (ihr Customer
+         traegt keinen Plan; nach INV-41 tragen nur USER einen), liefert
+         die Auskunft "nein" - auch wenn die Plan-Daten sonst nicht
+         lesbar sind. So bleibt eine VIP-, MODERATOR- oder
+         ADMIN-Connection nicht wegen einer Stoerung der Plan-Daten
+         "nicht bestimmt" (ANF-PA-02).
     AK-2 KONTINGENT: je Connection das wirksame Limit (NULL = unbegrenzt)
          und der dagegen zu rechnende Verbrauch. Gebucht wird je
          Connection (quota_used, BASE-070_050); teilen sich mehrere
@@ -94,10 +100,16 @@ ZWECK:
          (PLAN_LIMIT, QUOTA), wird sie nicht befragt, und ihre Bedingung
          gilt fuer jede Connection als BEKANNT NICHT AKTIV. Das ist eine
          ausdrueckliche, protokollierte Festlegung des Betreibers ueber
-         den Schreibweg der Settings (Urheber, Grund) - fuer die Zeit, in
-         der der Owner der Quelle noch nicht in Betrieb ist, und als
-         Eingriff, wenn eine Quelle dauerhaft ausfaellt. Solange sie
-         gilt, steht die Dauermeldung POLICY_EVAL_SOURCE_OFF. OHNE diesen
+         den Schreibweg der Settings (Klasse C: ausdrueckliche
+         Bestaetigung, Urheber und Grund; die Sicherungen des
+         Schreibwegs sind bei BASE-090 angefordert, ANF-PA-09) - fuer
+         die Zeit, in der der Owner der Quelle noch nicht in Betrieb
+         ist, und als Eingriff, wenn eine Quelle dauerhaft ausfaellt.
+         DER EINTRAG WIRKT FUER ALLE CONNECTIONS ZUGLEICH: Mit dem
+         naechsten Lauf wird jede frei, die allein wegen dieser Quelle
+         eingeschraenkt war; der Lauf meldet ihre Zahl. Solange der
+         Eintrag gilt, steht die Dauermeldung POLICY_EVAL_SOURCE_OFF.
+         OHNE diesen
          Eintrag bleibt eine nicht lesbare Auskunft UNBEKANNT; kein
          Programm setzt ihn von sich aus (SZ-7). BASE-080 geht davon aus,
          dass vor der Inbetriebnahme jede der beiden Quellen entweder
@@ -153,10 +165,16 @@ ZWECK:
          zurueckbleiben, was gilt, und eine Einschraenkung laesst sich
          nicht aufheben. Das weicht von INV-22 ab (BASE-010; der
          gespeicherte Grund ist dann nicht sicher der hoechstpriore;
-         ANF-PA-01 j). ENDZUSTAND: Der Zustand bleibt, bis die Auskunft
-         wieder lesbar ist oder der Betreiber die Quelle als nicht
-         eingerichtet festlegt (AK-5). Eine Frist, nach der von selbst
-         geoeffnet wuerde, gibt es nicht; die Meldung bleibt stehen.
+         ANF-PA-01 j). Dieselbe Abweichung entsteht nach b) und bei
+         einer Wiederherstellung mit bekannt aktivem Grund (Abschnitt
+         5): Gespeichert ist der hoechstpriore BEKANNTE Grund. ENDZUSTAND:
+         Der Zustand bleibt, bis die Auskunft wieder lesbar ist oder der
+         Betreiber die Quelle als nicht eingerichtet festlegt (AK-5).
+         Eine Frist, nach der von selbst geoeffnet wuerde, gibt es
+         nicht; die Meldung bleibt stehen. Der Eingriff AK-5 ist GLOBAL:
+         Einen Eingriff fuer eine einzelne Connection, deren Auskunft
+         widerspruechlich ist, gibt es nicht - fuer sie bleiben nur die
+         Verwaltungshandlungen an der Connection selbst.
     Z-2  Tatsachen einer ADMIN-Connection (Pause, Verwaltungs-
          Einschraenkung) sind unzulaessig; findet der Bewerter sie vor,
          meldet er POLICY_EVAL_ADMIN_FACT und laesst die Connection
@@ -181,10 +199,27 @@ ZWECK:
                                aus einem anderen Grund bereits DISABLED
                                ist. Traegt sie ihn schon: nichts (Z-4);
                                ein wiederholter Aufruf beginnt weder
-                               Widerruf noch Quarantaene neu. Ende.
-                               Ausserhalb einer Handlung des Betreibers
-                               ist der Tombstone ein unumkehrbarer
-                               Uebergang (Abschnitt 7).
+                               Widerruf noch Quarantaene neu. War sie
+                               aus einem ANDEREN Grund schon widerrufen,
+                               ueberschreibt der Tombstone den Grund,
+                               und Widerruf und Quarantaene beginnen neu
+                               (BASE-010 INV-84 b): Die Adresse bleibt
+                               damit laenger gebunden, nie kuerzer. Ende.
+                               DER TOMBSTONE IST UNUMKEHRBAR. Sofort und
+                               ungebremst wirkt er NUR im Vollzug einer
+                               Loeschung (Aufrufart A5, Abschnitt 6). In
+                               jedem anderen Aufruf steht er unter dem
+                               Schutz aus Abschnitt 7 und ruht im Halt.
+                               ZURUECKGESTELLTER TOMBSTONE: Laesst der
+                               Schutz ihn nicht zu, wird die Connection
+                               - soweit ACTIVE oder RESTRICTED - im
+                               selben Schritt GESPERRT wie bei SUSPENDED
+                               (T-04 bzw. T-07 mit
+                               DISABLE_CUSTOMER_SUSPENDED; ANF-PA-01 o).
+                               Der Tombstone folgt, sobald der Schutz
+                               ihn zulaesst. Ein als geloescht gefuehrter
+                               Customer hat so nie mehr Zugang als ein
+                               gesperrter.
         Customer SUSPENDED  -> ist die Connection ACTIVE oder RESTRICTED:
                                T-04 bzw. T-07 mit
                                DISABLE_CUSTOMER_SUSPENDED (INV-65). Ende.
@@ -201,6 +236,14 @@ ZWECK:
         revoked_at IS NULL
         -> Widerruf nach LR-02 (revoked_at, quarantine_until;
            restore_until NULL). UNUMKEHRBAR (Abschnitt 7).
+      DER WIDERRUF RUHT, solange eine Wiederherstellung dieser
+      Connection an einer UNBEKANNTEN Auskunft scheitern wuerde (kein
+      Grund bekannt aktiv, eine Bedingung unbekannt; Abschnitt 5, T-08):
+      Was der Betreiber wegen fehlenden Wissens nicht wiederherstellen
+      kann, wird nicht wegen Fristablaufs endgueltig (SZ-7). Ereignis
+      POLICY_EVAL_REVOKE_DEFERRED mit restore_until. Mit dem ersten
+      Lauf, in dem das Ergebnis wieder feststeht, gilt die Frist wie
+      zuvor - wer wiederherstellen will, tut es vorher.
       MANUAL_ONLY wird nie vom Bewerter widerrufen (LR-03). Ende.
   E5  GRUENDE BESTIMMEN: R(c) und Zielzustand nach Abschnitt 3.
   E6  VERGLEICHEN UND UEBERGEHEN:
@@ -293,7 +336,9 @@ ZWECK:
   aber eine Bedingung UNBEKANNT, wird die Wiederherstellung ABGELEHNT
   (keine Aenderung; Meldung an den Aufrufer): Ob die Connection frei
   sein duerfte, ist nicht feststellbar - fehlendes Wissen oeffnet nichts
-  (SZ-7).
+  (SZ-7). Die Meldung nennt restore_until und den Eingriff AK-5; solange
+  die Auskunft unbekannt bleibt, ruht der Widerruf nach Ablauf des
+  Restore-Fensters (Schritt E4).
 
 ================================================================================
 6) DER LAUF (vpn-policy-eval)
@@ -304,7 +349,8 @@ ZWECK:
     vpn-policy-eval --connection-id <id>       eine Connection
         [--actor <Kennung>] [--operator]
     vpn-policy-eval --customer-id <id>         alle Connections eines
-        [--actor <Kennung>] [--operator]       Customers (Kaskade)
+        [--actor <Kennung>] [--operator]       Customers
+        [--cascade]
     vpn-policy-eval --explain <id>             nur lesend: alle aktiven
                                                Gruende, Fristen, Ziel
     vpn-policy-eval --release-held --max <n>   Betreiber-Freigabe
@@ -313,32 +359,68 @@ ZWECK:
     vpn-policy-eval --hold --actor <Kennung>   Bewertung anhalten bzw.
     vpn-policy-eval --resume --actor <Kennung> fortsetzen (Abschnitt 11)
   Eingaben werden streng geprueft (nur Ziffern bzw. feste Schalter).
-  --actor nennt, fuer wessen HANDLUNG der Aufruf laeuft (Verwaltung oder
-  Kunde). --operator kennzeichnet eine Handlung des BETREIBERS (Klasse
-  C). Beide setzt allein der privilegierte Auftragsweg - auch fuer die
-  Handlung eines Kunden, deren Schreibweg den Folgeaufruf dort anfordert
-  (der Webprozess ruft dieses Werkzeug nie selbst). Ein Aufruf OHNE
-  Akteur ist ein Automatismus (Zeitgeber, Periodenwechsel, selbsttaetige
-  Folgeaufrufe).
+  DREI KENNZEICHEN, die allein der privilegierte Auftragsweg setzt (der
+  Webprozess ruft dieses Werkzeug nie selbst):
+    --actor     nennt, fuer wessen HANDLUNG der Aufruf laeuft (Verwaltung
+                oder Kunde) - auch fuer die Handlung eines Kunden, deren
+                Schreibweg den Folgeaufruf dort anfordert.
+    --operator  die Handlung ist eine des BETREIBERS (Rolle ADMIN). Das
+                Kennzeichen allein ist KEINE Klasse C.
+    --cascade   der Aufruf ist der VOLLZUG der Handlung "Customer
+                loeschen" oder "Customer sperren" (Klasse C, erneute
+                Anmeldung): Die Handlung hat den Status des Customers
+                eben selbst geschrieben. Nur mit --customer-id, --actor
+                und --operator.
+  Ein Aufruf OHNE Akteur ist ein Automatismus (Zeitgeber,
+  Periodenwechsel, selbsttaetige Folgeaufrufe).
 
-  AUFRUFARTEN - WAS SIE AUSFUEHREN:
-    LAUF (--all, ohne Akteur)          E1 bis E8; Schutz nach Abschnitt
-                                       7; Halt nach Abschnitt 11
-    AUFRUF FUER EIN ZIEL OHNE AKTEUR   wie der Lauf, fuer das Ziel
-    (Automatismus)
-    FOLGEAUFRUF EINER HANDLUNG         E1, E5, E6, E8 - nur der
-    (--connection-id oder              Bewertungskern. KEINE Kaskade (E2)
-    --customer-id mit Akteur, ohne     und KEINE Frist (E3, E4, E7): Eine
-    --operator)                        Handlung eines Kunden loest nie
-                                       einen unumkehrbaren Uebergang aus
-    HANDLUNG DES BETREIBERS            E1 bis E8 fuer das Ziel; laeuft
-    (mit Akteur und --operator):       auch waehrend eines Halts.
-    "Bewertung jetzt"; die Kaskade     Mit --customer-id wirkt E2 SOFORT
-    nach dem Sperren oder Loeschen     und ungebremst: Der Betreiber
-    eines Customers (BASE-080_060      nennt den Customer ausdruecklich,
-    KA1)                               die Kaskade ist Teil seiner
-                                       Handlung. Fuer E3, E4 und E7 gilt
-                                       der Schutz nach Abschnitt 7
+  AUFRUFARTEN - DIE EINE UEBERSICHT. Alle anderen Stellen des Moduls
+  verweisen hierher (Abschnitte 7 und 11; BASE-080_060 Abschnitt 3;
+  PA-11, PA-14, PA-68, PA-73):
+
+    A1  LAUF                      --all, ohne Akteur
+        fuehrt aus                E1 bis E8
+        Unumkehrbares             nur unter dem Schutz (Abschnitt 7) -
+                                  auch der Tombstone aus dem Netz
+        im Halt (Abschnitt 11)    kein Uebergang
+    A2  AUFRUF FUER EIN ZIEL      --connection-id oder --customer-id,
+        OHNE AKTEUR               ohne Akteur (Automatismus)
+        wie A1, fuer das Ziel
+    A3  FOLGEAUFRUF EINER         --connection-id oder --customer-id mit
+        HANDLUNG                  --actor, ohne --operator
+        fuehrt aus                E1, E5, E6, E8 - nur den Bewertungskern
+        Unumkehrbares             NIE: keine Kaskade (E2), keine Frist
+                                  (E3, E4, E7). Eine Handlung eines
+                                  Kunden loest nie einen unumkehrbaren
+                                  Uebergang aus
+        im Halt                   laeuft
+    A4  HANDLUNG DES BETREIBERS   --connection-id oder --customer-id mit
+        "Bewertung jetzt"         --actor und --operator; keine Klasse C
+        fuehrt aus                E1 bis E8 fuer das Ziel
+        Unumkehrbares             nur unter dem Schutz (Abschnitt 7): E3,
+                                  E4, E7 UND der Tombstone (E2). Die
+                                  Kaskade "Customer gesperrt" laeuft
+        im Halt                   umkehrbare Uebergaenge laufen;
+                                  Unumkehrbares ruht
+    A5  VOLLZUG EINER LOESCHUNG   --customer-id mit --actor, --operator
+        ODER SPERRUNG             und --cascade; Klasse C (BASE-080_060
+                                  Schritt KA1)
+        fuehrt aus                E1 bis E8 fuer alle Connections des
+                                  Customers
+        Unumkehrbares             der Tombstone (E2) SOFORT und
+                                  ungebremst: Er ist die Handlung. E3,
+                                  E4, E7 nur unter dem Schutz
+        im Halt                   laeuft
+    A6  BETREIBER-FREIGABE        --release-held; Klasse C (Abschnitt 7)
+        ein Lauf A1 mit ausgesetzter Mengengrenze; im Halt abgelehnt
+
+  WARUM A4 UND A5 GETRENNT SIND: "Bewertung jetzt" vollzieht keine
+  Loeschung. Faende sie einen Customer vor, der durch einen Datenfehler
+  als geloescht gefuehrt wird, und fuehrte sie den Tombstone wie A5 aus,
+  waere der Schutz aus Abschnitt 7 ueber eine Handlung ohne erneute
+  Anmeldung umgangen - gerade dann, wenn der Betreiber wegen
+  zweifelhafter Daten angehalten hat. Ungebremst wirkt Unumkehrbares
+  deshalb nur dort, wo die Handlung selbst es ausspricht.
 
   LAUF --all (Takt vpn_policy_eval_interval_seconds, Vorschlag 60):
     BL1  Lauf-Lock des Bewerters (kein Kernel-Lock); Zeitlimit.
@@ -382,15 +464,15 @@ ZWECK:
 
   UNUMKEHRBAR sind: Sperrung nach claim_deadline (E3), Finalisierung
   (E7), Widerruf (E4) und die Kaskade "Customer geloescht" (E2,
-  Tombstone), wenn sie NICHT aus einer Handlung des Betreibers folgt -
-  im Lauf aus seinem Netz (BL4 a) und in jedem anderen Aufruf ohne
-  Akteur. Ihre Zielgruende sind nicht wiederherstellbar
+  Tombstone) - im Lauf aus seinem Netz (BL4 a), in jedem Aufruf ohne
+  Akteur und in "Bewertung jetzt" (Aufrufarten A1, A2, A4). Ihre
+  Zielgruende sind nicht wiederherstellbar
   bzw. beenden das Restore-Fenster und binden die Adresse fuer die
   Quarantaene; der Tombstone loescht ausserdem die Zugangsdaten.
-  NICHT gebremst wird die Kaskade, die eine Verwaltungshandlung selbst
-  ausfuehrt (--customer-id mit Akteur und --operator, BASE-080_060
-  KA1): Sie ist die Handlung. Der Folgeaufruf einer Kundenhandlung
-  fuehrt nie eine Kaskade aus (Abschnitt 6).
+  NICHT gebremst wird allein der Tombstone im VOLLZUG einer Loeschung
+  (Aufrufart A5, Kennzeichen --cascade; BASE-080_060 KA1): Er ist die
+  Handlung. Der Folgeaufruf einer Kundenhandlung fuehrt nie eine
+  Kaskade aus (Aufrufart A3).
   Das NETZ im Lauf dagegen findet nur vor, DASS ein Customer
   als geloescht gefuehrt wird - gleich, wie dieser Wert in die Daten
   kam. Ein Datenfehler oder ein fehlerhafter Import darf nicht in einem
@@ -398,10 +480,17 @@ ZWECK:
   gelten U-1 bis U-3 fuer das Netz wie fuer die Fristen. Der einzelne
   liegengebliebene Rest einer unterbrochenen Handlung bleibt unter der
   Grenze und wird nachgeholt.
-  Die Kaskade "Customer gesperrt" (SUSPENDED) ist umkehrbar und wird
-  nicht gebremst. Aus dem Netz des Laufs zaehlt sie zur Meldeschwelle
-  der Masseneinschraenkungen (unten) und ruht bei einem Halt (Abschnitt
-  11).
+  Die Kaskade "Customer gesperrt" (SUSPENDED) wird nicht gebremst:
+  Verweigern geht vor. Sie ist IM STATUS umkehrbar (T-08), NICHT IN DEN
+  TATSACHEN: Mit dem Eintritt in DISABLED loescht BASE-010 Pause und
+  Verwaltungs-Einschraenkung der Connection (INV-28); nach der
+  Wiederherstellung ist sie ohne sie ACTIVE. Wer nach einem Datenfehler
+  wiederherstellt, setzt eine Verwaltungs-Einschraenkung neu - das
+  Lifecycle-Ereignis nennt, was geloescht wurde (ANF-PA-01 p). Aus dem
+  Netz des Laufs zaehlt die Kaskade zur Meldeschwelle der
+  Masseneinschraenkungen (unten) und ruht bei einem Halt (Abschnitt
+  11). Dasselbe gilt fuer die Sperrung an Stelle eines zurueckgestellten
+  Tombstones (Schritt E2).
 
   Ein Lauf fuehrt unumkehrbare Uebergaenge nur aus, wenn ALLE Bedingungen
   gelten:
@@ -439,10 +528,13 @@ ZWECK:
   GELTUNG FUER JEDEN AUFRUF: Die Bedingungen gelten fuer jeden Aufruf, der
   einen unumkehrbaren Uebergang ausfuehren koennte - auch fuer
   --connection-id und --customer-id. Diese pruefen U-1 und U-2 gegen die
-  Marken, OHNE sie zu schreiben (die Marken schreibt allein der Lauf
-  --all; ein Einzelaufruf darf eine Luecke nicht verdecken). U-3 gilt
-  je Aufruf fuer die Summe seiner unumkehrbaren Uebergaenge. Ein
-  Folgeaufruf einer Handlung fuehrt keinen aus (Abschnitt 6).
+  Marken, OHNE sie zu schreiben (die Marken des Zeitschutzes schreibt
+  der Lauf --all; ein Einzelaufruf darf eine Luecke nicht verdecken).
+  EINZIGE AUSNAHME: Der Aufruf --resume setzt policy_eval_time_anomaly_at
+  auf jetzt (Regel HL-5) - er verlaengert den Schutz und verkuerzt ihn
+  nie. U-3 gilt je Aufruf fuer die Summe seiner unumkehrbaren
+  Uebergaenge. Ein Folgeaufruf einer Handlung fuehrt keinen aus
+  (Aufrufart A3).
   Das Ende eines Halts der Bewertung BEGINNT eine Ruhezeit (Abschnitt 11,
   Regel HL-5); es beendet nie eine.
 
@@ -451,8 +543,10 @@ ZWECK:
       (bei U-3 auch nicht die ersten bis zur Grenze: Die Grenze ist ein
       Hinweis auf eine gestoerte Lage, kein Kontingent).
     - Umkehrbare Uebergaenge (einschraenken, aufheben, Grundwechsel),
-      die Kaskade "Customer gesperrt" und die Kaskaden des Betreibers
-      laufen normal.
+      die Kaskade "Customer gesperrt" und der Vollzug einer Loeschung
+      (Aufrufart A5) laufen normal.
+    - Eine Connection, deren Tombstone zurueckgestellt ist, wird
+      gesperrt (Schritt E2).
     - Ereignis POLICY_EVAL_HELD (ALERT) mit Zahl und verletzter
       Bedingung; die Statusdatei fuehrt die zurueckgestellten
       Connections nach Art.
@@ -495,7 +589,8 @@ ZWECK:
   Rechner, erkennt der Vergleich in U-1 keinen Sprung der gemeinsamen
   Uhr; dann tragen das Signal der Zeitbasis und U-2.
   MASSENEINSCHRAENKUNGEN: Einschraenkungen und die Kaskade "Customer
-  gesperrt" aus dem Netz sind umkehrbar und werden nicht gebremst.
+  gesperrt" aus dem Netz werden nicht gebremst (die Kaskade ist nur im
+  Status umkehrbar, siehe oben).
   Uebersteigt ihre Zahl in einem Lauf
   vpn_policy_eval_restrict_alert_per_run (Vorschlag 100), wird
   POLICY_EVAL_MASS_RESTRICT gemeldet (ALERT) - der Anlass, die Bewertung
@@ -559,8 +654,9 @@ ZWECK:
                                   weiter
   Bewertung angehalten            kein Fehler: kein Uebergang aus dem
   (Abschnitt 11)                  Lauf und aus Automatismen; Handlungen
-                                  mit Akteur wirken (Kaskade: nur als
-                                  Handlung des Betreibers); der
+                                  mit Akteur wirken (Unumkehrbares nur
+                                  im Vollzug einer Loeschung, Aufrufart
+                                  A5); der
                                   gespeicherte Zustand wird
                                   durchgesetzt; nach dem Ende laeuft die
                                   Ruhezeit
@@ -576,10 +672,10 @@ ZWECK:
     Uebergaenge je Art, UNBEKANNTE Auskuenfte, zurueckgestellte
     unumkehrbare Uebergaenge mit Anlass (Statusdatei, BASE-080_070).
   - Handlungen: "Bewertung jetzt" fuer eine Connection oder einen
-    Customer; Betreiber-Freigabe zurueckgestellter Uebergaenge (Klasse
-    C); Bewertung anhalten und fortsetzen (Klasse C; Abschnitt 11);
-    eine Quelle als nicht eingerichtet festlegen (Verwaltung der
-    Settings; AK-5).
+    Customer (keine Klasse C; Aufrufart A4); Betreiber-Freigabe
+    zurueckgestellter Uebergaenge (Klasse C); Bewertung anhalten und
+    fortsetzen (Klasse C; Abschnitt 11); eine Quelle als nicht
+    eingerichtet festlegen (Klasse C; Verwaltung der Settings; AK-5).
   - Keine Bearbeitung von op_status oder Grund am Bewerter vorbei.
 
 ================================================================================
@@ -612,17 +708,16 @@ ZWECK:
           bestimmt und nach Art gezaehlt (Statusdatei: angehalten,
           anstehend).
     HL-3  WAS WEITERLAEUFT:
-          a) Die Kaskade, die eine Verwaltungshandlung selbst ausfuehrt
-             (--customer-id mit Akteur und --operator): Sie ist die
-             Handlung. Das Netz
-             im Lauf ruht - es ist ein Automatismus und faende auch vor,
+          a) Der Vollzug einer Loeschung oder Sperrung (Aufrufart A5,
+             Kennzeichen --cascade): Er ist die Handlung. Das Netz im
+             Lauf ruht - es ist ein Automatismus und faende auch vor,
              was ein Datenfehler hinterlassen hat.
           b) Der Bewertungskern in der Transaktion einer Handlung
              (Abschnitt 5) und der Folgeaufruf einer Handlung: Sie fuehren
              nur den Bewertungskern aus und nie einen unumkehrbaren
-             Uebergang (Abschnitt 6). "Bewertung jetzt" des Betreibers
-             (mit --operator) laeuft ebenfalls; fuer seine unumkehrbaren
-             Uebergaenge gilt Abschnitt 7 unveraendert.
+             Uebergang (Aufrufart A3). "Bewertung jetzt" des Betreibers
+             (Aufrufart A4) laeuft fuer UMKEHRBARE Uebergaenge; seine
+             unumkehrbaren - auch der Tombstone - ruhen im Halt.
           c) Die Herstellung (BASE-080_030 bis _050): Der gespeicherte
              Zustand wird durchgesetzt wie sonst.
     HL-4  DER HALT IST BEFRISTET: Er endet durch --resume oder von selbst

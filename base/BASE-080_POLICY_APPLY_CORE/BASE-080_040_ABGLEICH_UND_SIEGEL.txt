@@ -22,13 +22,17 @@ ZWECK:
   liegen hoechstens vpn_reconcile_interval_seconds, also nie mehr als
   fuenf Minuten (DEC-PA-24; PF-18).
   DIE ZUSAGE GILT IM UNGESTOERTEN BETRIEB: Datenbank lesbar, Zeitgeber
-  aktiv, Dauer eines Laufs kleiner als der Takt (Annahme E-PA-06).
-  Behoben ist eine Abweichung dann spaetestens nach Takt plus Laufdauer.
-  Ist eine der Voraussetzungen verletzt, gilt die Schranke nicht; die
-  Ueberschreitung wird gemeldet (POLICY_RECONCILE_OVERDUE, Abschnitt 9).
-  NACHBARN: BASE-040_030 Abschnitt 6 und BASE-050_070 nennen fuer dieselbe
-  Frist noch "Takt + 60 s". Massgeblich ist die Fassung hier; die
-  Angleichung ist angefordert (ANF-PA-07, ANF-PA-08).
+  aktiv, Dauer eines Laufs hoechstens 60 s (Annahme E-PA-06).
+  Behoben ist eine Abweichung dann spaetestens nach Takt plus 60 s - das
+  ist die Frist der Plattform (BASE-005 PF-18) und der Nachbarn
+  (BASE-040_030 Abschnitt 6, BASE-050_070). Ist eine der Voraussetzungen
+  verletzt, gilt die Schranke nicht, und das wird gemeldet: ein
+  ausbleibender Lauf als POLICY_RECONCILE_OVERDUE, ein Lauf von mehr als
+  60 s als POLICY_RECONCILE_SLOW (Abschnitt 9). Die Frist ist dann Takt
+  plus tatsaechliche Laufdauer.
+  ZEITLIMIT DES LAUFS: vpn_reconcile_interval_seconds (BASE-080_070 Regel
+  UP-5). Ein Lauf, der es erreicht, wird beendet; das ist ein Abbruch
+  wie jeder andere (Abschnitt 8).
 
   DER ABGLEICH ENTSCHEIDET NICHTS: Er bewertet keine Bedingungen und
   schreibt keinen Status. Er liest op_status, wie er ist.
@@ -99,34 +103,53 @@ ZWECK:
   KEIN WARTEN AUF EIN SITZUNGSENDE UNTER DEM LOCK (BASE-080_050 Regel
   NB-8): Wo der Abgleich eine L2TP-Sitzung beendet, entzieht er unter dem
   Lock die Freigabe und raeumt die Sets - das wirkt sofort. Das Beenden
-  selbst (Hard-Cut-Kern von BASE-070) folgt NACH dem Loesen des Locks,
-  fuer alle Ziele des Abschnitts nacheinander, je mit dem Zeitlimit des
-  Kerns. Scheitert ein Beenden, bleibt die Sitzung gesperrt; der Lauf
-  endet mit Ergebnis 1, und der naechste Lauf findet sie wieder vor.
+  selbst folgt NACH dem Loesen des Locks nach der Teilabfolge TB
+  (BASE-080_030 Abschnitt 8): fuer alle Ziele des Abschnitts
+  nacheinander, je mit dem Zeitlimit des Kerns und je erst nach der
+  frischen Pruefung TB3 - traegt eine Sitzung inzwischen wieder eine
+  Freigabe, hat ein Einzelauftrag sie zugelassen, und sie bleibt.
+  Scheitert ein Beenden, bleibt die Sitzung gesperrt; der Lauf endet mit
+  Ergebnis 1, und der naechste Lauf findet sie wieder vor. Reicht die
+  Zeit bis zum Zeitlimit des Laufs nicht fuer alle Ziele, bleiben die
+  uebrigen gesperrt und fallen dem naechsten Lauf zu.
 
   GRUNDSATZ DER REIHENFOLGE: ERST SCHLIESSEN, DANN OEFFNEN. Alle
   Handlungen, die Zugang entziehen oder einschraenken, kommen vor allen
   Handlungen, die Zugang geben.
 
   V0  VORBEDINGUNGEN (ohne Lock)
-      Datenbank lesbar, sonst Ende mit Code 2 ohne Wirkung. Zustand der
-      Firewall BETRIEB oder VERSIEGELT, sonst Ende mit Code 8 ohne
-      Wirkung. LADESTAND des Regelwerks merken (L0): das Paar aus
+      Datenbank lesbar, sonst Ende mit Code 2 ohne Wirkung.
+      NACH EINER DATENBANKSTOERUNG ERST DER BEWERTER: Der Auftragslauf
+      haelt in seiner Statusdatei fest, dass die Datenbank gestoert ist
+      bzw. wann er ihre Rueckkehr festgestellt hat (T; BASE-080_050
+      Schritt AL2). Solange dort eine Stoerung steht oder
+      policy_eval_last_run_at aelter ist als T, endet der Lauf mit Code
+      2 ohne Wirkung - hoechstens bis T plus
+      vpn_policy_eval_interval_seconds; danach laeuft er auch ohne
+      Bewerterlauf. Das gilt fuer JEDEN Anlass, auch fuer Takt und
+      Siegel (Abschnitt 8). Eine Statusdatei, die aelter ist als das
+      Dreifache des Rasters des Auftragslaufs, zaehlt dabei nicht: Ein
+      stehender Auftragslauf haelt den Abgleich nicht auf.
+      Zustand der Firewall BETRIEB oder VERSIEGELT, sonst Ende mit Code
+      8 ohne Wirkung.
+      LADESTAND des Regelwerks merken (L0): das Paar aus
       Generation und Kennung des letzten Ladens laut Statusdatei der
       Firewall (BASE-050_070 Abschnitt 7.3: generation_aktiv,
       letzte_aktivierung). Die Generation allein genuegt nicht: Sie ist
       ein Hash ueber das Regelwerk und bleibt gleich, wenn dasselbe
-      Regelwerk neu geladen wird (recover). BASE-050 sichert zu, dass
-      sich die Kennung bei JEDEM Laden aendert (ANF-PA-08).
+      Regelwerk neu geladen wird (recover). Dass sich die Kennung bei
+      JEDEM Laden aendert, ist bei BASE-050 angefordert (ANF-PA-08 c) -
+      der ZIELZUSTAND. Was bis zur Umsetzung gilt, steht in BASE-080_080
+      Abschnitt 6a.
 
   V1  ABSCHNITT "SCHLIESSEN"
       a) SQL mengenweise lesen (kein Zugriff je Zeile): fuer alle
          Connections die Felder der Soll-Funktion und der Zuordnung
          (BASE-080_030 Abschnitt 4), noch ohne Schluesselmaterial; dazu
          Ziel, Herkunft und Merkmale aller offenen Auftraege (fuer
-         Schritt e4 und Abschnitt 7). VOR diesen Daten wird der Zaehler
-         (revision) eines offenen Auftrags der Art GESAMT gelesen und
-         gemerkt (Abschnitt 9).
+         Schritt e4 und Abschnitt 7). VOR diesen Daten werden Zaehler
+         (revision) und first_queued_at eines offenen Auftrags der Art
+         GESAMT gelesen und gemerkt (Abschnitt 9).
       b) Kernel lesen: WireGuard-Peers mit AllowedIPs; ppp-
          Schnittstellen mit Index und Gegenstellen-Adresse; Elemente von
          restricted_*, allowed_l2tp_v4, connect_pending_*.
@@ -165,7 +188,10 @@ ZWECK:
             selbst haelt fest, dass dieser Schnitt geschuldet ist; ein
             Eintrag im Auftragsbuch je Connection ist dafuer nicht
             noetig, und ein abgebrochener Lauf wird vom naechsten
-            vollstaendig wiederholt.
+            vollstaendig wiederholt. Bis zum Loesen des Siegels erteilt
+            NIEMAND eine Zulassung: WireGuard haelt das Siegel
+            geschlossen, L2TP die Regel "keine Freigabe im Zustand
+            VERSIEGELT" (BASE-080_030 Fall L-B, Schritt B5).
             Scheitert der Schnitt samt Rueckfall fuer eine Connection,
             bleibt sie geschlossen (Peer: Gate-Element vor dem Loesen
             des Siegels; L2TP: keine Freigabe), und ein Auftrag mit dem
@@ -252,6 +278,7 @@ ZWECK:
     zugelassenen L2TP-Connection gehoert und deren Policy-Zustand
     hergestellt und nachgewiesen ist (BASE-080_030 Schritt B4), genau das
     Element (Index, Adresse). Alles andere ist Rest.
+    IM ZUSTAND VERSIEGELT IST DAS SOLL LEER (Abschnitt 6).
 
   connect_pending_v4 / connect_pending_v6
     Kein Soll aus SQL: Das Set traegt nur laufende Add-Sequenzen und
@@ -352,9 +379,14 @@ ZWECK:
   zu loesen - auch nicht fuer den Betreiber ueber dieses Werkzeug.
 
   L2TP ist vom Siegel nicht erfasst: Es ist ohne Freigabe geschlossen.
-  Die Freigaben stellt V3 Schritt 1 her - erst NACH dem Loesen. Solange
-  das Siegel besteht, bleiben L2TP-Sitzungen ohne Freigabe gesperrt, und
-  die Frist der Aufsicht ruht (BASE-080_030 Abschnitt 6.5).
+  Als Gegenstueck zum Siegel gilt deshalb: IM ZUSTAND VERSIEGELT ERTEILT
+  NIEMAND EINE L2TP-FREIGABE - nicht der Abgleich, nicht die Aufsicht,
+  kein Einzelauftrag und nicht der Sitzungsbeginn (BASE-080_030 Fall
+  L-B, Schritt B5). Die Freigaben stellt V3 Schritt 1 her - erst NACH
+  dem Loesen, also nach dem Fluss-Schnitt fuer jedes Soll-Mitglied
+  (Schritt V1 e4). Solange das Siegel besteht, bleiben L2TP-Sitzungen
+  gesperrt, und die Frist der Aufsicht ruht (BASE-080_030 Abschnitt
+  6.5).
 
 ================================================================================
 7) MENGENBREMSE FUER SCHLIESSENDE KORREKTUREN OHNE AUFTRAG
@@ -370,8 +402,9 @@ ZWECK:
 
   REGEL:
     MB-1 Gezaehlt werden in V1 die Ziele, fuer die OHNE offenen Auftrag
-         ein Peer entfernt, eine Freigabe entzogen oder eine Sitzung
-         beendet werden muesste (Peers "zu entfernen", auch die der
+         ein Peer entfernt, eine Freigabe entzogen oder eine
+         freigegebene Sitzung beendet werden muesste (Peers "zu
+         entfernen", auch die der
          Hygiene nach Regel P-3; L2TP: Faelle L-C, L-D, L-E und "Adresse
          unbekannt"). Das Ersetzen eines Peers zaehlt nicht: Es schliesst
          nichts. Nicht auswertbare Ziele zaehlen nicht: Fuer sie wird
@@ -395,7 +428,12 @@ ZWECK:
               unter jeder Grenze eines einzelnen Laufs. Die Zeitpunkte
               der ausgefuehrten Korrekturen haelt das Werkzeug fest
               (Ablage close-window, BASE-080_070 Abschnitt 2; monotone
-              Uhr).
+              Uhr), ODER
+           d) allein die betroffenen L2TP-Sitzungen ZUSAMMEN mit den in
+              den letzten 3600 s ohne Auftrag beendeten mehr sind als
+              vpn_l2tp_kill_hold_per_hour (Key von BASE-070). Mit b) und
+              d) gelten fuer Sitzungen ohne Berechtigung dieselben
+              Schwellen wie bisher im L2TP-Abgleich von BASE-070.
          Dann fuehrt der Lauf fuer KEINES der gezaehlten Ziele eine
          schliessende Handlung an bestehender Laufzeit aus: kein
          Entfernen eines Peers, kein Entzug einer Freigabe, kein Beenden
@@ -418,25 +456,35 @@ ZWECK:
          Connection nicht zugelassen ist, erhaelt keine neue und wird von
          der Aufsicht nach Fristablauf beendet (BASE-080_030 Abschnitt
          6.5). Die Bremse bewahrt nur Bestehendes.
-    MB-7 DIE BREMSE GILT AUCH FUER EINZELZIELE OHNE AUFTRAG. Solange die
-         Marke policy_mass_hold_since steht, fuehrt eine Herstellung fuer
-         ein Einzelziel, fuer das kein Auftrag der Herkunft CHANGE
-         besteht, keine schliessende Handlung an bestehender Laufzeit aus
+    MB-7 EINE BESTEHENDE ZULASSUNG ENTZIEHT OHNE AUFTRAG NUR DER
+         ABGLEICH. Eine Herstellung fuer ein Einzelziel, fuer das kein
+         Auftrag der Herkunft CHANGE besteht, entfernt keinen Peer,
+         entzieht keine Freigabe und beendet keine freigegebene Sitzung
+         - gleich, ob die Marke policy_mass_hold_since steht. Sie
+         fordert den Abgleich an und endet mit Ergebnis 6
+         (BASE-080_030 Abschnitt 8). Der Abgleich zaehlt das Ziel nach
+         MB-1 und schliesst es, wenn MB-2 nicht haelt.
+         GRUND: Die Bremse wird nur hier ausgewertet. Schloessen die
+         Zulassungswaechter selbst, wirkte sie erst NACH dem ersten
+         Lauf, der den Fehler zaehlt - bis dahin haetten sie Ziel um
+         Ziel geschlossen. So gibt es fuer jedes Schliessen ohne Auftrag
+         EINEN Weg und EINE Bremse (DEC-PA-28). Der Preis ist eine
+         Verzoegerung um hoechstens einen Durchgang des Auftragslaufs
+         und die Dauer des Laufs; fuer eine Abweichung, die ohnehin erst
+         ein Waechter oder der Abgleich findet, ist das hingenommen.
+         WER SO RUFT: der WireGuard-Waechter (BASE-040_050 Schritt B2)
+         schon heute. Fuer L2TP ist es angefordert (ANF-PA-14 f): Der
+         L2TP-Abgleich von BASE-070 beendet Sitzungen OHNE BERECHTIGUNG
+         (BASE-070_020 Schritt L7: gesperrt oder widerrufen, ohne
+         Zuordnung, Widerspruch der Zuordnung) nicht selbst; er ruft
+         fuer eine bekannte Connection --connection-id und fordert sonst
+         den Abgleich an. Das ist der ZIELZUSTAND; was bis zur Umsetzung
+         gilt, steht in BASE-080_080 Abschnitt 6a. Haengende,
+         unabgerechnete und mehrfache Sitzungen beendet BASE-070 weiter
+         selbst, mit seiner eigenen Bremse (L7a).
+         NICHT ERFASST sind das Verweigern einer neuen Zulassung, das
+         Beenden einer Sitzung ohne Freigabe und alles mit Auftrag
          (BASE-080_030 Abschnitt 8).
-         Sonst wuerden die Zulassungswaechter dieselben Peers und
-         Sitzungen einzeln schliessen, die der Abgleich zurueckgestellt
-         hat. Der WireGuard-Waechter ruft dieses Werkzeug schon
-         (BASE-040_050 Schritt B2). Fuer L2TP ist dasselbe angefordert
-         (ANF-PA-14): Der L2TP-Abgleich von BASE-070 beendet Sitzungen
-         OHNE BERECHTIGUNG (BASE-070_020 Schritt L7: gesperrt oder
-         widerrufen, ohne Zuordnung, Widerspruch der Zuordnung) nicht
-         selbst; er ruft fuer eine bekannte Connection --connection-id
-         und fordert sonst den Abgleich an. So gilt fuer jede solche
-         Sitzung EIN Weg - Freigabe zuerst entziehen, dann beenden - und
-         EINE Bremse. Haengende, unabgerechnete und mehrfache Sitzungen
-         beendet BASE-070 weiter selbst, mit seiner eigenen Bremse (L7a).
-         Der Sitzungsbeginn (--l2tp-up) ist nicht erfasst: Er verweigert
-         nur eine neue Zulassung.
     MB-8 DIE BREMSE ENDET, sobald ein Lauf die Bedingung MB-2 nicht mehr
          vorfindet oder der Betreiber nach MB-5 zugestimmt und der Lauf
          die Handlungen ausgefuehrt hat. Dann wird die Marke entfernt.
@@ -452,7 +500,7 @@ ZWECK:
   trennt. Die Bremse wirkt nur auf den Weg OHNE Auftrag; jede
   ordentliche Sperrung laeuft ueber einen Auftrag und wird nie gebremst.
   Die Bremse erkennt Mengen, keine Einzelfaelle: Ein Fehler, der unter
-  allen drei Grenzen bleibt, wird ausgefuehrt. Verbesserung VB-0024.
+  allen Grenzen aus MB-2 bleibt, wird ausgefuehrt. Verbesserung VB-0024.
 
 ================================================================================
 8) NACH STOERUNGEN
@@ -489,9 +537,12 @@ ZWECK:
     (SZ-2, SZ-3). Der ABGLEICH dagegen wartet auf den Bewerter: Der
     Auftragslauf stoesst den Bewerter (--all) an und fordert den Abgleich
     erst an, wenn dieser gelaufen ist - spaetestens nach einem
-    Bewertungstakt (BASE-080_050 Schritt AL2). So oeffnet der Abgleich
-    nicht aus einer Abweichung heraus, was die Bewertung gleich wieder
-    einschraenken wuerde.
+    Bewertungstakt (BASE-080_050 Schritt AL2). Ein Abgleich, der in
+    dieser Zeit aus einem ANDEREN Anlass faellig wird (Takt abgelaufen,
+    Siegel, Auftrag GESAMT), wartet ebenso (Schritt V0). So oeffnet der
+    Abgleich nicht aus einer Abweichung heraus, was die Bewertung gleich
+    wieder einschraenken wuerde. Der Preis: Ein Siegel, das waehrend der
+    Stoerung entstand, bleibt bis zu einem Bewertungstakt laenger.
     Fuer WireGuard gelten waehrend der Stoerung die Regeln von
     BASE-040_060 (Schonfrist, danach geschlossen); der Abgleich oeffnet
     wieder, was SQL deckt.
@@ -511,7 +562,10 @@ ZWECK:
     Alles Erreichte ist gueltig und nie offener als der Vorzustand
     (BASE-080_030 Abschnitt 10). Der naechste Lauf beginnt von vorn;
     es gibt keinen gespeicherten Fortschritt. Ein Fluss-Schnitt, der
-    noch aussteht, steht als Merkmal im Auftragsbuch (Schritt V1 e4).
+    noch aussteht, ist festgehalten: im Zustand BETRIEB als Merkmal im
+    Auftragsbuch, im Zustand VERSIEGELT durch das Siegel selbst - bis zu
+    seinem Loesen erteilt niemand eine Zulassung, und der naechste Lauf
+    schneidet erneut fuer jedes Soll-Mitglied (Schritt V1 e4).
 
   ZWEI ABGLEICHE ZUGLEICH
     Der Lauf-Lock des Abgleichs (nicht der Kernel-Lock) verhindert das;
@@ -539,12 +593,15 @@ ZWECK:
   /run/retrotunnel/policy/status-reconcile.json wird immer geschrieben.
 
   AUFTRAG DER ART GESAMT: Die Statusdatei fuehrt fuer den letzten Lauf
-  mit Ergebnis 0 den ZAEHLER des Auftrags, den dieser Lauf VOR seiner
-  Lesung V1 a vorgefunden hat (kein Auftrag: keiner). Der Auftragslauf
-  erledigt den Auftrag nur mit diesem Zaehler (BASE-080_050 Schritt
-  AL5). Ein Zeitvergleich taugt dafuer nicht: queued_at ist die Zeit der
-  Anweisung, nicht die des Commits - ein Lauf koennte nach queued_at
-  begonnen und die Aenderung doch nicht gelesen haben.
+  mit Ergebnis 0 das PAAR aus first_queued_at und ZAEHLER des Auftrags,
+  den dieser Lauf VOR seiner Lesung V1 a vorgefunden hat (kein Auftrag:
+  keines). Der Auftragslauf erledigt den Auftrag nur mit diesem Paar
+  (BASE-080_050 Schritt AL5). Der Zaehler allein genuegt nicht: Ein
+  neu angelegter Auftrag beginnt wieder bei 1; first_queued_at
+  unterscheidet ihn von seinem erledigten Vorgaenger. Ein
+  Zeitvergleich mit dem Beginn des Laufs taugt nicht: queued_at ist die
+  Zeit der Anweisung, nicht die des Commits - ein Lauf koennte nach
+  queued_at begonnen und die Aenderung doch nicht gelesen haben.
 
   Zaehler je Lauf: gelesene Connections; Peers unveraendert, ersetzt,
   entfernt, ergaenzt, gescheitert; Freigaben hergestellt, entfernt;
@@ -556,7 +613,8 @@ ZWECK:
 
   ALARME: POLICY_RECONCILE_OVERDUE (letzter Beginn eines Laufs aelter
   als das Doppelte des Takts - gelesen aus der Statusdatei, damit die
-  Meldung auch ohne Datenbank entsteht), POLICY_RECONCILE_FAILED (Code
+  Meldung auch ohne Datenbank entsteht), POLICY_RECONCILE_SLOW (Dauer
+  eines Laufs ueber 60 s; WARN), POLICY_RECONCILE_FAILED (Code
   ungleich 0 in Folge), POLICY_RECONCILE_MASS_HOLD,
   POLICY_UNSEAL_TIMEOUT, CONNECT_PURGE_DEFERRED; als Information
   POLICY_UNSEALED und POLICY_RECONCILE_MASS_RELEASED.

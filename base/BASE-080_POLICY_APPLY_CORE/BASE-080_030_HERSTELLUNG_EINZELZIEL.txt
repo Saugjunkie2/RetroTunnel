@@ -58,13 +58,18 @@ ZWECK:
   3     INVALID_ARGS          Eingabe abgelehnt. Keine Wirkung.
   4     RUNTIME_APPLY_ERROR   ein Kernel-Schritt ist gescheitert; der
                               erreichte Zustand ist nie offener als vorher
-                              (Abschnitt 10)
-  5     TEMPFAIL_LOCKED       Kernel-Lock in der Wartezeit nicht erhalten.
-                              Keine Wirkung.
+                              (Abschnitt 10). Auch: Nach dem Beenden einer
+                              Sitzung kam der Abschluss nicht zustande
+                              (Abschnitt 8, Schritt TB5) - die schliessende
+                              Wirkung ist dann eingetreten.
+  5     TEMPFAIL_LOCKED       Kernel-Lock beim ERSTEN Erwerb (H2) in der
+                              Wartezeit nicht erhalten. Keine Wirkung.
   6     STATE_MAPPING_ERROR   die Zeile ist nicht auswertbar oder Laufzeit
                               und SQL widersprechen sich in der Zuordnung
-                              (Abschnitt 9); auch: eine Massenkorrektur ist
-                              zurueckgestellt (Abschnitt 8). Nichts geoeffnet.
+                              (Abschnitt 9); auch: Eine bestehende
+                              Zulassung waere OHNE Auftrag zu entziehen -
+                              das bleibt dem Abgleich (Abschnitt 8).
+                              Nichts geoeffnet.
   7     INTERNAL_ERROR        unerwarteter Fehler des Werkzeugs
   8     TEMPFAIL_FIREWALL     Zustand der Firewall ist RIEGEL oder
                               KEIN_REGELWERK. Keine Wirkung.
@@ -87,7 +92,8 @@ ZWECK:
       hoechstens vpn_policy_lock_wait_seconds. Nicht erhalten: Code 5.
       Der Lock endet mit dem Prozess; er wird bis H8 gehalten - ausser
       waehrend des Wartens auf das Ende einer Sitzung: Dafuer wird er
-      geloest und danach neu erworben (BASE-080_050 Regel NB-8).
+      geloest und danach neu erworben (BASE-080_050 Regel NB-8;
+      Teilabfolge TB in Abschnitt 8).
   H3  FIREWALL-ZUSTAND LESEN (/run/retrotunnel/fw/status.json und
       Bestaetigung am Kernel, BASE-050_070): BETRIEB oder VERSIEGELT
       erlaubt das Schreiben der Sets; RIEGEL und KEIN_REGELWERK: Code 8.
@@ -108,8 +114,13 @@ ZWECK:
       nachgelesen. Stimmt er: Auftrag erledigen (nur wenn sein Zaehler
       unveraendert ist, BASE-080_050 Regel AB-4), Code 0. Sonst Code 4.
 
-  ZEITLIMIT: Der gesamte Einzelauftrag endet nach
-  vpn_policy_apply_timeout_seconds. Ein Abbruch durch das Zeitlimit ist
+  ZEITLIMIT: Die Arbeit des Einzelauftrags - vom ersten Erwerb des Locks
+  bis zum Abschluss - endet nach vpn_policy_apply_timeout_seconds. NICHT
+  eingerechnet sind das Warten auf das Ende von Sitzungen (je Aufruf
+  einmal, hoechstens vpn_hardcut_kill_timeout_seconds) und der Neuerwerb
+  des Locks danach (hoechstens vpn_policy_lock_wait_seconds): Die
+  Dienstverwaltung beendet den Prozess erst nach der Summe der drei
+  Werte (BASE-080_070 Regel UP-5). Ein Abbruch durch das Zeitlimit ist
   ein Abbruch wie jeder andere (Abschnitt 10).
 
   KEIN ZWEITER WEG: Kein anderes Programm schreibt die dynamischen Sets,
@@ -170,13 +181,20 @@ ZWECK:
          die Pool-Zeile ungueltig (BASE-070_060 PC-1 bis PC-6), ist die
          Zeile nicht auswertbar (Abschnitt 9). Fuer WireGuard fuehrt der
          Treiber dieselbe Bedingung in seiner Soll-Funktion (ANF-PA-07 e).
-         EINE DEFINITION: Nicht auswertbar ist jede Connection, die der
-         Drift-Waechter von BASE-070_060 als Adress-Drift meldet - eine
-         abweichende Adresse in EINER der beiden Familien genuegt, ebenso
-         ein Slot ausserhalb des nutzbaren Bereichs seiner Rolle und eine
-         v6_addr_policy, die nicht zu den Adressen passt. Herstellung und
-         Waechter pruefen dasselbe; was der eine meldet, laesst die
-         andere nicht zu.
+         EINE DEFINITION DER ADRESS-DRIFT: Nicht auswertbar ist jede
+         Connection, die der Drift-Waechter von BASE-070_060 als
+         Adress-Drift meldet - eine abweichende Adresse in EINER der
+         beiden Familien genuegt, ebenso ein Slot ausserhalb des
+         nutzbaren Bereichs seiner Rolle und eine v6_addr_policy, die
+         nicht zu den Adressen passt. Fuer die Adress-Drift pruefen
+         Herstellung und Waechter dasselbe; was der eine meldet, laesst
+         die andere nicht zu.
+         ZWEITE URSACHE, GESONDERT GEMELDET: Ist die Pool-Zeile einer
+         Rolle ungueltig, sind ALLE Connections dieser Rolle nicht
+         auswertbar. Das meldet nicht der Drift-Waechter, sondern die
+         Pruefung der Pool-Konfiguration (BASE-070_060 Abschnitt 2,
+         POOL_CONFIG_INVALID); die Herstellung meldet es je Connection
+         mit der Art ADDR_DRIFT.
 
 ================================================================================
 5) WIREGUARD
@@ -205,6 +223,14 @@ ZWECK:
     Der Vergleich ist familienweise; fehlt nur eine Familie, wird sie
     ergaenzt und der Schnitt trotzdem fuer BEIDE Familien ausgefuehrt
     (DEC-PA-08).
+    NACHWEIS: Nach dem Schreiben wird die Mitgliedschaft am Kernel
+    nachgelesen. Entspricht sie nicht dem SOLL (ein Schreibzugriff kann
+    Erfolg melden und doch nicht wirken), werden die Adressen der
+    Connection in connect_pending_* eingetragen: Der Peer ist damit
+    geschlossen, bis eine Wiederholung den Zustand nachweist (BASE-080_040
+    Regel P-2). Ergebnis 4, der Auftrag bleibt. Das ist kein Schliessen
+    ohne Auftrag im Sinn von Abschnitt 8, sondern die Folge eines eigenen
+    Fehlschlags.
     Danach der Formungs-Haken (Operation "set", wiederholbar): So wirkt
     eine geaenderte Formungsvorgabe auch fuer einen bestehenden Peer
     (BASE-080_050 Abschnitt 3).
@@ -298,14 +324,24 @@ ZWECK:
        B3  Formungs-Haken fuer die Schnittstelle.
        B4  NACHWEIS: am Kernel nachlesen, dass die Mitgliedschaft von
            c.fixed_ip in restricted_v4 dem SOLL entspricht. Stimmt sie
-           nicht, wird NICHT freigegeben: Ergebnis 4, der Auftrag bleibt.
-           (Ein Schreibzugriff kann Erfolg melden und doch nicht wirken;
-           bei WireGuard prueft der Treiber dasselbe, bevor er das Gate
-           loest - BASE-040_030 A5 d.)
-       B5  FREIGABE - erst jetzt: Element (Index der Schnittstelle,
-           c.fixed_ip) in allowed_l2tp_v4 einfuegen, falls es fehlt.
-           Existiert die Schnittstelle nicht mehr, scheitert das
-           Einfuegen; dann gilt beim naechsten Aufruf L-A.
+           nicht, wird NICHT freigegeben, und eine BESTEHENDE Freigabe
+           wird entzogen (F vollstaendig entfernen): Ergebnis 4, der
+           Auftrag bleibt. (Ein Schreibzugriff kann Erfolg melden und
+           doch nicht wirken; bei WireGuard prueft der Treiber dasselbe,
+           bevor er das Gate loest - BASE-040_030 A5 d.)
+       B5  FREIGABE - erst jetzt und NUR IM ZUSTAND BETRIEB: Element
+           (Index der Schnittstelle, c.fixed_ip) in allowed_l2tp_v4
+           einfuegen, falls es fehlt. Existiert die Schnittstelle nicht
+           mehr, scheitert das Einfuegen; dann gilt beim naechsten Aufruf
+           L-A.
+           IM ZUSTAND VERSIEGELT UNTERBLEIBEN B5 UND B6: Solange das
+           Siegel besteht, erhaelt KEINE L2TP-Sitzung eine Freigabe -
+           weder hier noch durch die Aufsicht (6.5). Das Siegel deckt
+           L2TP nicht selbst; diese Regel ist sein Gegenstueck. Die
+           Freigaben stellt der Abgleich her, nachdem er fuer jedes
+           Soll-Mitglied geschnitten und das Siegel geloest hat
+           (BASE-080_040 Schritte V1 e4, V2, V3). Das Ergebnis ist dann
+           0: Der Kernel entspricht dem SOLL dieses Zustands.
        B6  PRUEFEN: genau ein Element fuer c.fixed_ip, und sein Index
            passt. Stimmt das nicht, wird die Freigabe im selben Aufruf
            wieder entzogen (F vollstaendig entfernen): Ergebnis 4, der
@@ -318,24 +354,23 @@ ZWECK:
            Adresse loeschen; Formungs-Haken "entfernen". (Ohne Freigabe
            ist die Sitzung vollstaendig gesperrt; das Raeumen oeffnet
            nichts.)
-       C3  KERNEL-LOCK LOESEN, dann LAUFZEIT BEENDEN ueber den
+       C3  LAUFZEIT BEENDEN nach der Teilabfolge "Beenden ausserhalb
+           des Locks" (Abschnitt 8, TB1 bis TB6): Kernel-Lock loesen,
            Hard-Cut-Kern von BASE-070 (Schritte K4, K5; Grund
-           CONNECTION_DISABLED bzw. der Grund des ausloesenden Umbaus).
-           Auf das Ende der Sitzung wird nie unter dem Kernel-Lock
-           gewartet (BASE-080_050 Regel NB-8). FAILED: Ergebnis 4, Alarm
-           CRITICAL; die Sitzung bleibt gesperrt (HC-5), der Auftrag
-           bleibt - der naechste Versuch findet "nicht zugelassen,
-           Sitzung besteht" vor und beendet erneut.
-       C4  Kernel-Lock neu erwerben und abschliessen (H8). Nicht
-           erhalten: Ergebnis 5; der Auftrag bleibt, und die Wiederholung
-           findet nur noch Fall L-A vor.
-       C5  L2TP-Abgleich fuer die Connection anstossen (BASE-070: Ende
+           CONNECTION_DISABLED bzw. der Grund des ausloesenden Umbaus),
+           Lock neu erwerben, frisch lesen, abschliessen. Auf das Ende
+           der Sitzung wird nie unter dem Kernel-Lock gewartet
+           (BASE-080_050 Regel NB-8). FAILED: Ergebnis 4, Alarm CRITICAL;
+           die Sitzung bleibt gesperrt (HC-5), der Auftrag bleibt - der
+           naechste Versuch findet "nicht zugelassen, Sitzung besteht"
+           vor und beendet erneut.
+       C4  L2TP-Abgleich fuer die Connection anstossen (BASE-070: Ende
            melden, Rest buchen).
 
   L-D  MEHR ALS EINE SCHNITTSTELLE MIT DERSELBEN ADRESSE
        Darf nach SimUse=1 nicht vorkommen (SC-12). F vollstaendig
-       entfernen, ALLE betroffenen Sitzungen beenden (wie C3, ohne
-       Kernel-Lock), Ereignis POLICY_L2TP_DUPLICATE_ADDRESS (CRITICAL),
+       entfernen, ALLE betroffenen Sitzungen beenden (Teilabfolge TB,
+       Abschnitt 8), Ereignis POLICY_L2TP_DUPLICATE_ADDRESS (CRITICAL),
        Ergebnis 6.
 
   L-E  SITZUNG DER CONNECTION AUF FREMDER ADRESSE (X nicht leer)
@@ -343,8 +378,8 @@ ZWECK:
        6.1, nichts umschalten). Wird VOR den Faellen L-A bis L-D
        behandelt:
        X1  Freigabe-Elemente der betroffenen Schnittstellen entfernen.
-       X2  Sitzungen beenden (wie C3: Hard-Cut-Kern, ohne Kernel-Lock;
-           Grund aus dem Auftrag, sonst POLICY_FAIL_CLOSED).
+       X2  Sitzungen beenden (Teilabfolge TB, Abschnitt 8; Grund aus
+           dem Auftrag, sonst POLICY_FAIL_CLOSED).
        X3  Gehoert die fremde Adresse KEINER Connection (alte Adresse in
            Quarantaene): aus restricted_v4 entfernen, conntrack loeschen.
            Gehoert sie einer ANDEREN Connection, bleiben deren Sperr-Set
@@ -355,11 +390,15 @@ ZWECK:
        von BASE-070 (Schritt L7).
 
   REIHENFOLGE-GARANTIE: In L-B steht die Freigabe am Ende - NACH dem
-  Nachweis des Policy-Zustands (B4); scheitert ihre eigene Pruefung
-  (B6), wird sie wieder entzogen. In L-C und L-E steht der Entzug am
-  Anfang. Ein Abbruch an beliebiger Stelle hinterlaesst deshalb nie eine
+  Nachweis des Policy-Zustands (B4); scheitert der Nachweis, wird auch
+  eine schon bestehende Freigabe entzogen; scheitert die Pruefung der
+  Freigabe (B6), wird sie wieder entzogen. In L-C und L-E steht der
+  Entzug am Anfang. Im Zustand VERSIEGELT gibt es keine Freigabe. Ein
+  Abbruch an beliebiger Stelle hinterlaesst deshalb nie eine
   freigegebene Sitzung ohne hergestellten und nachgewiesenen
-  Policy-Zustand (SZ-1).
+  Policy-Zustand (SZ-1). Fuer eine schon BESTEHENDE Freigabe gilt bis
+  zum Nachweis der Vorzustand - nie offener (Abschnitt 10); scheitert
+  der Nachweis, ist sie entzogen.
 
 6.3) Sitzungsbeginn: --l2tp-up
 
@@ -385,8 +424,10 @@ ZWECK:
        (BASE-070_040 Schritt K2). Gibt spaeter die Aufsicht (6.5) oder
        der Abgleich eine Sitzung frei, deren Spiegel die Kennung noch
        nicht traegt, traegt vpn-policy-apply sie ueber den Helfer des
-       Owners nach (ANF-PA-04 e): Jede freigegebene Sitzung ist im
-       Spiegel zugeordnet.
+       Owners nach (ANF-PA-04 e): Jede freigegebene Sitzung ist dann im
+       Spiegel zugeordnet. Das ist der ZIELZUSTAND; was bis zur
+       Umsetzung der Anforderung gilt, steht in BASE-080_080 Abschnitt
+       6a.
 
   WENN DER BEGINN NICHT GELINGT (DEC-PA-07):
     Ursache                              Folge
@@ -432,26 +473,39 @@ ZWECK:
 6.4) Sitzungsende: --l2tp-down
 
   SE1  Rahmen H1 bis H3.
-  SE2  Connection bestimmen: ueber --addr bzw. --login, sonst ueber den
-       Laufzeit-Spiegel der Schnittstelle. Nicht bestimmbar: Es folgt
-       nur SE3, dann Ergebnis 0; uebrige Reste raeumt der Abgleich
-       (BASE-080_040).
-  SE3  DER HOOK IST DAS ENDE: Die Elemente mit dem Index der genannten
-       Schnittstelle werden entfernt - AUCH WENN die Schnittstelle am
-       Kernel noch besteht (der Hook kann laufen, bevor der Daemon sie
-       entfernt). Der Index kommt aus dem Laufzeit-Spiegel der
-       Schnittstelle bzw. vom Kernel, solange sie besteht.
+  SE2  Connection bestimmen: ueber --addr, die Adresse der BEENDETEN
+       Sitzung (der Hook nennt sie und den Anmeldenamen immer,
+       ANF-PA-04 a). Nicht bestimmbar: Es folgt nur SE3, dann Ergebnis
+       0; uebrige Reste raeumt der Abgleich (BASE-080_040).
+  SE3  DER HOOK IST DAS ENDE - FUER DIE ADRESSE DER BEENDETEN SITZUNG:
+       Entfernt werden die Elemente in allowed_l2tp_v4, die die Adresse
+       aus --addr tragen UND deren Schnittstelle am Kernel fehlt oder
+       die genannte Schnittstelle <ifname> ist - auch wenn diese noch
+       besteht (der Hook kann laufen, bevor der Daemon sie entfernt).
+       NICHT angefasst wird, was einer anderen Sitzung gehoert:
+         - Traegt die Schnittstelle <ifname> am Kernel eine ANDERE
+           Gegenstellen-Adresse, ist der Name schon von einer neuen
+           Sitzung belegt (ein Name pppN kann sofort wiederverwendet
+           werden, BASE-050_030 Abschnitt 4). Ihr Element bleibt.
+         - Ein Element mit der Adresse aus --addr an einer ANDEREN
+           bestehenden Schnittstelle gehoert der naechsten Sitzung
+           derselben Connection und bleibt.
+       Fehlt --addr, werden nur Elemente entfernt, deren Schnittstelle
+       nicht mehr besteht. Der Laufzeit-Spiegel wird fuer SE3 nicht
+       gebraucht.
   SE4  l2tp_ensure(c) - in aller Regel Fall L-A.
 
   Der Hook nennt, WAS geendet hat; die Routine prueft, was am Kernel
   sonst besteht. Laeuft der ip-down-Hook einer alten Sitzung erst NACH
-  dem ip-up-Hook der naechsten Sitzung derselben Connection (beide Hooks
-  laufen asynchron), findet die Routine die neue Schnittstelle vor und
-  laesst deren Freigabe stehen (Fall L-B): Sie traegt einen anderen
-  Index (Annahme E-PA-09: je Sitzung eine neue Schnittstelle). Traefe
-  die Annahme nicht zu, entfernte SE3 die Freigabe der neuen Sitzung;
-  sie waere gesperrt, bis die Aufsicht (6.5) sie neu freigibt - nie
-  offener.
+  dem ip-up-Hook der naechsten Sitzung (beide Hooks laufen asynchron),
+  findet SE3 die neue Schnittstelle vor und laesst deren Freigabe
+  stehen: Die Sitzung einer ANDEREN Connection traegt eine andere
+  Adresse, die naechste Sitzung DERSELBEN Connection eine andere
+  Schnittstelle (Annahme E-PA-09: je Sitzung eine neue Schnittstelle).
+  Traefe die Annahme nicht zu - dieselbe Connection auf derselben
+  Schnittstelle -, entfernte SE3 die Freigabe der neuen Sitzung; sie
+  waere gesperrt, bis die Aufsicht (6.5) sie neu freigibt - nie offener,
+  und nie zulasten einer anderen Connection.
 
   Ist die Datenbank nicht lesbar, werden beim Sitzungsende trotzdem die
   Elemente entfernt, deren Schnittstelle nicht mehr existiert: Das
@@ -462,9 +516,8 @@ ZWECK:
   Auftragslauf und Abgleich pruefen bei jedem Durchgang den
   Laufzeit-Bestand: Eine ppp-Schnittstelle OHNE Element in
   allowed_l2tp_v4 ist eine nicht freigegebene Sitzung.
-    - Datenbank lesbar: l2tp_ensure fuer die zugeordnete Connection
-      (gibt frei, wenn alles stimmt - so werden Freigaben nach einem
-      Neuladen des Regelwerks wiederhergestellt).
+    - Datenbank lesbar und Zustand BETRIEB: l2tp_ensure fuer die
+      zugeordnete Connection (gibt frei, wenn alles stimmt).
     - Bleibt eine Sitzung laenger als vpn_connect_gate_ttl_seconds OHNE
       FREIGABE - gleich aus welchem Grund, auch bei nicht lesbarer
       Datenbank oder nie gelaufenem Hook -, wird sie beendet (ueber den
@@ -476,12 +529,16 @@ ZWECK:
   durch ein Neuladen des Regelwerks, beginnt die Frist mit der naechsten
   Sichtung neu.
 
-  SOLANGE DAS REGELWERK VERSIEGELT IST, RUHT DIE FRIST: Nach einem
-  Neuladen sind alle Freigaben fort, und erst der Abgleich stellt sie
-  wieder her - sonst wuerde ein Neuladen alle Sitzungen kosten. Die
-  Aufsicht liest den Zustand aus der Statusdatei der Firewall, ohne
-  Datenbank. Mit dem Loesen des Siegels beginnt die Frist fuer jede noch
-  nicht freigegebene Sitzung neu.
+  SOLANGE DAS REGELWERK VERSIEGELT IST, RUHT DIE FRIST, UND NIEMAND GIBT
+  FREI: Nach einem Neuladen sind alle Freigaben fort. Wiederhergestellt
+  werden sie erst NACH dem Loesen des Siegels - vom Abgleich (BASE-080_040
+  Schritt V3), danach von der Aufsicht und von Einzelauftraegen (Fall
+  L-B, Schritt B5). So liegt der Fluss-Schnitt nach einem Neuladen
+  (BASE-005 PF-18) vor jeder neuen Freigabe, und ein Neuladen kostet
+  keine Sitzung: Die Frist laeuft in dieser Zeit nicht. Die Aufsicht
+  liest den Zustand aus der Statusdatei der Firewall, ohne Datenbank.
+  Mit dem Loesen des Siegels beginnt die Frist fuer jede noch nicht
+  freigegebene Sitzung neu.
   HAENGT DAS SIEGEL, weil die Datenbank fehlt, bleiben diese Sitzungen
   gesperrt, bis sie wieder lesbar ist; der Zustand ist alarmiert
   (Siegel-Alarm von BASE-050). Beendet werden sie nicht: Ohne Datenbank
@@ -498,15 +555,18 @@ ZWECK:
                                                     B5)
   Beginn gescheitert       Auftragslauf, Aufsicht   keines; nach der Frist
                            (6.5)                    wird die Sitzung beendet
-  Sitzungsende             --l2tp-down (6.4)        Elemente des Index
-                                                    entfernt
+  Sitzungsende             --l2tp-down (6.4)        Elemente mit der
+                                                    Adresse der beendeten
+                                                    Sitzung entfernt (SE3)
   Hook lief nicht          Abgleich, Auftragslauf   Elemente ohne
                            (BASE-080_040, _050)     Schnittstelle entfernt
   Sperrung, Widerruf       Auftrag, Fall L-C        zuerst entfernt
   Adresswechsel im Umbau   Auftrag, Fall L-E,       Elemente der alten
                            Merkmal MK1              Adressen entfernt
-  Neuladen des Regelwerks  Abgleich, Aufsicht       alle fort; je berechtigter
-                                                    Sitzung neu nach Nachweis
+  Neuladen des Regelwerks  Abgleich; danach         alle fort; neu erst NACH
+                           Aufsicht                 dem Loesen des Siegels, je
+                                                    berechtigter Sitzung nach
+                                                    Nachweis
   Datenbank nicht lesbar   6.3 bis 6.5              nichts Neues; Reste
                                                     entfernt
   Adress-Drift             Abschnitt 9              bleibt, wie es ist
@@ -530,13 +590,24 @@ ZWECK:
     F1  Vorzustand lesen (je Familie).
     F1a MERKMAL SICHERN: Traegt das Auftragsbuch fuer die Connection das
         Merkmal "Schnitt ausstehend" noch nicht, wird es VOR dem
-        Schreiben des Sets eingetragen (Auftrag der Herkunft RETRY bzw.
-        Fortschreibung des bestehenden; BASE-080_050 Abschnitt 3). So
-        ist der Schnitt auch dann geschuldet, wenn die Abfolge nach F2
-        abbricht. Der dabei entstandene Zaehler gilt der Herstellung
-        als ihr gelesener Stand (BASE-080_050 Regel AB-4). Gelingt der
-        Eintrag nicht, laeuft die Abfolge trotzdem: Das Einschraenken
-        haengt nie am Auftragsbuch.
+        Schreiben des Sets eingetragen. So ist der Schnitt auch dann
+        geschuldet, wenn die Abfolge nach F2 abbricht.
+        Der Eintrag ist BEDINGT auf den bei H4 gelesenen Stand
+        (BASE-080_050 Abschnitt 3, Regel AB-8):
+          - Bestand bei H4 kein Auftrag: Einfuegen eines Auftrags der
+            Herkunft RETRY - nur, wenn inzwischen keiner entstanden ist.
+          - Bestand einer: Fortschreiben des Merkmals - nur, wenn sein
+            Zaehler noch der gelesene ist.
+        TRIFFT die Anweisung, ist der neue Zaehler der gelesene Stand der
+        Herstellung. TRIFFT SIE NICHT, hat ein Schreibweg den Auftrag
+        inzwischen angelegt oder fortgeschrieben: Dann wird das Merkmal
+        ohne Bedingung nachgetragen, und die Herstellung hat KEINEN
+        gueltigen Lesestand mehr - sie fuehrt ihre Abfolge samt Schnitt
+        aus, hakt nichts ab und erledigt nicht (H8). Der Auftrag bleibt
+        und wird mit frischer Lesung bearbeitet; ein Statuswechsel aus
+        der Zwischenzeit geht so nie verloren.
+        Gelingt der Eintrag nicht, laeuft die Abfolge trotzdem: Das
+        Einschraenken haengt nie am Auftragsbuch.
     F2  Sets schreiben (eine Transaktion fuer beide Familien). Ab dem
         naechsten Paket gilt der eingeschraenkte Zustand auch fuer
         bestehende Fluesse (DEC-FW-09).
@@ -547,13 +618,18 @@ ZWECK:
     F4  Ergebnis:
           geloescht oder nichts vorhanden   -> weiter
           Loeschen gescheitert oder das     -> RUECKFALL: Laufzeit beenden
-          Werkzeug fehlt (Vorpruefung)         (L2TP: Hard-Cut-Kern, ohne
-                                               Kernel-Lock wie Fall L-C;
+          Werkzeug fehlt (Vorpruefung)         (L2TP: eine bestehende
+                                               Freigabe entziehen, dann
+                                               Teilabfolge TB, Abschnitt
+                                               8 - der Aufruf erteilt
+                                               danach keine Freigabe;
                                                WireGuard: Remove und
                                                Wiedereintrag ueber den
                                                Treiber)
           auch der Rueckfall gescheitert    -> Code 4; der Auftrag bleibt
-                                               offen
+                                               offen; die Freigabe
+                                               bleibt entzogen bzw. das
+                                               Gate gesetzt
     F5  Ereignis POLICY_HARDCUT mit Connection, Familien und
         hard_cut = flush | session_kill. Ist auch der Rueckfall
         gescheitert: POLICY_HARDCUT_FAILED (CRITICAL).
@@ -610,6 +686,43 @@ ZWECK:
   das wirkt sofort. Auf das Verschwinden der Sitzung wartet der Kern
   danach, ohne den Lock.
 
+  TEILABFOLGE "BEENDEN AUSSERHALB DES LOCKS" (verbindlich fuer JEDES
+  Beenden einer L2TP-Sitzung durch dieses Werkzeug: Faelle L-C, L-D,
+  L-E, Rueckfall des Fluss-Schnitts F4, Merkmal MK2, Aufsicht 6.5,
+  Abgleich). Je Aufruf laeuft sie hoechstens EINMAL: Alle Sitzungen, die
+  der Aufruf beenden muss, werden gesammelt und gemeinsam beendet.
+    TB1  UNTER DEM LOCK: Freigabe-Elemente der betroffenen Sitzungen
+         entfernen (soweit vorhanden) und die uebrigen schliessenden
+         Schritte des Falls ausfuehren. Ab hier sind die Sitzungen
+         gesperrt.
+    TB2  KERNEL-LOCK LOESEN.
+    TB3  FRISCH PRUEFEN, je Sitzung am Kernel und ohne SQL: Traegt sie
+         inzwischen wieder ein Freigabe-Element, hat ein anderer Aufruf
+         sie zugelassen (zum Beispiel eine Wiederherstellung) - sie wird
+         NICHT beendet. Besteht ihre Schnittstelle nicht mehr, entfaellt
+         das Beenden.
+    TB4  HARD-CUT-KERN von BASE-070 fuer die verbliebenen Sitzungen
+         (Ende-Vermerk vor dem kill(); Zeitlimit
+         vpn_hardcut_kill_timeout_seconds fuer den Schritt als Ganzes).
+    TB5  KERNEL-LOCK NEU ERWERBEN (Wartezeit wie H2). Nicht erhalten:
+         Ergebnis 4 mit dem Vermerk "Abschluss offen" (Stufe WARN, nicht
+         CRITICAL): Die schliessende Wirkung ist eingetreten, die Sitzung
+         beendet oder gesperrt; der Auftrag bleibt, und die Wiederholung
+         schliesst ab. Das Ergebnis ist NICHT 5: Code 5 sagt "keine
+         Wirkung".
+    TB6  FRISCH LESEN UND ABSCHLIESSEN: SQL und Kernel werden neu
+         gelesen (DEC-PA-04), und der Aufruf schliesst nach dem Fall ab,
+         der JETZT gilt - in aller Regel L-A (Reste raeumen) mit H8.
+         Meldete der Kern FAILED: Ergebnis 4, CRITICAL; die Freigabe
+         bleibt entzogen. Nach einem Rueckfall des Fluss-Schnitts (F4)
+         erteilt der Aufruf KEINE Freigabe mehr, auch wenn die Sitzung
+         noch besteht; das uebernimmt die Wiederholung, nachdem das
+         Merkmal "Schnitt ausstehend" abgehakt ist (F6).
+  Zwischen TB2 und TB5 laufen --l2tp-down der beendeten Sitzungen,
+  Einzelauftraege und Hooks - das ist gewollt und der Grund der Regel.
+  TB3 und TB6 sorgen dafuer, dass der Aufruf danach nicht auf einem
+  ueberholten Stand handelt.
+
   SPERREN: vpn-policy-apply erwirbt selbst keine Sperre in
   vpn_session_locks. Umbauten, die eine neue Anmeldung waehrend des
   Vorgangs ausschliessen muessen, halten ihre Sperre bereits, wenn sie
@@ -631,16 +744,32 @@ ZWECK:
   uebrigen Faellen (nicht freigegeben, Adresse unbekannt, Widerspruch der
   Zuordnung, doppelte Adresse).
 
-  AUSNAHME ZURUECKGESTELLTE MASSENKORREKTUR (BASE-080_040 Regel MB-7):
-  Haelt der Abgleich eine Massenkorrektur zurueck (Marke
-  policy_mass_hold_since gesetzt) und besteht fuer die Connection kein
-  Auftrag der Herkunft CHANGE, fuehrt die Herstellung fuer das Einzelziel
-  keine schliessende Handlung an BESTEHENDER Laufzeit aus - kein Entzug
-  einer Freigabe, kein Beenden, kein Entfernen eines Peers: Ergebnis 6,
-  Ereignis POLICY_STATE_UNDETERMINED mit der Art MASS_HOLD. Eine NEUE
-  Zulassung bleibt verweigert (Sitzungsbeginn: Abschnitt 6.3). Mit einem
-  solchen Auftrag laeuft alles wie sonst: Jede ordentliche Sperrung
-  traegt ihn und wird nie gebremst.
+  EINE BESTEHENDE ZULASSUNG ENTZIEHT OHNE AUFTRAG NUR DER ABGLEICH
+  (BASE-080_040 Regel MB-7; DEC-PA-28): Besteht fuer die Connection KEIN
+  Auftrag der Herkunft CHANGE und muesste die Herstellung fuer das
+  Einzelziel eine bestehende Zulassung entziehen - einen Peer entfernen,
+  eine Freigabe entziehen, eine freigegebene Sitzung beenden -, fuehrt
+  sie das NICHT aus, gleich ob eine Massenkorrektur zurueckgestellt ist.
+  Sie fordert den Abgleich an (BASE-080_040 Abschnitt 2) und endet mit
+  Ergebnis 6 und dem Ereignis POLICY_STATE_UNDETERMINED - Art NO_ORDER,
+  bei gesetzter Marke policy_mass_hold_since Art MASS_HOLD. Der Abgleich
+  zaehlt das Ziel (Regel MB-1) und schliesst es, wenn seine Mengenbremse
+  nicht haelt - in aller Regel wenige Sekunden spaeter.
+  GRUND: Jeder ordentliche Statuswechsel traegt einen Auftrag. Fehlt er,
+  hat sich SQL am Auftragsbuch vorbei geaendert; ob das ein Einzelfall
+  oder ein Massenfehler ist, sieht nur, wer ALLE Ziele zaehlt. Die
+  Waechter der Tunnel (BASE-040_050 Schritt B2; BASE-070_020 Schritt L7)
+  rufen dieses Werkzeug fuer einzelne Ziele; ohne diese Regel schloessen
+  sie bei einem Massenfehler Ziel um Ziel, bevor der Abgleich ihn zaehlt.
+  NICHT ERFASST - das laeuft im Einzelziel wie bisher:
+    - alles MIT einem solchen Auftrag: Jede ordentliche Sperrung traegt
+      ihn und wird nie aufgeschoben oder gebremst;
+    - das Verweigern einer NEUEN Zulassung (Sitzungsbeginn 6.3, Add-
+      Sequenz) und das Beenden einer Sitzung, die KEINE Freigabe traegt
+      (6.3, 6.5);
+    - das Raeumen von Resten ohne Laufzeit (Fall L-A, SE3);
+    - der Entzug nach einem eigenen Fehlschlag (Nachweis B4, Pruefung B6,
+      Abschnitt 5 NACHWEIS).
 
 ================================================================================
 9) NICHT AUSWERTBARE LAGE (DEC-PA-22)
@@ -681,8 +810,11 @@ ZWECK:
            INVARIANT_BROKEN  widerspruechliche Felder oder Zuordnung
            SETTINGS_DRIFT    Pflicht-Setting fehlt oder ist ungueltig
            ADDR_DRIFT        Adresse passt nicht zu Rolle und Slot
-           MASS_HOLD         zurueckgestellte Massenkorrektur
+           NO_ORDER          bestehende Zulassung waere ohne Auftrag zu
+                             entziehen; dem Abgleich uebergeben
                              (Abschnitt 8)
+           MASS_HOLD         wie NO_ORDER, und der Abgleich haelt eine
+                             Massenkorrektur zurueck
          Die ersten drei Kennwoerter stammen aus B052 (Abschnitte 4 und
          5.2).
     N-4  Eine NEUE L2TP-Sitzung, deren Lage nicht auswertbar ist, wird
@@ -723,7 +855,8 @@ ZWECK:
   Keine der drei Ausnahmen gilt, wenn der Anmeldename zu einer Connection
   mit Adress-Drift fuehrt: Dann geht N-2 vor (6.1). Auch diese
   Handlungen unterliegen der Mengenbremse des Abgleichs (BASE-080_040
-  Abschnitt 7).
+  Abschnitt 7); traegt die Sitzung eine Freigabe und besteht kein
+  Auftrag, fuehrt sie allein der Abgleich aus (Abschnitt 8).
 
   SONDERFALL ADMIN ZUSAMMEN MIT RESTRICTED (Regel S-2): Auch das ist ein
   Widerspruch der Felder. Er wird NICHT als nicht auswertbar behandelt:
@@ -757,10 +890,23 @@ ZWECK:
                       Nachweis gescheitert    Sitzung gesperrt
                       Freigabe eingetragen,   Freigabe wieder entzogen:
                       Pruefung gescheitert    Sitzung gesperrt
+  L2TP Bestand (L-B   Set geschrieben         Vorzustand; nach
+  mit Freigabe)       (vor dem Nachweis)      gescheitertem Nachweis:
+                                              Freigabe entzogen
   L2TP Ende/Sperrung  Freigabe entzogen       Sitzung gesperrt
   (L-A, L-C)          Sets geraeumt           Sitzung gesperrt, besteht
                                               noch
+                      Lock geloest (TB2)      Sitzung gesperrt; andere
+                                              Aufrufe laufen
+                      Sitzung beendet,        Sitzung fort; Reste in den
+                      Lock nicht wieder       Sets ohne Wirkung; Ergebnis
+                      erhalten (TB5)          4 "Abschluss offen"
                       Sitzung beendet         -
+  Fluss-Schnitt mit   Freigabe entzogen,      Sitzung gesperrt und
+  Rueckfall (L2TP)    Lock geloest            eingeschraenkt; Merkmal
+                                              "Schnitt ausstehend" offen:
+                                              keine Zulassung, bis der
+                                              Schnitt bestaetigt ist
   Einschraenken       Set geschrieben         eingeschraenkt; alte Fluesse
                                               zu lokalen Diensten bestehen
                                               bis zur Wiederholung
@@ -787,13 +933,20 @@ ZWECK:
                                  L2TP-Sitzung wird beendet; Reste beendeter
                                  Sitzungen werden trotzdem entfernt (6.4)
   Lock belegt                    Code 5; keine Wirkung; Auftrag bleibt
+  Lock nach einem Beenden nicht  Code 4 "Abschluss offen" (WARN); Sitzung
+  wieder erhalten                beendet oder gesperrt; die Wiederholung
+                                 schliesst ab
+  Bestehende Zulassung waere     Code 6, Art NO_ORDER; Abgleich
+  ohne Auftrag zu entziehen      angefordert; nichts geschlossen, nichts
+                                 geoeffnet (Abschnitt 8)
   Firewall RIEGEL oder ohne      Code 8; keine Wirkung; Auftrag bleibt;
   Regelwerk                      nach "recover" folgt der Abgleich
   Set-Schreiben scheitert        Code 4; Schritt und alle folgenden
   (voll, Schnittstelle fehlt)    entfallen; Zustand nie offener als vorher
   Set-Schreiben meldet Erfolg,   Nachweis (B4) bzw. Pruefung (B6) schlaegt
-  wirkt aber nicht               an: keine Freigabe bzw. Freigabe entzogen;
-                                 Code 4
+  wirkt aber nicht               an: keine Freigabe; eine bestehende wird
+                                 entzogen (WireGuard: Gate-Element fuer
+                                 den bestehenden Peer); Code 4
   conntrack-Werkzeug fehlt       Rueckfall "Laufzeit beenden"; Meldung
   Adapter meldet FAILED          Code 4; Freigabe bleibt entzogen; CRITICAL
   Adapter nicht erreichbar       Zuordnung ueber Kernel und Spiegel;

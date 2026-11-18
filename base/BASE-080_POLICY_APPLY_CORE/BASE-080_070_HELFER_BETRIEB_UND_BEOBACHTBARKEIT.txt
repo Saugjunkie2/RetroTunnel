@@ -118,8 +118,29 @@ ZWECK:
           Sitzungen). vpn-policy-eval laeuft OHNE root-Rechte unter
           einem eigenen Systembenutzer; es hat keinen Zugriff auf
           Kernel-Schnittstellen (DEC-PA-01).
-    UP-5  Jeder Lauf hat ein Zeitlimit; die Dienstverwaltung beendet
-          ihn danach. Der Kernel-Lock endet mit dem Prozess.
+    UP-5  JEDER LAUF HAT EIN ZEITLIMIT. Das Werkzeug ueberwacht es
+          selbst; die Unit traegt als aeussere Grenze den groessten Wert,
+          den die Grenzen der Keys zulassen, und die Dienstverwaltung
+          beendet den Prozess danach hart. Der Kernel-Lock endet mit dem
+          Prozess.
+            Einzelauftrag (Hook,   vpn_policy_apply_timeout_seconds fuer
+            direkter Aufruf)       die Arbeit; dazu einmal das Warten auf
+                                   Sitzungsenden
+                                   (vpn_hardcut_kill_timeout_seconds) und
+                                   der Neuerwerb des Locks
+                                   (vpn_policy_lock_wait_seconds) -
+                                   BASE-080_030 Abschnitt 3
+            Auftragslauf           ein Raster (Zeitbudget, BASE-080_050
+                                   Schritt AL3) zuzueglich des Zeitlimits
+                                   eines Einzelauftrags
+            Abgleich               vpn_reconcile_interval_seconds; der
+                                   Siegel-Abschnitt hat darin seine
+                                   eigene Obergrenze (BASE-080_040
+                                   Abschnitte 1 und 6)
+            Bewerter               vpn_policy_eval_interval_seconds; was
+                                   ein Lauf nicht schafft, setzt der
+                                   naechste fort (BASE-080_020 Abschnitt
+                                   6)
     UP-6  DIE LOCK-DATEIEN WERDEN BEIM SYSTEMSTART ANGELEGT (BASE-005) und
           im Betrieb nie geloescht oder ersetzt. Die Werkzeuge oeffnen
           sie, ohne sie anzulegen, und pruefen Eigentuemer (root) und
@@ -211,13 +232,14 @@ ZWECK:
        ist die leere Liste: Jede Quelle gilt als eingerichtet
        (BASE-080_020 Regel AK-5).
 
-  FEHLERKLASSE UND NOTWERT JE KEY (TM = aus TRUTH_MODEL Abschnitt 7.1
-  uebernommen; sonst Antrag an BASE-090):
+  FEHLERKLASSE UND NOTWERT JE KEY (TM = Klasse und Notwert aus
+  TRUTH_MODEL Abschnitt 7.1 uebernommen, die Richtung ist hier
+  beantragt; sonst alles Antrag an BASE-090):
 
   Key                                       Klasse   Notwert  strenger ist
   ----------------------------------------- -------- -------- -------------
-  vpn_reconcile_interval_seconds            HARDCAP  300      TM
-  vpn_connect_gate_ttl_seconds              HARDCAP  120      TM
+  vpn_reconcile_interval_seconds            HARDCAP  300      kleiner (TM)
+  vpn_connect_gate_ttl_seconds              HARDCAP  120      kleiner (TM)
   vpn_policy_eval_interval_seconds          HARDCAP  60       kleiner
   vpn_policy_pending_interval_seconds       HARDCAP  5        kleiner
   vpn_policy_lock_wait_seconds              HARDCAP  10       -
@@ -269,6 +291,8 @@ ZWECK:
     vpn_fw_seal_alert_seconds                Owner BASE-050
     vpn_l2tp_kill_hold_threshold             Owner BASE-070 (Mengenbremse,
                                              BASE-080_040 Regel MB-2 b)
+    vpn_l2tp_kill_hold_per_hour              Owner BASE-070 (Mengenbremse,
+                                             BASE-080_040 Regel MB-2 d)
     vpn_session_lock_operation_ttl_seconds   Owner BASE-070 (Regel KP-e)
     vpn_hardcut_kill_timeout_seconds         Owner BASE-070 (Regel KP-h)
     vpn_quarantine_days                      Owner BASE-070 (Widerruf)
@@ -296,13 +320,16 @@ ZWECK:
           Aufsicht beendet eine berechtigte Sitzung nicht, bevor er
           abgeschlossen ist)
     KP-h  vpn_hardcut_kill_timeout_seconds <
-          vpn_policy_apply_timeout_seconds (das Warten auf das Ende einer
-          Sitzung endet, bevor die Dienstverwaltung das Werkzeug beendet)
+          vpn_policy_apply_timeout_seconds (das Warten auf ein
+          Sitzungsende bleibt kuerzer als die Arbeit, die es
+          unterbricht; beide zusammen mit der Wartezeit auf den Lock
+          bestimmen das Zeitlimit des Einzelauftrags, Regel UP-5)
   VERLETZTE REGEL: Der Schreibweg der Settings lehnt eine Aenderung ab,
   nach der eine Regel verletzt waere; eine Verletzung kann nur an ihm
   vorbei entstehen. Dann gilt fuer jeden beteiligten Key DIESES Moduls
-  der STRENGERE von eigenem Wert und Notwert (Key ohne Richtung: der
-  Notwert; POLICY_SETTING_FALLBACK). Ein Wert, den der Betreiber
+  der STRENGERE von eigenem Wert und Notwert (Key ohne Richtung - in
+  der Tabelle oben mit Strich -: der Notwert; POLICY_SETTING_FALLBACK).
+  Ein Wert, den der Betreiber
   strenger gewaehlt hat als der Notwert, wird so nie gelockert. Ist die
   Regel danach noch verletzt oder liegt die Ursache in einem fremden Key
   (KP-e, KP-h), bleibt der Konflikt gemeldet (POLICY_SETTING_CONFLICT),
@@ -420,10 +447,19 @@ ZWECK:
                                              beenden; Freigabe bleibt
                                              entzogen bzw. Gate gesetzt
   POLICY_APPLY_FAILED              ALERT     Ergebnis 4, 6 oder 7 fuer ein
-                                             Einzelziel
+                                   (WARN)    Einzelziel; WARN bei Ergebnis
+                                             4 mit dem Vermerk "Abschluss
+                                             offen" (BASE-080_030 Schritt
+                                             TB5)
   POLICY_STATE_UNDETERMINED        ALERT     Lage nicht auswertbar;
                                              nichts geoeffnet, nichts
-                                             umgeschaltet
+                                             umgeschaltet. Mit der Art
+                                             der Lage (BASE-080_030
+                                             Regel N-3) - darunter
+                                             NO_ORDER: Eine bestehende
+                                             Zulassung waere ohne Auftrag
+                                             zu entziehen; dem Abgleich
+                                             uebergeben
   POLICY_ADMIN_RESTRICTED_IGNORED  ALERT     ADMIN-Connection mit Status
                                              RESTRICTED vorgefunden
   POLICY_L2TP_UNKNOWN_ADDRESS      ALERT     Sitzung mit Adresse ohne
@@ -454,6 +490,11 @@ ZWECK:
                                              Doppelte des Takts (aus der
                                              Statusdatei, auch ohne
                                              Datenbank)
+  POLICY_RECONCILE_SLOW            WARN      ein Abgleich hat laenger als
+                                             60 s gedauert; die Frist
+                                             "Takt plus 60 s" galt fuer
+                                             ihn nicht (BASE-080_040
+                                             Abschnitt 1)
   POLICY_OUTBOX_STUCK              ALERT /   Auftrag aelter als die
                                    CRITICAL  Schwelle (schliessend:
                                              CRITICAL)
@@ -463,9 +504,19 @@ ZWECK:
                                              Finalisierung (ALERT, wenn
                                              eine Auskunft fuer ALLE
                                              Connections ausfaellt)
-  POLICY_EVAL_SOURCE_OFF           WARN      Dauermeldung: eine berechnete
-                                             Quelle ist als nicht
-                                             eingerichtet festgelegt
+  POLICY_EVAL_SOURCE_OFF           WARN /    Dauermeldung: eine berechnete
+                                   ALERT     Quelle ist als nicht
+                                             eingerichtet festgelegt.
+                                             ALERT im ersten Lauf nach
+                                             dem Setzen, mit der Zahl der
+                                             Connections, die deswegen
+                                             nicht mehr eingeschraenkt
+                                             sind
+  POLICY_EVAL_REVOKE_DEFERRED      ALERT     Widerruf nach Ablauf des
+                                             Restore-Fensters ruht, weil
+                                             eine Auskunft nicht lesbar
+                                             ist; mit restore_until
+                                             (BASE-080_020 Schritt E4)
   POLICY_EVAL_HOLD_CLOCK           ALERT     Marke eines Halts lag in der
                                              Zukunft und wurde auf jetzt
                                              gesetzt
@@ -548,10 +599,14 @@ ZWECK:
   - Settings dieses Moduls ueber die Settings-Verwaltung (BASE-090) mit
     Anzeige der Konsistenzregeln KP-a bis KP-h.
   - Handlungen des privilegierten Auftragswegs: Zustand einer Connection
-    jetzt herstellen; jetzt abgleichen; Bewertung jetzt;
-    Betreiber-Freigabe zurueckgestellter Uebergaenge bzw. einer
-    zurueckgestellten Massenkorrektur (Klasse C); Bewertung anhalten und
-    fortsetzen (Klasse C); Rollenwechsel (Klasse C).
+    jetzt herstellen; jetzt abgleichen; Bewertung jetzt (KEINE Klasse C:
+    Sie fuehrt Unumkehrbares nur unter dem Schutz und nie im Halt aus,
+    BASE-080_020 Abschnitt 6); Betreiber-Freigabe zurueckgestellter
+    Uebergaenge bzw. einer zurueckgestellten Massenkorrektur (Klasse C);
+    Bewertung anhalten und fortsetzen (Klasse C); Customer sperren oder
+    loeschen mit Vollzug der Kaskade (Klasse C; BASE-080_060 Abschnitt
+    3); Rollenwechsel (Klasse C); eine berechnete Quelle ausnehmen
+    (Klasse C, ueber die Settings-Verwaltung).
   - Keine Bearbeitung von Sets, Auftraegen, Marken oder Status am
     Werkzeug vorbei; kein Anhalten von Auftragslauf oder Abgleich
     (Abschnitt 9).
@@ -565,7 +620,10 @@ ZWECK:
   "Panel" heisst hier: Handlung des privilegierten Auftragswegs (BASE-110).
 
   BEWERTUNG (vpn-policy-eval, Lauf --all)
-    anstossen     "Bewertung jetzt" je Connection oder Customer (Panel)
+    anstossen     "Bewertung jetzt" je Connection oder Customer (Panel;
+                  keine Klasse C). Unumkehrbares geschieht dabei nur
+                  unter dem Schutz aus BASE-080_020 Abschnitt 7 und nie
+                  waehrend eines Halts
     anhalten      Halt der Bewertung (Panel, Klasse C; BASE-080_020
                   Abschnitt 11) - befristet
     ueberstimmen  Betreiber-Freigabe zurueckgestellter unumkehrbarer
@@ -575,9 +633,13 @@ ZWECK:
     Quelle        eine berechnete Quelle (Plan, Quota) als NICHT
     ausnehmen     EINGERICHTET festlegen: Setting
                   vpn_policy_eval_sources_off ueber die
-                  Settings-Verwaltung, mit Urheber und Grund (BASE-080_020
-                  Regel AK-5). Das ist der Zustand vor der Inbetriebnahme
-                  des Owners der Quelle und der Eingriff, wenn eine
+                  Settings-Verwaltung - Klasse C, mit ausdruecklicher
+                  Bestaetigung, Urheber und Grund (BASE-080_020 Regel
+                  AK-5; ANF-PA-09). Der Eintrag hebt die Bedingung fuer
+                  ALLE Connections auf; der erste Lauf danach meldet,
+                  wie viele deswegen frei werden. Das ist der Zustand
+                  vor der Inbetriebnahme des Owners der Quelle und der
+                  Eingriff, wenn eine
                   Auskunft dauerhaft nicht lesbar ist: Ohne ihn bleibt
                   jede Connection, deren Zielzustand an dieser Auskunft
                   haengt, wo sie ist - gemeldet, aber ohne Ende. Die
