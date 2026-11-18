@@ -1,0 +1,282 @@
+================================================================================
+BASE-090 — AUFLOESUNG
+================================================================================
+DATEI: BASE-090_030_AUFLOESUNG.txt
+STATUS: IN ARBEIT (AP-K090; Modul noch unvollstaendig)
+
+ZWECK:
+  Wie aus den Zeilen der drei Ebenen fuer einen Key und einen Bezug genau
+  ein wirksamer Wert mit Herkunft und Zustand wird, was der Verbraucher
+  mit dem Ergebnis tun darf und wie gebuendelt gelesen wird. Was bei
+  jedem Zustand ausser OK geschieht, steht in BASE-090_040.
+
+================================================================================
+1) VERTRAG DES AUFLOESERS
+================================================================================
+
+  AUFRUF: eine Liste von Keys und EIN Bezug.
+    Bezug GLOBAL       es zaehlt nur die Ebene GLOBAL
+    Bezug CUSTOMER     ein Customer: Ebenen CUSTOMER, dann GLOBAL
+    Bezug CONNECTION   eine Connection: Ebenen CONNECTION, dann CUSTOMER
+                       (der Customer, dem die Connection gehoert; eine
+                       Connection ohne Customer hat diese Ebene nicht),
+                       dann GLOBAL
+  Fuer viele Customers oder Connections zugleich gibt es denselben Aufruf
+  mit einer Liste von Bezuegen; er liest in EINEM Datenbankzugriff
+  (Abschnitt 6).
+
+  ERGEBNIS je Key (TRUTH_MODEL 4.2; B057 13.3):
+    key               der kanonische Name
+    effective_value   der wirksame Wert im Typ des Katalogs - oder kein
+                      Wert
+    effective_source  CONNECTION | CUSTOMER | GLOBAL | FAILSAFE_HARDCAP |
+                      HELD | FAIL_CLOSED
+    key_state         OK | MISSING | INVALID | RULE_VIOLATED | DB_UNKNOWN
+    reason            fester Grund aus der Liste in BASE-090_070
+                      Abschnitt 5, bei OK leer
+    scope_id          Kennung des Customers oder der Connection, deren
+                      Zeile gewonnen hat; sonst leer
+    capped, cap_value gesetzt, wenn eine Obergrenze der Plattform den Wert
+                      begrenzt hat (DEC-ST-14)
+    rule_conflicts    Kennungen von Regelgruppen, die auch nach dem
+                      Rueckfall verletzt sind (Abschnitt 4)
+  ERGEBNIS des Aufrufs: Zustand der Datenbank (lesbar oder nicht),
+    Zustand des Katalogs, Version des Katalogs, Zeitpunkt.
+
+  ZUSAGEN
+    AZ-1  DETERMINISTISCH: Derselbe Inhalt von Katalog und Tabellen
+          ergibt dasselbe Ergebnis - unabhaengig davon, in welcher
+          Reihenfolge Keys angefragt werden und wer fragt.
+    AZ-2  NIE EIN WERT AUS DEM NICHTS: effective_value ist ein gepruefter
+          Wert einer Zeile, der Notwert des Katalogs, ein gehaltener Wert
+          oder leer. Etwas anderes gibt es nicht - insbesondere nicht den
+          Vorschlag.
+    AZ-3  EIN SCHNAPPSCHUSS: Alle Zeilen eines Aufrufs werden in einer
+          lesenden Transaktion gelesen. Eine Aenderung mehrerer Keys in
+          einem Schreibvorgang ist entweder ganz oder gar nicht sichtbar.
+    AZ-4  NUR LESEND: Die Aufloesung schreibt keine Werte. Sie meldet
+          (BASE-090_070) und fuehrt im Speicher des Prozesses die
+          gehaltenen Werte (BASE-090_040 Abschnitt 4).
+
+================================================================================
+2) ABLAUF
+================================================================================
+
+  AF-1  KATALOG. Der Aufloeser laedt die Katalog-Definition
+        (BASE-090_020 Abschnitt 7). Ist sie UNREADABLE, scheitert der
+        Aufruf als Ganzes: kein Key erhaelt ein Ergebnis.
+  AF-2  NAMEN. Jeder angefragte Name muss ein Key des Katalogs sein. Ist
+        einer es nicht - unbekannt oder ein Altname -, scheitert der
+        Aufruf als Ganzes mit dem Ergebnis "kein Katalogeintrag"; bei
+        einem Altnamen nennt die Meldung den heutigen Key und den Grund
+        (BASE-090_020 AN-2). Das ist ein Fehler des Programms, kein
+        Zustand eines Keys; er wird in den Tests gefunden, nicht im
+        Betrieb umgangen.
+  AF-3  LESEN. In einer lesenden Transaktion werden gelesen: die Zeilen
+        der angefragten Keys auf den Ebenen des Bezugs UND die Zeilen
+        aller Keys, die mit einem angefragten Key in einer Regelgruppe
+        stehen (auf der Ebene GLOBAL und, wo erlaubt, den Ebenen des
+        Bezugs). Scheitert das Lesen - keine Verbindung, Zeitlimit,
+        Fehler der Datenbank -, ist die Datenbank NICHT LESBAR: weiter
+        bei AF-8 mit dem Zustand DB_UNKNOWN fuer alle Keys.
+  AF-4  KANDIDAT. Je Key gilt die Zeile der ERSTEN Ebene in der
+        Reihenfolge CONNECTION, CUSTOMER, GLOBAL, auf der eine Zeile
+        VORHANDEN ist - betrachtet werden nur Ebenen, die der Bezug hat
+        UND die der Katalogeintrag erlaubt (DEC-ST-03). Gibt es keine
+        Zeile: MISSING. Eine Zeile auf einer nicht erlaubten Ebene wird
+        uebergangen und gemeldet (SETTINGS_SCOPE_VIOLATION).
+  AF-5  PRUEFEN. Der Kandidat wird streng nach dem Typ gelesen und gegen
+        Grenzen und Wertevorrat geprueft (BASE-090_020 Abschnitt 3).
+        Besteht er nicht: INVALID. Es wird NICHT auf die naechste Ebene
+        ausgewichen und nichts zurechtgestutzt.
+  AF-6  KLASSE, ERSTER DURCHGANG. Jeder Key, der nicht OK ist, erhaelt
+        sein Ergebnis nach der Fehlerklasse: bei FAIL_SAFE_HARDCAP den
+        Notwert mit der Herkunft FAILSAFE_HARDCAP, bei FAIL_CLOSED keinen
+        Wert mit der Herkunft FAIL_CLOSED.
+  AF-7  REGELGRUPPEN (Abschnitt 4). Danach steht fuer jeden Key fest, ob
+        er RULE_VIOLATED ist; solche Keys erhalten ihr Ergebnis nach
+        Abschnitt 4, RA-5.
+  AF-8  NICHT LESBARE DATENBANK. Jeder Key erhaelt den Zustand
+        DB_UNKNOWN. Fuehrt der Prozess fuer Key und Bezug einen
+        gehaltenen Wert, ist das der wirksame Wert mit der Herkunft HELD;
+        sonst gilt die Fehlerklasse wie in AF-6 (DEC-ST-06).
+  AF-9  OBERGRENZE. Nennt der Katalogeintrag eine Obergrenze der
+        Plattform und ist der wirksame Wert groesser, gilt die
+        Obergrenze; capped und cap_value sind gesetzt (DEC-ST-14).
+  AF-10 HALTEN UND MELDEN. War die Datenbank lesbar, merkt sich der
+        Prozess das Ergebnis jedes Keys als gehaltenen Wert
+        (BASE-090_040 Abschnitt 4). Jeder Zustand ausser OK wird gemeldet
+        (BASE-090_070 Abschnitt 5).
+
+================================================================================
+3) WAS DER VERBRAUCHER MIT DEM ERGEBNIS TUT
+================================================================================
+
+  Herkunft            Der Verbraucher ...
+  ------------------- -----------------------------------------------------
+  CONNECTION,         benutzt den Wert.
+  CUSTOMER, GLOBAL
+  FAILSAFE_HARDCAP    benutzt den Notwert und vermerkt in seinem eigenen
+                      Status, dass er mit einem Notwert arbeitet.
+  HELD                benutzt den gehaltenen Wert und vermerkt das ebenso.
+  FAIL_CLOSED         fuehrt den Vorgang, der den Key braucht, NICHT aus.
+                      Was besteht, bleibt bestehen. Er vermerkt in seinem
+                      Status, welcher Vorgang unterblieben ist.
+  Aufruf gescheitert  behandelt jeden angefragten Key wie FAIL_CLOSED;
+  (AF-1, AF-2)        ein laufender Dienst arbeitet mit dem weiter, was er
+                      haelt.
+
+  VERBOTEN (TRUTH_MODEL SF-02, 4.2):
+    VB-1  einen eigenen Ersatzwert einsetzen - auch nicht "nur dieses eine
+          Mal" und auch nicht den Vorschlag aus dem Text des Moduls;
+    VB-2  die Tabellen settings_* selbst lesen oder einen Wert aus einer
+          gerenderten Datei zuruecklesen, um den Aufloeser zu umgehen;
+    VB-3  ein Ergebnis ausserhalb des Speichers des eigenen Prozesses
+          aufbewahren, um es spaeter statt einer Aufloesung zu benutzen;
+    VB-4  einen Notwert als Dauerzustand hinnehmen, ohne ihn zu melden.
+  Welcher Vorgang bei FAIL_CLOSED unterbleibt und was dabei bestehen
+  bleibt, legt der Eigentuemer des Keys in seinem Modul fest (z. B.
+  BASE-070_070 Abschnitt 3 Anmerkungen a und b; BASE-050_070 Abschnitt 1).
+
+================================================================================
+4) REGELGRUPPEN BEI DER AUFLOESUNG
+================================================================================
+
+  Die Regelgruppen (BASE-090_020 Abschnitt 5; DEC-ST-08) werden mit den
+  WIRKSAMEN Werten nach AF-6 ausgewertet - fuer einen Key, der MISSING
+  oder INVALID ist, also mit seinem Notwert. Eine Regelgruppe, zu der ein
+  Mitglied ohne wirksamen Wert gehoert (FAIL_CLOSED und nicht OK), wird
+  nicht ausgewertet: Der betroffene Vorgang findet ohnehin nicht statt.
+
+  ABLAUF (deterministisch, endet nach hoechstens so vielen Runden, wie es
+  abhaengige Keys gibt):
+    RA-1  Alle Regelgruppen werden am selben Stand der wirksamen Werte
+          ausgewertet.
+    RA-2  Fuer JEDE verletzte Regelgruppe erhalten ihre abhaengigen Keys,
+          die noch OK sind, den Zustand RULE_VIOLATED und ihr Ergebnis
+          nach RA-5.
+    RA-3  Hat RA-2 einen Key veraendert, beginnt eine neue Runde bei
+          RA-1. Sonst endet der Ablauf.
+    RA-4  Jede Regelgruppe, die am Ende noch verletzt ist, steht bei
+          ihren abhaengigen Keys unter rule_conflicts und wird als
+          Konflikt gemeldet (SETTINGS_RULE_CONFLICT). Die Werte der
+          Bezugs-Keys bleiben, wie sie sind (DEC-ST-08).
+    RA-5  ERGEBNIS BEI RULE_VIOLATED: FAIL_CLOSED - kein Wert.
+          FAIL_SAFE_HARDCAP - der STRENGERE von eigenem Wert und Notwert
+          nach der Richtung des Keys: bei LOWER der kleinere, bei HIGHER
+          der groessere (bei ENUM in der Reihenfolge von
+          allowed_values), bei NEUTRAL der Notwert. Ein Listen-Key dieser
+          Klasse ist nie abhaengig (BASE-090_020 RG-6). Die
+          Herkunft ist FAILSAFE_HARDCAP, wenn der Notwert gilt, sonst die
+          Ebene der Zeile. So lockert eine verletzte Regel nie einen
+          Wert, den der Betreiber strenger gewaehlt hat als der Notwert
+          (SZ-2).
+  Die Reihenfolge der Regelgruppen spielt keine Rolle, weil jede Runde
+  erst alle auswertet und dann alle Folgen zieht (AZ-1).
+
+  Regelgruppen der Form F7 (fremde Groesse) wertet der Aufloeser nicht
+  aus. Der Eigentuemer prueft sie in seinem Dienst und meldet einen
+  Verstoss als Konflikt seines Moduls.
+
+  WAS DANACH NOCH VERLETZT SEIN KANN: Tragen alle Mitglieder ihren
+  Notwert, ist jede Regelgruppe erfuellt (BASE-090_020 RG-3). Ein
+  Konflikt nach RA-4 bleibt, wenn ein Bezugs-Key nicht zum Ergebnis der
+  abhaengigen Keys passt oder wenn ein abhaengiger Key seinen strengeren
+  eigenen Wert behaelt (RA-5). Beides loest nur der Betreiber auf; bis
+  dahin ist nichts gelockert, und der Konflikt bleibt gemeldet. Im
+  Regelbetrieb entsteht eine verletzte Regelgruppe nicht: Der Schreibkern
+  lehnt sie ab (BASE-090_050 SK-6).
+
+================================================================================
+5) WANN GELESEN WIRD
+================================================================================
+
+  Es gilt DEC-ST-10:
+
+  Verbraucher                  loest auf ...
+  ---------------------------- --------------------------------------------
+  Lauf (Zeitgeber, Werkzeug    einmal zu Beginn, alle Keys des Laufs in
+  fuer viele Ziele)            einem Aufruf
+  Dienst (dauernd laufend)     beim Start und danach alle
+                               settings_refresh_interval_seconds
+  Werkzeug fuer EIN Ziel       die Keys, die es braucht, im selben
+  (z. B. Herstellung fuer      Datenbankzugriff wie die Daten des Ziels
+  eine Connection)
+  Renderer                     beim Rendern; die erzeugte Datei traegt die
+                               Werte, bis neu gerendert wird
+  Dienst mit gerenderter       gar nicht selbst: Er erhaelt die Werte mit
+  Konfiguration                seiner Konfiguration (AAA-Dienst, awg0,
+                               Regelwerk)
+  Panel                        je Anzeige; es liegt in keinem
+                               zeitkritischen Pfad
+
+  LR-1  KEIN LESEN IM ZEITKRITISCHEN PFAD: Anmeldung, Verbindungsaufbau,
+        Hooks der Tunnel-Dienste und der Paketfluss loesen keinen
+        Datenbankzugriff allein fuer Settings aus (SZ-7).
+  LR-2  EIN AUFRUF JE ANLASS: Ein Verbraucher loest alle Keys, die er
+        zusammen braucht, in EINEM Aufruf auf - damit sie aus demselben
+        Schnappschuss stammen (AZ-3) und Regelgruppen einheitlich gelten.
+  LR-3  FRISCHE: Eine Aenderung mit der Wirkung LIVE gilt in einem Dienst
+        spaetestens nach settings_refresh_interval_seconds, in einem Lauf
+        mit dem naechsten Lauf. Wer eine Aenderung sofort braucht,
+        benutzt den Weg seines Moduls (z. B. ein Signal an den Dienst);
+        BASE-090 loest nichts aus (DEC-ST-11).
+  LR-4  DER ABSTAND GILT AUCH FUER SICH SELBST: Den Key
+        settings_refresh_interval_seconds loest ein Dienst wie jeden
+        anderen auf; faellt er aus, gilt sein Notwert.
+
+================================================================================
+6) VIELE BEZUEGE IN EINEM ZUGRIFF
+================================================================================
+
+  Braucht ein Verbraucher einen Key fuer viele Customers oder Connections
+  (heute nur die zwei Verbindungslimits, DEC-ST-16), loest er sie in einem
+  Aufruf auf. Der Aufloeser liest dann
+    - die Zeile der Ebene GLOBAL einmal,
+    - alle Zeilen der Ebenen CUSTOMER und CONNECTION der betroffenen
+      Keys fuer die genannten Bezuege in je einer Abfrage,
+  und bildet das Ergebnis je Bezug nach Abschnitt 2. Die Zahl der
+  Abfragen haengt damit nicht von der Zahl der Bezuege ab (SZ-7).
+
+  GRENZE: Ein Aufruf nennt hoechstens so viele Bezuege, wie der
+  Verbraucher in einem Schritt verarbeitet; ein Lauf ueber alle
+  Connections arbeitet in Abschnitten und loest je Abschnitt auf. Die
+  Groesse der Abschnitte legt der Verbraucher fest.
+
+================================================================================
+7) VERHAELTNIS ZUM VORGAENGER
+================================================================================
+
+  B057 13.3                              hier
+  -------------------------------------- ---------------------------------
+  Reihenfolge CONNECTION, CUSTOMER,      uebernommen (AF-4)
+  GLOBAL, dann Rueckfall
+  "Der erste vorhandene Wert wird        uebernommen (AF-4, AF-5); der
+  geparst/typgeprüft/range-geprüft"      abweichende Satz in TRUTH_MODEL
+                                         4.1 ist mit DEC-ST-03 entschieden
+  effective_source CONNECTION,           uebernommen; neu HELD (DEC-ST-06)
+  CUSTOMER, GLOBAL, FAILSAFE_HARDCAP,
+  FAIL_CLOSED
+  validation_status OK, MISSING,         OK, MISSING, INVALID uebernommen;
+  INVALID, FALLBACK_ACTIVE               FALLBACK_ACTIVE ist die Herkunft
+                                         FAILSAFE_HARDCAP (DEC-ST-07); neu
+                                         RULE_VIOLATED; DB_UNKNOWN aus
+                                         TRUTH_MODEL 4.2
+  warning_reason                         reason (feste Liste)
+  winning_scope_id (optional)            scope_id (immer, wenn eine Zeile
+                                         der Ebene CUSTOMER oder
+                                         CONNECTION gewonnen hat)
+  reason_code "aus Reason-Registry"      ANGEPASST: Die Gruende der
+  (TRUTH_MODEL 4.2)                      Settings sind eine eigene feste
+                                         Liste dieses Moduls. Die
+                                         Reason-Registry (BASE-010_050)
+                                         fuehrt Gruende fuer den Status
+                                         einer Connection und nichts
+                                         anderes.
+  Arbeitsregel "P0/P1": Jede Stelle,     uebernommen als Pflicht der
+  die ein Setting nutzt, nennt           Module: Ein Key gilt erst als
+  Reihenfolge und Auskunft               angemeldet, wenn er im
+                                         Verzeichnis steht
+                                         (BASE-090_060 Abschnitt 10)
+
+================================================================================

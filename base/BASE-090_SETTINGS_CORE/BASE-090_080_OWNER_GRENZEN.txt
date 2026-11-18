@@ -1,0 +1,371 @@
+================================================================================
+BASE-090 — OWNER-GRENZEN
+================================================================================
+DATEI: BASE-090_080_OWNER_GRENZEN.txt
+STATUS: IN ARBEIT (AP-K090; Modul noch unvollstaendig)
+
+ZWECK:
+  Was BASE-090 verantwortet und was nicht, die Grenzregeln, die Lese- und
+  Schreibgrenzen, die Antworten auf Anforderungen anderer Module, die
+  eigenen Anforderungen, Annahmen und offenen Punkte sowie der Verbleib
+  der aufgeloesten Quellen (REVIEW_STANDARD PATTERN-01).
+
+================================================================================
+1) BASE-090 OWNT (fachlich verantwortlich)
+================================================================================
+
+  a) den Vertrag der Settings: Katalog, Ebenen, Aufloesung, Zustaende,
+     Fehlerklassen, Halten, Schreibweg, Protokoll, Einspielung;
+  b) die Katalog-Definition als Datei der Auslieferung - ihre Form, ihre
+     Pruefungen und ihr Verzeichnis (BASE-090_060): Name, Typ, Klasse,
+     Notwert, Richtung und Regelgruppen jedes Keys;
+  c) die Tabellen settings_catalog, settings_global, settings_customer,
+     settings_connection und log_settings_audit (Schema und Rechte);
+  d) Aufloeser, Schreibkern, Einspielung und Prueflauf mit ihren
+     Werkzeugen, ihrem Status und ihren Ereignissen;
+  e) die Keys settings_refresh_interval_seconds und
+     settings_check_interval_seconds.
+
+================================================================================
+2) BASE-090 OWNT NICHT (anderer fachlicher Owner)
+================================================================================
+
+  Bedeutung, Grenzen und Vorschlag eines Keys;          das Modul, dem der
+  was bei FAIL_CLOSED unterbleibt; wann gelesen wird    Key gehoert
+                                                        (BASE-090_060)
+  Rendern, Neustart, Neuausstellung von Profilen        BASE-040, BASE-050,
+  nach einer Aenderung                                  BASE-020/BASE-030
+  Rechte und Limits je Rolle, Plan und Kunde            BASE-100, MOD-010
+  (policy_*); Auskunft "wirksamer Wert mit Herkunft"
+  dort
+  Rolle, Tunneltyp, Adressplatz, Status und Gruende     BASE-010
+  einer Connection; vpn_reason_registry
+  Pool-Bereiche, Reserve und Schwellen der Pools        BASE-070, BASE-010
+  (vpn_pool_config)
+  Schnittstellen, Dienstadressen, Pfade, Obergrenzen    BASE-005
+  des Speichers; Zustand der Datenbank
+  Namensregeln, Prefixe, Tabellen-Registry, Rechte      BASE-000
+  der Datenbank-Benutzer
+  Schluessel und Zugangsdaten                           BASE-040 (Datei),
+                                                        BASE-010_030
+  Oberflaeche der Verwaltung; Anmeldung und Rolle des   BASE-110
+  Admins
+  Aufbewahrung von Protokollen und Laufzeitdaten        MOD-007
+  Alarmierung, Anzeige des Betriebszustands             MOD-006
+
+================================================================================
+3) GRENZREGELN (MUST, gegen Scope-Drift)
+================================================================================
+
+  GS-1  BASE-090 KENNT KEINE BEDEUTUNG. Der Aufloeser liefert Wert,
+        Herkunft und Zustand; er entscheidet nie, was ein Dienst damit
+        tut, und fuehrt keine Folge einer Aenderung aus (DEC-ST-11).
+  GS-2  KEIN MODUL HAT EINEN EIGENEN RUECKFALL. Wer einen Key liest,
+        liest ueber den Aufloeser und haelt keinen Ersatzwert
+        (BASE-090_030 VB-1). Steht in einem Modul ein "Vorschlag", ist das
+        der Vorschlag fuer den Katalog, kein Wert des Programms.
+  GS-3  KEIN SETTING OHNE EINTRAG, KEIN EINTRAG OHNE EIGENTUEMER. Namen,
+        Klassen und Notwerte vergibt BASE-090; Bedeutung, Grenzen und
+        Vorschlag der Eigentuemer (BASE-090_060 Abschnitt 10).
+  GS-4  SETTINGS SIND KEINE RECHTE. Was ein Kunde darf, steht nicht in
+        settings_*; die zwei Uebergangs-Keys sind die benannte Ausnahme
+        mit Ablaufdatum (DEC-ST-16).
+  GS-5  SETTINGS SIND KEINE FAKTEN UND KEINE GEHEIMNISSE (DEC-ST-01). Ein
+        Modul, das einen festen Wert der Plattform oder einen Schluessel
+        als Setting anmelden will, wird abgewiesen.
+  GS-6  DIE EBENEN CUSTOMER UND CONNECTION SIND KEIN ERSATZ FUER DAS
+        POLICY-SYSTEM. Eine neue Erlaubnis fuer diese Ebenen braucht eine
+        Entscheidung in diesem Modul (BASE-090_020 LP-8).
+  GS-7  KEINE ZWEITE QUELLE. Gerenderte Dateien, Umgebungsvariablen und
+        Konfigurationsdateien von Diensten sind Erzeugnisse; sie werden
+        nie zurueckgelesen, um einen Key zu bestimmen (BASE-090_030
+        VB-2).
+  GS-8  OWNER UND RUNNER (R-15): Das Panel schreibt Werte als RUNNER des
+        Schreibkerns - es benutzt dessen Bibliothek und entscheidet
+        nichts selbst. Die Einrichtung von BASE-040 schreibt ihre
+        erzeugten Werte ebenso ueber den Schreibkern.
+
+================================================================================
+4) LESE-/SCHREIBGRENZEN (Zusammenfassung)
+================================================================================
+
+  SCHREIBT (Owner)
+    settings_catalog      nur die Einspielung
+    settings_global       Schreibkern (Urheber ADMIN oder SYSTEM in den
+                          zwei benannten Ablaeufen); Einspielung
+    settings_customer     Schreibkern (Urheber ADMIN)
+    settings_connection   Schreibkern (Urheber ADMIN); heute erlaubt kein
+                          Key diese Ebene
+    log_settings_audit    Schreibkern und Einspielung (nur anfuegend)
+    Status des Prueflaufs (Datei unter /run/retrotunnel/settings/)
+  LIEST
+    die fuenf Tabellen oben
+    web_customers.id, vpn_connections.id und vpn_connections.customer_id
+        (Existenz eines Bezugs; Customer einer Connection)
+    die Liste der Obergrenzen der Plattform (BASE-005)
+  SCHREIBT (Runner): nichts in Tabellen anderer Module.
+  TRIGGERT: nichts. BASE-090 stoesst keinen Lauf eines anderen Moduls an.
+  SCHREIBT NICHT
+    policy_*, vpn_*, wg_*, web_*, rad*, die Lifecycle-Protokolle
+    Konfigurationsdateien von Diensten, Kernel-Zustand
+    die Katalog-Definition (sie kommt mit der Auslieferung)
+  LOESCHT MIT (durch Fremdschluessel): Zeilen in settings_customer und
+    settings_connection, wenn BASE-010 einen Customer oder eine
+    Connection endgueltig loescht (BASE-090_050 TB-2).
+
+================================================================================
+5) ANTWORTEN AUF ANFORDERUNGEN ANDERER MODULE
+================================================================================
+
+  ANF-WT-12 (BASE-040): "Katalogisierung der wg_*-Keys aus BASE-040_020
+    Abschnitt 1 inkl. Konsistenzregeln, Wirkungsklassen, Alias."
+    ERFUELLT: 27 Keys in BASE-090_060 Abschnitt 2; Regelgruppen WK-a bis
+    WK-g; Wirkung je Key; Altname wg_modern_session_stale_seconds.
+    ABWEICHEND: "LKG" ist keine Klasse, sondern FAIL_SAFE_HARDCAP mit
+    Notwert und der fuer alle geltenden Halteregel (DEC-ST-04, DEC-ST-06;
+    Anmerkung *1); relative Grenzen sind Regelgruppen (*2). Nachzug:
+    ANF-ST-02.
+
+  ANF-FW-04 (BASE-050): "Katalogisierung aller vpn_fw_*-Keys mit Typ,
+    Bereich, Wirkungsklasse (RENDER/SYSCTL) und Fehlerverhalten STRICT;
+    Konsistenzregeln (Burst >= Rate; Portlisten ohne 53, 80, 123, 443,
+    853; WAN-Ports paarweise verschieden). Aenderungen an wg_listen_port
+    und wg_tunnel_mtu loesen ein Rendern des Regelwerks aus."
+    ERFUELLT: 24 Keys in Abschnitt 3, alle FAIL_CLOSED (das ist STRICT;
+    Abweichung von TRUTH_MODEL 7.4 begruendet in Anmerkung *3);
+    Regelgruppen FK-a bis FK-i. Das Rendern loest BASE-090 nicht aus
+    (GS-1): BASE-050 erkennt die Aenderung an seinen Eingaben
+    (BASE-050_070 Abschnitt 1, AUSLOESER). Nachzug: ANF-ST-03.
+
+  ANF-SC-08 (BASE-070): Keys katalogisieren mit Grenzen, Regeln K-a bis
+    K-j, Geltungsbereich und Altnamen; Klasse und Notwert laut Antrag;
+    die Aufloesung liefert Wert, Herkunft und Zustand; Notwerte ohne
+    Datenbank; Vorschlag fuer radius_acct_interim_seconds entscheiden.
+    ERFUELLT: 30 Keys in Abschnitt 4.1; Regelgruppen in Abschnitt 7;
+    Altnamen in Abschnitt 8; Aufloesung BASE-090_030; Notwerte ohne
+    Datenbank BASE-090_040 Abschnitt 5; Vorschlag 60 (Anmerkung *14).
+    ABWEICHEND: vier Keys erhalten den Prefix vpn_ (*6);
+    vpn_l2tp_unaccounted_action ist FAIL_CLOSED statt HARDCAP (*8); ein
+    laufender Dienst haelt bei nicht lesbarer Datenbank seine Werte und
+    wechselt nicht auf Notwerte (DEC-ST-06); die drei Aufbewahrungs-Keys
+    sind angekuendigt, nicht eingetragen (Abschnitt 9). Nachzug:
+    ANF-ST-04.
+
+  ANF-PA-09 (BASE-080): Keys katalogisieren (Grenzen, Regeln KP-a bis
+    KP-h, Klasse und Notwert); geaenderte Bedeutung von
+    vpn_connect_gate_ttl_seconds vermerken; Obergrenze 300 fuer
+    vpn_reconcile_interval_seconds.
+    ERFUELLT wie beantragt: 18 Keys in Abschnitt 4.2 (Stand BASE-080
+    v1.3: dazu vpn_policy_eval_quiet_seconds,
+    vpn_policy_eval_sources_off, vpn_reconcile_mass_close_per_hour und
+    die Regelgruppen KP-g, KP-h); Anmerkungen *10, *11 und *17. Bei
+    verletzter Regelgruppe gilt der strengere von eigenem Wert und
+    Notwert (BASE-090_030 RA-5) - so nennt es BASE-080_070 Abschnitt 3.
+    Nachzug: ANF-ST-05 (nur Verweise).
+
+  BASE-005_080 ("Kanonischer Prefix und Fail-Class" von
+    boot_janitor_delay_seconds "werden in BASE-090 festgelegt"):
+    vpn_boot_janitor_delay_seconds, FAIL_SAFE_HARDCAP, Notwert 0
+    (Abschnitt 4.1; Altname in Abschnitt 8). Nachzug: ANF-ST-06.
+  BASE-020_030 ("finale Normierung in BASE-090" fuer
+    vpn_active_session_lock_ttl_seconds): Name bestaetigt (Abschnitt 4.1).
+  BASE-030_050 (drei Keys der Korrelation als "Kandidaten fuer BASE-090"):
+    nicht eingetragen - BASE-070 hat sie mit DEC-SC-05 entfallen lassen
+    (Altnamen, Abschnitt 8). Nachzug: ANF-ST-08.
+
+================================================================================
+6) ANFORDERUNGEN AN ANDERE MODULE
+================================================================================
+
+  ANF-ST-01 (BASE-000)
+    a) Registry Zone log_: Tabelle log_settings_audit eintragen (Owner
+       BASE-090); Zaehlung im Index anpassen.
+    b) BASE-000_010 Abschnitt 2: Rechte des Panels auf settings_* nach
+       BASE-090_070 Abschnitt 3 einengen (settings_catalog nur lesen;
+       kein Loeschen in settings_global).
+    c) BASE-000_091: OPEN-SQL-04 als entschieden vermerken (DEC-ST-12).
+    d) TRUTH_MODEL 5.4 TN-03 (Primaerschluessel "id") steht in
+       BASE-000_020 nicht als Regel: aufnehmen oder als nicht
+       uebernommen begruenden.
+  ANF-ST-02 (BASE-040)
+    BASE-040_020 Abschnitt 1: "STRICT" und "LKG" durch die Klassen des
+    Katalogs ersetzen; Notwert und Richtung je Key aus BASE-090_060
+    uebernehmen; relative Grenzen als Regelgruppen WK-d und WK-e fuehren;
+    Kennungen WK-a bis WK-g verwenden; benennen, welcher Vorgang bei
+    jedem FAIL_CLOSED-Key unterbleibt (BASE-090_040 FC-1); Lesen im
+    Abstand settings_refresh_interval_seconds.
+  ANF-ST-03 (BASE-050)
+    BASE-050_070 Abschnitt 1: "STRICT" als FAIL_CLOSED benennen; die
+    Abweichung von TRUTH_MODEL 7.4 und die Altnamen der Raten nennen
+    (BASE-090_060 *3, Abschnitt 8); Kennungen FK-a bis FK-i verwenden;
+    die Hoechstzahl der Ports je Liste (32) uebernehmen oder eine andere
+    beantragen.
+  ANF-ST-04 (BASE-070)
+    BASE-070_070 Abschnitt 3: die vier Keys mit Prefix fuehren (*6);
+    vpn_l2tp_unaccounted_action als FAIL_CLOSED (*8); den Satz
+    "vpn-sessiond ... arbeitet dann mit den Notwerten des Katalogs" an
+    DEC-ST-06 angleichen (halten; Notwerte nur beim Start ohne
+    Datenbank); K-a als Grenzen statt als Regel; Lesen im Abstand
+    settings_refresh_interval_seconds; Verweise auf TRUTH_MODEL durch
+    BASE-090 ersetzen.
+  ANF-ST-05 (BASE-080)
+    BASE-080_070 Abschnitt 3: Verweise auf TRUTH_MODEL durch BASE-090
+    ersetzen; sonst unveraendert.
+  ANF-ST-06 (BASE-005)
+    a) Pfade und Units aus BASE-090_070 Abschnitt 2 in das Verzeichnis
+       der Plattform aufnehmen.
+    b) Die Obergrenzen des Speichers (BASE-005_040) als benannte Fakten
+       fuehren, auf die ein Katalogeintrag verweisen kann (DEC-ST-14).
+    c) BASE-005_080: Name vpn_boot_janitor_delay_seconds; "Fallback=0"
+       als Notwert des Katalogs benennen.
+    d) Die Streuung des Zeitgebers nach dem Start (BASE-005_080) als
+       festen Wert der Plattform einordnen oder als Key anmelden.
+  ANF-ST-07 (MOD-007)
+    Aufbewahrung von log_settings_audit festlegen; die Keys der
+    Aufbewahrung (BASE-090_060 Abschnitt 9) mit Grenzen, Vorschlag und
+    Klasse anmelden; die Empfehlung FAIL_CLOSED fuer Loeschfristen
+    pruefen (*16).
+  ANF-ST-08 (BASE-020, BASE-030)
+    radius_acct_interim_seconds: Vorschlag 60 uebernehmen; bestaetigen,
+    wodurch eine Aenderung wirksam wird (Wirkung); die zwei "Kandidaten"
+    in BASE-030_010 anmelden oder als feste Konfiguration fuehren; die
+    drei entfallenen Keys in BASE-030_050 nachziehen; die uebrigen Werte
+    der Konfiguration (Protokollstufe, Echo-, MTU- und DPD-Werte) je
+    Wert als feste Konfiguration einordnen oder anmelden (BASE-090_060
+    Abschnitt 9).
+  ANF-ST-09 (MOD-001, BASE-010)
+    vpn_unclaimed_grace_days und vpn_claim_deadline_days mit Vorschlag,
+    Grenzen und Klasse anmelden; den Widerspruch zwischen TRUTH_MODEL 7.3
+    (Notwert 0) und BASE-010_095 T-WP-02 (ohne Key keine Anlage)
+    entscheiden (*15). BASE-010: vpn_disabled_connection_buffer und die
+    zwei Uebergangs-Keys ueber den Aufloeser lesen; in BASE-010_050
+    Abschnitt 2 das Wort "Settings" bei den Fenstern klarstellen (Spalte
+    von vpn_reason_registry, kein Key) und Wert, Grenzen und
+    Aenderungsweg der zwei Fenster-Spalten festlegen; das Verhaeltnis des
+    Fensters von RESTRICT_UNCLAIMED_OVERDUE zu vpn_claim_deadline_days
+    klaeren.
+  ANF-ST-10 (BASE-110)
+    Verwaltung der Settings ueber die Bibliothek des Schreibkerns und
+    des Aufloesers (GS-8); Anzeige nach BASE-090_070 Abschnitt 6; die
+    Kennung des Admins als Urheber; Bestaetigung bei RESTART und REISSUE.
+  ANF-ST-11 (BASE-100)
+    Die zwei Uebergangs-Keys uebernehmen und hier entfallen lassen
+    (DEC-ST-16); fuer das Policy-System dieselbe Disziplin (D003, R-04):
+    Katalog, Auskunft mit Herkunft, kein stiller Standardwert.
+
+================================================================================
+7) ZU VERIFIZIERENDE ANNAHMEN
+================================================================================
+
+  E-ST-01  Die Datenbank fuehrt "Einfuegen oder Aendern" je Zeile in
+           einer Anweisung unteilbar aus (bei MariaDB: INSERT ... ON
+           DUPLICATE KEY UPDATE; TRUTH_MODEL WS-01). Ausweichweg: Sperren
+           der Zeile vor dem Schreiben in derselben Transaktion.
+  E-ST-02  Eine lesende Transaktion sieht einen einheitlichen Stand
+           (Schnappschuss), auch wenn waehrenddessen geschrieben wird
+           (BASE-090_030 AZ-3). Ausweichweg: lesende Sperre auf den
+           betroffenen Zeilen.
+  E-ST-03  Die Zeitzonen-Datenbank des Systems ist vorhanden und
+           aktuell; die Pruefung TIMEZONE benutzt sie. Fehlt sie, ist
+           jeder Wert dieses Typs ungueltig (FAIL_CLOSED fuer
+           vpn_quota_timezone).
+  E-ST-04  Ein Dienst kann die Katalog-Definition beim Start lesen, bevor
+           die Datenbank erreichbar ist (lokale Datei, kein Netz).
+  E-ST-05  Die Sperre in BASE-090_050 SK-5 (Zeilen aller Keys einer
+           Regelgruppe) fuehrt bei zwei gleichzeitigen Vorgaengen nicht
+           zu einer Verklemmung, wenn die Zeilen in fester Reihenfolge
+           (Key alphabetisch) gesperrt werden.
+
+================================================================================
+8) OFFENE PUNKTE
+================================================================================
+
+  OPEN-ST-01  Wirkung von radius_acct_interim_seconds (RENDER oder
+              RESTART) - bestaetigt der Eigentuemer (ANF-ST-08).
+  OPEN-ST-02  Angekuendigte Keys (BASE-090_060 Abschnitt 9): Eintrag mit
+              dem jeweiligen Modul (MOD-001, MOD-003, MOD-007, MOD-009,
+              BASE-110, BASE-030).
+  OPEN-ST-03  Form der Katalog-Definition im Einzelnen (Dateiformat,
+              kanonische Form fuer die Pruefsumme): Sache der Umsetzung;
+              bindend sind Inhalt und Pruefungen (BASE-090_020).
+  OPEN-ST-04  Die Nachzuege ANF-ST-01 bis ANF-ST-06 und ANF-ST-08 an
+              geschriebenen Modulen stehen aus; bis dahin gilt bei einem
+              Unterschied zwischen einem Modul und BASE-090_060 dieses
+              Verzeichnis.
+
+================================================================================
+9) VERBLEIB VON TRUTH_MODEL
+================================================================================
+
+  model/TRUTH_MODEL.txt ist mit diesem Modul aufgeloest. Zeile fuer Zeile
+  steht der Verbleib in der Rueckverfolgung
+  (governance/register/trace/RT_TRUTH_MODEL.yaml); hier die Uebersicht.
+
+  Abschnitt in TRUTH_MODEL            Verbleib
+  ----------------------------------- ------------------------------------
+  1 Zweck                             BASE-090_010 Abschnitt 1; BASE-000
+  2.1 Tabelle "wo liegt die           je Zeile beim Eigentuemer: Customer
+      Wahrheit"                       und Connection BASE-010; Zugangs-
+                                      daten BASE-010_030; Gruende
+                                      BASE-010_050; Settings BASE-090;
+                                      Policy BASE-100; Sperre gegen
+                                      Doppelanmeldung BASE-070_030;
+                                      Durchsetzung im Kernel BASE-050;
+                                      Formung MOD-003; abgeleitete Policy
+                                      BASE-080_080 Abschnitt 10.
+                                      ERSETZT: "Session-Truth
+                                      vpn_sessions" durch D004 (Laufzeit
+                                      liegt bei Dienst und Kernel).
+  2.2 SQL vor Kernel                  BASE-080_010 SZ-2; der Abgleich
+                                      ersetzt "FLUSH+REBUILD"
+                                      (BASE-080_040)
+  2.3 Verhalten ohne Datenbank        BASE-020, BASE-040_060, BASE-080;
+                                      fuer Settings ANGEPASST: DEC-ST-06
+  3 SF-01, SF-02                      SZ-1; BASE-090_030 AZ-2, VB-1
+    SF-03                             SZ-2; BASE-090_040 FV-1
+    SF-04                             SZ-3; BASE-090_030 AZ-1
+    SF-05                             BASE-090_050 SK-3; BASE-090_020 LP-8
+    SF-06                             SZ-5; DEC-ST-02, DEC-ST-09;
+                                      DEC-ST-01 fuer die Abgrenzung
+  4.1 Reihenfolge                     BASE-090_030 AF-4; der Satz "erste
+                                      vorhandene und VALIDE Wert" ist mit
+                                      DEC-ST-03 berichtigt
+  4.2 Ergebnis                        BASE-090_030 Abschnitt 1 und 7
+  4.3 fehlend und ungueltig           BASE-090_040 Abschnitte 1 bis 3
+  4.4 Beobachtbarkeit                 BASE-090_040 FV-3; BASE-090_070
+                                      Abschnitt 5
+  4.5 Felder des Katalogs             BASE-090_020 Abschnitt 2
+  4.6 OV-01 bis OV-06                 BASE-090_050 SK-3, Abschnitt 4;
+                                      BASE-090_030 AF-4
+  5.1, 5.2 Form und Prefixe der Keys  BASE-000_020 PR-01 bis PR-03;
+                                      BASE-000_010 Abschnitt 3;
+                                      BASE-090_020 LP-2
+  5.3 AL-01, AL-03                    DEC-ST-12; BASE-090_020 AN-1 bis
+                                      AN-4
+      AL-02, AL-04                    NICHT ANWENDBAR: keine Lese-Bruecke
+                                      (DEC-ST-12)
+  5.4 TN-01 bis TN-07                 BASE-000_020 (TN-, FN-Regeln);
+                                      TN-03: ANF-ST-01 d
+  6.1 wer schreibt                    BASE-090_050 Abschnitt 2 (fuer
+                                      SYSTEM enger)
+  6.2 WS-01 bis WS-04                 BASE-090_050 SK-9, ZS-1; TB/Protokoll;
+                                      DEC-ST-09; SK-3
+  7.1 bis 7.8 Keys                    BASE-090_060 (je Key; Abweichungen
+                                      *3, *9, *10, *11, *14; Altnamen
+                                      Abschnitt 8; angekuendigt Abschnitt
+                                      9)
+  7 Hinweis zur Richtung              DEC-ST-05; BASE-090_060 Abschnitt 6
+  8.1 GV-01 bis GV-05                 BASE-090_020 KF-5 (kein Freitext);
+                                      BASE-090_050 Abschnitt 5 (Hand-
+                                      griffe); Plan-Keys BASE-100, MOD-010
+  8.2 abgeleitete Policy              DEC-ST-01; BASE-080_080 Abschnitt 10
+  9 OPEN-TM-01                        geschlossen dort; ersetzt durch D004
+    OPEN-TM-02, OPEN-TM-03            BASE-090_010 Abschnitt 6
+  10 T-TM-01 bis T-TM-08              BASE-090_095 (Zuordnung dort)
+
+  B057 (Vorgaenger) und B055 Abschnitt 4: Der Verbleib steht in den
+  Abschnitten "Verhaeltnis zum Vorgaenger" von BASE-090_020, _030 und
+  _050 und Zeile fuer Zeile in governance/register/trace/XPN_B057.yaml und
+  XPN_B055.yaml.
+
+================================================================================

@@ -1,0 +1,579 @@
+================================================================================
+BASE-090 — ARCHITEKTUR UND ENTSCHEIDUNGEN
+================================================================================
+DATEI: BASE-090_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt
+STATUS: IN ARBEIT (AP-K090; Modul noch unvollstaendig)
+
+ZWECK:
+  Schutzziele, Begriffe, Komponenten und die tragenden Entscheidungen des
+  Settings-Kerns. Dieses Modul uebernimmt den Settings-Vertrag des
+  Vorgaengers (B057; Schema B055 Abschnitt 4) und loest den Settings-Teil
+  von model/TRUTH_MODEL.txt auf (dort Abschnitte 3, 4, 5.1 bis 5.3, 6, 7
+  und 8). Die Namensregeln fuer Tabellen und Keys stehen in BASE-000.
+
+================================================================================
+1) AUFGABE IN EINEM SATZ
+================================================================================
+
+  BASE-090 legt fest, WELCHE Betriebsparameter es gibt (Katalog), WO ihre
+  Werte liegen (drei Ebenen in SQL), WIE aus ihnen fuer jeden Verbraucher
+  genau ein wirksamer Wert mit Herkunft und Zustand wird (Aufloesung), WAS
+  geschieht, wenn ein Wert fehlt, ungueltig oder nicht lesbar ist
+  (Fehlerklasse), WER einen Wert aendern darf und auf welchem Weg
+  (Schreibkern) - und dass jede Abweichung sichtbar ist.
+
+  BASE-090 legt NICHT fest, was ein einzelner Key bedeutet und bewirkt
+  (das Modul, dem er gehoert), welche Rechte und Limits ein Kunde hat
+  (BASE-100), wie die Oberflaeche aussieht (BASE-110), wie lange Daten
+  aufbewahrt werden (MOD-007) und welche festen Eigenschaften der Server
+  hat (BASE-005). Es fuehrt aber das VERZEICHNIS aller Keys der
+  geschriebenen Module mit Namen, Typ, Grenzen, Fehlerklasse und Notwert
+  (BASE-090_060); dort wird ein Key verbindlich.
+
+================================================================================
+2) SCHUTZZIELE
+================================================================================
+
+  SZ-1  KEIN WERT OHNE KATALOG. Kein Programmteil arbeitet mit einem
+        Betriebsparameter, der nicht im Katalog steht. Es gibt keinen
+        Standardwert im Code und keine zweite Quelle fuer Werte.
+  SZ-2  FEHLEN UND FEHLER LOCKERN NIE. Ein fehlender, ungueltiger oder
+        nicht lesbarer Wert fuehrt nie zu einem lockereren Verhalten als
+        ein gueltiger. Entweder gilt ein Notwert, der nur verschaerft,
+        oder der Vorgang findet nicht statt.
+  SZ-3  EIN WERT, EINE HERKUNFT. Die Aufloesung ist deterministisch:
+        Gleiche Tabelleninhalte ergeben fuer jeden Verbraucher denselben
+        wirksamen Wert, und jeder Wert nennt, woher er stammt.
+  SZ-4  KEIN STILLER NOTBETRIEB. Jede Nutzung eines Notwerts, jeder wegen
+        eines Keys unterbliebene Vorgang und jede Abweichung des Katalogs
+        ist gemeldet und bleibt sichtbar, bis sie behoben ist.
+  SZ-5  EIN SCHREIBWEG. Werte aendert allein der Schreibkern: geprueft
+        gegen den Katalog, mit Urheber und Zeitpunkt protokolliert. Was
+        der Katalog nicht erlaubt, wird abgelehnt, nicht zurechtgebogen.
+  SZ-6  EINE STOERUNG BLEIBT, WO SIE IST. Ein fehlerhafter Key macht
+        weder andere Keys noch das System unbestimmt. Eine nicht lesbare
+        Datenbank macht jeden Key unbestimmt - und kein Verbraucher raet.
+  SZ-7  KEIN ZEITKRITISCHER PFAD WARTET AUF SETTINGS. Anmeldung,
+        Verbindungsaufbau und Paketfluss lesen Settings nie einzeln aus
+        der Datenbank. Bei 1.000 und mehr gleichzeitigen Verbindungen
+        kostet die Aufloesung je Lauf, nicht je Verbindung.
+  SZ-8  DER KATALOG IST IM BETRIEB UNVERAENDERLICH. Typ, Grenzen,
+        Fehlerklasse und Notwert eines Keys aendert kein Schreibrecht auf
+        eine Tabelle, sondern nur eine neue Auslieferung.
+
+================================================================================
+3) BEGRIFFE
+================================================================================
+
+  KEY              Name eines Betriebsparameters (lower_snake_case, genau
+                   ein Prefix; BASE-000_020 PR-01 bis PR-03).
+  KATALOGEINTRAG   Die Beschreibung eines Keys: Typ, Einheit, Grenzen,
+                   Vorschlag, erlaubte Ebenen, Fehlerklasse, Notwert,
+                   Richtung, Wirkung, Eigentuemer (BASE-090_020).
+  EBENE            Wo ein Wert liegt: GLOBAL (settings_global), CUSTOMER
+                   (settings_customer), CONNECTION (settings_connection).
+  WIRKSAMER WERT   Das Ergebnis der Aufloesung fuer einen Key und einen
+                   Bezug (global, ein Customer, eine Connection).
+  HERKUNFT         Woher der wirksame Wert stammt: CONNECTION, CUSTOMER,
+                   GLOBAL, FAILSAFE_HARDCAP (Notwert), HELD (gehalten)
+                   oder FAIL_CLOSED (es gibt keinen Wert).
+  ZUSTAND DES KEYS OK, MISSING (fehlt), INVALID (ungueltig), RULE_VIOLATED
+                   (eine Regelgruppe ist verletzt), DB_UNKNOWN (Datenbank
+                   nicht lesbar).
+  FEHLERKLASSE     Was bei jedem Zustand ausser OK geschieht:
+                   FAIL_CLOSED oder FAIL_SAFE_HARDCAP (Entscheidung
+                   DEC-ST-04).
+  NOTWERT          Der Wert, den die Aufloesung bei FAIL_SAFE_HARDCAP
+                   liefert (failsafe_value). Er steht im Katalog.
+  VORSCHLAG        Der Wert, mit dem ein Key bei der Einrichtung in
+                   settings_global eingetragen wird (default_value). Die
+                   Aufloesung benutzt ihn NIE.
+  RICHTUNG         In welcher Richtung ein Wert strenger wirkt: kleiner,
+                   groesser oder gar nicht (DEC-ST-05).
+  WIRKUNG          Wodurch eine Aenderung wirksam wird: von selbst, durch
+                   Rendern, durch Neustart, durch neue Client-Profile
+                   (DEC-ST-11).
+  REGELGRUPPE      Eine Bedingung zwischen mehreren Keys, etwa "Warnung
+                   vor Alarm vor Frist" (DEC-ST-08).
+  AUFLOESER        Die eine Implementierung, die wirksame Werte liefert.
+  SCHREIBKERN      Die eine Implementierung, die Werte schreibt.
+  ALTNAME          Ein frueherer oder im Vorgaenger gebrauchter Name eines
+                   Keys. Er wird nie aufgeloest und nie geschrieben
+                   (DEC-ST-12).
+  VERBRAUCHER      Ein Programm, das einen wirksamen Wert benutzt.
+  EIGENTUEMER      Das Modul, das Bedeutung und Wirkung eines Keys
+                   festlegt und ihn bei BASE-090 anmeldet.
+
+================================================================================
+4) KOMPONENTEN
+================================================================================
+
+  KATALOG-DEFINITION   Datei der Auslieferung, nur lesbar, mit Pruefsumme.
+                       Enthaelt alle Katalogeintraege, Regelgruppen und
+                       das Verzeichnis der Altnamen. Massgeblich.
+  settings_catalog     Kopie des Katalogs in SQL. Dient den Fremd-
+                       schluesseln der Werte-Tabellen, der Anzeige und
+                       dem Vergleich; geschrieben nur bei der Einspielung.
+  settings_global      Je Key hoechstens ein Wert.
+  settings_customer    Je Customer und Key hoechstens ein Wert - nur fuer
+                       Keys, deren Katalogeintrag diese Ebene erlaubt.
+  settings_connection  Je Connection und Key hoechstens ein Wert - ebenso.
+  log_settings_audit   Protokoll aller Schreibvorgaenge und Ablehnungen
+                       (nur anfuegend).
+  AUFLOESER            Bibliothek und Werkzeug vpn-settings-get aus
+                       derselben Quelle (BASE-090_030).
+  SCHREIBKERN          Bibliothek und Werkzeug vpn-settings-set aus
+                       derselben Quelle; das Panel benutzt die Bibliothek
+                       (BASE-090_050).
+  EINSPIELUNG          vpn-settings-seed: gleicht settings_catalog an die
+                       Katalog-Definition an und traegt fuer neue Keys den
+                       Vorschlag in settings_global ein (BASE-090_050).
+  PRUEFLAUF            vpn-settings-check: loest regelmaessig ALLE Keys
+                       auf und meldet jeden Zustand ausser OK - auch fuer
+                       Keys, die gerade kein Verbraucher liest
+                       (BASE-090_070).
+
+  Tabellen, Werkzeuge, Pfade und Rechte im Einzelnen: BASE-090_070.
+
+================================================================================
+5) ENTSCHEIDUNGEN
+================================================================================
+
+DEC-ST-01  SETTINGS SIND BETRIEBSPARAMETER - KEINE RECHTE, KEINE FAKTEN,
+           KEINE GEHEIMNISSE
+  Quelle: D003-E01 (Settings und Policy sind getrennte Domaenen);
+    TRUTH_MODEL SF-06 und 8.2 (tunnel_type, access_role, ip_slot und
+    abgeleitete Policy sind keine Settings); Entwurf BR-00 des Vorgaengers
+    (fluechtige Messwerte und physische Fakten sind keine Stellgroessen);
+    DEC-WT-04 (der Server-Schluessel liegt nie in SQL).
+  Entscheidung: Ein Key gehoert in den Katalog, wenn er ALLE drei Fragen
+    mit Ja beantwortet:
+      1. Stellt er ein, WIE sich das System verhaelt (Frist, Takt,
+         Schwelle, Rate, Schalter) - und nicht, WAS ein Kunde darf?
+      2. Darf der Betreiber ihn im Betrieb aendern, ohne dass sich der
+         Aufbau des Servers aendert?
+      3. Darf sein Wert in Protokollen und in der Verwaltung offen
+         stehen?
+    Sonst ist es ein Recht oder Limit (BASE-100), ein Fakt der Plattform
+    (BASE-005: Schnittstellen, Dienstadressen, Pfade, Obergrenzen des
+    Speichers), ein Feld seines Fachobjekts (Rolle, Tunneltyp, Adress-
+    platz, Pool-Bereiche in vpn_pool_config) oder ein Geheimnis
+    (Schluesseldatei, nie ein Setting).
+  Folgen: OPEN-TM-02 ("alle WG-Server-Parameter inkl. PrivateKey leben in
+    SQL") gilt fuer die Parameter weiter, fuer den Schluessel nicht mehr;
+    das hat DEC-WT-04 entschieden. Die zwei Verbindungslimits aus
+    TRUTH_MODEL 7.3 sind Rechte und nur noch uebergangsweise Settings
+    (DEC-ST-16).
+
+DEC-ST-02  DER KATALOG IST TEIL DER AUSLIEFERUNG; SQL FUEHRT EINE KOPIE
+  Quelle: B057 13.2 (maschinenlesbarer Katalog je Key); B055 Abschnitt 4
+    (Tabelle settings_catalog); Entwurf DOC-SET-WRITEPATH WM-005 (der
+    Admin legt Katalogeintraege ueber das Panel an und aendert sie);
+    Entwurf NORM-06 N-06.5 (vor dem Betrieb stehen Schema und Seed; kein
+    Rueckfall auf Standardwerte zur Laufzeit); ANF-SC-08 (Notwerte muessen
+    einem Dienst ohne Datenbank bereitstehen).
+  Optionen: (A) Der Katalog lebt allein in SQL und ist ueber das Panel
+    aenderbar. (B) Der Katalog ist eine Datei der Auslieferung; SQL
+    erhaelt bei der Einspielung eine Kopie, die im Betrieb niemand aendert.
+  Entscheidung: B.
+  Begruendung: Typ, Grenzen, Fehlerklasse und Notwert sind Zusagen des
+    Programms, das den Key verbraucht. Sie aendern sich mit dem Programm,
+    nicht im Betrieb. Bei A koennte jedes Schreibrecht auf eine Tabelle
+    eine Leitplanke aufheben - Grenze weiten, Klasse wechseln, Notwert
+    lockern -, ohne dass ein einziger Wert "ungueltig" wuerde. Bei B gibt
+    es das nicht (SZ-8), und die Notwerte stehen ohne Datenbank bereit,
+    ohne dass eine Datei WERTE des Betriebs traegt: Die Datei beschreibt
+    Keys; eingestellt wird allein in SQL (TRUTH_MODEL SF-06).
+  Folgen: Weicht settings_catalog von der Katalog-Definition ab, ist das
+    der Katalog-Zustand DRIFT (DEC-ST-07): Es gilt die Definition, und
+    der Zustand wird gemeldet. Das Panel erhaelt auf settings_catalog nur
+    Leserecht (ANF-ST-01 an BASE-000). Ein neuer Key entsteht durch eine
+    neue Auslieferung mit Einspielung, nie durch eine Eingabe.
+
+DEC-ST-03  DREI EBENEN, FESTE REIHENFOLGE, KEIN DURCHFALLEN
+  Quelle: B057 13.3 ("Der erste vorhandene Wert wird geparst/typgeprüft/
+    range-geprüft. Wenn der Wert invalid ist: invalid_behavior greift");
+    TRUTH_MODEL 4.1 ("Der ERSTE vorhandene und VALIDE Wert gewinnt").
+  Die beiden Saetze widersprechen sich fuer einen Fall: Auf der Ebene
+    CUSTOMER liegt ein ungueltiger Wert, auf GLOBAL ein gueltiger.
+  Optionen: (A) Der ungueltige Wert wird uebersprungen; es gilt der
+    globale. (B) Der erste VORHANDENE Wert entscheidet; ist er ungueltig,
+    greift die Fehlerklasse.
+  Entscheidung: B, wie im Vorgaenger.
+  Begruendung: Ein Wert auf einer engeren Ebene ist eine bewusste
+    Abweichung fuer diesen Kunden oder diese Connection. Ist er
+    unbrauchbar, weiss das System nicht, was gewollt war; der globale
+    Wert kann lockerer sein als das Gewollte. Bei A waere ein
+    beschaedigter Wert zudem unsichtbar wirksam ersetzt. Der Vorgaenger
+    nennt einen ungueltigen Wert "Policy Corruption" und behandelt ihn
+    haerter als einen fehlenden (B057 13.4).
+  Folgen: Reihenfolge CONNECTION vor CUSTOMER vor GLOBAL; betrachtet
+    werden nur Ebenen, die der Katalogeintrag erlaubt. Ein Wert auf einer
+    NICHT erlaubten Ebene gewinnt nie und wird gemeldet (BASE-090_030).
+
+DEC-ST-04  ZWEI FEHLERKLASSEN - UND WAS DIE MODULE STRICT, CLOSED, HARDCAP
+           UND LKG NENNEN
+  Quelle: B057 13.2 und 13.4 (FAIL_CLOSED, FAIL_SAFE_HARDCAP); TRUTH_MODEL
+    SF-02 und 4.3; Entwurf NORM-01 (vier Klassen, darunter
+    "fallback_last_known") mit der dort offenen Entscheidung DEC-SQLF-010;
+    BASE-040_020 (STRICT, LKG), BASE-050_070 (STRICT), BASE-070_070 und
+    BASE-080_070 (HARDCAP, CLOSED); Befund BF-0041.
+  Entscheidung: Es gibt genau die zwei Klassen des Vorgaengers.
+    FAIL_CLOSED        Es gibt keinen Ersatzwert. Der Vorgang, der den Key
+                       braucht, findet nicht statt; was besteht, bleibt
+                       bestehen (ein aktives Regelwerk, eine gerenderte
+                       Datei, eine gesetzte Frist).
+    FAIL_SAFE_HARDCAP  Die Aufloesung liefert den Notwert des Katalogs.
+    Die Woerter der Module bedeuten:
+      CLOSED, STRICT   FAIL_CLOSED
+      HARDCAP          FAIL_SAFE_HARDCAP
+      LKG              FAIL_SAFE_HARDCAP; dass ein laufender Dienst bei
+                       nicht lesbarer Datenbank den zuletzt gueltigen Wert
+                       weiterbenutzt, ist keine Klasse, sondern gilt fuer
+                       ALLE Keys (DEC-ST-06).
+  Begruendung: Eine dritte Klasse "zuletzt gueltig" kennt der Kanon des
+    Vorgaengers nicht; sie stammt aus einem Entwurf, der sie offen liess.
+    Sie wuerde zwei Fragen vermengen: was gilt, wenn ein Wert in einer
+    LESBAREN Datenbank fehlt oder ungueltig ist (dann ist der Bestand
+    beschaedigt - hier entscheidet die Klasse), und was gilt, wenn die
+    Datenbank NICHT LESBAR ist (dann ist nichts beschaedigt, nur nicht
+    erreichbar - hier wird gehalten).
+  Folgen: Die Module ziehen ihre Bezeichnungen nach (ANF-ST-02 bis
+    ANF-ST-05). Abweichungen einzelner Keys von den Klassen in TRUTH_MODEL
+    Abschnitt 7 stehen im Verzeichnis (BASE-090_060) je Key mit Grund.
+
+DEC-ST-05  VORSCHLAG, NOTWERT UND RICHTUNG SIND DREI VERSCHIEDENE DINGE;
+           EIN UNGUELTIGER WERT WIRD NIE ZURECHTGESTUTZT
+  Quelle: B057 13.2 (policy_direction; "failsafe_value ist ein Notwert,
+    der nur verschaerfen darf"); TRUTH_MODEL Abschnitt 7, Hinweis zur
+    Tighten-only-Semantik (bei manchen Keys ist die Richtung nicht
+    offensichtlich; sie ist einzeln zu begruenden "oder ob eine andere
+    fail_class besser passt"); die im Vorgaenger offenen Entscheidungen
+    KH-DET-001 (ungueltig: streng mit Rueckfall oder begrenzen mit
+    Warnung) und KH-SB-001 (Vergleichswert des Rueckfalls); die Spalte
+    "strenger ist" in BASE-070_070 und BASE-080_070.
+  Entscheidung:
+    a) VORSCHLAG (default_value) ist der Wert der Einrichtung. Er wird
+       einmal, sichtbar und protokolliert in settings_global geschrieben.
+       Die Aufloesung kennt ihn nicht.
+    b) NOTWERT (failsafe_value) ist der einzige Wert, den die Aufloesung
+       von sich aus liefern darf - und nur bei FAIL_SAFE_HARDCAP.
+    c) RICHTUNG (tighten_direction) hat drei Werte:
+         LOWER    ein kleinerer Wert wirkt strenger
+         HIGHER   ein groesserer Wert wirkt strenger
+         NEUTRAL  kein zulaessiger Wert lockert Zugang oder Schutz; der
+                  Key steuert Takt, Verfuegbarkeit oder Anzeige
+       Bei einer Liste heisst "kleiner" Teilmenge und "groesser"
+       Obermenge (BASE-090_020 LP-6).
+       Fuer FAIL_SAFE_HARDCAP gilt: Bei LOWER und HIGHER ist der Notwert
+       nie lockerer als der Vorschlag. NEUTRAL verlangt im Katalogeintrag
+       einen Satz, WARUM kein Wert lockert. Kann ein Key lockern und gibt
+       es keinen sicheren Notwert, ist er FAIL_CLOSED.
+    d) KEIN ZURECHTSTUTZEN: Liegt ein Wert ausserhalb seiner Grenzen, ist
+       er ungueltig. Er wird nicht auf die naechste Grenze gesetzt.
+  Begruendung: a) trennt, was der Vorgaenger "Default" und "Failsafe"
+    nannte und was in den Entwuerfen als "Safe Baseline" wieder
+    zusammenlief. c) macht pruefbar, was B057 mit TIGHTEN_ONLY verlangt,
+    und beantwortet den Hinweis in TRUTH_MODEL: Fuer Keys ohne Richtung
+    ist nicht "tighten-only" zu behaupten, sondern zu begruenden, dass es
+    nichts zu lockern gibt. d): Ein still begrenzter Wert liesse den
+    Betreiber glauben, es gelte, was er eingetragen hat.
+  Folgen: Der Katalog fuehrt fuer B057 policy_direction die Werte
+    TIGHTEN_ONLY (Richtung LOWER oder HIGHER) und RELAXES_ACCESS (nur mit
+    FAIL_CLOSED zulaessig) nicht als eigenes Feld; sie ergeben sich aus
+    Richtung und Klasse. Pruefung beim Laden: BASE-090_020.
+
+DEC-ST-06  NICHT LESBARE DATENBANK: HALTEN, WAS GALT - SONST DIE KLASSE
+  Quelle: TRUTH_MODEL 2.3 ("Settings-Resolution: key_state=DB_UNKNOWN →
+    fail_class greift") und T-TM-08; B052 (bestehende Zustaende bleiben
+    bei einem Ausfall stehen); BASE-040_020 (LKG: "letzter gueltig
+    gelesener Wert gilt weiter"; beim Kaltstart ohne Datenbank der Notwert
+    des Katalogs); BASE-070_070 (vpn-sessiond arbeitet ohne Datenbank "mit
+    den Notwerten des Katalogs"); ANF-SC-08.
+  Optionen: (A) Bei nicht lesbarer Datenbank greift sofort die Klasse:
+    jeder Dienst wechselt auf Notwerte oder haelt an. (B) Ein Dienst, der
+    einen Key schon gueltig aufgeloest hat, benutzt diesen Wert weiter;
+    nur wer noch keinen gueltigen Wert hat, faellt auf die Klasse.
+  Entscheidung: B - fuer alle Keys gleich.
+  Begruendung: Der gehaltene Wert war geprueft und galt unmittelbar vor
+    dem Ausfall. Waehrend des Ausfalls kann niemand einen Wert aendern,
+    also auch nichts lockern. A wuerde im Augenblick der Stoerung das
+    Verhalten laufender Dienste umstellen - eine zweite Stoerung zur
+    ersten - und brachte keinen Schutz: Keine Zulassung haengt an einem
+    gehaltenen Wert, denn ohne Datenbank wird niemand zugelassen
+    (BASE-020, BASE-070_030), und Laeufe, die schreiben, arbeiten ohne
+    Datenbank nicht.
+  ABWEICHUNG VOM WORTLAUT VON TRUTH_MODEL 2.3: Dort greift bei DB_UNKNOWN
+    die Klasse. Hier greift sie nur, wenn es keinen gehaltenen Wert gibt.
+    Das Schutzziel dahinter (nichts oeffnet sich aus Unwissen) bleibt
+    erhalten; BASE-040 arbeitet seit jeher so, BASE-070 wird angeglichen
+    (ANF-ST-04).
+  Folgen:
+    - Gehalten wird im Speicher des laufenden Dienstes, nie in einer
+      Datei. Nach einem Neustart ohne Datenbank gibt es keinen gehaltenen
+      Wert: Es gilt die Klasse.
+    - Ein gehaltener Wert traegt die Herkunft HELD und den Zustand
+      DB_UNKNOWN; die Nutzung wird einmal gemeldet und steht im Status.
+    - Wird die Datenbank wieder lesbar, wird neu aufgeloest. Ist der Key
+      dann MISSING oder INVALID, greift die Klasse - der gehaltene Wert
+      verdeckt keinen beschaedigten Bestand.
+    - Laeufe, die je Lauf aufloesen und ohne Datenbank nicht arbeiten,
+      halten nichts.
+
+DEC-ST-07  DREI ZUSTAENDE, DIE NICHT VERMENGT WERDEN: DATENBANK, KATALOG,
+           KEY
+  Quelle: B057 13.3 (validation_status OK, MISSING, INVALID,
+    FALLBACK_ACTIVE); TRUTH_MODEL 4.2 (key_state, zusaetzlich DB_UNKNOWN);
+    die im Vorgaenger offene Entscheidung KH-DET-003 (eigener Zustand der
+    Settings oder Abbildung auf DB_UNKNOWN); Entwurf DOC-SET-REGISTRY
+    (Zustand der Registry getrennt vom Zustand der Datenbank); DEC-PA-22
+    (eine nicht auswertbare Lage gilt je Connection, nicht fuer das ganze
+    System).
+  Entscheidung:
+    DATENBANK   lesbar oder nicht lesbar. Den Zustand stellt nicht dieses
+                Modul fest; der Aufloeser meldet, was sein Leseversuch
+                ergab.
+    KATALOG     OK | DRIFT (Kopie in SQL weicht von der Definition ab) |
+                UNREADABLE (Definition fehlt oder ihre Pruefsumme stimmt
+                nicht).
+    KEY         OK | MISSING | INVALID | RULE_VIOLATED | DB_UNKNOWN.
+    Die HERKUNFT sagt, welcher Wert gilt (Abschnitt 3). "Notwert aktiv"
+    ist keine eigene Zustandsart mehr, sondern die Herkunft
+    FAILSAFE_HARDCAP zu einem Zustand, der den Grund nennt.
+  Begruendung: FALLBACK_ACTIVE als Zustand verschweigt, WARUM der Notwert
+    gilt. Ein einzelner fehlerhafter Key darf die Plattform nicht als
+    "Datenbank unbekannt" erscheinen lassen (SZ-6); umgekehrt ist eine
+    abweichende Katalog-Kopie kein Datenbankausfall.
+  Folgen: Ist der Katalog UNREADABLE, kann kein Key geprueft werden: Jeder
+    Aufruf des Aufloesers scheitert, kein Verbraucher erhaelt einen Wert
+    (auch keinen Notwert - er stuende in derselben Datei), und der
+    Schreibkern schreibt nichts. Verbraucher behandeln das wie
+    FAIL_CLOSED fuer alle ihre Keys; laufende Dienste halten nach
+    DEC-ST-06.
+
+DEC-ST-08  BEZIEHUNGEN ZWISCHEN KEYS STEHEN ALS REGELGRUPPEN IM KATALOG
+  Quelle: BASE-040_020 (Konsistenzregeln, "vom Katalog zu erzwingen");
+    BASE-070_070 K-a bis K-j; BASE-080_070 KP-a bis KP-h; ANF-FW-04 (Burst
+    nicht kleiner als Rate; Portlisten; Ports paarweise verschieden); die
+    im Vorgaenger offene Entscheidung KH-CROSS-001 (verletzte Beziehung:
+    ablehnen oder selbst anpassen).
+  Entscheidung: Eine Regelgruppe nennt ihre Bedingung, ihren Eigentuemer
+    und zwei Arten von Mitgliedern: ABHAENGIGE Keys (sie gehoeren dem
+    Eigentuemer der Regel) und BEZUGS-Keys (sie gehoeren einem anderen
+    Modul und werden nur gelesen).
+    - BEIM SCHREIBEN lehnt der Schreibkern jede Aenderung ab, nach der
+      eine Regelgruppe verletzt waere. Zusammengehoerige Keys lassen sich
+      in EINEM Vorgang aendern.
+    - BEI DER AUFLOESUNG gilt fuer eine dennoch verletzte Regelgruppe:
+      Alle abhaengigen Keys erhalten den Zustand RULE_VIOLATED. Ein Key
+      der Klasse FAIL_CLOSED hat dann keinen Wert. Fuer einen Key der
+      Klasse FAIL_SAFE_HARDCAP gilt der STRENGERE von eigenem, fuer sich
+      gueltigem Wert und Notwert - ohne Richtung der Notwert (ein
+      Listen-Key dieser Klasse ist nie abhaengig, BASE-090_020 RG-6).
+      Ein Wert, den der Betreiber strenger gewaehlt hat als der Notwert,
+      wird durch die Verletzung also nicht gelockert (SZ-2). Ist die Regel
+      danach noch verletzt, bleibt das als Konflikt gemeldet, bis der
+      Betreiber ihn behebt; kein fremder Key wird deshalb veraendert.
+    - Es wird NICHT selbst angepasst: Kein Wert wird verschoben, damit
+      die Regel passt.
+  Begruendung: So halten es die drei Module bereits je fuer sich; die
+    Regel gehoert an EINE Stelle, damit Schreiben und Lesen dasselbe
+    pruefen. Ein Key, der wegen eines fremden Wertes "falsch" wird, darf
+    den fremden Dienst nicht umstellen.
+  Folgen: Pruefung beim Laden des Katalogs: Die Notwerte aller Mitglieder
+    einer Regelgruppe erfuellen die Regel miteinander; sonst ist die
+    Auslieferung fehlerhaft (BASE-090_020).
+
+DEC-ST-09  EIN AUFLOESER, EIN SCHREIBKERN - KEIN VERBRAUCHER LIEST ROHE
+           ZEILEN
+  Quelle: TRUTH_MODEL 4.2 ("Consumers konsumieren NUR effective_* und
+    key_state, nie raw SQL rows"); B057 13.7 ("Es gibt keinen Schreibpfad
+    außerhalb dieses Contracts"); BASE-000 PR-05, SQL-08.
+  Entscheidung: Aufloeser und Schreibkern gibt es je genau einmal -
+    als Bibliothek mit einem Werkzeug aus derselben Quelle. Kein
+    Verbraucher fragt die Tabellen settings_* selbst ab, kein Programm
+    schreibt sie selbst.
+  Begruendung: Zwei Implementierungen derselben Regel laufen auseinander
+    (Typpruefung, Reihenfolge der Ebenen, Regelgruppen). Die Herkunft
+    eines Wertes ist nur glaubwuerdig, wenn sie immer derselbe Code
+    bestimmt.
+  Folgen: Das gilt auch fuer das Panel und fuer Dienste, deren
+    Konfiguration gerendert wird (awg0.conf, Regelwerk der Firewall,
+    Konfiguration des AAA-Dienstes): Der Renderer loest ueber den
+    Aufloeser auf; die erzeugte Datei ist ein abgeleitetes Erzeugnis und
+    keine zweite Quelle. Geprueft wird die Regel am Programmtext
+    (BASE-090_095).
+
+DEC-ST-10  GELESEN WIRD GEBUENDELT UND NIE IM ZEITKRITISCHEN PFAD
+  Quelle: BASE-070_070 Abschnitt 3 ("NIE je Anfrage: Der Anmeldepfad
+    wartet nicht auf Settings-Abfragen"); BASE-080_070 Abschnitt 3; Ziel
+    von mindestens 1.000 gleichzeitigen Verbindungen.
+  Entscheidung:
+    - Ein Lauf loest die Keys, die er braucht, EINMAL zu Beginn auf.
+    - Ein Dienst loest beim Start auf und danach in festem Abstand
+      (settings_refresh_interval_seconds), nie je Anmeldung, je
+      Verbindungsaufbau oder je Paket.
+    - Ein Werkzeug, das fuer EINE Connection arbeitet, liest die wenigen
+      Werte, die es braucht, im selben Datenbankzugriff wie die
+      Connection.
+    - Der AAA-Dienst und andere Dienste mit gerenderter Konfiguration
+      erhalten ihre Werte mit der Konfiguration.
+  Folgen: Eine Aenderung mit der Wirkung LIVE gilt spaetestens nach einem
+    Abstand. Bei 5.000 Connections entstehen keine 5.000 Abfragen: Keys
+    mit Werten je Customer oder Connection sind die Ausnahme (DEC-ST-16),
+    und wer sie braucht, loest sie in einem Zugriff fuer alle Betroffenen
+    auf.
+
+DEC-ST-11  WODURCH EINE AENDERUNG WIRKT, STEHT IM KATALOG
+  Quelle: BASE-040_020 (LIVE, RESTART, REISSUE, PROFILE); BASE-050_070
+    (RENDER, SYSCTL); ANF-WT-12, ANF-FW-04.
+  Entscheidung: Jeder Katalogeintrag nennt die WIRKUNG (apply_class):
+      LIVE     wirkt von selbst mit dem naechsten Lesen des Verbrauchers
+      RENDER   wirkt, sobald das Erzeugnis neu gerendert und aktiviert ist
+      SYSCTL   wird als Kernelparameter geschrieben und wirkt sofort
+      PROFILE  wirkt nur in neu ausgestellten Client-Profilen
+      RESTART  verlangt den Neustart eines Dienstes; Verbindungen brechen
+               kurz ab
+      REISSUE  wie RESTART; zusaetzlich werden ALLE Client-Profile
+               ungueltig und muessen neu ausgestellt werden
+    Der Schreibkern zeigt die Wirkung vor dem Schreiben und verlangt fuer
+    RESTART und REISSUE eine ausdrueckliche Bestaetigung mit Grund.
+  Begruendung: Der Betreiber muss vor dem Speichern wissen, ob ein Wert
+    sofort gilt oder ob er damit alle Kunden neu ausstatten muss.
+  Folgen: BASE-090 fuehrt die Aenderung NICHT aus. Rendern, Neustart und
+    Neuausstellung bleiben beim Eigentuemer (BASE-040_020 Abschnitt 7,
+    BASE-050_070 Abschnitt 1); er erkennt die Aenderung an seinen
+    Eingaben.
+
+DEC-ST-12  ALTNAMEN: EIN VERZEICHNIS JA, EINE LESE-BRUECKE NEIN
+  Quelle: TRUTH_MODEL 5.3 (AL-01 bis AL-04; "keine Legacy-Keys zum
+    Aliasieren", das System werde "trotzdem vorgesehen"); BASE-000_020
+    PR-04 bis PR-06; BASE-000_091 OPEN-SQL-04 (Alias-Tabelle ab dem ersten
+    Tag oder erst bei einer Umbenennung?); Entwuerfe NORM-02, DOC-SET-PR-PFX
+    und DOC-SET-WRITEPATH (WP-001 bis WP-003); die Listen der Altnamen in
+    BASE-040_020 und BASE-070_070.
+  Lage: RetroTunnel hat keine Datenbank mit Werten unter alten Namen.
+    Alte Namen stehen nur in Texten: im Vorgaenger (ohne Prefix, in
+    Grossbuchstaben), in TRUTH_MODEL und in D004.
+  Optionen: (A) Alias-Tabelle in SQL mit Lese-Bruecke - ein alter Name
+    wird auf den neuen aufgeloest. (B) Verzeichnis der Altnamen in der
+    Katalog-Definition; ein alter Name wird nie aufgeloest und nie
+    geschrieben, sondern mit dem Hinweis auf den neuen Namen abgelehnt.
+  Entscheidung: B. Das schliesst OPEN-SQL-04.
+  Begruendung: Eine Lese-Bruecke hat nur Sinn, wenn alte und neue
+    Verbraucher nebeneinander laufen oder alte Werte in der Datenbank
+    stehen. Beides gibt es hier nicht. Eine Bruecke ohne Bedarf waere ein
+    zweiter Weg zu einem Wert - mit den Folgen, die der Vorgaenger selbst
+    beschreibt (Alias und kanonischer Name tragen verschiedene Werte).
+    Das Verzeichnis erfuellt, was TRUTH_MODEL und BASE-000 verlangen:
+    keine stille Umbenennung (AL-01, PR-06), Ablehnung mit Grund (AL-03),
+    geschrieben wird nur der kanonische Name (PR-05).
+  Folgen: Keine neue Tabelle. Wird NACH der Inbetriebnahme ein Key
+    umbenannt, geschieht das durch eine Einspielung, die die Zeilen in
+    einem Vorgang umschreibt und den alten Namen ins Verzeichnis
+    aufnimmt. AL-02 (Status active, deprecated) und AL-04 (Kennzeichen
+    alias_used) werden damit nicht gebraucht und sind als nicht anwendbar
+    ausgewiesen (BASE-090_080).
+
+DEC-ST-13  SCHREIBEN: NUR UEBER DEN SCHREIBKERN, IMMER PROTOKOLLIERT
+  Quelle: B057 13.6 bis 13.9; TRUTH_MODEL Abschnitt 6 und GV-05; Entwurf
+    DOC-SET-WRITEPATH (WM-006, WP-004, WP-006); B345 (ein Nutzer schreibt
+    nie selbst in SQL); 04_PHASE_PLAN K-PH6-02.
+  Entscheidung:
+    - WER: nur die Rolle ADMIN, ueber das Panel oder das Werkzeug; dazu
+      das System in zwei benannten Ablaeufen (Einspielung; Erzeugen der
+      Verschleierungs-Parameter von BASE-040). Alle anderen Rollen
+      schreiben nie.
+    - WIE: Pruefung gegen den Katalog (Name, Ebene, Typ, Grenzen,
+      Regelgruppen), dann ein Upsert in einer Transaktion zusammen mit
+      dem Protokolleintrag. Kein "erst lesen, dann einfuegen".
+    - PROTOKOLL: Jeder Schreibvorgang und jede Ablehnung steht in
+      log_settings_audit (wer, wann, Key, Ebene, alter und neuer Wert,
+      Grund, Ergebnis). Die Zeile der Werte-Tabelle traegt zusaetzlich
+      Zeitpunkt und Urheber der letzten Aenderung.
+    - ABLEHNEN STATT KORRIGIEREN: Was der Katalog nicht erlaubt, wird
+      abgelehnt und protokolliert - nie still angepasst.
+  Begruendung: Die Felder an der Zeile zeigen nur den letzten Stand. Wer
+    wissen will, wann eine Grenze gelockert wurde, braucht die Folge.
+  Folgen: Neue Tabelle log_settings_audit in der Zone log_ (ANF-ST-01 an
+    BASE-000); ihre Aufbewahrung regelt MOD-007 (ANF-ST-07). Ablauf und
+    Rechte: BASE-090_050.
+
+DEC-ST-14  OBERGRENZEN DER PLATTFORM BEGRENZEN, OHNE EINE ZWEITE WAHRHEIT
+           ZU SEIN
+  Quelle: B055 Changelog v1.8 ("Hard Caps bleiben lokal (Physik >
+    Policy)"); B057 13.10 (PHYSICS_CAP); BASE-005_040 (lokale Obergrenzen
+    fuer Protokolle und Zwischenspeicher, "IMMER aktiv"); die im
+    Vorgaenger als Blocker offene Frage SQLF-OPEN-DRIFT-01 (sind
+    Obergrenzen ausserhalb von SQL zulaessig, und wie sieht man sie?).
+  Entscheidung: Eine Obergrenze der Plattform ist ein FAKT von BASE-005,
+    kein Setting. Ein Katalogeintrag kann auf sie verweisen
+    (platform_cap). Dann gilt als wirksamer Wert der kleinere von
+    eingestelltem Wert und Obergrenze; die Aufloesung kennzeichnet das
+    (capped) und nennt die Obergrenze.
+  Begruendung: Die Obergrenze schuetzt den Server auch dann, wenn die
+    Datenbank einen zu grossen Wert traegt oder nicht lesbar ist. Sie ist
+    keine zweite Quelle fuer den WERT: Sie kann nur verkleinern, ist im
+    Katalog benannt und in jeder Auskunft sichtbar.
+  Folgen: Das ist KEIN Zurechtstutzen im Sinn von DEC-ST-05 d: Der
+    eingestellte Wert ist gueltig und bleibt stehen; begrenzt wird, was
+    wirkt. Der Schreibkern weist beim Schreiben darauf hin.
+
+DEC-ST-15  KEINE SONDERWERTE, DIE DER KATALOG NICHT NENNT
+  Quelle: Entwurf KH-008 des Vorgaengers ("0 bedeutet unbegrenzt" muss
+    ausgeschlossen oder ausdruecklich eingeordnet sein); D003-E05 (NULL
+    heisst unbegrenzt - im Policy-System); Keys mit der Null als Wert in
+    BASE-050 und BASE-070.
+  Entscheidung: Ein Wert, der etwas anderes bedeutet als seine Groesse
+    ("0 = aus", "0 = keine Protokollzeilen"), ist nur zulaessig, wenn der
+    Katalogeintrag ihn mit seiner Bedeutung nennt (special_values). Kein
+    Sonderwert bedeutet "unbegrenzt". NULL und der leere Text sind nie
+    ein Wert; eine solche Zeile ist ungueltig.
+  Begruendung: "Unbegrenzt" durch die Hintertuer ist die Lockerung, die
+    SZ-2 ausschliesst. Rechte ohne Grenze gibt es nur im Policy-System,
+    wo sie ein eigenes Kennzeichen tragen.
+
+DEC-ST-16  DIE ZWEI VERBINDUNGSLIMITS BLEIBEN SETTINGS, BIS BASE-100 SIE
+           UEBERNIMMT
+  Quelle: D003-E08; TRUTH_MODEL 7.3 (vpn_moderator_max_connections,
+    vpn_vip_max_connections: INTERIM, Ebene CUSTOMER erlaubt).
+  Entscheidung: Die beiden Keys stehen im Verzeichnis als UEBERGANG. Sie
+    sind die einzigen Keys, die einen Wert je Customer erlauben. Mit
+    BASE-100 gehen sie in das Policy-System ueber und entfallen hier.
+  Folgen: Kein Key eines geschriebenen Moduls erlaubt einen Wert je
+    Connection. Die Ebene CONNECTION bleibt Teil des Vertrags (B057), ist
+    aber zunaechst unbenutzt.
+
+DEC-ST-17  JEDER KEY IST PFLICHT
+  Quelle: B057 13.2 (is_required); TRUTH_MODEL SF-02.
+  Entscheidung: Das Feld is_required entfaellt. Jeder Key des Katalogs
+    muss aufloesbar sein; ein fehlender globaler Wert ist immer MISSING.
+    Was "nicht gesetzt" bedeuten soll, drueckt ein Wert aus (eine leere
+    Liste, ein benannter Sonderwert).
+  Begruendung: Ein Key, der fehlen darf, braucht im Verbraucher eine
+    Annahme fuer den Fall, dass er fehlt - den stillen Standardwert, den
+    SF-02 verbietet.
+
+================================================================================
+6) DAMIT GESCHLOSSENE OFFENE PUNKTE
+================================================================================
+
+  OPEN-SQL-04 (BASE-000_091)   Alias-Tabelle           -> DEC-ST-12
+  OPEN-TM-02 (TRUTH_MODEL 9)   WG-Parameter als Keys   -> DEC-ST-01;
+                               der Schluessel liegt nach DEC-WT-04 nicht
+                               in SQL
+  OPEN-TM-03 (TRUTH_MODEL 9)   Keys der Formung        bleibt bei MOD-003
+  TRUTH_MODEL 7, Hinweis zur   Richtung je Key         -> DEC-ST-05 und
+  Tighten-only-Semantik                                   BASE-090_060
+  Im Vorgaenger offen und hier entschieden:
+    Rueckfall je Klasse (DEC-SQLF-010)                 -> DEC-ST-04, -06
+    ungueltig: streng oder begrenzen (KH-DET-001)      -> DEC-ST-05 d
+    Obergrenzen (KH-DET-002, SQLF-OPEN-DRIFT-01)       -> DEC-ST-14
+    Zustand der Settings (KH-DET-003)                  -> DEC-ST-07
+    verletzte Beziehung (KH-CROSS-001)                 -> DEC-ST-08
+    Vergleichswert des Rueckfalls (KH-SB-001)          -> DEC-ST-05
+    Sichtbarkeit der Auskunft je Rolle (DEC-SQLF-012)  -> BASE-090_070
+  BF-0041, zweiter Teil (Fehlerverhalten in BASE-040   -> DEC-ST-04, -06;
+  und BASE-050 gegen den Katalog)                         je Key BASE-090_060
+
+================================================================================

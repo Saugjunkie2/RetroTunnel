@@ -1,0 +1,224 @@
+================================================================================
+BASE-090 — INVARIANTEN (Settings-Kern)
+================================================================================
+DATEI: BASE-090_090_INVARIANTEN.txt
+STATUS: IN ARBEIT (AP-K090; Modul noch unvollstaendig)
+
+Harter Vertrag. Jede Verletzung ist ein Fehler. Kennungen ST-01..ST-42.
+Regelkennungen in Klammern verweisen auf die Detaildateien dieses Moduls
+(DEC-ST-, SZ- in _010; KF-, RG-, AN-, LP- in _020; AZ-, AF-, VB-, RA-, LR-
+in _030; FV-, FC-, NW-, HT-, KZ-, EB- in _040; TB-, SR-, SK-, ZS-, AG-, ES-,
+EV-, UW- in _050; AM- in _060; DR-, PL-, PZ-, ER-, AK- in _070; GS- in _080).
+Herkunft je Invariante: Rueckverfolgungs-Records unter
+governance/register/trace/ (Feld erfuellt_in) bzw. NEU_BEGRUENDET.yaml.
+
+================================================================================
+KATALOG
+================================================================================
+
+  ST-01  Jeder Betriebsparameter, den ein Programm benutzt, ist ein Key
+         des Katalogs. Kein Programm enthaelt einen Standardwert fuer
+         einen Key, und keines liest einen Wert aus einer zweiten Quelle
+         - auch nicht aus einer gerenderten Datei (SZ-1, DEC-ST-09, VB-1,
+         VB-2, GS-2, GS-7).
+
+  ST-02  Die Katalog-Definition ist eine Datei der Auslieferung. Kein
+         Werkzeug dieses Moduls und kein Dienst schreibt sie. Die Kopie
+         settings_catalog schreibt allein die Einspielung (DEC-ST-02,
+         EV-1, KZ-4, DR-2).
+
+  ST-03  Ein Katalog, der eine Pruefung beim Laden nicht besteht, wird
+         nicht benutzt: Kein Key wird aufgeloest - auch nicht mit einem
+         Notwert -, und nichts wird geschrieben (LP-1 bis LP-11,
+         DEC-ST-07, KZ-3).
+
+  ST-04  Jeder Key entspricht der Form von BASE-000, traegt genau einen
+         erlaubten Prefix und fuehrt seine Einheit im Namen und im Feld
+         unit uebereinstimmend (LP-2, LP-3, KF-3).
+
+  ST-05  Ein Key der Klasse FAIL_SAFE_HARDCAP hat einen Notwert, der ein
+         gueltiger Wert des Keys ist. Hat der Key eine Richtung, ist der
+         Notwert nicht lockerer als der Vorschlag; hat er keine, nennt
+         der Katalog den Grund. Ein Key der Klasse FAIL_CLOSED hat keinen
+         Notwert (DEC-ST-05, LP-5, LP-6, NW-1, NW-2).
+
+  ST-06  Ein Wert mit eigener Bedeutung ist nur zulaessig, wenn der
+         Katalogeintrag ihn nennt; keiner bedeutet "unbegrenzt". NULL und
+         der leere Text sind nie ein Wert (DEC-ST-15, KF-1, LP-7).
+
+  ST-07  Nur ein Key mit lifecycle INTERIM erlaubt eine andere Ebene als
+         GLOBAL (DEC-ST-16, LP-8, GS-6).
+
+  ST-08  Die Notwerte und die Vorschlaege aller Mitglieder einer
+         Regelgruppe erfuellen deren Bedingung miteinander. Kein
+         Listen-Key der Klasse FAIL_SAFE_HARDCAP ist abhaengiges Mitglied
+         einer Regelgruppe (RG-3, RG-4, RG-6).
+
+  ST-09  Ein Altname ist nie ein Key des Katalogs, wird nie aufgeloest
+         und nie geschrieben; die Ablehnung nennt den heutigen Key und,
+         wo die Bedeutung sich geaendert hat, diesen Umstand (DEC-ST-12,
+         AN-1 bis AN-4).
+
+================================================================================
+AUFLOESUNG
+================================================================================
+
+  ST-10  Die Aufloesung ist deterministisch: Derselbe Inhalt von Katalog
+         und Tabellen ergibt fuer jeden Verbraucher und in jeder
+         Reihenfolge der Anfrage dasselbe Ergebnis (AZ-1).
+
+  ST-11  Der wirksame Wert ist ein gepruefter Wert einer Zeile, der
+         Notwert des Katalogs, ein gehaltener Wert oder leer. Er ist nie
+         der Vorschlag und nie ein auf eine Grenze zurechtgestutzter Wert
+         (AZ-2, DEC-ST-05 a und d, AF-5).
+
+  ST-12  Es gilt die Reihenfolge CONNECTION, CUSTOMER, GLOBAL. Die erste
+         VORHANDENE Zeile einer erlaubten Ebene entscheidet; ist ihr Wert
+         ungueltig, wird nicht auf die naechste Ebene ausgewichen
+         (DEC-ST-03, AF-4, AF-5).
+
+  ST-13  Eine Zeile auf einer Ebene, die der Katalogeintrag nicht
+         erlaubt, gewinnt nie und wird gemeldet (AF-4).
+
+  ST-14  Alle Zeilen eines Aufrufs stammen aus einem Schnappschuss; ein
+         Schreibvorgang mit mehreren Keys ist fuer einen Aufruf ganz oder
+         gar nicht sichtbar (AZ-3, LR-2).
+
+  ST-15  Nennt ein Aufruf einen Namen, der kein Key des Katalogs ist,
+         scheitert er als Ganzes; kein Key erhaelt ein Ergebnis (AF-2).
+
+  ST-16  Jedes Ergebnis traegt Herkunft und Zustand und bei jedem Zustand
+         ausser OK einen Grund aus dem festen Vorrat (AF-6 bis AF-10).
+
+  ST-17  Nennt der Katalogeintrag eine Obergrenze der Plattform, ist der
+         wirksame Wert nie groesser als sie; die Begrenzung ist im
+         Ergebnis gekennzeichnet (DEC-ST-14, AF-9).
+
+================================================================================
+FEHLERVERHALTEN
+================================================================================
+
+  ST-18  Kein Zustand lockert: Ein fehlender, ungueltiger oder nicht
+         lesbarer Wert und eine verletzte Regelgruppe fuehren nie zu einem
+         lockereren wirksamen Wert als dem, den der Betreiber gueltig
+         eingetragen hat oder den der Katalog als Notwert fuehrt (SZ-2,
+         FV-1).
+
+  ST-19  Ist ein Key der Klasse FAIL_CLOSED nicht OK, gibt es keinen
+         Wert: Der Vorgang, der den Key braucht, unterbleibt, und was
+         besteht, bleibt bestehen. Der unterbliebene Vorgang ist nie
+         einer, dessen Ausbleiben Zugang gewaehrt oder Schutz aufhebt
+         (DEC-ST-04, FC-1 bis FC-3).
+
+  ST-20  Ist eine Regelgruppe verletzt, gelten ihre abhaengigen Keys als
+         RULE_VIOLATED: FAIL_CLOSED ohne Wert, FAIL_SAFE_HARDCAP mit dem
+         strengeren von eigenem Wert und Notwert. Kein Bezugs-Key wird
+         veraendert; ein verbleibender Konflikt bleibt gemeldet
+         (DEC-ST-08, RA-1 bis RA-5).
+
+  ST-21  Bei nicht lesbarer Datenbank gilt fuer einen laufenden Dienst
+         das letzte Ergebnis einer Aufloesung bei lesbarer Datenbank,
+         sonst die Fehlerklasse. Gehalten wird nur im Speicher des
+         Prozesses; nach einem Neustart wird nichts gehalten
+         (DEC-ST-06, HT-1 bis HT-5, AF-8).
+
+  ST-22  Mit der ersten Aufloesung bei lesbarer Datenbank gilt allein
+         deren Ergebnis. Liefert die Datenbank Zeilen und ist ein Wert
+         ungueltig, wird nicht gehalten (HT-6, HT-7).
+
+  ST-23  Ein Dienst, der ohne Datenbank startet, erhaelt je Key den
+         Notwert aus der Katalog-Definition oder keinen Wert - nie einen
+         Wert aus einer Datei mit Werten des Betriebs (NW-4, HT-2, VB-3).
+
+  ST-24  Eine Stoerung an einem Key aendert das Ergebnis keines anderen
+         Keys - ausser ueber eine Regelgruppe, in der dieser abhaengig
+         ist (SZ-6, DEC-ST-07).
+
+  ST-25  Weicht settings_catalog von der Katalog-Definition ab, gilt die
+         Definition. Ein Name, den nur die Datenbank kennt, wird nie
+         aufgeloest (DEC-ST-02, KZ-1, KZ-2).
+
+================================================================================
+LESEN
+================================================================================
+
+  ST-26  Anmeldung, Verbindungsaufbau, Hooks der Tunnel-Dienste und
+         Paketfluss loesen keinen Datenbankzugriff allein fuer Settings
+         aus. Dienste loesen beim Start und in festem Abstand auf, Laeufe
+         einmal je Lauf (SZ-7, DEC-ST-10, LR-1, LR-3).
+
+  ST-27  Die Zahl der Abfragen eines Aufrufs haengt nicht von der Zahl
+         der Bezuege ab (DEC-ST-10; BASE-090_030 Abschnitt 6).
+
+================================================================================
+SCHREIBEN
+================================================================================
+
+  ST-28  Werte schreiben allein der Schreibkern und die Einspielung, und
+         nur fuer die Urheber, die BASE-090_050 Abschnitt 2 nennt. Kein
+         anderes Programm schreibt eine Tabelle settings_* (DEC-ST-09,
+         DEC-ST-13, SR-1 bis SR-3, GS-8).
+
+  ST-29  Ein Schreibvorgang gelingt ganz oder gar nicht; je Key und Bezug
+         gibt es hoechstens eine Zeile; von zwei gleichzeitigen
+         Vorgaengen gilt der zuletzt abgeschlossene (SK-5, SK-9, ZS-1,
+         ZS-2).
+
+  ST-30  Der Schreibkern lehnt ab und berichtigt nie: einen Altnamen,
+         eine nicht erlaubte Ebene, einen ungueltigen Wert, eine danach
+         verletzte Regelgruppe. Allein eine Liste bringt er in die feste
+         Form (SK-2 bis SK-6, ZS-3, KF-2).
+
+  ST-31  Eine Zeile der Ebene GLOBAL wird nie geloescht (SK-7).
+
+  ST-32  Eine Aenderung mit der Wirkung RESTART oder REISSUE, jede
+         Zeile der Ebenen CUSTOMER und CONNECTION und jede Aenderung
+         eines Keys mit reason_required wird nur mit Grund geschrieben,
+         die erste zusaetzlich nur mit ausdruecklicher Bestaetigung
+         (DEC-ST-11, SK-8).
+
+  ST-33  Jeder Schreibvorgang und jede Ablehnung steht im Protokoll; die
+         Zeile des Protokolls entsteht in derselben Transaktion wie die
+         Aenderung. Das Protokoll kennt nur das Anfuegen (SK-9, AG-1,
+         TB-4).
+
+  ST-34  Die Einspielung aendert nie einen Wert des Betreibers. Wuerde
+         ein bestehender Wert unter der neuen Definition ungueltig oder
+         eine Regelgruppe verletzt, bricht sie ab, ohne zu schreiben. Ein
+         zweiter Lauf am selben Stand aendert nichts (ES-1 bis ES-7,
+         EV-2).
+
+  ST-35  Kein Programm setzt den Vorschlag oder den Notwert von sich aus
+         als Wert ein; beides geschieht nur als ausdruecklicher,
+         protokollierter Schreibvorgang (BASE-090_050 Abschnitt 5, EV-3).
+
+================================================================================
+BEOBACHTBARKEIT UND GRENZEN
+================================================================================
+
+  ST-36  Jeder Zustand ausser OK, jede Nutzung eines Notwerts, jedes
+         Halten und jeder unterbliebene Vorgang ist gemeldet und steht im
+         Status, bis er behoben ist; der Eintritt wird nie unterdrueckt,
+         das Ende wird gemeldet (SZ-4, FV-3, ER-1 bis ER-3).
+
+  ST-37  Ein ungueltiger Wert und eine verletzte Regelgruppe werden als
+         Stoerung gemeldet, mit dem vorgefundenen Wert (FV-2).
+
+  ST-38  Der Prueflauf loest alle Keys auf, prueft jede Zeile der Ebenen
+         CUSTOMER und CONNECTION und meldet Zeilen ohne Katalogeintrag
+         und Zeilen ohne passenden Protokolleintrag. Er aendert nichts
+         (PL-1 bis PL-7, PZ-1, UW-2).
+
+  ST-39  Settings sieht und aendert nur die Rolle ADMIN; die Auskunft
+         gibt es nur im VPN und am Server (AK-1, AK-2, SR-2).
+
+  ST-40  Kein Setting ist ein Geheimnis, ein Recht eines Kunden oder ein
+         fester Wert der Plattform (DEC-ST-01, GS-4, GS-5, TB-3).
+
+  ST-41  BASE-090 fuehrt keine Folge einer Aenderung aus und stoesst
+         keinen Lauf eines anderen Moduls an (DEC-ST-11, GS-1).
+
+  ST-42  Der Datenbank-Benutzer radius hat auf keine Tabelle dieses
+         Moduls Zugriff (DR-1).
+
+================================================================================

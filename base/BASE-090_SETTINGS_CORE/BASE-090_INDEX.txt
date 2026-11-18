@@ -1,0 +1,254 @@
+================================================================================
+BASE-090 — SETTINGS CORE (INDEX)
+================================================================================
+DATEI: BASE-090_INDEX.txt
+VERSION: v1.0
+DATUM: 2026-11-18
+STATUS: IN ARBEIT (AP-K090; Modul noch unvollstaendig)
+
+================================================================================
+1) ZWECK
+================================================================================
+
+  BASE-090 ist der Settings-Kern von RetroTunnel. Er legt fest, WELCHE
+  Betriebsparameter es gibt (Katalog), WO ihre Werte liegen (drei Ebenen
+  in SQL), WIE daraus fuer jeden Verbraucher genau ein wirksamer Wert mit
+  Herkunft und Zustand wird (Aufloesung), WAS geschieht, wenn ein Wert
+  fehlt, ungueltig oder nicht lesbar ist (Fehlerklasse), und WER einen
+  Wert auf welchem Weg aendert (Schreibkern).
+
+  Leitsatz: KEIN WERT OHNE KATALOG, KEIN RUECKFALL OHNE MELDUNG.
+  Eingestellt wird allein in SQL; was fehlt oder falsch ist, lockert nie.
+
+  Das Modul uebernimmt den Settings-Vertrag des Vorgaengers (B057; Schema
+  B055 Abschnitt 4), loest model/TRUTH_MODEL.txt auf und fuehrt das
+  VERZEICHNIS aller Keys der geschriebenen Module. Dort wird ein Key
+  verbindlich; seine Bedeutung bleibt beim Modul, dem er gehoert.
+
+================================================================================
+2) SCOPE UND ABGRENZUNG
+================================================================================
+
+  IN SCOPE:
+  - Katalog: Felder eines Eintrags, Typen und strenges Lesen, Vorschlag,
+    Regelgruppen, Verzeichnis der Altnamen, Pruefung beim Laden
+  - Aufloesung: Vertrag und Ablauf, Zustaende, Regelgruppen bei der
+    Aufloesung, wann gelesen wird, viele Bezuege in einem Zugriff
+  - Fehlerverhalten: zwei Klassen, Notwert und Richtung, Halten bei
+    nicht lesbarer Datenbank, Start ohne Datenbank, Zustand des Katalogs
+  - Schreibkern und Einspielung: Tabellen, Urheber, Ablauf,
+    Ablehnungsgruende, Protokoll, Schreiben am Schreibkern vorbei
+  - Verzeichnis der Keys (105 Eintraege der Module BASE-040, BASE-050,
+    BASE-070, BASE-080 und dieses Moduls), Regelgruppen, Altnamen,
+    angekuendigte Keys, Anmeldung eines Keys
+  - Werkzeuge, Pfade, Rechte, Prueflauf, Gruende und Ereignisse, Auskunft
+    fuer Betreiber und Panel
+
+  NICHT IN SCOPE (Owner anderswo):
+  - Bedeutung, Grenzen und Vorschlag eines Keys; was bei
+    FAIL_CLOSED unterbleibt                        -> Modul des Keys
+  - Rendern, Neustart, Neuausstellung von Profilen -> BASE-040, BASE-050,
+                                                      BASE-020, BASE-030
+  - Rechte und Limits je Rolle, Plan und Kunde     -> BASE-100, MOD-010
+  - Namensregeln, Prefixe, Tabellen-Registry       -> BASE-000
+  - Fakten der Plattform, Obergrenzen des
+    Speichers, Zustand der Datenbank               -> BASE-005
+  - Schluessel und Zugangsdaten                    -> BASE-040,
+                                                      BASE-010_030
+  - Oberflaeche der Verwaltung                     -> BASE-110
+  - Aufbewahrung von Protokollen                   -> MOD-007
+  - Alarmierung und Anzeige                        -> MOD-006
+
+  ABDECKUNG DER PLANUNG (PRIORITAETENLISTE M2-090):
+    settings_catalog, settings_global,      _050 Abschnitt 1; _020 -
+    settings_customer, settings_connection  angepasst: Der Katalog ist
+                                            eine Datei der Auslieferung,
+                                            settings_catalog ihre Kopie
+                                            (DEC-ST-02)
+    Reihenfolge der Aufloesung              _030 Abschnitt 2 (DEC-ST-03)
+    Fehlerklasse                            _040 (DEC-ST-04 bis -06)
+    wirksamer Wert mit Herkunft             _030 Abschnitt 1; Protokoll
+                                            der Aenderungen _050
+    kanonische Liste der Keys               _060
+    Vorgaenger B057 und Entwuerfe           Abschnitt 8 unten
+    sql-first
+
+================================================================================
+3) DATEIEN IN DIESEM ORDNER
+================================================================================
+
+  BASE-090_INDEX.txt                                 Dieses Dokument
+  BASE-090_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt    Schutzziele, Begriffe,
+                                                     Komponenten,
+                                                     DEC-ST-01..17
+  BASE-090_020_KATALOG.txt                           Katalog-Definition,
+                                                     Felder, Typen,
+                                                     Regelgruppen,
+                                                     Altnamen, Pruefung
+                                                     beim Laden
+  BASE-090_030_AUFLOESUNG.txt                        Vertrag des
+                                                     Aufloesers, Ablauf,
+                                                     Regelgruppen, Lesen
+  BASE-090_040_FEHLERVERHALTEN.txt                   FAIL_CLOSED,
+                                                     FAIL_SAFE_HARDCAP,
+                                                     Halten, Start ohne
+                                                     Datenbank, Zustand
+                                                     des Katalogs
+  BASE-090_050_SCHREIBKERN_UND_EINSPIELUNG.txt       Tabellen, Urheber,
+                                                     Schreibvorgang,
+                                                     Ablehnungsgruende,
+                                                     Einspielung
+  BASE-090_060_KEY_VERZEICHNIS.txt                   alle Keys mit Typ,
+                                                     Grenzen, Klasse,
+                                                     Notwert, Richtung,
+                                                     Wirkung; Regelgruppen;
+                                                     Altnamen; Anmeldung
+  BASE-090_070_BETRIEB_UND_BEOBACHTBARKEIT.txt       Werkzeuge, Pfade,
+                                                     Rechte, Prueflauf,
+                                                     Ereignisse, Auskunft
+  BASE-090_080_OWNER_GRENZEN.txt                     Besitz, Grenzregeln,
+                                                     Lese- und
+                                                     Schreibgrenzen,
+                                                     Antworten auf vier
+                                                     Anforderungen,
+                                                     ANF-ST-01..11,
+                                                     E-ST-01..05, Verbleib
+                                                     von TRUTH_MODEL
+  BASE-090_090_INVARIANTEN.txt                       ST-01..ST-42
+  BASE-090_095_TESTS.txt                             T-ST-01..T-ST-43
+
+================================================================================
+4) TABELLEN DIESES MODULS
+================================================================================
+
+  Tabelle                Zweck                               Datei
+  ---------------------- ----------------------------------- --------
+  settings_catalog       Kopie der Katalog-Definition        _050, _020
+  settings_global        je Key hoechstens ein Wert          _050
+  settings_customer      Wert je Customer (nur Keys, die     _050
+                         diese Ebene erlauben)
+  settings_connection    Wert je Connection (heute von       _050
+                         keinem Key erlaubt)
+  log_settings_audit     Protokoll der Schreibvorgaenge und  _050
+                         Ablehnungen (nur anfuegend)
+
+  Die ersten vier fuehrt die Registry von BASE-000 bereits; die fuenfte
+  ist neu und dort beantragt (ANF-ST-01). Massgeblich fuer Typ, Grenzen,
+  Klasse und Notwert ist die Katalog-Definition, nicht ihre Kopie.
+
+================================================================================
+5) PLATTFORM-CONTRACT (KURZFASSUNG)
+================================================================================
+
+  Werkzeuge   vpn-settings-get (Aufloeser), vpn-settings-set
+              (Schreibkern), vpn-settings-seed (Einspielung),
+              vpn-settings-check (Prueflauf) - alle aus derselben
+              Bibliothek wie die Dienste
+  Lauf        vpn-settings-check - Zeitgeber fest, Takt aus
+              settings_check_interval_seconds
+  Pfade       /usr/local/share/retrotunnel/settings/ (Katalog-Definition
+              und Pruefsumme, Teil der Auslieferung),
+              /run/retrotunnel/settings/ (Status des Prueflaufs)
+  Bereitschaft keine eigene: Kein Dienst wartet auf den Prueflauf; ein
+              Dienst liest die Katalog-Definition beim Start, auch ohne
+              Datenbank
+  Einzelheiten: BASE-090_070 Abschnitte 1 und 2; die Aufnahme der Pfade
+  in das Verzeichnis der Plattform ist beantragt (ANF-ST-06).
+
+================================================================================
+6) ZUSAGEN IM UEBERBLICK
+================================================================================
+
+  - Kein Betriebsparameter ohne Katalogeintrag; kein Standardwert im
+    Programm und keine zweite Quelle fuer Werte (ST-01).
+  - Fehlen und Fehler lockern nie: Es gilt ein Notwert, der nur
+    verschaerft, oder der Vorgang unterbleibt (ST-18, ST-19).
+  - Der wirksame Wert ist nie der Vorschlag und nie ein zurechtgestutzter
+    Wert (ST-11).
+  - Die erste vorhandene Zeile entscheidet; ein ungueltiger Wert laesst
+    nicht auf die naechste Ebene ausweichen (ST-12).
+  - Der Katalog ist im Betrieb unveraenderlich; weicht die Kopie in SQL
+    ab, gilt die Definition (ST-02, ST-25).
+  - Bei nicht lesbarer Datenbank haelt ein laufender Dienst, was galt;
+    auf der Platte wird nichts gehalten (ST-21, ST-23).
+  - Eine verletzte Beziehung zwischen Keys lockert keinen Wert und
+    veraendert keinen fremden Key (ST-20).
+  - Ein Schreibweg: ablehnen statt berichtigen, jeder Vorgang und jede
+    Ablehnung protokolliert (ST-28, ST-30, ST-33).
+  - Kein stiller Notbetrieb: Jeder Zustand ausser OK ist gemeldet und
+    bleibt sichtbar, bis er behoben ist (ST-36).
+  - Kein zeitkritischer Pfad wartet auf Settings (ST-26).
+  - Settings sind keine Rechte, keine Fakten und keine Geheimnisse
+    (ST-40).
+  - BASE-090 fuehrt keine Folge einer Aenderung aus (ST-41).
+
+================================================================================
+7) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  BASE-090 liefert dem Panel ueber Bibliothek und Status: je Key
+  Beschreibung, Typ, Grenzen, Vorschlag, Wirkung einer Aenderung und
+  Eigentuemer; den wirksamen Wert mit Herkunft, Zustand und Grund; bei
+  einer Obergrenze den eingestellten und den wirksamen Wert; den Verlauf
+  je Key mit den abgelehnten Versuchen; die Uebersicht der Zustaende und
+  das Alter des Status; die Handgriffe "Vorschlag einsetzen" und
+  "Notwert einsetzen". Das Panel schreibt nur ueber den Schreibkern,
+  deutet keine Tabelle selbst und aendert den Katalog nicht. Settings
+  sieht und aendert nur die Rolle ADMIN (BASE-090_070 Abschnitt 6).
+
+================================================================================
+8) VORGAENGER UND AUFGELOESTE DOKUMENTE
+================================================================================
+
+  RetroTunnel:
+    model/TRUTH_MODEL.txt (DEPRECATED)                 aufgeloest; Verbleib
+                                                       je Abschnitt in
+                                                       _080 Abschnitt 9
+    BASE-000 (Namensregeln, Registry, OPEN-SQL-04)     Regeln gelten;
+                                                       OPEN-SQL-04 mit
+                                                       DEC-ST-12
+                                                       entschieden
+    BASE-040_020, BASE-050_070, BASE-070_070,          Keys uebernommen;
+    BASE-080_070 (Settings-Abschnitte der Module)      Abweichungen je Key
+                                                       in _060 Abschnitt
+                                                       6; Nachzug
+                                                       ANF-ST-02 bis -05
+    D003 (Settings und Policy getrennt; Uebergangs-    DEC-ST-01,
+    Keys), D004 (Keys der Laufzeit)                    DEC-ST-16; _060
+    Befund BF-0041, zweiter Teil                       DEC-ST-04, -06
+  Vorgaenger xp-vpn-stack und Nachlieferung:
+    B057 (Settings-Kanon), B055 Abschnitt 4 (Schema der Settings), B052
+    (Datenbankausfall), B345 (Schreibwege); die Entwuerfe sql-first der
+    Nachlieferung (NORM-01 bis NORM-07, DOC-SET-...) als Quellen der dort
+    offenen Entscheidungen (_010 Abschnitt 6)
+  Die Einordnung jeder Vorgaenger-Aussage (uebernommen, angepasst,
+  ersetzt, nicht anwendbar) steht in den Rueckverfolgungs-Records unter
+  governance/register/trace/.
+
+================================================================================
+9) BELEGSTAND
+================================================================================
+
+  ENTWURF. Dokumentiert und vom Hauptarchitekten im Zusammenhang gelesen
+  (alle zehn Detaildateien am 2026-11-18). Das Verzeichnis der Keys ist
+  gegen die Tabellen der vier Module gehalten: Kein Name fehlt
+  (maschinell verglichen), und Typ, Grenzen, Vorschlag, Klasse und
+  Notwert jedes Keys stimmen mit dem Modul ueberein oder sind als
+  Abweichung ausgewiesen (Zeile fuer Zeile verglichen; BASE-080 im Stand
+  v1.3). Die Notwerte und Vorschlaege erfuellen die Regelgruppen (von
+  Hand gerechnet, BASE-090_060 Abschnitt 7).
+
+  NOCH OFFEN: Die Rueckverfolgung der Quellen (TRUTH_MODEL, B057, B055
+  Abschnitt 4) ist noch nicht vollstaendig; die Schritte 1 bis 3 des
+  Qualitaets-Gates (CLAUDE_BRIEFING Regel 10) und die unabhaengige
+  Pruefung stehen aus. Kein Test dieses Moduls wurde ausgefuehrt; die
+  Annahmen E-ST-01 bis E-ST-05 sind nicht praktisch bestaetigt. Die
+  Nachzuege an den geschriebenen Modulen (ANF-ST-01 bis ANF-ST-06,
+  ANF-ST-08) stehen aus; bis dahin gilt bei einem Unterschied das
+  Verzeichnis (OPEN-ST-04).
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

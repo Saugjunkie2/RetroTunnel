@@ -1,0 +1,300 @@
+================================================================================
+BASE-090 — SCHREIBKERN, PROTOKOLL UND EINSPIELUNG
+================================================================================
+DATEI: BASE-090_050_SCHREIBKERN_UND_EINSPIELUNG.txt
+STATUS: IN ARBEIT (AP-K090; Modul noch unvollstaendig)
+
+ZWECK:
+  Die Tabellen der Werte, wer schreiben darf, der Ablauf eines
+  Schreibvorgangs, das Protokoll und die Einspielung einer neuen
+  Auslieferung. Grundlage sind DEC-ST-09, DEC-ST-12 und DEC-ST-13.
+
+================================================================================
+1) TABELLEN
+================================================================================
+
+  settings_global
+    id             Primaerschluessel
+    key            Fremdschluessel auf settings_catalog.key
+    value_raw      der Wert als Text in der festen Form seines Typs
+                   (BASE-090_020 Abschnitt 3); NOT NULL
+    updated_at     Zeitpunkt der letzten Aenderung
+    changed_by     Urheber der letzten Aenderung (Abschnitt 2)
+    change_reason  Grund der letzten Aenderung (Text; Pflicht in den
+                   Faellen von SK-8)
+    EINDEUTIG: (key)
+
+  settings_customer    wie settings_global, zusaetzlich
+    customer_id    Fremdschluessel auf web_customers.id
+    EINDEUTIG: (customer_id, key)
+
+  settings_connection  wie settings_global, zusaetzlich
+    vpn_connection_id  Fremdschluessel auf vpn_connections.id
+    EINDEUTIG: (vpn_connection_id, key)
+
+  log_settings_audit   (nur anfuegend)
+    id             Primaerschluessel
+    at             Zeitpunkt
+    actor          Urheber
+    action         SET | DELETE | SEED | REJECTED
+    key            der genannte Name (auch ein abgelehnter Altname)
+    scope          GLOBAL | CUSTOMER | CONNECTION
+    scope_id       Kennung des Customers oder der Connection; sonst leer
+    old_value      Wert vor dem Vorgang; leer, wenn es keinen gab
+    new_value      Wert nach dem Vorgang; leer bei DELETE und REJECTED
+    reason         Grund, den der Urheber angegeben hat
+    result         bei REJECTED der feste Ablehnungsgrund (Abschnitt 4)
+    request_id     verbindet die Zeilen EINES Vorgangs mit mehreren Keys
+
+  TB-1  Die Tabellen tragen Werte, keine Logik (B057 13.1). Was gilt,
+        bestimmt allein die Aufloesung.
+  TB-2  Wird ein Customer oder eine Connection endgueltig geloescht,
+        entfallen ihre Zeilen in settings_customer bzw.
+        settings_connection mit (Fremdschluessel mit Loeschweitergabe).
+        Das Protokoll bleibt.
+  TB-3  Werte stehen offen im Protokoll: Kein Setting ist ein Geheimnis
+        (DEC-ST-01).
+  TB-4  log_settings_audit kennt nur das Anfuegen. Aendern und Loeschen
+        einzelner Zeilen gibt es nicht; die Aufbewahrung regelt MOD-007
+        (ANF-ST-07).
+  Die vier Tabellen settings_* stehen in der Registry von BASE-000;
+  log_settings_audit ist dort anzumelden (ANF-ST-01).
+
+================================================================================
+2) WER SCHREIBT
+================================================================================
+
+  Urheber                       GLOBAL  CUSTOMER  CONNECTION
+  ----------------------------- ------- --------- -----------
+  ADMIN ueber das Panel         ja      ja        ja
+  ADMIN am Server (Werkzeug     ja      ja        ja
+  vpn-settings-set, als root)
+  SYSTEM: Einspielung           ja      nein      nein
+  SYSTEM: Einrichtung von       ja      nein      nein
+  BASE-040 (erzeugte Werte)
+  MODERATOR, VIP, USER          nein    nein      nein
+  jedes andere Programm         nein    nein      nein
+
+  "ja" heisst: ueber den Schreibkern und nur, soweit der Katalogeintrag
+  die Ebene erlaubt. Heute erlaubt kein Key die Ebene CONNECTION und nur
+  die zwei Uebergangs-Keys die Ebene CUSTOMER (DEC-ST-16).
+
+  SR-1  Der Urheber steht in jeder Protokollzeile: bei einem ADMIN seine
+        Kennung aus dem Panel; am Server "root" mit dem angegebenen
+        Namen; bei SYSTEM der Name des Ablaufs.
+  SR-2  LESEN duerfen Settings die Verwaltung (ADMIN) und die Programme
+        des Systems ueber den Aufloeser. Was andere Rollen sehen, legt
+        BASE-110 fest; ein Schreibrecht entsteht daraus nie.
+  SR-3  Kommt eine neue Rolle hinzu, schreibt sie nicht, bis diese
+        Tabelle sie nennt (B057 13.6: kein stillschweigendes Verhalten).
+  Gegenueber TRUTH_MODEL 6.1 (SYSTEM schreibt alle drei Ebenen
+  "Provisioning/Workflows") ist das ENGER: Das System schreibt nur in
+  zwei benannten Ablaeufen und nur global.
+
+================================================================================
+3) ABLAUF EINES SCHREIBVORGANGS
+================================================================================
+
+  Ein Vorgang nennt den Urheber, einen Grund (soweit Pflicht) und EINE
+  ODER MEHRERE Aenderungen (Key, Ebene, Bezug, neuer Wert - oder das
+  Loeschen einer Zeile). Er gelingt ganz oder gar nicht.
+
+  SK-1  KATALOG. Laden und pruefen (BASE-090_020 Abschnitt 7). Bei
+        UNREADABLE wird nichts geschrieben.
+  SK-2  NAME. Jeder Name ist ein Key des Katalogs. Ein Altname wird
+        abgelehnt; die Meldung nennt den heutigen Key und ob sich die
+        Bedeutung geaendert hat (BASE-090_020 AN-3, AN-4).
+  SK-3  EBENE. Die Ebene ist fuer den Key erlaubt
+        (allowed_override_scope); der genannte Customer oder die
+        Connection existiert.
+  SK-4  WERT. Der Wert wird streng gelesen und geprueft (BASE-090_020
+        Abschnitt 3). Listen werden in die feste Form gebracht (KF-2);
+        sonst wird nichts angepasst.
+  SK-5  TRANSAKTION. Der Schreibkern oeffnet eine Transaktion und sperrt
+        die globalen Zeilen aller Keys, die mit einem geaenderten Key in
+        einer Regelgruppe stehen. Nennt der Vorgang den Wert, den der
+        Urheber zuletzt gesehen hat, und steht inzwischen ein anderer
+        dort, wird abgelehnt (die Anzeige war veraltet).
+  SK-6  REGELGRUPPEN. Jede Regelgruppe mit einem geaenderten Key wird am
+        Stand NACH dem Vorgang ausgewertet: mit den neuen Werten, sonst
+        mit den wirksamen Werten der uebrigen Mitglieder. Ist eine
+        verletzt, wird der ganze Vorgang abgelehnt; die Meldung nennt die
+        Regel und die beteiligten Werte.
+  SK-7  LOESCHEN. Eine Zeile der Ebenen CUSTOMER oder CONNECTION darf
+        geloescht werden; danach gilt die naechste Ebene. Eine Zeile der
+        Ebene GLOBAL wird NIE geloescht - der Key waere MISSING.
+  SK-8  WIRKUNG UND GRUND. Der Vorgang muss ausdruecklich bestaetigt
+        sein und einen Grund tragen, wenn ein geaenderter Key die Wirkung
+        RESTART oder REISSUE hat. Einen Grund verlangt auch jede Zeile
+        der Ebenen CUSTOMER und CONNECTION (sie ist eine Ausnahme fuer
+        einen Kunden) und jede Aenderung eines Keys, dessen
+        Katalogeintrag reason_required traegt (heute
+        vpn_policy_eval_sources_off: Der Eintrag nimmt eine
+        Bedingungsquelle aus der Bewertung). Sonst ist der Grund
+        freiwillig.
+  SK-9  SCHREIBEN. Je Aenderung ein Upsert (Einfuegen oder, wenn die
+        Zeile besteht, Aendern - in EINER Anweisung) und eine Zeile im
+        Protokoll, alles in der Transaktion aus SK-5; dann Abschluss.
+        Die Antwort nennt je Key die Wirkung und - bei einer Obergrenze
+        der Plattform - den Wert, der tatsaechlich wirken wird.
+
+  ZS-1  (Zusage) KEINE DOPPELTEN ZEILEN, DER LETZTE ABGESCHLOSSENE
+        VORGANG GILT (B057 13.7). Zwei gleichzeitige Vorgaenge am selben
+        Key laufen nacheinander (SK-5); gewinnt der zweite, steht der
+        erste vollstaendig im Protokoll.
+  ZS-2  (Zusage) NIE EIN HALBER VORGANG: Scheitert ein Schritt, bleibt
+        jede Zeile, wie sie war; im Protokoll steht eine Zeile REJECTED
+        je genannter Aenderung.
+  ZS-3  (Zusage) NICHTS WIRD STILL BERICHTIGT: Der Schreibkern schreibt
+        den Wert, der verlangt war, oder keinen (B057 13.7; DEC-ST-05 d).
+
+================================================================================
+4) ABLEHNUNGSGRUENDE
+================================================================================
+
+  Fester Wertevorrat fuer result:
+    CATALOG_UNREADABLE     SK-1
+    UNKNOWN_KEY            SK-2: kein Katalogeintrag
+    FORMER_KEY             SK-2: Altname
+    SCOPE_NOT_ALLOWED      SK-3: Ebene fuer diesen Key nicht erlaubt
+    SCOPE_TARGET_MISSING   SK-3: Customer oder Connection unbekannt
+    VALUE_INVALID          SK-4: Form, Grenzen oder Wertevorrat verletzt
+    STALE                  SK-5: zuletzt gesehener Wert stimmt nicht mehr
+    RULE_VIOLATED          SK-6: Regelgruppe verletzt
+    GLOBAL_DELETE          SK-7: Loeschen einer globalen Zeile
+    CONFIRMATION_MISSING   SK-8: Bestaetigung oder Grund fehlt
+    NOT_AUTHORIZED         Urheber darf nicht schreiben (Abschnitt 2)
+    DATABASE_ERROR         die Transaktion ist gescheitert
+
+  AG-1  Jede Ablehnung steht im Protokoll (action REJECTED). Laesst sich
+        das Protokoll nicht schreiben, weil die Datenbank nicht
+        erreichbar ist, meldet der Schreibkern die Ablehnung als
+        Ereignis.
+  AG-2  Ein abgelehnter Versuch, die Ebene zu umgehen oder einen Altnamen
+        zu schreiben, ist ein Ereignis mit Warnung (B057 13.8: Ablehnung
+        "+ Audit-Event").
+
+================================================================================
+5) VORSCHLAG ODER NOTWERT AUSDRUECKLICH EINSETZEN
+================================================================================
+
+  Fuer einen Key im Zustand MISSING oder INVALID bietet die Verwaltung
+  zwei Handgriffe an (B057 13.9, "Fix Actions"; TRUTH_MODEL GV-05):
+    VORSCHLAG EINSETZEN   schreibt default_value auf die Ebene GLOBAL
+                          (nur bei default_mode VALUE)
+    NOTWERT EINSETZEN     schreibt failsafe_value auf die Ebene GLOBAL
+                          (nur bei FAIL_SAFE_HARDCAP)
+  Beides sind gewoehnliche Schreibvorgaenge nach Abschnitt 3 - mit
+  Urheber, Protokoll und allen Pruefungen. Kein Programm setzt einen der
+  beiden Werte von sich aus ein.
+
+  Eine ungueltige Zeile der Ebenen CUSTOMER oder CONNECTION wird nicht
+  "repariert": Der Betreiber ersetzt sie durch einen gueltigen Wert oder
+  loescht sie.
+
+================================================================================
+6) EINSPIELUNG EINER AUSLIEFERUNG
+================================================================================
+
+  vpn-settings-seed bringt die Datenbank auf den Stand der
+  Katalog-Definition. Es laeuft bei der Einrichtung und nach jeder neuen
+  Auslieferung, als Urheber SYSTEM, in EINER Transaktion, und ist
+  wiederholbar: Ein zweiter Lauf am selben Stand aendert nichts.
+
+  ES-1  PRUEFEN. Katalog-Definition laden und pruefen. Dann die
+        Vorpruefung ES-2; scheitert sie, wird nichts geschrieben.
+  ES-2  VORPRUEFUNG DER BESTEHENDEN WERTE. Jeder Wert, der heute in den
+        Werte-Tabellen steht, wird gegen die NEUE Definition geprueft.
+        Wuerde ein Wert ungueltig (engere Grenzen) oder eine Regelgruppe
+        verletzt, bricht die Einspielung ab und nennt Key, Wert und
+        Regel. Der Betreiber berichtigt zuerst; die Einspielung aendert
+        nie einen Wert des Betreibers.
+  ES-3  KOPIE. settings_catalog wird der Definition angeglichen: neue
+        Keys einfuegen, geaenderte Felder nachziehen, catalog_version und
+        seeded_at setzen.
+  ES-4  NEUE KEYS. Fuer jeden Key mit default_mode VALUE, der auf der
+        Ebene GLOBAL noch keinen Wert hat, wird der Vorschlag
+        eingetragen (Protokoll: SEED). Bestehende Werte bleiben.
+  ES-5  UMBENANNTE KEYS. Nennt die Auslieferung fuer einen Altnamen mit
+        dem Grund RENAMED einen Nachfolger und stehen noch Werte unter
+        dem alten Namen, werden sie unter den neuen Namen umgeschrieben
+        (Protokoll: SEED mit altem und neuem Namen). Bei CHANGED wird
+        NICHT umgeschrieben: Die Bedeutung ist eine andere; der neue Key
+        erhaelt seinen Vorschlag, der alte Wert steht im Protokoll.
+  ES-6  ENTFALLENE KEYS. Werte zu Keys, die die Definition nicht mehr
+        kennt, werden geloescht (Protokoll: SEED mit dem alten Wert),
+        danach ihre Zeilen in settings_catalog.
+  ES-7  ABSCHLUSS. Nach dem Abschluss der Transaktion laeuft der
+        Prueflauf; sein Ergebnis ist das Ergebnis der Einspielung.
+
+  EV-1  DIE EINSPIELUNG IST DER EINZIGE SCHREIBER VON settings_catalog
+        (DEC-ST-02).
+  EV-2  KEIN WERT DES BETREIBERS WIRD UEBERSCHRIEBEN - auch dann nicht,
+        wenn eine Auslieferung einen Vorschlag aendert. Ein geaenderter
+        Vorschlag gilt fuer neue Installationen; die Hinweise der
+        Auslieferung nennen ihn.
+  EV-3  KEYS MIT default_mode GENERATED ODER OPERATOR fuellt die
+        Einspielung nicht. Sie bleiben MISSING, bis der Ablauf des
+        Eigentuemers bzw. der Betreiber sie setzt (BASE-090_040
+        Abschnitt 7, EB-3).
+
+================================================================================
+7) SCHREIBEN AM SCHREIBKERN VORBEI
+================================================================================
+
+  Wer Schreibrechte auf die Datenbank hat, kann eine Zeile aendern, ohne
+  den Schreibkern zu benutzen. Das laesst sich mit Rechten nicht ganz
+  ausschliessen; es wird ERKANNT und kann nichts lockern, was der Katalog
+  nicht erlaubt:
+
+  UW-1  JEDER WERT WIRD BEIM LESEN GEPRUEFT. Ein vorbei geschriebener
+        ungueltiger Wert ist INVALID; ein Wert auf einer nicht erlaubten
+        Ebene gewinnt nie (BASE-090_030 AF-4, AF-5).
+  UW-2  JEDE ZEILE HAT IHR PROTOKOLL. Der Prueflauf vergleicht je Zeile
+        Wert und Zeitpunkt mit dem juengsten Protokolleintrag fuer Key
+        und Ebene. Stimmen sie nicht ueberein, meldet er eine Aenderung
+        ohne Protokoll als Stoerung (SETTINGS_UNAUDITED_CHANGE).
+  UW-3  DER KATALOG LIEGT NICHT IN DER DATENBANK. Eine geaenderte Zeile
+        in settings_catalog aendert keine Grenze und keine Klasse; sie
+        ist DRIFT (BASE-090_040 Abschnitt 6).
+  UW-4  DIE RECHTE SIND ENG: Auf settings_catalog schreibt allein die
+        Einspielung; auf log_settings_audit wird nur angefuegt
+        (BASE-090_070 Abschnitt 3).
+
+================================================================================
+8) VERHAELTNIS ZUM VORGAENGER
+================================================================================
+
+  B057 / TRUTH_MODEL                     hier
+  -------------------------------------- ---------------------------------
+  13.1 Tabellenfamilie, Eindeutigkeit    uebernommen (Abschnitt 1)
+  13.1 "value_* (typed) ODER value_raw   value_raw mit strengem Lesen
+       + type-coercion"                  (BASE-090_020 Abschnitt 3)
+  13.1 Audit-Felder an der Zeile         uebernommen; comment und
+       (updated_at, changed_by, comment, change_reason sind EIN Feld
+       change_reason)                    change_reason
+  13.6 Write-Auth-Matrix                 uebernommen, fuer SYSTEM enger
+                                         (Abschnitt 2)
+  13.7 Upsert, kein Lesen-dann-          uebernommen (SK-9, ZS-1)
+       Einfuegen; letzter Vorgang gilt
+  13.7 / WS-03 kein Schreibweg           uebernommen (DEC-ST-09); dazu die
+       ausserhalb                        Erkennung nach Abschnitt 7
+  13.8 / OV-01 bis OV-06 Whitelist der   uebernommen (SK-3)
+       Ebenen; Ablehnung mit Protokoll
+  13.9 Fix Actions                       uebernommen als ausdrueckliche
+                                         Handgriffe (Abschnitt 5)
+  13.9 Auswahl statt Freitext            uebernommen durch die Typen:
+       (GV-01 bis GV-04)                 Es gibt keinen freien Text
+                                         (BASE-090_020 KF-5). Plan-Keys
+                                         und Nachschlagetabellen gehoeren
+                                         zum Policy-System (BASE-100).
+  Entwurf DOC-SET-WRITEPATH WP-001,      erfuellt durch AN-3: Ein Altname
+  WP-002 (nur kanonische Namen           wird nie geschrieben
+  schreiben)
+  WP-003 (Alias und kanonischer Name     nicht anwendbar: Es gibt keine
+  mit verschiedenen Werten)              Lese-Bruecke (DEC-ST-12)
+  WP-006 Audit-Minimum "before/after     ANGEPASST: Das Protokoll fuehrt
+  hash ... ohne value-leak"              die Werte selbst; kein Setting
+                                         ist ein Geheimnis (TB-3)
+
+================================================================================

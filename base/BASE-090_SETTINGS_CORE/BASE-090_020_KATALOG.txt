@@ -1,0 +1,316 @@
+================================================================================
+BASE-090 — KATALOG
+================================================================================
+DATEI: BASE-090_020_KATALOG.txt
+STATUS: IN ARBEIT (AP-K090; Modul noch unvollstaendig)
+
+ZWECK:
+  Was ein Katalogeintrag enthaelt, welche Typen es gibt und wie ein Wert
+  streng gelesen wird, wie Regelgruppen und Altnamen beschrieben sind,
+  und was beim Laden des Katalogs geprueft wird. Die Eintraege selbst
+  stehen im Verzeichnis (BASE-090_060).
+
+================================================================================
+1) DIE KATALOG-DEFINITION
+================================================================================
+
+  Die Katalog-Definition ist EINE Datei der Auslieferung (DEC-ST-02):
+    - nur lesbar (root:root 0644), nie im Betrieb geschrieben;
+    - mit Versionsnummer und Pruefsumme (SHA-256 ueber den Inhalt in
+      kanonischer Form); die Pruefsumme steht in einer zweiten Datei der
+      Auslieferung daneben;
+    - maschinenlesbar und zeilenweise vergleichbar (ein Eintrag je Key,
+      Keys alphabetisch).
+  Sie enthaelt drei Teile: die Katalogeintraege (Abschnitt 2), die
+  Regelgruppen (Abschnitt 5) und das Verzeichnis der Altnamen
+  (Abschnitt 6). Pfad: BASE-090_070 Abschnitt 2.
+
+  Die Datei beschreibt Keys. Sie traegt keine eingestellten Werte: Was im
+  Betrieb gilt, steht allein in SQL. Aus der Datei stammen nur der
+  Vorschlag (einmal, bei der Einspielung) und der Notwert (bei
+  FAIL_SAFE_HARDCAP).
+
+  settings_catalog ist die Kopie in SQL. Sie hat je Key eine Zeile mit
+  denselben Feldern, dazu catalog_version und seeded_at. Niemand ausser
+  der Einspielung schreibt sie (BASE-090_050 Abschnitt 6).
+
+================================================================================
+2) FELDER EINES KATALOGEINTRAGS
+================================================================================
+
+  Feld                    Inhalt
+  ----------------------- ------------------------------------------------
+  key                     Name; unveraenderlich, im ganzen System
+                          eindeutig; Form nach BASE-000_020 PR-01 bis
+                          PR-03, Prefix aus BASE-000_010 Abschnitt 3
+  owner_module            Eigentuemer (z. B. BASE-070)
+  value_type              INT | BOOL | ENUM | STRING | INT_LIST |
+                          ENUM_LIST (Abschnitt 3)
+  unit                    seconds | ms | days | months | bytes | count |
+                          per_sec | percent | none
+  range_min, range_max    Grenzen fuer INT und fuer die Elemente von
+                          INT_LIST (beide Pflicht, beide einschliesslich)
+  max_items               groesste Zahl der Elemente einer Liste
+  allowed_values          Wertevorrat fuer ENUM und fuer die Elemente von
+                          ENUM_LIST
+  validator               benannte Pruefung fuer STRING (Abschnitt 3)
+  special_values          Werte mit eigener Bedeutung, je mit einem Satz
+                          (DEC-ST-15); sonst leer
+  default_mode            VALUE | GENERATED | OPERATOR (Abschnitt 4)
+  default_value           der Vorschlag (nur bei default_mode VALUE)
+  allowed_override_scope  NONE | CUSTOMER | CONNECTION | BOTH
+  fail_class              FAIL_CLOSED | FAIL_SAFE_HARDCAP (DEC-ST-04)
+  failsafe_value          der Notwert (nur bei FAIL_SAFE_HARDCAP)
+  tighten_direction       LOWER | HIGHER | NEUTRAL (DEC-ST-05)
+  neutral_reason          ein Satz, warum kein Wert lockert (Pflicht bei
+                          NEUTRAL und FAIL_SAFE_HARDCAP)
+  apply_class             LIVE | RENDER | SYSCTL | PROFILE | RESTART |
+                          REISSUE (DEC-ST-11)
+  reason_required         true, wenn JEDE Aenderung des Keys einen Grund
+                          tragen muss (BASE-090_050 SK-8); sonst false
+  platform_cap            Name einer Obergrenze der Plattform (BASE-005)
+                          oder leer (DEC-ST-14)
+  lifecycle               ACTIVE | INTERIM (mit Verweis, wodurch der Key
+                          abgeloest wird)
+  description             Text fuer den Betreiber: was der Key bewirkt,
+                          was bei einem groesseren und was bei einem
+                          kleineren Wert geschieht
+  docs_anchor             Datei und Abschnitt des Konzepts, die den Key
+                          erklaeren
+
+  VERHAELTNIS ZU DEN FELDERN DES VORGAENGERS (B057 13.2, B055 Abschnitt 4,
+  TRUTH_MODEL 4.5):
+    key, value_type, range_min/range_max, allowed_override_scope,
+    fail_class, failsafe_value, description, docs_anchor
+                          uebernommen
+    validator             uebernommen, aber nur als BENANNTE Pruefung
+                          (kein frei eingebbares Muster)
+    scope_default {GLOBAL} entfaellt: Der Grundwert liegt immer auf der
+                          Ebene GLOBAL; ein anderer Wert des Feldes war
+                          nie vorgesehen
+    is_required           entfaellt: Jeder Key ist Pflicht (DEC-ST-17)
+    policy_direction      ersetzt durch tighten_direction; TIGHTEN_ONLY
+                          und RELAXES_ACCESS ergeben sich aus Richtung und
+                          Klasse (DEC-ST-05)
+    missing_behavior,     entfallen als Felder: Beides bestimmt die
+    invalid_behavior      Fehlerklasse; ein ungueltiger Wert wird
+                          zusaetzlich immer protokolliert und als Stoerung
+                          gemeldet (BASE-090_040)
+    created_at/updated_at ersetzt durch catalog_version und seeded_at an
+                          der Kopie in SQL
+    domain_key (Option)   ersetzt durch allowed_values und validator
+    Typen FLOAT, DURATION, CIDR, JSON: siehe Abschnitt 3
+  NEU gegenueber dem Vorgaenger: owner_module, unit, max_items,
+    special_values, default_mode, default_value, tighten_direction,
+    neutral_reason, apply_class, reason_required, platform_cap,
+    lifecycle. unit,
+    default_value und der Verweis auf Verbraucher stammen aus den
+    Entwuerfen des Vorgaengers (NORM-01, Vorlage fuer Katalogeintraege).
+
+================================================================================
+3) TYPEN UND STRENGES LESEN
+================================================================================
+
+  Jeder Wert steht in den Werte-Tabellen als Text (value_raw). Gelesen
+  wird streng nach dem Typ des Katalogs; alles, was der Form nicht GENAU
+  entspricht, ist ungueltig - auch Leerraum davor oder danach.
+
+  INT        Ziffern ohne fuehrende Null (ausser der Zahl 0 selbst);
+             ein Minuszeichen nur, wenn range_min kleiner als 0 ist;
+             kein Pluszeichen, kein Trennzeichen, hoechstens 18 Ziffern.
+             Gueltig, wenn range_min <= Wert <= range_max.
+  BOOL       genau "true" oder "false".
+  ENUM       genau einer der allowed_values (Gross- und Kleinschreibung
+             zaehlt).
+  STRING     1 bis 255 Zeichen ohne Steuerzeichen UND die benannte
+             Pruefung besteht. Benannte Pruefungen:
+               TIMEZONE   Name einer Zeitzone der Zeitzonen-Datenbank des
+                          Systems (z. B. Europe/Berlin)
+               HOST       Rechnername nach den Regeln fuer DNS-Namen oder
+                          eine IPv4- oder IPv6-Adresse
+             Eine weitere Pruefung entsteht nur mit einer neuen
+             Auslieferung.
+  INT_LIST   Liste von INT in eckigen Klammern, durch Komma getrennt, ohne
+             Leerraum, aufsteigend sortiert, ohne Doppelte, z. B. [] oder
+             [25,465,587]; jedes Element in den Grenzen; hoechstens
+             max_items Elemente.
+  ENUM_LIST  Liste von allowed_values in eckigen Klammern, je in doppelten
+             Anfuehrungszeichen, durch Komma getrennt, ohne Leerraum, in
+             der Reihenfolge von allowed_values, ohne Doppelte.
+
+  REGELN
+    KF-1  NULL und der leere Text sind nie ein Wert (DEC-ST-15). Die leere
+          Liste schreibt sich [].
+    KF-2  Eine Liste ist eine Menge. Der Schreibkern nimmt die Elemente in
+          beliebiger Reihenfolge an und speichert sie in der festen Form;
+          Doppelte lehnt er ab. Beim LESEN gilt nur die feste Form.
+    KF-3  Dauer und Groesse sind INT mit Einheit. Die Einheit steht im
+          Feld unit UND im Namen des Keys (_seconds, _ms, _days, _months,
+          _bytes, _per_sec, _percent); beides stimmt ueberein.
+    KF-4  Es gibt keinen Typ fuer Kommazahlen. Ein Verhaeltnis wird als
+          ganzer Faktor oder in Prozent gefuehrt.
+    KF-5  Es gibt keinen freien Texttyp und keinen Typ fuer verschachtelte
+          Strukturen. Braucht ein Modul mehr, meldet es den Bedarf an
+          (BASE-090_060 Abschnitt 10); bis dahin gilt: lieber mehrere
+          einfache Keys als ein zusammengesetzter.
+
+  ZU DEN TYPEN DES VORGAENGERS (B057 13.2: "INT, FLOAT, BOOL, STRING,
+  DURATION, CIDR, ENUM, JSON (oder dein zulässiger Satz)"): INT, BOOL,
+  STRING und ENUM sind uebernommen. DURATION ist INT mit Einheit (KF-3).
+  FLOAT, CIDR und JSON braucht kein Key der geschriebenen Module: Der
+  einzige Kommawert des Vorgaengers (Faktor fuer Admins) ist heute ein
+  ganzer Faktor; Adressbereiche stehen in vpn_pool_config und in der
+  Plattform-Registry, nicht in Settings (DEC-ST-01). Listen kannte der
+  Vorgaenger nur als JSON; hier sind sie eigene, pruefbare Typen.
+
+================================================================================
+4) VORSCHLAG: DREI ARTEN, WIE EIN KEY SEINEN ERSTEN WERT ERHAELT
+================================================================================
+
+  default_mode  Bedeutung
+  ------------- -----------------------------------------------------------
+  VALUE         Der Katalog nennt den Vorschlag. Die Einspielung traegt
+                ihn in settings_global ein, wenn dort noch kein Wert steht.
+  GENERATED     Der Eigentuemer erzeugt den Wert bei der Einrichtung nach
+                seinen Regeln und schreibt ihn ueber den Schreibkern (die
+                Verschleierungs-Parameter von BASE-040). Bis dahin ist der
+                Key MISSING.
+  OPERATOR      Den Wert kann nur der Betreiber wissen (der oeffentliche
+                Name des Servers). Die Einrichtung verlangt die Eingabe;
+                bis dahin ist der Key MISSING.
+
+  Der Vorschlag ist kein Rueckfall. Fehlt ein Wert spaeter - weil eine
+  Zeile geloescht wurde oder eine Einspielung unvollstaendig blieb -, gilt
+  NICHT der Vorschlag, sondern die Fehlerklasse (DEC-ST-05 a). Der
+  Betreiber kann den Vorschlag ueber den Schreibkern ausdruecklich
+  einsetzen (BASE-090_050 Abschnitt 5); das ist ein protokollierter
+  Schreibvorgang.
+
+================================================================================
+5) REGELGRUPPEN
+================================================================================
+
+  Eine Regelgruppe (DEC-ST-08) hat:
+    rule_id         Kennung; die Kennungen der Module bleiben erhalten
+                    (z. B. K-c von BASE-070, KP-a von BASE-080)
+    owner_module    Eigentuemer der Regel
+    dependent_keys  Keys des Eigentuemers, die bei einer Verletzung nach
+                    ihrer Klasse behandelt werden
+    reference_keys  Keys anderer Module, die die Regel nur liest
+    condition       die Bedingung in einer der festen Formen unten
+    message         Text fuer den Betreiber
+
+  FESTE FORMEN DER BEDINGUNG (a, b, c, d sind Keys vom Typ INT; n ist
+  eine ganze Zahl des Katalogs):
+    F1  Vergleich        a < b, a <= b, a != b
+    F2  mit Faktor       n * a <= b, n * a < b, a >= n * b
+    F3  mit Summe        a > b + c, a > b + c + d, a >= n * b + c
+    F4  verschoben       a + n != b
+    F5  verschieden      die genannten Keys tragen paarweise verschiedene
+                         Werte
+    F6  Liste            keine der genannten Zahlen ist Element der Liste
+    F7  fremde Groesse   Vergleich mit einem Wert, den ein anderes Modul
+                         nicht als Key fuehrt (z. B. ein Zeitlimit eines
+                         Dienstes). Diese Regel kann der Katalog nicht
+                         pruefen; sie steht als PRUEFAUFTRAG AN DEN
+                         EIGENTUEMER in der Gruppe und wird von ihm
+                         geprueft und gemeldet.
+  Eine andere Form entsteht nur mit einer neuen Auslieferung.
+
+  REGELN
+    RG-1  Eine Regelgruppe hat mindestens einen abhaengigen Key.
+    RG-2  Jeder Key einer Regelgruppe steht im Katalog (F7 ausgenommen).
+    RG-3  Die Notwerte aller Mitglieder einer Regelgruppe erfuellen die
+          Bedingung miteinander. Mitglieder der Klasse FAIL_CLOSED haben
+          keinen Notwert; fuer sie gilt RG-3 mit ihrem Vorschlag.
+    RG-4  Die Vorschlaege aller Mitglieder erfuellen die Bedingung
+          miteinander.
+          Mitglieder OHNE Vorschlag (default_mode GENERATED oder
+          OPERATOR) bleiben bei RG-3 und RG-4 ausser Betracht: Ihr
+          Eigentuemer erzeugt Werte, die die Regel erfuellen, und der
+          Schreibkern prueft sie beim Schreiben.
+    RG-5  Ein Key kann abhaengiges Mitglied mehrerer Regelgruppen sein.
+          Ist eine davon verletzt, gilt er als RULE_VIOLATED.
+    RG-6  Ein Key eines Listentyps der Klasse FAIL_SAFE_HARDCAP ist in
+          keiner Regelgruppe abhaengiges Mitglied. Grund: Den
+          "strengeren von eigenem Wert und Notwert" (BASE-090_030 RA-5)
+          gibt es fuer zwei Listen nicht immer als gueltigen Wert des
+          Keys. Heute braucht ihn kein Key; eine Aenderung waere eine
+          Entscheidung in diesem Modul.
+  Verhalten beim Schreiben: BASE-090_050 Abschnitt 3. Verhalten bei der
+  Aufloesung: BASE-090_030 Abschnitt 4.
+
+================================================================================
+6) VERZEICHNIS DER ALTNAMEN
+================================================================================
+
+  Je Altname (DEC-ST-12):
+    old_key     der fruehere Name, wie er in einer Quelle steht
+    new_key     der heutige Key - oder leer, wenn es keinen Nachfolger
+                gibt
+    reason      RENAMED (nur der Name hat sich geaendert) | CHANGED (Name
+                und Bedeutung haben sich geaendert) | DROPPED (entfallen)
+    source      wo der Altname steht (Vorgaenger, TRUTH_MODEL, D004, ein
+                Modul)
+    note        ein Satz, besonders bei CHANGED und DROPPED
+
+  REGELN
+    AN-1  Ein Altname ist nie zugleich ein Key des Katalogs.
+    AN-2  Ein Altname wird nicht aufgeloest: Der Aufruf scheitert mit dem
+          Ergebnis "kein Katalogeintrag" und nennt new_key und reason.
+    AN-3  Ein Altname wird nicht geschrieben: Der Schreibkern lehnt ab
+          und protokolliert den Versuch.
+    AN-4  Bei CHANGED nennt die Meldung ausdruecklich, dass der neue Key
+          etwas anderes bedeutet - damit niemand den alten Wert unter dem
+          neuen Namen eintraegt.
+  Die Eintraege: BASE-090_060 Abschnitt 8.
+
+================================================================================
+7) PRUEFUNG BEIM LADEN
+================================================================================
+
+  Aufloeser, Schreibkern, Einspielung und Prueflauf laden die
+  Katalog-Definition, bevor sie etwas anderes tun, und pruefen:
+
+    LP-1   Die Pruefsumme stimmt.
+    LP-2   Jeder Key entspricht der Form und traegt genau einen erlaubten
+           Prefix (BASE-000_010 Abschnitt 3; BASE-000_060 T-SQL-06).
+    LP-3   Typ, Einheit und Name passen zusammen (KF-3); die fuer den Typ
+           noetigen Felder sind gesetzt, die uebrigen leer.
+    LP-4   range_min <= range_max; bei default_mode VALUE ist der
+           Vorschlag ein gueltiger Wert des Keys.
+    LP-5   FAIL_SAFE_HARDCAP hat einen Notwert, der ein gueltiger Wert des
+           Keys ist; FAIL_CLOSED hat keinen.
+    LP-6   Richtung (DEC-ST-05 c): bei LOWER ist der Notwert nicht
+           groesser, bei HIGHER nicht kleiner als der Vorschlag; bei
+           NEUTRAL mit FAIL_SAFE_HARDCAP ist neutral_reason gesetzt. Fuer
+           ENUM gilt LOWER und HIGHER in der Reihenfolge von
+           allowed_values. Fuer LISTEN gilt die Richtung der Menge: Bei
+           LOWER ist jede Teilmenge strenger, bei HIGHER jede Obermenge;
+           der Notwert ist bei LOWER eine Teilmenge, bei HIGHER eine
+           Obermenge des Vorschlags. Keys ohne Vorschlag (GENERATED,
+           OPERATOR) sind FAIL_CLOSED.
+    LP-7   Jeder Sonderwert ist ein gueltiger Wert des Keys und hat einen
+           Satz; keiner bedeutet "unbegrenzt" (DEC-ST-15).
+    LP-8   allowed_override_scope ist NONE - ausser bei Keys mit lifecycle
+           INTERIM (DEC-ST-16). Jede spaetere Ausnahme braucht eine
+           Entscheidung in diesem Modul.
+    LP-9   Regelgruppen: RG-1 bis RG-4 und RG-6.
+    LP-10  Altnamen: AN-1; jeder new_key steht im Katalog.
+    LP-11  platform_cap nennt eine Obergrenze, die BASE-005 fuehrt; der
+           Key ist vom Typ INT, und range_max ist nicht kleiner als der
+           Vorschlag.
+
+  Scheitert EINE Pruefung, ist der Katalog-Zustand UNREADABLE (DEC-ST-07):
+  Die Auslieferung ist fehlerhaft, und nichts wird aufgeloest oder
+  geschrieben. LP-2 bis LP-11 werden zusaetzlich VOR der Auslieferung
+  geprueft (BASE-090_095), sodass im Betrieb nur LP-1 scheitern kann -
+  durch eine beschaedigte oder veraenderte Datei.
+
+  VERGLEICH MIT DER KOPIE IN SQL: Ist die Datenbank lesbar, vergleicht der
+  Prueflauf settings_catalog Feld fuer Feld mit der Definition. Jede
+  Abweichung - ein fehlender oder ueberzaehliger Key, ein anderes Feld,
+  eine andere Version - ergibt den Katalog-Zustand DRIFT. Es gilt die
+  Definition (DEC-ST-02); die Einspielung stellt die Kopie wieder her.
+
+================================================================================

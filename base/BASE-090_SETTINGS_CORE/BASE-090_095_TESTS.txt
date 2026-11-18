@@ -1,0 +1,317 @@
+================================================================================
+BASE-090 — TESTS UND VALIDIERUNG (Settings-Kern)
+================================================================================
+DATEI: BASE-090_095_TESTS.txt
+STATUS: IN ARBEIT (AP-K090; Modul noch unvollstaendig)
+
+BELEGSTAND ALLER TESTS: GEPLANT. Keiner dieser Tests wurde ausgefuehrt; es
+existiert keine Implementierung. Die Tests sind Abnahmekriterien fuer die
+spaetere Umsetzung (Definition of Done von BASE-090).
+
+TESTARTEN:
+  [K]  Konzept-/Konfigurationspruefung (Review, statische Pruefung, Pruefung
+       der Katalog-Definition vor der Auslieferung)
+  [L]  Labortest an einer Implementierung (isolierte Testumgebung)
+
+PROOF-ANKER (04_PHASE_PLAN):
+  RT-PH6-PROOF-02 (Protokolle rotieren ohne
+                   vollen Datentraeger; Anteil
+                   dieses Moduls)               -> T-ST-17
+Der Phasenplan nennt dafuer den Platzhalter "BASE-090_095 T-SE-XX
+(Retention-Settings)"; er wird durch diese Kennung ersetzt (Nachzug
+AP-A06). Die Keys der Aufbewahrung selbst sind angekuendigt und werden von
+MOD-007 angemeldet (BASE-090_060 Abschnitt 9; ANF-ST-07). Der Anteil von
+BASE-090: Ein eingestellter Wert wirkt nie ueber eine Obergrenze der
+Plattform hinaus.
+
+KENNUNG: T-ST gehoert diesem Modul (Praefix der Invarianten: ST). Tests,
+die einen Proof-Anker tragen, nennen ihn am Ende des Eintrags.
+
+ZUORDNUNG DER TESTS AUS TRUTH_MODEL ABSCHNITT 10:
+  T-TM-01 (Reihenfolge der Ebenen)        -> T-ST-12
+  T-TM-02 (FAIL_CLOSED bei fehlendem Key) -> T-ST-19
+  T-TM-03 (Notwert bei fehlendem Key)     -> T-ST-18
+  T-TM-04 (ungueltiger Wert)              -> T-ST-18, T-ST-37
+  T-TM-05 (nicht erlaubte Ebene)          -> T-ST-13, T-ST-30
+  T-TM-06 (Form der Keys)                 -> T-ST-04
+  T-TM-07 (Auskunft je Key)               -> T-ST-16, T-ST-36
+  T-TM-08 (Verhalten ohne Datenbank)      -> T-ST-21, T-ST-23; ANGEPASST
+                                             nach DEC-ST-06
+ZUORDNUNG ZUM VORGAENGER (B057 13.11): DoD-E1 -> T-ST-13, T-ST-30;
+  DoD-P0/P1 -> T-ST-16; DoD-E2/P4 -> T-ST-18, T-ST-19, T-ST-37; DoD-P5 ->
+  T-ST-36.
+
+================================================================================
+KATALOG
+================================================================================
+
+  T-ST-01  [K] Kein Programm mit eigenem Wert. Der Programmtext jedes
+           Verbrauchers wird durchsucht: (a) kein Zahlen- oder Textwert steht
+           dort, wo ein Key benutzt wird; (b) kein Zugriff auf settings_*
+           ausserhalb der Bibliothek; (c) kein Zuruecklesen eines Wertes aus
+           einer gerenderten Datei. [L] Ein Verbraucher mit einem Key im Zustand
+           MISSING benutzt den Notwert bzw. fuehrt den Vorgang nicht aus - nie
+           den Vorschlag. [ST-01]
+
+  T-ST-02  [L] Katalog unveraenderlich. (a) Kein Werkzeug hat einen Aufruf, der
+           die Katalog-Definition schreibt. (b) Das Panel kann settings_catalog
+           nicht schreiben (Recht fehlt). (c) Eine von Hand geaenderte Zeile in
+           settings_catalog (weitere Grenze) aendert nichts an der Pruefung
+           eines Wertes. [ST-02, ST-25]
+
+  T-ST-03  [L] Unbrauchbarer Katalog. Pruefsumme verfaelscht; Datei entfernt; je
+           eine Pruefung LP-2 bis LP-11 verletzt: Jeder Aufruf des Aufloesers
+           scheitert ohne Ergebnis (auch ohne Notwert), der Schreibkern schreibt
+           nichts, das Ereignis ist gemeldet. [ST-03]
+
+  T-ST-04  [K] Form der Keys. Jeder Key der Katalog-Definition entspricht der
+           Form, traegt genau einen erlaubten Prefix, und Einheit im Namen und
+           Feld unit stimmen ueberein. Gegenprobe: je ein Key ohne Prefix, mit
+           Grossbuchstaben, mit falscher Einheit - die Pruefung vor der
+           Auslieferung schlaegt an. [ST-04]
+
+  T-ST-05  [K] Notwert und Richtung. Fuer jeden Key: FAIL_SAFE_HARDCAP hat einen
+           gueltigen Notwert; bei LOWER ist er nicht groesser, bei HIGHER nicht
+           kleiner als der Vorschlag (bei einer Liste: Teilmenge bzw. Obermenge
+           des Vorschlags); bei NEUTRAL steht ein Grund; FAIL_CLOSED hat keinen
+           Notwert. Gegenprobe je Regel. [ST-05]
+
+  T-ST-06  [L] Sonderwerte und leere Werte. (a) Ein im Katalog genannter
+           Sonderwert wird angenommen und in der Auskunft mit seiner Bedeutung
+           gezeigt. (b) NULL, der leere Text und Leerraum um einen Wert sind
+           ungueltig - beim Schreiben abgelehnt, beim Lesen INVALID. (c) Kein
+           Katalogeintrag nennt einen Sonderwert mit der Bedeutung "unbegrenzt".
+           [ST-06]
+
+  T-ST-07  [K] Ebenen. Jeder Key ausser den zwei Uebergangs-Keys hat
+           allowed_override_scope NONE. [ST-07]
+
+  T-ST-08  [K] Regelgruppen am Katalog. Fuer jede pruefbare Regelgruppe
+           erfuellen die Notwerte und die Vorschlaege ihrer Mitglieder die
+           Bedingung. Gegenprobe: ein veraenderter Notwert, der eine Regel
+           bricht, wird vor der Auslieferung gefunden; ebenso ein Listen-Key der
+           Klasse FAIL_SAFE_HARDCAP als abhaengiges Mitglied einer Regelgruppe.
+           [ST-08]
+
+  T-ST-09  [L] Altnamen. (a) Aufloesen eines Altnamens: Aufruf scheitert,
+           Meldung nennt den heutigen Key. (b) Schreiben unter einem Altnamen:
+           abgelehnt und protokolliert. (c) Altname mit geaenderter Bedeutung:
+           Die Meldung sagt das ausdruecklich. (d) Kein Altname ist ein Key.
+           [ST-09]
+
+================================================================================
+AUFLOESUNG
+================================================================================
+
+  T-ST-10  [L] Deterministisch. Derselbe Stand, hundert Aufrufe mit wechselnder
+           Reihenfolge der Keys und aus verschiedenen Prozessen: je Key dasselbe
+           Ergebnis. [ST-10]
+
+  T-ST-11  [L] Nie der Vorschlag, nie zurechtgestutzt. (a) Globale Zeile
+           entfernt: Ergebnis Notwert bzw. kein Wert, nicht der Vorschlag. (b)
+           Wert um eins ueber range_max: INVALID, nicht range_max. (c) Wert
+           genau range_min und genau range_max: OK. [ST-11]
+
+  T-ST-12  [L] Reihenfolge und kein Durchfallen. Mit einem Uebergangs-Key: (a)
+           CUSTOMER-Zeile gueltig, GLOBAL gueltig: es gilt CUSTOMER. (b) keine
+           CUSTOMER-Zeile: GLOBAL. (c) CUSTOMER-Zeile UNGUELTIG, GLOBAL gueltig:
+           INVALID mit Notwert - nicht der globale Wert. (d) Connection ohne
+           Customer: GLOBAL. [ST-12]
+
+  T-ST-13  [L] Nicht erlaubte Ebene. Eine am Schreibkern vorbei eingefuegte
+           Zeile in settings_connection zu einem Key ohne diese Ebene: Die
+           Aufloesung uebergeht sie; SETTINGS_SCOPE_VIOLATION ist gemeldet.
+           [ST-13]
+
+  T-ST-14  [L] Ein Schnappschuss. Waehrend ein Schreibvorgang drei Keys einer
+           Regelgruppe aendert, loesen parallele Aufrufe auf: Jeder sieht alle
+           drei alten oder alle drei neuen Werte, nie eine Mischung. [ST-14]
+
+  T-ST-15  [L] Unbekannter Name. Ein Aufruf mit zwei gueltigen und einem
+           unbekannten Namen scheitert als Ganzes; es gibt kein Teilergebnis.
+           [ST-15]
+
+  T-ST-16  [L] Ergebnis vollstaendig. Fuer jeden Zustand (OK, MISSING, INVALID,
+           RULE_VIOLATED, DB_UNKNOWN) und jede Herkunft: Das Ergebnis traegt
+           Wert bzw. "kein Wert", Herkunft, Zustand, Grund aus dem festen Vorrat
+           und - wo zutreffend - die Kennung des Bezugs. [ST-16]
+
+  T-ST-17  [L] Obergrenze. Key mit Obergrenze, eingestellter Wert darueber:
+           wirksam ist die Obergrenze, capped gesetzt, der eingestellte Wert
+           bleibt in der Tabelle. Wert darunter: unveraendert, capped nicht
+           gesetzt. (Proof fuer RT-PH6-PROOF-02) [ST-17]
+
+================================================================================
+FEHLERVERHALTEN
+================================================================================
+
+  T-ST-18  [L] Nichts lockert. Fuer jeden Key der Klasse FAIL_SAFE_HARDCAP mit
+           Richtung: fehlend und ungueltig ergeben den Notwert, und der ist
+           nicht lockerer als der Vorschlag. Fuer jeden Zustand ausser OK ist
+           der wirksame Wert nie lockerer als der zuletzt gueltig eingetragene.
+           [ST-18]
+
+  T-ST-19  [L] FAIL_CLOSED. Je Key der Klasse FAIL_CLOSED, fehlend und
+           ungueltig: (a) kein Wert; (b) der vom Eigentuemer benannte Vorgang
+           unterbleibt; (c) was bestand, besteht weiter (aktives Regelwerk,
+           gerenderte Datei, gesetzte Frist); (d) nichts oeffnet sich.
+           Beispiele: vpn_quarantine_days (keine Rueckgabe, Entzug wirkt), ein
+           Key der Firewall (kein neues Regelwerk, das alte gilt). [ST-19]
+
+  T-ST-20  [L] Verletzte Regelgruppe. (a) Zwei eigene Keys, Regel verletzt,
+           einer strenger als sein Notwert: Er behaelt seinen Wert, der andere
+           erhaelt den strengeren von Wert und Notwert; verbleibt die
+           Verletzung, ist SETTINGS_RULE_CONFLICT gemeldet. (b) Regel mit
+           Bezugs-Key: Der Bezugs-Key bleibt unveraendert. (c) Beide Runden der
+           Auswertung enden; das Ergebnis haengt nicht von der Reihenfolge der
+           Regeln ab. [ST-20]
+
+  T-ST-21  [L] Halten. Ein Dienst hat aufgeloest; die Datenbank wird gestoppt:
+           (a) Er arbeitet mit den gehaltenen Werten weiter (Herkunft HELD,
+           Zustand DB_UNKNOWN, einmal gemeldet). (b) Nach einem Neustart des
+           Dienstes ohne Datenbank haelt er nichts. (c) Auf der Platte findet
+           sich kein gehaltener Wert. [ST-21]
+
+  T-ST-22  [L] Nach dem Halten. Waehrend des Ausfalls wird (vorbereitet) ein
+           Wert ungueltig gemacht; die Datenbank kehrt zurueck: Der Dienst
+           benutzt ab der naechsten Aufloesung den Notwert bzw. keinen Wert,
+           nicht mehr den gehaltenen. Lesbare Datenbank mit ungueltigem Wert:
+           kein Halten. [ST-22]
+
+  T-ST-23  [L] Start ohne Datenbank. Dienst startet bei gestoppter Datenbank:
+           Notwerte fuer FAIL_SAFE_HARDCAP, kein Wert fuer FAIL_CLOSED;
+           SETTINGS_STARTED_ON_FAILSAFE gemeldet; nach Rueckkehr der Datenbank
+           gelten die eingestellten Werte. [ST-23]
+
+  T-ST-24  [L] Stoerung bleibt beim Key. Ein Key ungueltig: Alle anderen Keys
+           ohne gemeinsame Regelgruppe liefern unveraendert OK; die Datenbank
+           gilt weiter als lesbar. [ST-24]
+
+  T-ST-25  [L] Abweichende Kopie. (a) Zeile in settings_catalog geaendert,
+           entfernt, hinzugefuegt: Zustand DRIFT gemeldet, Aufloesung nach der
+           Definition. (b) Wert zu einem Namen, den nur die Datenbank kennt: nie
+           aufgeloest, gemeldet. (c) Einspielung stellt die Kopie her. [ST-25]
+
+================================================================================
+LESEN
+================================================================================
+
+  T-ST-26  [K] Kein Lesen im zeitkritischen Pfad. Durchsicht der Pfade
+           Anmeldung, Verbindungsaufbau, Hooks, Paketfluss in allen Modulen:
+           kein Datenbankzugriff allein fuer Settings. [L] 1.000 Anmeldungen in
+           einer Minute: Die Zahl der Settings-Abfragen waechst nicht mit der
+           Zahl der Anmeldungen. Eine Aenderung mit der Wirkung LIVE gilt im
+           Dienst spaetestens nach settings_refresh_interval_seconds. [ST-26]
+
+  T-ST-27  [L] Viele Bezuege. Ein Uebergangs-Key fuer 5.000 Customers in einem
+           Aufruf: Die Zahl der Abfragen ist dieselbe wie fuer 5. [ST-27]
+
+================================================================================
+SCHREIBEN
+================================================================================
+
+  T-ST-28  [L] Wer schreibt. (a) Rollen MODERATOR, VIP, USER: jeder
+           Schreibversuch abgelehnt (NOT_AUTHORIZED) und protokolliert. (b)
+           SYSTEM ausserhalb der zwei benannten Ablaeufe: abgelehnt. [K] Kein
+           Programm ausser Schreibkern und Einspielung enthaelt eine schreibende
+           Anweisung auf settings_*. [ST-28]
+
+  T-ST-29  [L] Ganz oder gar nicht. (a) Vorgang mit drei Aenderungen, die dritte
+           ungueltig: keine der drei geschrieben, drei Zeilen REJECTED. (b) Zwei
+           gleichzeitige Vorgaenge am selben Key: eine Zeile, der zuletzt
+           abgeschlossene Wert, beide im Protokoll. (c) Abbruch der Datenbank
+           mitten im Vorgang: nichts geaendert. (d) Veraltete Anzeige (zuletzt
+           gesehener Wert stimmt nicht): STALE. [ST-29]
+
+  T-ST-30  [L] Ablehnen statt berichtigen. Je ein Versuch: Altname, nicht
+           erlaubte Ebene, unbekannter Customer, Wert ausserhalb der Grenzen,
+           Wert in falscher Form, Regelgruppe danach verletzt - jeweils
+           abgelehnt mit dem festen Grund, nichts geschrieben. Eine Liste in
+           anderer Reihenfolge wird angenommen und in fester Form gespeichert;
+           eine Liste mit Doppelten wird abgelehnt. Zusammengehoerige Keys einer
+           Regelgruppe lassen sich in EINEM Vorgang aendern, einzeln nicht.
+           [ST-30]
+
+  T-ST-31  [L] Globale Zeile bleibt. Loeschen einer globalen Zeile: abgelehnt
+           (GLOBAL_DELETE). Loeschen einer Zeile der Ebene CUSTOMER:
+           ausgefuehrt, danach gilt GLOBAL. [ST-31]
+
+  T-ST-32  [L] Bestaetigung und Grund. Aenderung eines Keys mit der Wirkung
+           REISSUE ohne Bestaetigung oder ohne Grund: abgelehnt
+           (CONFIRMATION_MISSING); mit beidem: geschrieben, die Antwort nennt
+           die Wirkung. Zeile der Ebene CUSTOMER ohne Grund: abgelehnt.
+           Aenderung von vpn_policy_eval_sources_off (reason_required) ohne
+           Grund: abgelehnt; mit Grund: geschrieben, Urheber und Grund stehen im
+           Protokoll. [ST-32]
+
+  T-ST-33  [L] Protokoll. (a) Nach jedem Vorgang steht je Aenderung eine Zeile
+           mit Urheber, Zeit, altem und neuem Wert. (b) Scheitert das Schreiben
+           des Protokolls, ist auch der Wert nicht geaendert. (c) Aendern und
+           Loeschen einer Protokollzeile ist den Benutzern des Panels und der
+           Programme nicht moeglich. [ST-33]
+
+  T-ST-34  [L] Einspielung. (a) Neue Definition mit neuem Key: Vorschlag
+           eingetragen, bestehende Werte unveraendert. (b) Neue Definition mit
+           engerer Grenze, bestehender Wert ausserhalb: Abbruch ohne Schreiben,
+           Meldung nennt Key und Wert. (c) Zweiter Lauf: keine Aenderung. (d)
+           Umbenannter Key (RENAMED): Wert unter neuem Namen; geaenderter Key
+           (CHANGED): neuer Key mit Vorschlag, alter Wert nur im Protokoll. (e)
+           Geaenderter Vorschlag: bestehender Wert bleibt. [ST-34]
+
+  T-ST-35  [L] Kein selbsttaetiges Einsetzen. Key MISSING ueber eine Stunde: In
+           settings_global entsteht keine Zeile. "Vorschlag einsetzen" und
+           "Notwert einsetzen" durch einen ADMIN: Zeile entsteht, Protokoll
+           nennt ihn. Keys mit default_mode GENERATED oder OPERATOR fuellt die
+           Einspielung nicht. [ST-35]
+
+================================================================================
+BEOBACHTBARKEIT UND GRENZEN
+================================================================================
+
+  T-ST-36  [L] Kein stiller Notbetrieb. Je Zustand ausser OK: Ereignis beim
+           Eintritt, Eintrag im Status des Prueflaufs, sichtbar in der Auskunft;
+           bei andauerndem Zustand hoechstens ein Ereignis je
+           settings_check_interval_seconds; nach Behebung SETTINGS_RESOLVED. Ein
+           Status, der aelter ist als zweimal der Takt, wird als veraltet
+           angezeigt. [ST-36]
+
+  T-ST-37  [L] Ungueltig ist haerter. Ungueltiger Wert und verletzte
+           Regelgruppe: Stufe ALERT, der vorgefundene Wert steht im Ereignis.
+           Fehlender Wert bei FAIL_SAFE_HARDCAP: WARN; bei FAIL_CLOSED: ALERT.
+           [ST-37]
+
+  T-ST-38  [L] Prueflauf. (a) Ein Key, den kein Dienst gerade liest, wird
+           ungueltig gemacht: Der Prueflauf meldet ihn. (b) Zeile am Schreibkern
+           vorbei geaendert (gueltiger Wert): SETTINGS_UNAUDITED_CHANGE. (c)
+           Zeile zu unbekanntem Namen: SETTINGS_UNKNOWN_ROW. (d) Vor und nach
+           dem Lauf sind alle Tabellen unveraendert. (e) Ohne Datenbank prueft
+           er den Katalog und meldet die Datenbank. [ST-38]
+
+  T-ST-39  [L] Sichtbarkeit. Rollen ausser ADMIN erhalten vom Panel weder Werte
+           noch Zustaende von Settings. Ausserhalb des VPN ist die Auskunft
+           nicht erreichbar. [ST-39]
+
+  T-ST-40  [K] Abgrenzung. Jeder Key des Verzeichnisses besteht die drei Fragen
+           aus DEC-ST-01; kein Key traegt einen Schluessel, ein Kennwort, ein
+           Recht eines Kunden (ausser den zwei Uebergangs-Keys) oder einen
+           festen Wert der Plattform. [ST-40]
+
+  T-ST-41  [L] Keine Folgen. Nach einem Schreibvorgang hat kein Werkzeug dieses
+           Moduls gerendert, einen Dienst neu gestartet, ein Profil ausgestellt
+           oder einen Lauf eines anderen Moduls angestossen. [ST-41]
+
+  T-ST-42  [L] Rechte. Der Datenbank-Benutzer radius hat kein Recht auf
+           settings_* und log_settings_audit (wie BASE-000_060 T-SQL-02).
+           [ST-42]
+
+================================================================================
+ABNAHME DER EINRICHTUNG
+================================================================================
+
+  T-ST-43  [L] Vor dem Betrieb (BASE-090_040 EB-1 bis EB-4). Nach Einspielung
+           und Einrichtung meldet der Prueflauf fuer jeden Key OK und keine
+           verletzte Regelgruppe; fehlt der Wert eines Keys mit default_mode
+           OPERATOR, gilt die Einrichtung nicht als abgeschlossen. [ST-03,
+           ST-35]
+
+================================================================================

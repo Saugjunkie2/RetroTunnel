@@ -1,0 +1,270 @@
+================================================================================
+BASE-090 — BETRIEB UND BEOBACHTBARKEIT
+================================================================================
+DATEI: BASE-090_070_BETRIEB_UND_BEOBACHTBARKEIT.txt
+STATUS: IN ARBEIT (AP-K090; Modul noch unvollstaendig)
+
+ZWECK:
+  Werkzeuge, Pfade, Rechte in der Datenbank, der Prueflauf, die Gruende
+  und Ereignisse, die Auskunft fuer Betreiber und Panel und das Verhalten
+  bei Stoerungen.
+
+================================================================================
+1) WERKZEUGE
+================================================================================
+
+  Alle vier Werkzeuge benutzen dieselbe Bibliothek wie die Dienste
+  (DEC-ST-09). Sie laufen am Server als root.
+
+  vpn-settings-get    AUFLOESER. Loest die genannten Keys fuer einen Bezug
+                      auf und gibt je Key das Ergebnis nach BASE-090_030
+                      Abschnitt 1 aus (maschinenlesbar). Mit --all: alle
+                      Keys des Katalogs. Nur lesend.
+  vpn-settings-set    SCHREIBKERN. Ein Vorgang mit einer oder mehreren
+                      Aenderungen (BASE-090_050 Abschnitt 3). Zeigt vor
+                      dem Schreiben Wirkung und Obergrenze; verlangt, wo
+                      noetig, Bestaetigung und Grund.
+  vpn-settings-seed   EINSPIELUNG (BASE-090_050 Abschnitt 6). Mit --check:
+                      nur die Vorpruefung, ohne zu schreiben.
+  vpn-settings-check  PRUEFLAUF (Abschnitt 4).
+
+  ERGEBNISCODES (fuer alle vier gleich):
+    0  ausgefuehrt; bei vpn-settings-get und -check: alle Keys OK
+    1  ausgefuehrt; mindestens ein Key ist nicht OK oder der Katalog ist
+       im Zustand DRIFT
+    2  Datenbank nicht lesbar
+    3  Katalog UNREADABLE
+    4  Aufruf abgelehnt (unbekannter Key, Altname, Schreibvorgang
+       abgelehnt, fehlende Bestaetigung)
+    5  interner Fehler
+  Ein Verbraucher, der das Werkzeug statt der Bibliothek benutzt,
+  entscheidet nie allein nach dem Code, sondern nach Herkunft und Zustand
+  je Key (BASE-090_030 Abschnitt 3).
+
+================================================================================
+2) PFADE UND UNITS
+================================================================================
+
+  /usr/local/bin/vpn-settings-get, -set, -seed, -check
+  /usr/local/share/retrotunnel/settings/catalog.json     Katalog-Definition
+  /usr/local/share/retrotunnel/settings/catalog.sha256   ihre Pruefsumme
+        beide root:root 0644, Teil der Auslieferung; der Ordner ist fuer
+        niemanden ausser root schreibbar
+  /run/retrotunnel/settings/                              root:root 0755
+  /run/retrotunnel/settings/status-settings-check.json   Status des
+        Prueflaufs (root:root 0644; ersetzt als Ganzes)
+
+  vpn-settings-check.timer     festes Raster (Vorschlag 60 s)
+  vpn-settings-check.service   Lauf; entscheidet aus
+                               settings_check_interval_seconds und dem
+                               Zeitpunkt seines letzten Laufs, ob er
+                               faellig ist
+
+  Die Pfade folgen den Mustern der anderen Module (Werkzeuge unter
+  /usr/local/bin, Status unter /run/retrotunnel/<bereich>/); ihre
+  Aufnahme in das Verzeichnis der Plattform ist beantragt (ANF-ST-06).
+  Der Zeitgeber ist fest, der Takt kommt aus dem Setting - wie in
+  BASE-080 (dort Regel UP-1), damit eine Aenderung des Taktes keine Unit
+  neu schreibt.
+
+================================================================================
+3) RECHTE IN DER DATENBANK
+================================================================================
+
+  Tabelle               radius   webpanel                 system
+  --------------------- -------- ------------------------ ----------------
+  settings_catalog      -        SELECT                   alle (nur die
+                                                          Einspielung
+                                                          schreibt)
+  settings_global       -        SELECT, INSERT, UPDATE   alle
+  settings_customer     -        SELECT, INSERT, UPDATE,  alle
+                                 DELETE
+  settings_connection   -        SELECT, INSERT, UPDATE,  alle
+                                 DELETE
+  log_settings_audit    -        SELECT, INSERT           SELECT, INSERT;
+                                                          DELETE nur der
+                                                          Aufbewahrungs-
+                                                          lauf (MOD-007)
+
+  DR-1  Der Benutzer radius hat auf keine dieser Tabellen Zugriff
+        (BASE-000_010 Abschnitt 2; BASE-000_060 T-SQL-02). Der AAA-Dienst
+        erhaelt seine Werte mit seiner Konfiguration.
+  DR-2  Das Panel schreibt settings_catalog nicht und loescht keine Zeile
+        aus settings_global (BASE-090_050 SK-7). BASE-000_010 gibt dem
+        Panel heute auf settings_* alle vier Rechte; die Einengung ist
+        beantragt (ANF-ST-01).
+  DR-3  Rechte in der Datenbank koennen "nur ueber den Schreibkern" nicht
+        erzwingen: Das Panel haelt die Rechte, die der Schreibkern in
+        seinem Prozess braucht. Deshalb die Erkennung nach BASE-090_050
+        Abschnitt 7.
+
+================================================================================
+4) PRUEFLAUF
+================================================================================
+
+  vpn-settings-check macht sichtbar, was sonst erst auffiele, wenn ein
+  Verbraucher den Key liest.
+
+  PL-1  Katalog-Definition laden und pruefen (BASE-090_020 Abschnitt 7).
+  PL-2  Ist die Datenbank lesbar: die Kopie settings_catalog Feld fuer
+        Feld mit der Definition vergleichen (Katalog-Zustand OK oder
+        DRIFT).
+  PL-3  ALLE Keys des Katalogs fuer den Bezug GLOBAL aufloesen.
+  PL-4  JEDE Zeile in settings_customer und settings_connection pruefen:
+        Ist die Ebene fuer den Key erlaubt, ist der Wert gueltig?
+  PL-5  Zeilen zu Namen, die der Katalog nicht kennt (auch Altnamen),
+        melden (BASE-090_040 KZ-2).
+  PL-6  Je Zeile der drei Werte-Tabellen Wert und Zeitpunkt mit dem
+        juengsten Protokolleintrag vergleichen (BASE-090_050 UW-2).
+  PL-7  Status schreiben, Ereignisse melden (Abschnitt 5).
+
+  STATUS (status-settings-check.json): Zeitpunkt des Laufs, Dauer,
+    Version des Katalogs, Zustand von Datenbank und Katalog, je Key
+    Herkunft, Zustand und Grund, die Liste der Regelkonflikte, die Liste
+    der Zeilen ohne Protokoll, die Zahl der Keys je Zustand.
+  PZ-1  Der Prueflauf aendert keinen Wert und keine Zeile.
+  PZ-2  Er laeuft auch ohne Datenbank: Dann prueft er den Katalog (PL-1)
+        und meldet die Datenbank als nicht lesbar.
+  PZ-3  Ein alter Status ist selbst eine Stoerung: Der Status traegt
+        seinen Zeitpunkt; wer ihn anzeigt, kennzeichnet ihn als veraltet,
+        wenn er aelter ist als zweimal settings_check_interval_seconds.
+  PZ-4  LAST: Der Katalog hat gut hundert Keys; ein Lauf sind wenige
+        Abfragen. Die Zahl der Zeilen in settings_customer waechst
+        hoechstens mit der Zahl der Customers und nur fuer die zwei
+        Uebergangs-Keys.
+
+================================================================================
+5) GRUENDE UND EREIGNISSE
+================================================================================
+
+  GRUENDE (Feld reason der Aufloesung; fester Wertevorrat):
+    SETTINGS_MISSING          keine Zeile auf einer erlaubten Ebene
+    SETTINGS_INVALID_FORM     Wert entspricht nicht der Form seines Typs
+    SETTINGS_INVALID_RANGE    Wert ausserhalb der Grenzen oder des
+                              Wertevorrats
+    SETTINGS_RULE_VIOLATED    eine Regelgruppe ist verletzt (mit Kennung)
+    SETTINGS_DB_UNREADABLE    Datenbank nicht lesbar
+  GRUENDE EINES GESCHEITERTEN AUFRUFS:
+    SETTINGS_UNKNOWN_KEY, SETTINGS_FORMER_KEY, SETTINGS_CATALOG_UNREADABLE
+
+  EREIGNISSE (ins Journal, mit Key, Bezug, Herkunft, Zustand, Grund):
+    Ereignis                     Stufe  Anlass
+    ---------------------------- ------ ---------------------------------
+    SETTINGS_FALLBACK_ACTIVE     WARN   ein Key der Klasse
+                                        FAIL_SAFE_HARDCAP ist MISSING: es
+                                        gilt der Notwert
+    SETTINGS_BLOCKED             ALERT  ein Key der Klasse FAIL_CLOSED ist
+                                        nicht OK: ein Vorgang unterbleibt
+    SETTINGS_INVALID             ALERT  ein Key ist INVALID (mit dem
+                                        vorgefundenen Wert)
+    SETTINGS_RULE_VIOLATED       ALERT  abhaengige Keys einer Regelgruppe
+                                        gelten nach ihrer Klasse
+    SETTINGS_RULE_CONFLICT       ALERT  eine Regelgruppe ist auch nach
+                                        dem Rueckfall verletzt
+    SETTINGS_SCOPE_VIOLATION     ALERT  Zeile auf einer nicht erlaubten
+                                        Ebene
+    SETTINGS_UNKNOWN_ROW         ALERT  Zeile zu einem Namen, den der
+                                        Katalog nicht kennt
+    SETTINGS_UNAUDITED_CHANGE    ALERT  Zeile ohne passenden
+                                        Protokolleintrag
+    SETTINGS_CATALOG_DRIFT       ALERT  Kopie in SQL weicht ab
+    SETTINGS_CATALOG_UNREADABLE  ALERT  Katalog-Definition nicht
+                                        verwendbar
+    SETTINGS_HELD                WARN   ein Dienst haelt Werte, weil die
+                                        Datenbank nicht lesbar ist
+    SETTINGS_STARTED_ON_FAILSAFE WARN   ein Dienst ist ohne Datenbank mit
+                                        Notwerten gestartet
+    SETTINGS_CAPPED              INFO   eine Obergrenze der Plattform
+                                        begrenzt einen Wert
+    SETTINGS_CHANGED             INFO   erfolgreicher Schreibvorgang
+    SETTINGS_WRITE_REJECTED      WARN   abgelehnter Schreibvorgang
+    SETTINGS_RESOLVED            INFO   ein zuvor gemeldeter Zustand ist
+                                        behoben
+
+  ER-1  BEGRENZT: Ein Zustand, der andauert, wird je Key und Ereignis
+        beim Eintritt gemeldet und danach hoechstens einmal je
+        settings_check_interval_seconds - nicht bei jedem Lesen (B057
+        13.5: kein Protokoll, das sich selbst fuellt).
+  ER-2  DER EINTRITT GEHT NIE VERLOREN: Das erste Ereignis eines neuen
+        Zustands wird nicht unterdrueckt.
+  ER-3  DAS ENDE WIRD GEMELDET (SETTINGS_RESOLVED), damit ein Alarm
+        geschlossen werden kann.
+  ER-4  ZWEI BLICKE, EIN SACHVERHALT: Der Aufloeser meldet, WELCHER Key
+        in welchem Zustand ist. Das Modul des Verbrauchers meldet in
+        seinem eigenen Status, WAS deshalb anders laeuft oder unterbleibt
+        (z. B. SESSION_SETTING_FALLBACK, SESSION_SETTING_BLOCKED,
+        POLICY_SETTING_FALLBACK). Beides bleibt.
+  ER-5  KEINE GEHEIMNISSE: Ereignisse und Status tragen Werte offen
+        (DEC-ST-01). Kennungen von Customers und Connections stehen als
+        Kennung, nicht als Name oder Adresse.
+
+================================================================================
+6) AUSKUNFT FUER BETREIBER UND PANEL (R-17)
+================================================================================
+
+  Das Panel kann ueber Bibliothek und Status alles anzeigen, was der
+  Betreiber braucht, ohne eine Tabelle selbst zu deuten:
+
+    - je Key: Beschreibung, Typ, Grenzen, Vorschlag, Wirkung einer
+      Aenderung, Eigentuemer (aus dem Katalog)
+    - je Key: wirksamer Wert, Herkunft, Zustand, Grund; bei einer
+      Obergrenze der eingestellte und der wirksame Wert
+    - je Customer mit einem eigenen Wert: dieser Wert, sein Grund und der
+      globale Wert daneben
+    - Uebersicht: Zahl der Keys je Zustand, Zustand des Katalogs, Alter
+      des Status
+    - Verlauf je Key aus log_settings_audit (wer, wann, alt, neu, Grund),
+      auch die abgelehnten Versuche
+    - die Handgriffe "Vorschlag einsetzen" und "Notwert einsetzen"
+      (BASE-090_050 Abschnitt 5)
+    - bei einem Altnamen: den heutigen Key und den Grund
+
+  SICHTBARKEIT
+    AK-1  Settings sieht und aendert nur die Rolle ADMIN. Andere Rollen
+          erhalten weder Werte noch Zustaende (die im Vorgaenger offene
+          Frage DEC-SQLF-012 ist damit entschieden).
+    AK-2  Die Auskunft gibt es nur im VPN (das Panel ist nur dort
+          erreichbar, BASE-110) und am Server.
+    AK-3  Ein Kunde erfaehrt die FOLGE einer Einstellung dort, wo sie ihn
+          betrifft (z. B. sein Verbindungslimit), ueber das Modul, das
+          sie anzeigt - nicht als Setting.
+
+  Ob eine Aenderung schon WIRKT (gerendert, aktiviert, Profile neu
+  ausgestellt), zeigt das Modul des Eigentuemers (BASE-050_070 Abschnitt
+  11; BASE-040); BASE-090 zeigt, was eingestellt ist und welche Wirkung
+  der Key hat.
+
+================================================================================
+7) VERHALTEN BEI STOERUNGEN (UEBERBLICK)
+================================================================================
+
+  Stoerung                     Verhalten
+  ---------------------------- ------------------------------------------
+  Datenbank nicht lesbar       Dienste halten ihre Werte; Laeufe arbeiten
+                               nicht; Schreiben nicht moeglich; Prueflauf
+                               meldet (BASE-090_040 Abschnitt 4)
+  Start ohne Datenbank         Notwert bzw. kein Wert je Klasse
+                               (BASE-090_040 Abschnitt 5)
+  Wert fehlt oder ungueltig    Klasse des Keys; gemeldet; nur der
+                               Betreiber behebt (BASE-090_040 Abschnitt 1)
+  Regelgruppe verletzt         abhaengige Keys nach ihrer Klasse; fremde
+                               Keys bleiben; Konflikt gemeldet
+                               (BASE-090_030 Abschnitt 4)
+  Katalog-Kopie weicht ab      es gilt die Definition; Einspielung stellt
+                               her (BASE-090_040 Abschnitt 6)
+  Katalog-Definition           nichts wird aufgeloest oder geschrieben;
+  unbrauchbar                  Dienste halten; neue Auslieferung noetig
+  Schreibvorgang scheitert     nichts geaendert; Ablehnung protokolliert
+  mittendrin                   (BASE-090_050 ZS-2)
+  Zeile am Schreibkern vorbei  beim Lesen geprueft; vom Prueflauf als
+  geaendert                    Aenderung ohne Protokoll gemeldet
+                               (BASE-090_050 Abschnitt 7)
+  Prueflauf laeuft nicht       Status veraltet und so gekennzeichnet
+                               (PZ-3); die Aufloesung der Verbraucher
+                               haengt nicht am Prueflauf
+  Uhr des Servers falsch       ohne Einfluss auf Werte; Zeitpunkte in
+                               Protokoll und Status sind dann falsch -
+                               die Folge der Protokollzeilen bleibt durch
+                               die fortlaufende Nummer erhalten
+
+================================================================================

@@ -1,0 +1,232 @@
+================================================================================
+BASE-090 — FEHLERVERHALTEN: FEHLEND, UNGUELTIG, NICHT LESBAR
+================================================================================
+DATEI: BASE-090_040_FEHLERVERHALTEN.txt
+STATUS: IN ARBEIT (AP-K090; Modul noch unvollstaendig)
+
+ZWECK:
+  Was gilt, wenn ein Key nicht OK ist: je Zustand und Fehlerklasse, bei
+  nicht lesbarer Datenbank, beim Start ohne Datenbank und bei einem
+  fehlerhaften Katalog. Grundlage sind DEC-ST-04 bis DEC-ST-07.
+
+================================================================================
+1) UEBERSICHT
+================================================================================
+
+  Zustand        Ursache                        FAIL_SAFE_HARDCAP  FAIL_CLOSED
+  -------------- ------------------------------ ------------------ -----------
+  OK             gueltiger Wert einer Zeile     Wert der Zeile     Wert der
+                                                                   Zeile
+  MISSING        auf keiner erlaubten Ebene     Notwert            kein Wert
+                 steht eine Zeile
+  INVALID        die massgebliche Zeile besteht Notwert            kein Wert
+                 die Pruefung nicht
+  RULE_VIOLATED  eine Regelgruppe, in der der   der strengere von  kein Wert
+                 Key abhaengig ist, ist         eigenem Wert und
+                 verletzt                       Notwert
+  DB_UNKNOWN     Datenbank nicht lesbar         gehaltener Wert,   gehaltener
+                                                sonst Notwert      Wert, sonst
+                                                                   kein Wert
+
+  "Kein Wert" heisst: Der Vorgang, der den Key braucht, findet nicht
+  statt, und was besteht, bleibt bestehen (BASE-090_030 Abschnitt 3).
+
+  FV-1  KEIN ZUSTAND LOCKERT (SZ-2): In keiner Zelle steht ein Wert, den
+        nicht der Betreiber gueltig eingetragen hat oder den der Katalog
+        als Notwert fuehrt.
+  FV-2  UNGUELTIG IST HAERTER ALS FEHLEND (B057 13.4; TRUTH_MODEL 4.3):
+        Am Wert aendert das nichts - beide folgen der Klasse. Der
+        Unterschied liegt in der Meldung: Ein ungueltiger Wert und eine
+        verletzte Regelgruppe gelten als beschaedigter Bestand. Sie
+        werden als Stoerung gemeldet (ALERT) und zusaetzlich mit dem
+        vorgefundenen Wert im Protokoll festgehalten; ein fehlender Wert
+        wird als Warnung gemeldet - als Stoerung, wenn der Key FAIL_CLOSED
+        ist, weil dann ein Vorgang unterbleibt.
+  FV-3  KEIN STILLER NOTBETRIEB (B057 13.5; SZ-4): Jeder Zustand ausser OK
+        steht in der Auskunft des Aufloesers, im Status des Prueflaufs
+        und in der Verwaltung, bis er behoben ist. Ereignisse sind
+        begrenzt, damit ein dauerhaft fehlerhafter Key das Protokoll
+        nicht fuellt (BASE-090_070 Abschnitt 5).
+  FV-4  NUR DER BETREIBER BEHEBT: Kein Zustand heilt sich selbst durch
+        eine Annahme. MISSING und INVALID enden, wenn ein gueltiger Wert
+        geschrieben ist; RULE_VIOLATED endet, wenn die Regel wieder
+        erfuellt ist; DB_UNKNOWN endet, wenn die Datenbank lesbar ist.
+
+================================================================================
+2) FAIL_CLOSED
+================================================================================
+
+  Ein Key ist FAIL_CLOSED, wenn es keinen Wert gibt, den das System von
+  sich aus sicher annehmen koennte:
+    a) weil jeder angenommene Wert etwas LOCKERN oder eine Zusage
+       verschieben koennte (die Dauer der Quarantaene einer Adresse; die
+       Zeitzone der Abrechnungsperiode),
+    b) weil der Wert zu dieser einen Installation gehoert und sich nicht
+       raten laesst (der oeffentliche Name des Servers; die erzeugten
+       Verschleierungs-Parameter),
+    c) weil der Key ein Erzeugnis bestimmt, das nur als Ganzes richtig
+       ist und dessen bisheriger Stand weiter gilt (das Regelwerk der
+       Firewall; die Konfiguration der WireGuard-Schnittstelle).
+  Fuer c) ist FAIL_CLOSED die schonendste Klasse: Das aktive Erzeugnis
+  wurde mit gueltigen Werten gebaut und bleibt in Kraft; nur der NEUE
+  Stand entsteht nicht.
+
+  FC-1  DER EIGENTUEMER BENENNT DEN VORGANG. Zu jedem Key der Klasse
+        FAIL_CLOSED steht im Modul des Eigentuemers, welcher Vorgang
+        unterbleibt und was bestehen bleibt. Fehlt diese Angabe, ist der
+        Key nicht angemeldet (BASE-090_060 Abschnitt 10).
+  FC-2  SO ENG WIE MOEGLICH. Es unterbleibt der Vorgang, der den Key
+        braucht - nicht der ganze Dienst. Beispiel BASE-070: Ohne
+        gueltige Dauer der Quarantaene wird keine Adresse ZURUECKGEGEBEN;
+        Entzug, Widerruf und Sperrung wirken weiter.
+  FC-3  FAIL_CLOSED OEFFNET NIE. Der unterbliebene Vorgang ist nie einer,
+        dessen Ausbleiben Zugang gewaehrt oder Schutz aufhebt. Waere es
+        so (das Ausbleiben des Entfernens eines Peers etwa), ist der Key
+        falsch eingeordnet - dann haengt dieser Vorgang nicht an einem
+        Setting.
+
+================================================================================
+3) FAIL_SAFE_HARDCAP
+================================================================================
+
+  Ein Key ist FAIL_SAFE_HARDCAP, wenn es einen Wert gibt, mit dem das
+  System sicher weiterarbeiten kann. Der Notwert steht im Katalog.
+
+  NW-1  DER NOTWERT VERSCHAERFT ODER IST NEUTRAL (DEC-ST-05): Hat der Key
+        eine Richtung, ist der Notwert nicht lockerer als der Vorschlag.
+        Hat er keine, sagt der Katalogeintrag, warum kein Wert lockert.
+  NW-2  DER NOTWERT IST EIN GUELTIGER WERT DES KEYS und erfuellt mit den
+        Notwerten der anderen Keys jede Regelgruppe (BASE-090_020 LP-5,
+        RG-3).
+  NW-3  DER NOTWERT IST KEIN DAUERZUSTAND: Er haelt den Betrieb sicher,
+        bis der Betreiber den Wert berichtigt. Seine Nutzung ist immer
+        gemeldet (FV-3).
+  NW-4  DER NOTWERT STEHT OHNE DATENBANK BEREIT, weil er in der
+        Katalog-Definition steht (DEC-ST-02; ANF-SC-08).
+  NW-5  "STRENG" KANN "VORSICHTIG" HEISSEN: Bei Bremsen und Schwellen, die
+        einen Lauf anhalten oder eine Entscheidung dem Betreiber
+        ueberlassen, ist der strengere Wert der, bei dem FRUEHER
+        angehalten wird (BASE-080_070: Fehlt ein solcher Key, ist die Lage
+        nicht eindeutig - dann wird nichts Unumkehrbares und nichts in
+        Massen getan). Bei Fristen, nach denen etwas geschlossen oder
+        beendet wird, ist der strengere Wert der, bei dem das NICHT zu
+        frueh geschieht, wenn ein zu fruehes Schliessen Unbeteiligte
+        trifft. Welche Richtung gilt, steht je Key im Verzeichnis.
+
+================================================================================
+4) HALTEN BEI NICHT LESBARER DATENBANK
+================================================================================
+
+  Es gilt DEC-ST-06.
+
+  HT-1  WAS GEHALTEN WIRD: je Key und Bezug das letzte Ergebnis einer
+        Aufloesung bei LESBARER Datenbank - der wirksame Wert, gleich
+        welcher Herkunft (auch ein Notwert), oder "kein Wert".
+  HT-2  WO: im Speicher des Prozesses. Nie in einer Datei, nie zwischen
+        Prozessen, nie ueber einen Neustart (BASE-090_030 VB-3).
+  HT-3  WER HAELT: Dienste. Ein Lauf, der ohne Datenbank nicht arbeitet,
+        haelt nichts; er bricht ab und meldet das wie jeden Lauf ohne
+        Datenbank.
+  HT-4  WIE LANGE: bis die Datenbank wieder lesbar ist. Es gibt keine
+        Frist, nach der ein gehaltener Wert verfaellt: Er war gueltig, als
+        die Stoerung begann, und waehrend der Stoerung kann ihn niemand
+        aendern. Wie lange eine Stoerung der Datenbank dauern darf, bevor
+        gesperrt oder alarmiert wird, regeln die Module, die davon
+        abhaengen (z. B. BASE-040_060), und die Plattform.
+  HT-5  SICHTBAR: Die Herkunft ist HELD, der Zustand DB_UNKNOWN. Der
+        Dienst meldet den Beginn des Haltens einmal und fuehrt in seinem
+        Status, seit wann er haelt.
+  HT-6  DANACH: Mit der ersten Aufloesung bei lesbarer Datenbank gilt
+        wieder allein deren Ergebnis. Ist der Key dann MISSING oder
+        INVALID, gilt die Klasse - auch wenn bis eben ein guter Wert
+        gehalten wurde.
+  HT-7  KEIN HALTEN UEBER EINEN FEHLERHAFTEN BESTAND: Gehalten wird nur
+        bei NICHT LESBARER Datenbank. Liefert die Datenbank Zeilen und
+        ist ein Wert ungueltig, wird nicht gehalten - dann ist der Bestand
+        beschaedigt, und es gilt die Klasse (DEC-ST-04).
+
+================================================================================
+5) START OHNE DATENBANK
+================================================================================
+
+  Startet ein Dienst, waehrend die Datenbank nicht lesbar ist, haelt er
+  nichts. Dann gilt fuer jeden seiner Keys die Fehlerklasse:
+    FAIL_SAFE_HARDCAP  der Notwert aus der Katalog-Definition (NW-4)
+    FAIL_CLOSED        kein Wert; der Vorgang unterbleibt
+  Der Dienst meldet, dass er mit Notwerten gestartet ist, und loest auf,
+  sobald die Datenbank lesbar ist (BASE-090_030 Abschnitt 5).
+
+  Das beantwortet ANF-SC-08 ("wie die Notwerte einem Dienst ohne Datenbank
+  bereitstehen"): aus der Katalog-Definition, die Teil der Auslieferung
+  ist. Es gibt dafuer keine Datei mit Werten des Betriebs und keinen
+  Zwischenspeicher auf der Platte.
+
+  ERZEUGNISSE UEBERDAUERN: Was gerendert auf der Platte liegt - das
+  Regelwerk der Firewall, die Konfiguration der WireGuard-Schnittstelle,
+  die Konfiguration des AAA-Dienstes -, wurde mit gueltigen Werten erzeugt
+  und gilt nach einem Neustart weiter; so legen es die Eigentuemer fest
+  (BASE-050_070: Laden und Booten brauchen die Datenbank nicht). Das ist
+  kein gehaltener Wert im Sinn von Abschnitt 4 und keine zweite Quelle:
+  Das Erzeugnis wird nie zurueckgelesen, um einen Key aufzuloesen
+  (BASE-090_030 VB-2).
+
+================================================================================
+6) ZUSTAND DES KATALOGS
+================================================================================
+
+  Zustand     Bedeutung                       Folge
+  ----------- ------------------------------- -----------------------------
+  OK          Definition geprueft; Kopie in   Regelbetrieb
+              SQL stimmt ueberein
+  DRIFT       Kopie in SQL weicht ab          Es gilt die Definition.
+              (fehlender oder ueberzaehliger  Aufloesung und Schreibkern
+              Key, anderes Feld, andere       arbeiten weiter. Stoerung
+              Version)                        gemeldet, bis die
+                                              Einspielung gelaufen ist.
+  UNREADABLE  Definition fehlt, ihre          Kein Aufruf des Aufloesers
+              Pruefsumme stimmt nicht, oder   liefert ein Ergebnis; der
+              eine Pruefung beim Laden        Schreibkern schreibt nichts.
+              scheitert                       Stoerung. Dienste halten
+                                              (Abschnitt 4); wer nichts
+                                              haelt, behandelt jeden Key
+                                              wie FAIL_CLOSED.
+
+  KZ-1  DRIFT IST KEIN AUSFALL: Die Werte des Betriebs stehen in den
+        Werte-Tabellen und sind unberuehrt. Betroffen ist nur die Kopie,
+        an der Fremdschluessel und Anzeige haengen.
+  KZ-2  EIN UEBERZAEHLIGER KEY IN SQL - eine Zeile in settings_catalog
+        oder ein Wert zu einem Key, den die Definition nicht kennt - wird
+        nie aufgeloest (BASE-090_030 AF-2) und als DRIFT gemeldet. So
+        kann niemand einen Key "einschmuggeln".
+  KZ-3  BEI UNREADABLE GIBT ES AUCH KEINE NOTWERTE: Sie stuenden in der
+        Datei, der nicht zu trauen ist. Deshalb ist die Folge fuer einen
+        Dienst ohne gehaltene Werte "kein Wert" fuer ALLE Keys.
+  KZ-4  UNREADABLE BEHEBT NUR EINE EINWANDFREIE AUSLIEFERUNG. Kein
+        Werkzeug dieses Moduls schreibt die Katalog-Definition.
+
+================================================================================
+7) VOR DEM BETRIEB
+================================================================================
+
+  Eine Installation gilt erst als eingerichtet, wenn
+    EB-1  die Katalog-Definition geladen ist und alle Pruefungen besteht,
+    EB-2  die Einspielung gelaufen ist (Kopie in SQL, Vorschlaege in
+          settings_global),
+    EB-3  die Keys mit default_mode GENERATED und OPERATOR ihren Wert
+          haben,
+    EB-4  der Prueflauf fuer JEDEN Key den Zustand OK meldet und keine
+          Regelgruppe verletzt ist.
+  Das ist eine Abnahmebedingung der Einrichtung (BASE-090_095), kein
+  Schalter im Betrieb: Faellt spaeter ein Key aus, greift seine
+  Fehlerklasse - das System sperrt sich nicht als Ganzes (SZ-6).
+
+  VERHAELTNIS ZUM VORGAENGER: Der Entwurf NORM-06 (N-06.5) verlangte, vor
+  Betrieb muessten Schema und Seed stehen, und liess Dienste sonst in
+  einen Wartungszustand gehen. Uebernommen ist die Bedingung vor dem
+  Betrieb (EB-1 bis EB-4) und der Satz "kein Rueckfall auf Standardwerte
+  zur Laufzeit" (BASE-090_030 AZ-2). Den pauschalen Wartungszustand
+  ersetzt das Verhalten je Key: Es ist enger und laesst nichts offen, was
+  der Wartungszustand geschlossen haette - jeder Key ohne sicheren Wert
+  ist FAIL_CLOSED.
+
+================================================================================
