@@ -182,8 +182,9 @@ ZWECK:
                                ist. Traegt sie ihn schon: nichts (Z-4);
                                ein wiederholter Aufruf beginnt weder
                                Widerruf noch Quarantaene neu. Ende.
-                               Im Lauf OHNE Akteur ist der Tombstone ein
-                               unumkehrbarer Uebergang (Abschnitt 7).
+                               Ausserhalb einer Handlung des Betreibers
+                               ist der Tombstone ein unumkehrbarer
+                               Uebergang (Abschnitt 7).
         Customer SUSPENDED  -> ist die Connection ACTIVE oder RESTRICTED:
                                T-04 bzw. T-07 mit
                                DISABLE_CUSTOMER_SUSPENDED (INV-65). Ende.
@@ -276,7 +277,8 @@ ZWECK:
   Korrektheit, nicht nur der Schnelligkeit.
 
   ABGRENZUNG: Der Kern prueft keine Fristen (E3, E4, E7) und loest keine
-  Kaskaden aus; das bleibt dem Lauf vorbehalten.
+  Kaskaden aus; das bleibt dem Lauf und den Aufrufen des Betreibers
+  vorbehalten (Abschnitt 6).
 
   UNBEKANNTE AUSKUNFT IM KERN (Regel Z-1): Die Handlung selbst wird
   festgeschrieben (Tatsache gesetzt oder geloescht, Claim, geaenderte
@@ -312,27 +314,31 @@ ZWECK:
     vpn-policy-eval --resume --actor <Kennung> fortsetzen (Abschnitt 11)
   Eingaben werden streng geprueft (nur Ziffern bzw. feste Schalter).
   --actor nennt, fuer wessen HANDLUNG der Aufruf laeuft (Verwaltung oder
-  Kunde); ihn setzt der privilegierte Auftragsweg bzw. der Schreibweg
-  der Handlung. Ein Aufruf OHNE Akteur ist ein Automatismus (Zeitgeber,
-  Periodenwechsel, selbsttaetige Folgeaufrufe). --operator setzt allein
-  der privilegierte Auftragsweg (Klasse C); kein Schreibweg einer
-  Handlung kann ihn setzen.
+  Kunde). --operator kennzeichnet eine Handlung des BETREIBERS (Klasse
+  C). Beide setzt allein der privilegierte Auftragsweg - auch fuer die
+  Handlung eines Kunden, deren Schreibweg den Folgeaufruf dort anfordert
+  (der Webprozess ruft dieses Werkzeug nie selbst). Ein Aufruf OHNE
+  Akteur ist ein Automatismus (Zeitgeber, Periodenwechsel, selbsttaetige
+  Folgeaufrufe).
 
   AUFRUFARTEN - WAS SIE AUSFUEHREN:
     LAUF (--all, ohne Akteur)          E1 bis E8; Schutz nach Abschnitt
                                        7; Halt nach Abschnitt 11
     AUFRUF FUER EIN ZIEL OHNE AKTEUR   wie der Lauf, fuer das Ziel
     (Automatismus)
-    KASKADE EINER VERWALTUNGSHANDLUNG  E1, E2, E8 - sofort; sie ist Teil
-    (--customer-id mit Akteur)         der Handlung (BASE-080_060 KA1)
     FOLGEAUFRUF EINER HANDLUNG         E1, E5, E6, E8 - nur der
-    (--connection-id mit Akteur,       Bewertungskern. KEINE Kaskade und
-    ohne --operator)                   KEINE Frist (E3, E4, E7): Eine
-                                       Handlung eines Kunden loest nie
+    (--connection-id oder              Bewertungskern. KEINE Kaskade (E2)
+    --customer-id mit Akteur, ohne     und KEINE Frist (E3, E4, E7): Eine
+    --operator)                        Handlung eines Kunden loest nie
                                        einen unumkehrbaren Uebergang aus
-    "BEWERTUNG JETZT" DES BETREIBERS   E1 bis E8 fuer das Ziel; Schutz
-    (mit Akteur und --operator)        nach Abschnitt 7; laeuft auch
-                                       waehrend eines Halts
+    HANDLUNG DES BETREIBERS            E1 bis E8 fuer das Ziel; laeuft
+    (mit Akteur und --operator):       auch waehrend eines Halts.
+    "Bewertung jetzt"; die Kaskade     Mit --customer-id wirkt E2 SOFORT
+    nach dem Sperren oder Loeschen     und ungebremst: Der Betreiber
+    eines Customers (BASE-080_060      nennt den Customer ausdruecklich,
+    KA1)                               die Kaskade ist Teil seiner
+                                       Handlung. Fuer E3, E4 und E7 gilt
+                                       der Schutz nach Abschnitt 7
 
   LAUF --all (Takt vpn_policy_eval_interval_seconds, Vorschlag 60):
     BL1  Lauf-Lock des Bewerters (kein Kernel-Lock); Zeitlimit.
@@ -376,13 +382,16 @@ ZWECK:
 
   UNUMKEHRBAR sind: Sperrung nach claim_deadline (E3), Finalisierung
   (E7), Widerruf (E4) und die Kaskade "Customer geloescht" (E2,
-  Tombstone), wenn ein Aufruf OHNE Akteur sie ausloest - der Lauf aus
-  seinem Netz (BL4 a). Ihre Zielgruende sind nicht wiederherstellbar
+  Tombstone), wenn sie NICHT aus einer Handlung des Betreibers folgt -
+  im Lauf aus seinem Netz (BL4 a) und in jedem anderen Aufruf ohne
+  Akteur. Ihre Zielgruende sind nicht wiederherstellbar
   bzw. beenden das Restore-Fenster und binden die Adresse fuer die
   Quarantaene; der Tombstone loescht ausserdem die Zugangsdaten.
   NICHT gebremst wird die Kaskade, die eine Verwaltungshandlung selbst
-  ausfuehrt (--customer-id MIT Akteur, BASE-080_060 KA1): Sie ist die
-  Handlung. Das NETZ im Lauf dagegen findet nur vor, DASS ein Customer
+  ausfuehrt (--customer-id mit Akteur und --operator, BASE-080_060
+  KA1): Sie ist die Handlung. Der Folgeaufruf einer Kundenhandlung
+  fuehrt nie eine Kaskade aus (Abschnitt 6).
+  Das NETZ im Lauf dagegen findet nur vor, DASS ein Customer
   als geloescht gefuehrt wird - gleich, wie dieser Wert in die Daten
   kam. Ein Datenfehler oder ein fehlerhafter Import darf nicht in einem
   Lauf viele Connections unwiederbringlich sperren (SZ-8); deshalb
@@ -442,8 +451,8 @@ ZWECK:
       (bei U-3 auch nicht die ersten bis zur Grenze: Die Grenze ist ein
       Hinweis auf eine gestoerte Lage, kein Kontingent).
     - Umkehrbare Uebergaenge (einschraenken, aufheben, Grundwechsel),
-      die Kaskade "Customer gesperrt" und Kaskaden mit Akteur laufen
-      normal.
+      die Kaskade "Customer gesperrt" und die Kaskaden des Betreibers
+      laufen normal.
     - Ereignis POLICY_EVAL_HELD (ALERT) mit Zahl und verletzter
       Bedingung; die Statusdatei fuehrt die zurueckgestellten
       Connections nach Art.
@@ -550,7 +559,8 @@ ZWECK:
                                   weiter
   Bewertung angehalten            kein Fehler: kein Uebergang aus dem
   (Abschnitt 11)                  Lauf und aus Automatismen; Handlungen
-                                  und Kaskaden mit Akteur wirken; der
+                                  mit Akteur wirken (Kaskade: nur als
+                                  Handlung des Betreibers); der
                                   gespeicherte Zustand wird
                                   durchgesetzt; nach dem Ende laeuft die
                                   Ruhezeit
@@ -603,7 +613,8 @@ ZWECK:
           anstehend).
     HL-3  WAS WEITERLAEUFT:
           a) Die Kaskade, die eine Verwaltungshandlung selbst ausfuehrt
-             (--customer-id mit Akteur): Sie ist die Handlung. Das Netz
+             (--customer-id mit Akteur und --operator): Sie ist die
+             Handlung. Das Netz
              im Lauf ruht - es ist ein Automatismus und faende auch vor,
              was ein Datenfehler hinterlassen hat.
           b) Der Bewertungskern in der Transaktion einer Handlung

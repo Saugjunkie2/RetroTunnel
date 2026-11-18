@@ -168,7 +168,8 @@ BEWERTUNG
             (a) Zeitsignal entziehen: Faellige claim_deadline,
             restrict_finalize_at und restore_until fuehren zu KEINEM
             Uebergang; POLICY_EVAL_HELD nennt Zahl und Bedingung;
-            Einschraenkungen, Aufhebungen und Kaskaden mit Akteur laufen.
+            Einschraenkungen, Aufhebungen und Kaskaden des Betreibers
+            laufen.
             (b)
             Datenbankzeit und Systemzeit 10 s auseinander: ebenso. (c) 26
             faellige unumkehrbare Uebergaenge bei Grenze 25: keiner wird
@@ -211,8 +212,9 @@ BEWERTUNG
             zwei DISABLED, beide Tunnel) auf SUSPENDED setzen: ACTIVE und
             RESTRICTED werden DISABLED mit DISABLE_CUSTOMER_SUSPENDED - je
             Connection eine Transaktion mit Auftrag; die gesperrten bleiben
-            unveraendert. Auf DELETED setzen MIT Akteur
-            (Verwaltungshandlung): Tombstone fuer ALLE fuenf (Widerruf,
+            unveraendert. Auf DELETED setzen als Handlung des Betreibers
+            (Akteur und Kennzeichen des Betreibers): Tombstone fuer ALLE
+            fuenf (Widerruf,
             Auth-Zeile geloescht) - sofort, auch bei entzogenem Zeitsignal
             und mit mehr Connections als der Grenze fuer Unumkehrbares.
             Dieselbe Kaskade erneut ausloesen: kein zweiter Tombstone
@@ -646,7 +648,10 @@ ABGLEICH UND SIEGEL
             naechste Lauf versucht es erneut. (g) Fluss-Schnitt samt
             Rueckfall scheitert fuer einen eingeschraenkten Peer: Er
             erhaelt ein Gate-Element, das Siegel wird geloest, ein Auftrag
-            haelt den Schnitt fest. (h) Solange das Siegel besteht, fuehrt
+            haelt den Schnitt fest; weder Hygiene noch Oeffnen des
+            Abgleichs loesen dieses Gate, bis der Auftrag geschnitten hat
+            (ebenso L2TP: keine Freigabe durch den Abgleich). (h) Solange
+            das Siegel besteht, fuehrt
             der Lauf keine oeffnende Handlung aus (keine L2TP-Freigabe,
             kein Peer-Eintrag). [PA-42, PA-32, PA-38]
 
@@ -986,7 +991,8 @@ HELFER, BETRIEB, BEOBACHTBARKEIT, GRENZEN
             POLICY_EVAL_HOLD_SET. Kontingent erschoepfen, einen Grund
             entfallen lassen, eine Frist ablaufen lassen: Der Lauf fuehrt
             keinen dieser Uebergaenge aus und zaehlt sie als anstehend. (b)
-            Customer sperren bzw. loeschen MIT Akteur: Die Kaskade laeuft.
+            Customer sperren bzw. loeschen als Handlung des Betreibers:
+            Die Kaskade laeuft.
             Steht der Status ohne Handlung in den Daten (Netz): Der Lauf
             fuehrt waehrend des Halts keine Kaskade aus. (c) "Bewertung
             jetzt" des Betreibers: Der Uebergang findet statt, auch eine
@@ -1158,9 +1164,12 @@ GESAMTPRUEFUNG UND ANNAHMEN
 
   T-PA-94  [K, L] Aufrufarten: Connection mit faelliger claim_deadline
             bzw. faelliger Finalisierung: (a) Folgeaufruf einer
-            Kundenhandlung (--connection-id mit Akteur, ohne Kennzeichen
-            des Betreibers): nur der Bewertungskern - keine Sperrung, kein
-            Widerruf, kein Tombstone. (b) "Bewertung jetzt" des
+            Kundenhandlung (--connection-id bzw. --customer-id mit
+            Akteur, ohne Kennzeichen des Betreibers): nur der
+            Bewertungskern - keine Sperrung, kein Widerruf und kein
+            Tombstone, auch wenn der Customer als geloescht gefuehrt
+            wird; ein Planwechsel ueber --customer-id bewertet alle
+            Connections des Customers neu. (b) "Bewertung jetzt" des
             Betreibers: Die Frist wird ausgefuehrt, unter dem Schutz vor
             unumkehrbaren Massenfolgen. (c) Lauf ohne Akteur: wie (b). (d)
             Kein Schreibweg einer Handlung und kein anderes Programm ruft
