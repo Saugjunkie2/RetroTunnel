@@ -155,13 +155,21 @@ ZWECK:
             Merkmal "Schnitt ausstehend" im Auftragsbuch gesichert
             (BASE-080_030 Schritt F1a); nach dem Einfuegen folgt je
             Connection der Fluss-Schnitt (BASE-080_030 Abschnitt 7).
-            Zustand VERSIEGELT: Das Einfuegen ist ein WIEDERAUFBAU und
-            kein Eintritt - die Sets sind seit dem Laden leer, und unter
-            dem Siegel bzw. ohne Freigabe ist kein Fluss entstanden. Es
-            folgt KEIN Fluss-Schnitt; nur wo ein offener Auftrag das
-            Merkmal traegt, schneidet dessen Herstellung. (Sonst kostete
-            jedes Neuladen ohne conntrack-Werkzeug alle eingeschraenkten
-            Sitzungen.)
+            Zustand VERSIEGELT: Die Sets sind seit dem Laden leer; das
+            Einfuegen ist ihr WIEDERAUFBAU. Danach folgt der
+            Fluss-Schnitt fuer JEDES Soll-Mitglied mit
+            Kernel-Repraesentation - nicht nur fuer die in diesem Lauf
+            eingefuegten: Zwischen einem Verlust des Regelwerks und dem
+            versiegelten Neuladen kann ein Fluss entstanden sein, den
+            keine Regel geprueft hat (BASE-005 PF-18). Das Siegel
+            selbst haelt fest, dass dieser Schnitt geschuldet ist; ein
+            Eintrag im Auftragsbuch je Connection ist dafuer nicht
+            noetig, und ein abgebrochener Lauf wird vom naechsten
+            vollstaendig wiederholt.
+            Scheitert der Schnitt samt Rueckfall fuer eine Connection,
+            bleibt sie geschlossen (Peer: Gate-Element vor dem Loesen
+            des Siegels; L2TP: keine Freigabe), und ein Auftrag mit dem
+            Merkmal haelt den Schnitt fest.
          5. Gate setzen: Adressen aller Peers "zu ergaenzen" und "zu
             ersetzen" in connect_pending_* eintragen (eine Transaktion)
          6. Sperrliste abgleichen (Helfer MOD-005, Operation "sync")
@@ -303,10 +311,11 @@ ZWECK:
     b) "jeder Peer im Kernel: Connection zugelassen und Policy-Zustand
        hergestellt, ODER Adressen in connect_pending"
        hergestellt durch V1 e1, e2 (Entfernen; bei Scheitern Gate),
-       e4 (Policy-Zustand der verbleibenden Peers) und e5 (Gate der
-       neuen). Fuer Peers nicht auswertbarer Connections werden die
-       Adressen in connect_pending_* eingetragen: Das Loesen des Siegels
-       waere fuer sie ein Oeffnen (DEC-PA-22).
+       e4 (Policy-Zustand der verbleibenden Peers samt Fluss-Schnitt)
+       und e5 (Gate der neuen). Fuer Peers nicht auswertbarer
+       Connections und fuer Peers, deren Fluss-Schnitt gescheitert ist,
+       werden die Adressen in connect_pending_* eingetragen: Das Loesen
+       des Siegels waere fuer sie ein Oeffnen (DEC-PA-22).
 
   PRUEFUNG UND AUFRUF (ein Abschnitt, Lock durchgehend gehalten):
     SG1 Ladestand des Regelwerks = L0, sonst Abbruch des Laufs.
@@ -453,10 +462,16 @@ ZWECK:
   REGELWERK NEU GELADEN (recover)
     Alle dynamischen Sets sind leer, das Siegel ist aktiv; die Peers
     stehen noch im Kernel, die L2TP-Sitzungen bestehen. V1 baut
-    restricted_* neu auf (Wiederaufbau ohne Fluss-Schnitt, Schritt e4),
-    V2 loest das Siegel, V3 stellt die Freigaben aller Sitzungen wieder
-    her. Die Frist aus BASE-080_030 Abschnitt 6.5 ruht, solange das
-    Siegel besteht, und beginnt mit dem Loesen neu.
+    restricted_* neu auf und schneidet die Fluesse jedes Soll-Mitglieds
+    mit Laufzeit (Schritt e4), V2 loest das Siegel, V3 stellt die
+    Freigaben aller Sitzungen wieder her. Die Frist aus BASE-080_030
+    Abschnitt 6.5 ruht, solange das Siegel besteht, und beginnt mit dem
+    Loesen neu.
+    OHNE conntrack-WERKZEUG trifft der Rueckfall dann jede
+    eingeschraenkte Connection mit Laufzeit (Sitzung beendet, Peer
+    ersetzt). Das ist hingenommen: Das Werkzeug wird vorab geprueft, sein
+    Fehlen ist ein gemeldeter Mangel der Installation - und ein nicht
+    geschnittener Fluss waere ein stiller Fehlschlag (SZ-9).
     Reihenfolge fuer L2TP: In V3 werden zuerst die Sitzungen
     eingeschraenkter Connections bearbeitet - fuer sie steht restricted
     schon aus V1.

@@ -52,7 +52,9 @@ ZWECK:
         Entscheidung getroffen; bestehende Zustaende bleiben stehen.
   SZ-8  KEINE UNUMKEHRBARE MASSENFOLGE AUS EINEM EINZELFEHLER. Eine
         falsche Uhr, ein Datenfehler oder ein Programmfehler darf nicht
-        in einem Lauf viele Connections endgueltig sperren.
+        in einem Lauf viele Connections endgueltig sperren - auch nicht
+        ueber einen Status "geloescht", der ohne Handlung der Verwaltung
+        an einem Customer steht.
   SZ-9  KEIN STILLER FEHLSCHLAG. Jeder gescheiterte Schritt hat einen
         Ergebniscode, bleibt als offener Auftrag sichtbar und wird
         gemeldet.
@@ -79,7 +81,24 @@ ZWECK:
   Abgleich             Herstellung fuer ALLE Connections samt Hygiene der
                        Sets und Loesen des Siegels (BASE-080_040).
   Admission            Zulassung im Kernel: WireGuard-Peer eingetragen
-                       bzw. Element in allowed_l2tp_v4 vorhanden.
+                       bzw. Freigabe vorhanden.
+  Freigabe             NUR das Element (Index der Schnittstelle, Adresse)
+                       in allowed_l2tp_v4, das eine L2TP-Sitzung zulaesst.
+                       Sie lebt eine Sitzung lang (DEC-PA-07).
+  Aufhebung            Ende einer Einschraenkung: Uebergang von RESTRICTED
+                       nach ACTIVE (T-05). Nie "Freigabe" genannt.
+  Betreiber-Freigabe   Zustimmung des Betreibers zu Handlungen, die ein
+                       Lauf zurueckgestellt hat (BASE-080_020 Abschnitt 7;
+                       BASE-080_040 Regel MB-5).
+  Eintritt             Wechsel einer Connection in den eingeschraenkten
+                       Kernel-Zustand: Ihre Adresse wird in restricted_*
+                       eingefuegt und stand vorher nicht darin. Der
+                       Wiederaufbau der Sets nach einem Neuladen des
+                       Regelwerks ist kein Eintritt, schneidet aber
+                       ebenso (DEC-PA-08).
+  Ladestand            Paar aus Generation des Regelwerks und Kennung
+                       seines letzten Ladens; aendert sich bei JEDEM
+                       Laden (BASE-080_040 Abschnitt 3).
   Policy-Zustand       Mitgliedschaften einer Tunneladresse in den
                        Sperr-Sets (restricted, connect_pending) und die
                        Zuordnung der Verkehrsformung.
@@ -92,14 +111,18 @@ ZWECK:
   Auftrag              Eintrag im Auftragsbuch vpn_policy_outbox: "fuer
                        diese Connection ist der Kernel-Zustand neu
                        herzustellen" (BASE-080_050).
-  Kernel-Lock          anderer Name fuer den Einzel-Lock des Werkzeugs,
-                       wo er von den Einzel-Locks der Laeufe zu
-                       unterscheiden ist.
-  Einzel-Lock          /run/vpn-policy-apply.lock; serialisiert alle
+  Kernel-Lock          /run/vpn-policy-apply.lock; serialisiert alle
                        Schreibzugriffe auf Sets, Peers, conntrack und
-                       Verkehrsformung (R-11).
+                       Verkehrsformung. Er ist der Einzel-Lock, den R-11
+                       verlangt.
+  Lauf-Lock            eigener Lock je Lauf (Auftragslauf, Abgleich,
+                       Bewerter); verhindert nur zwei gleichzeitige Laeufe
+                       derselben Art. Schuetzt keinen Kernel-Zustand.
+  Sperre               Eintrag in vpn_session_locks (Owner BASE-070). Eine
+                       Sperre und ein Lock werden GELOEST, nie
+                       "freigegeben".
   Registrierter        Unterprogramm eines anderen Owners, das unter dem
-  Helfer               Einzel-Lock eine fest umrissene Aufgabe ausfuehrt
+  Helfer               Kernel-Lock eine fest umrissene Aufgabe ausfuehrt
                        (BASE-080_070).
 
 ================================================================================
@@ -140,7 +163,7 @@ DEC-PA-01  ZWEI PROGRAMME: BEWERTEN OHNE KERNEL, HERSTELLEN OHNE ENTSCHEIDEN
   nie. vpn-policy-apply stellt den Kernel-Zustand her und aendert keinen
   op_status und keinen Grund. Begruendung: Die Bewertung braucht keine
   root-Rechte und darf lange Abfragen stellen; die Herstellung braucht
-  root und haelt den Einzel-Lock so kurz wie moeglich. Getrennt bleibt
+  root und haelt den Kernel-Lock so kurz wie moeglich. Getrennt bleibt
   jede Seite pruefbar, und ein Fehler der einen kann den Schaden der
   anderen nicht vergroessern.
   Der Bestand nennt beides "Reconcile" (BASE-010_070: "Reconcile
@@ -169,21 +192,26 @@ DEC-PA-03  AUFTRAGSBUCH: STATUSWECHSEL UND ANSTOSS IN EINER TRANSAKTION
   gescheiterte Versuche bleiben sichtbar (SZ-9). Verbesserung VB-0022.
 
 DEC-PA-04  EIN SCHREIBER, EIN LOCK, KURZE HALTEDAUER
-  Alle Schreibzugriffe laufen unter dem Einzel-Lock (flock). SQL wird
+  Alle Schreibzugriffe laufen unter dem Kernel-Lock (flock). SQL wird
   NACH dem Erwerb gelesen, damit kein veralteter Lesestand angewandt
   wird. Das Warten ist begrenzt; danach TEMPFAIL_LOCKED ohne Teilwirkung.
   Der Abgleich haelt den Lock nicht durchgehend: Er arbeitet in
   Abschnitten mit begrenzter Haltedauer und laesst dazwischen wartende
   Einzelauftraege vor. Begruendung: Ein Verbindungsaufbau darf nicht auf
-  das Ende eines Massenabgleichs warten.
+  das Ende eines Massenabgleichs warten. Die einzige Ausnahme von der
+  Abschnittsgrenze ist der unteilbare Siegel-Abschnitt (DEC-PA-27).
   Ein mit dem Prozess endender Lock (flock) kennt keine Leichen; gegen
   einen haengenden Halter wirkt das Zeitlimit jeder Operation.
 
 DEC-PA-05  POLICY VOR FREIGABE, ADMISSION ZUERST ENTZIEHEN
-  Beim Aufbau wird erst der Policy-Zustand hergestellt, dann die
-  Admission erteilt. Beim Abbau wird erst die Admission entzogen, dann
-  der Policy-Zustand geraeumt. Gilt fuer beide Tunnel und fuer jeden Weg
-  (Einzelziel, Abgleich, Umbau). Erfuellt BASE-050_030 Abschnitt 3.
+  Beim Aufbau wird erst der Policy-Zustand hergestellt UND AM KERNEL
+  NACHGEWIESEN, dann die Admission erteilt; die erteilte Admission wird
+  geprueft und bei einem Fehler im selben Aufruf wieder entzogen. Beim
+  Abbau wird erst die Admission entzogen, dann der Policy-Zustand
+  geraeumt. Gilt fuer beide Tunnel und fuer jeden Weg (Einzelziel,
+  Abgleich, Umbau) - auch fuer die Waechter anderer Module, wo sie nicht
+  berechtigte Laufzeit schliessen: Sie rufen dieses Werkzeug
+  (DEC-PA-28). Erfuellt BASE-050_030 Abschnitt 3.
 
 DEC-PA-06  WIREGUARD: DER TREIBER VON BASE-040 IST DIE GATE-MECHANIK
   Die im Vorgaenger offene Frage, wie Gate und Peer-Eintrag verknuepft
@@ -199,9 +227,20 @@ DEC-PA-07  L2TP: FREIGABE ALS LETZTER SCHRITT; KEIN STUMMER DAUERZUSTAND
   Ist die Sitzung nicht berechtigt, ist ihre Zuordnung widerspruechlich
   oder ist die Datenbank nicht lesbar, wird sie sofort beendet. Scheitert
   die Herstellung nur voruebergehend im Kernelzugriff (Lock, Zustand der
-  Firewall, Set-Schreiben), bleibt sie gesperrt und wird ueber das
-  Auftragsbuch erneut versucht; ist sie nach vpn_connect_gate_ttl_seconds
+  Firewall, Set-Schreiben), bleibt sie gesperrt und wird erneut
+  versucht (Auftragsbuch bzw. Aufsicht); ist sie
+  vpn_connect_gate_ttl_seconds nach ihrer ersten Sichtung ohne Freigabe
   noch nicht freigegeben, wird sie beendet - auch ohne Datenbank.
+  EINZIGE AUSNAHME: Solange das Regelwerk VERSIEGELT ist, ruht die Frist
+  - sonst kostete jedes Neuladen alle Sitzungen. Die Sitzungen bleiben in
+  dieser Zeit gesperrt, und der Zustand ist alarmiert (Siegel-Alarm von
+  BASE-050). "Kein stummer Dauerzustand" heisst damit: beendet, oder
+  geschlossen UND alarmiert - nie still.
+  DIE FREIGABE LEBT EINE SITZUNG: Sie wird bei jedem Sitzungsbeginn neu
+  aufgebaut - vorhandene Elemente zu Adresse und Index werden zuerst
+  entfernt - und mit dem Sitzungsende entfernt. Ein liegengebliebenes
+  Element gibt nie eine neue Sitzung frei (BASE-080_030 Abschnitte 6.3,
+  6.4, 6.6; Annahmen E-PA-09 und E-PA-10).
   HERKUNFT: D009-Alt (Connect Gating D1a) und B052 (Datenbankausfall)
   verlangen "kein Verkehr vor hergestellter Policy", "kein Ersatzzustand
   eingeschraenkt" und das Beenden der Sitzung bei jedem Fehler der
@@ -226,22 +265,43 @@ DEC-PA-08  FLUSS-SCHNITT: SETS ZUERST, DANN CONNTRACK, KILL ALS RUECKFALL
   auch das, ist das Ergebnis ein Fehler - nie ein stiller Erfolg.
   Der Ausloeser wird familienweise aus dem Kernel-Vorzustand bestimmt;
   geloescht wird immer fuer beide Familien.
+  DER SCHNITT IST IM AUFTRAGSBUCH GESICHERT: Vor jedem Eintritt steht das
+  Merkmal "Schnitt ausstehend" im Buch; nach bestaetigtem Schnitt wird es
+  abgehakt (BASE-080_030 Schritte F1a, F6). Bricht die Herstellung
+  dazwischen ab, holt die Wiederholung den Schnitt nach.
+  NACH EINEM NEULADEN DES REGELWERKS sind die Sets leer. Der Abgleich
+  baut sie wieder auf und schneidet fuer JEDES Soll-Mitglied mit Laufzeit,
+  bevor er das Siegel loest (BASE-005 PF-18): Zwischen einem Verlust des
+  Regelwerks und dem versiegelten Neuladen kann ein Fluss entstanden
+  sein, den keine Regel geprueft hat. Das Siegel selbst haelt fest, dass
+  dieser Schnitt geschuldet ist (BASE-080_040 Schritt V1 e4).
 
 DEC-PA-09  SPERRUNG: LAUFZEIT ZUERST (KERN VON BASE-070)
   Wird eine Connection DISABLED oder widerrufen, beendet vpn-policy-apply
   die Laufzeit ueber den Hard-Cut-Kern von BASE-070 (L2TP) bzw. die
-  Remove-Sequenz des WG-Treibers und raeumt danach den Policy-Zustand.
-  Bei L2TP wird zuvor das Element in allowed_l2tp_v4 entfernt: Das wirkt
-  sofort, auch wenn der Daemon die Sitzung nicht beendet.
+  Remove-Sequenz des WG-Treibers.
+  Bei L2TP in dieser Folge: Freigabe entziehen (wirkt sofort, auch wenn
+  der Daemon die Sitzung nicht beendet), Policy-Zustand raeumen (ohne
+  Freigabe oeffnet das nichts), Kernel-Lock loesen, Sitzung beenden
+  (DEC-PA-27).
+  JEDE Beendigung dieses Moduls laeuft ueber den Hard-Cut-Kern - mit dem
+  Ende-Vermerk vor dem kill() und, soweit die Datenbank lesbar ist, mit
+  dem Grund-Hinweis (BASE-080_030 Abschnitt 8).
 
 DEC-PA-10  ABGLEICH: VOLLSTAENDIG, EXAKT, IN ABSCHNITTEN
   Der Abgleich bringt Peers, restricted_* und allowed_l2tp_v4 exakt auf
-  den aus SQL und Laufzeit bestimmten Stand, entfernt aus
-  connect_pending_* nur bestaetigt harmlose Reste und loest danach das
-  Siegel. Er arbeitet in Abschnitten und liest SQL in jedem Abschnitt
-  frisch; erst kommen alle schliessenden Handlungen, dann die
-  oeffnenden. Offene Auftraege erledigt er nicht - das bleibt dem
-  Auftragslauf vorbehalten (BASE-080_040 Abschnitt 1).
+  den aus SQL und Laufzeit bestimmten Stand und entfernt aus
+  connect_pending_* nur bestaetigt harmlose Reste. Er arbeitet in
+  Abschnitten und liest SQL in jedem Abschnitt frisch. REIHENFOLGE: alle
+  schliessenden Handlungen, dann das Loesen des Siegels, dann die
+  oeffnenden Handlungen, zuletzt die Hygiene von connect_pending_*.
+  Oeffnen und Hygiene laufen nur im Zustand BETRIEB. Offene Auftraege
+  erledigt der Abgleich nicht - das bleibt dem Auftragslauf vorbehalten
+  (BASE-080_040 Abschnitt 1).
+  "Siegel vor Hygiene" weicht vom Wortlaut in BASE-050_030 Abschnitt 9
+  ab (dort: Reste entfernen, danach das Siegel loesen). Die Vorbedingung
+  des Siegels haengt nicht an den Resten: Ein Gate-Element schliesst nur.
+  Die Angleichung dort ist angefordert (ANF-PA-08).
 
 DEC-PA-11  EIN GATE LAEUFT NIE AB
   Ein Element in connect_pending_* wird nie wegen seines Alters entfernt
@@ -272,12 +332,16 @@ DEC-PA-13  REIHENFOLGE DER BEWERTUNG JE CONNECTION
   Frist dieses Grundes endgueltig gesperrt werden.
 
 DEC-PA-14  SCHUTZ VOR UNUMKEHRBAREN MASSENFOLGEN
-  Fristgetriebene Uebergaenge, die sich nicht zuruecknehmen lassen
-  (Sperrung nach Fristablauf, Widerruf), fuehrt der Bewerter nur aus,
-  wenn die Systemzeit als synchronisiert gilt, seit dem letzten Lauf
-  keine unplausible Zeitluecke liegt und die Zahl solcher Uebergaenge in
-  einem Lauf unter einer einstellbaren Grenze bleibt. Andernfalls werden
-  sie zurueckgestellt und gemeldet; der Betreiber gibt sie frei.
+  Uebergaenge, die sich nicht zuruecknehmen lassen und hinter denen in
+  diesem Aufruf keine Handlung eines Menschen steht - Sperrung nach
+  Fristablauf, Widerruf UND der Tombstone, den der Lauf ohne Akteur aus
+  dem Status "geloescht" eines Customers ableitet -, fuehrt der Bewerter
+  nur aus, wenn die Systemzeit als synchronisiert gilt, seit dem letzten
+  Lauf keine unplausible Zeitluecke liegt und die Zahl solcher
+  Uebergaenge in einem Lauf unter einer einstellbaren Grenze bleibt.
+  Andernfalls werden sie zurueckgestellt und gemeldet; erst die
+  Betreiber-Freigabe laesst sie zu. Die Kaskade MIT Akteur (die
+  Verwaltungshandlung selbst) ist nicht erfasst und wirkt sofort.
   Begruendung: Die Timeout-Sperrungen sind nicht wiederherstellbar und
   ziehen eine Quarantaene der Adresse von bis zu einem Jahr nach sich.
   Ein Uhrensprung oder ein fehlerhaft gesetztes Datum wuerde sonst in
@@ -295,38 +359,52 @@ DEC-PA-16  UMBAUTEN SIND BENANNTE ABLAEUFE MIT FESTER REIHENFOLGE
   Rollenwechsel, Customer-Sperrung und -Loeschung, Restore,
   Schluesselrotation und Kennwortwechsel folgen je einem festen Ablauf:
   Sperre (BASE-070), eine Transaktion mit Auftraegen, Commit, Laufzeit-
-  bzw. Fluss-Schnitt, Freigabe. Der Commit liegt immer VOR dem Schnitt
-  (D002 7.4); das Fenster dazwischen ist durch Auftragsbuch und
-  Rollen-Netze der Firewall gedeckt.
+  bzw. Fluss-Schnitt, Loesen der Sperre. Der Commit liegt immer VOR dem
+  Schnitt (D002 7.4). Das Fenster dazwischen ist durch das Auftragsbuch
+  BEGRENZT, nicht aufgehoben: Bei einer Herabstufung behaelt bestehende
+  Laufzeit bis zur Herstellung die Rechte der alten Rolle - hingenommen
+  und ausgewiesen (BASE-080_060 Abschnitt 1).
 
 DEC-PA-17  REGISTRIERTE HELFER STATT FREMDER SCHREIBER
   Sperrliste, Verwaltungsfreigabe und Verkehrsformung gehoeren anderen
   Modulen, aendern aber Kernel-Zustand derselben Art. Sie laufen als fest
-  verzeichnete Helfer unter dem Einzel-Lock, mit geprueften Eingaben. Es
+  verzeichnete Helfer unter dem Kernel-Lock, mit geprueften Eingaben. Es
   gibt keinen zweiten Schreiber und kein Nachladen von Programmteilen aus
   beschreibbaren Verzeichnissen.
 
 DEC-PA-18  DATENBANKSTOERUNG: NICHTS AENDERN, NICHTS ENTSCHEIDEN
-  Ohne lesbare Datenbank veraendert vpn-policy-apply den Kernel nicht
-  (TEMPFAIL_SQL, ANF-WT-08) und der Bewerter trifft keine Entscheidung.
+  Ohne lesbare Datenbank stellt vpn-policy-apply nichts aus SQL her
+  (TEMPFAIL_SQL, ANF-WT-08), und der Bewerter trifft keine Entscheidung.
   Es gibt keine Herstellung aus zwischengespeicherten Werten und keinen
-  Ersatzzustand "eingeschraenkt". Nach der Rueckkehr: Bewertung aller
-  Connections, Auftragslauf, vollstaendiger Abgleich.
+  Ersatzzustand "eingeschraenkt".
+  NACH DER RUECKKEHR laufen Auftraege sofort weiter - auch oeffnende: Sie
+  setzen festgeschriebene Uebergaenge um, und SQL ist massgeblich. Der
+  ABGLEICH wartet auf die Bewertung aller Connections: Er wuerde sonst
+  aus einer Abweichung heraus oeffnen, was die Bewertung gleich wieder
+  einschraenkt (BASE-080_040 Abschnitt 8).
   HERKUNFT: B052 (DB Outage Contract): neue Sitzungen werden abgewiesen,
   bestehende Durchsetzung bleibt, wie der Kernel steht ("Freeze"), keine
   Ausweitung, keine Umschaltung nach "eingeschraenkt"; D009-Alt lehnt den
   Ersatzzustand ausdruecklich ab, damit ein gesperrter Nutzer bei einem
   Ausfall nicht ploetzlich interne Dienste erreicht.
   ZULAESSIG OHNE DATENBANK ist allein, was nichts oeffnet und kein SQL
-  braucht: Reste beendeter Sitzungen raeumen und eine nie freigegebene
-  Sitzung nach Fristablauf beenden (BASE-080_030 Abschnitte 6.4, 6.5).
+  braucht: Reste beendeter Sitzungen raeumen, eine NEUE Sitzung sofort
+  beenden und eine nie freigegebene Sitzung nach Fristablauf beenden
+  (BASE-080_030 Abschnitte 6.3 bis 6.5).
   Fuer WireGuard regelt BASE-040_060 die Schonfrist und ihr Ende.
 
 DEC-PA-19  ERGEBNISCODES DES VORGAENGERS BLEIBEN; EIN CODE KOMMT HINZU
-  0 bis 7 wie in SM_POLICY_RESTRICT 3.2. Neu ist 8 TEMPFAIL_FIREWALL: Das
-  Regelwerk ist nicht in einem Zustand, in dem Sets geschrieben werden
-  duerfen (RIEGEL, KEIN_REGELWERK; ANF-FW-03 f). Ein eigener Code, weil
-  der Aufrufer anders reagieren muss als bei einem Einzelfehler.
+  0 bis 7 mit Namen und Kern aus SM_POLICY_RESTRICT 3.2. Neu ist 8
+  TEMPFAIL_FIREWALL: Das Regelwerk ist nicht in einem Zustand, in dem
+  Sets geschrieben werden duerfen (RIEGEL, KEIN_REGELWERK; ANF-FW-03 f).
+  Ein eigener Code, weil der Aufrufer anders reagieren muss als bei einem
+  Einzelfehler.
+  ERWEITERT gegenueber dem Vorgaenger sind drei Codes: 1 (PARTIAL_OK)
+  gilt im Abgleich auch fuer zurueckgestellte Handlungen; 2
+  (TEMPFAIL_SQL) heisst "nichts wird aus SQL hergestellt" - was ohne
+  Datenbank zulaessig ist, geschieht (DEC-PA-18); 6
+  (STATE_MAPPING_ERROR) gilt auch fuer ein Einzelziel, das wegen einer
+  zurueckgestellten Massenkorrektur nicht geschlossen wird.
 
 DEC-PA-20  VERKEHRSFORMUNG UEBER EINEN HAKEN
   Wann die Formung einer Connection gesetzt und entfernt wird, legt
@@ -355,17 +433,22 @@ DEC-PA-22  NICHT AUSWERTBAR HEISST: NICHTS OEFFNEN, NICHTS UMSCHALTEN
   ANWENDUNG je Connection, nicht fuer das ganze System: Ein Fehler in
   einer Zeile sperrt nicht alle. Einzelheiten: BASE-080_030 Abschnitt 9.
   DER BEWERTER (BASE-080_020 Regel Z-1): Ist die Bedingung eines Grundes
-  nicht lesbar, gibt er nichts frei, wechselt keinen Grund und
-  finalisiert nichts. Den Eintritt in RESTRICTED fuehrt er aus, wenn ein
-  ANDERER Grund bekannt aktiv ist.
+  nicht lesbar, kommt es darauf an, ob das Ergebnis trotzdem feststeht.
+  Steht es fest - ein bekannt aktiver Grund geht im Rang JEDEM
+  unbekannten vor -, gilt die Bewertung vollstaendig. Sonst hebt er keine
+  Einschraenkung auf, wechselt keinen Grund und finalisiert nichts; den
+  Eintritt in RESTRICTED aus ACTIVE fuehrt er aus, wenn ein Grund bekannt
+  aktiv ist.
   ABWEICHUNG von B052 Abschnitt 3 (RESTRICT darf "NUR bei DB_OK" gesetzt
   werden): Dort ist jede Umschaltung nach RESTRICT untersagt, solange
   nicht alle Tatsachen ableitbar sind - gemeint ist der Ersatzzustand
   bei unklarer Lage. Hier steht der Zielstatus fest (ein Grund ist
   aktiv); unbekannt ist allein, ob ein anderer Grund vorgeht. Ohne die
   Abweichung bliebe eine Verwaltungs-Einschraenkung wirkungslos, solange
-  eine fremde Auskunft ausfaellt (SZ-4). Die HERSTELLUNG bleibt bei
-  B052: Fuer eine nicht auswertbare Zeile schaltet sie nichts um.
+  eine fremde Auskunft ausfaellt (SZ-4). Die HERSTELLUNG weicht nicht
+  ab: Fuer eine nicht auswertbare Zeile schaltet sie nichts um. Den vom
+  Bewerter festgeschriebenen Eintritt stellt sie her wie jeden
+  Statuswechsel - die Zeile ist dann auswertbar.
 
 DEC-PA-23  EINGRIFFSPFAD JE AUTOMATISMUS; DIE BEWERTUNG HAT EINEN HALT
   Der Phasenplan verlangt fuer jeden Automatismus einen Eingriffspfad des
@@ -398,6 +481,11 @@ DEC-PA-24  DER ABGLEICH LAEUFT NIE SELTENER ALS ALLE FUENF MINUTEN
   Zeitgebers mehr als der Takt seit dem Beginn des letzten Laufs
   vergangen waere: Zwischen den Anfaengen zweier Laeufe liegt nie mehr
   als der Takt.
+  DAS GILT IM UNGESTOERTEN BETRIEB - Datenbank lesbar, Zeitgeber aktiv,
+  Dauer eines Laufs kleiner als der Takt (Annahme E-PA-06). Behoben ist
+  eine Abweichung dann spaetestens nach Takt plus Laufdauer. Ausserhalb
+  davon gilt die Schranke nicht; die Ueberschreitung wird gemeldet
+  (POLICY_RECONCILE_OVERDUE, auch ohne Datenbank).
   HERKUNFT: 00_MASTER und B166 des Vorgaengers sagen zu, dass der
   Abgleich eine Abweichung "spaetestens innerhalb <= 5 Minuten" behebt.
   Die Fassung v1.0 liess 3600 s zu; das Netz unter den Einzelauftraegen
@@ -413,6 +501,16 @@ DEC-PA-25  EINE ADRESSE, DIE NICHT ZU ROLLE UND SLOT PASST, IST NICHT
   3). Weichen fixed_ip oder fixed_ipv6 davon ab, oder ist die Pool-Zeile
   ungueltig, ist die Connection nicht auswertbar (DEC-PA-22): keine neue
   Zulassung, kein Wechsel eines bestehenden Kernel-Zustands, Meldung.
+  EINE DEFINITION: Nicht auswertbar ist jede Connection, fuer die der
+  Drift-Waechter von BASE-070_060 eine Adress-Drift meldet - auch bei
+  Abweichung nur einer Familie, bei einem Slot ausserhalb des nutzbaren
+  Bereichs und bei einer v6_addr_policy, die nicht zu den Adressen passt.
+  DER BESTAND BLEIBT, BEI BEIDEN TUNNELN: Fuehrt der Anmeldename einer
+  laufenden L2TP-Sitzung zu einer Connection mit Adress-Drift, ist auch
+  die Sitzung nicht auswertbar und wird nicht beendet - selbst wenn ihre
+  Adresse dem gespeicherten Wert nicht mehr entspricht. Ein Wert, der am
+  Bestand vorbei geaendert wurde, beendet keine laufende Sitzung
+  (BASE-080_030 Abschnitt 6.1); beim WireGuard-Peer gilt dasselbe.
   BEGRUENDUNG: Die Regeln der Firewall haengen am Netz der Adresse
   (Rollen-Netze, Grenzen, Zaehler; BASE-050). Eine Adresse im Netz einer
   anderen Rolle erhielte deren Regeln. Der Drift-Waechter von BASE-070
@@ -433,6 +531,68 @@ DEC-PA-25  EINE ADRESSE, DIE NICHT ZU ROLLE UND SLOT PASST, IST NICHT
   Bestehendes bleibt. Das folgt aus SZ-7 und entspricht BASE-070_060:
   Bei ungueltiger Pool-Konfiguration wird auch nicht vergeben und kein
   Regelwerk gerendert.
+
+DEC-PA-26  EINE BERECHNETE QUELLE KANN ALS NICHT EINGERICHTET FESTGELEGT
+           WERDEN
+  Plan-Limit und Quota liest der Bewerter aus Auskuenften anderer Module
+  (BASE-100, MOD-010). Ist eine Auskunft nicht lesbar, gilt ihre
+  Bedingung als UNBEKANNT (SZ-7). Ohne weitere Regel haette das kein
+  Ende: Vor der Inbetriebnahme des Owners oder bei einem dauerhaften
+  Fehler bliebe jede Connection, deren Zielzustand an der Auskunft
+  haengt, wo sie ist.
+  Entscheidung: Das Setting vpn_policy_eval_sources_off nennt die
+  Quellen, die der Betreiber als NICHT EINGERICHTET festlegt. Eine dort
+  genannte Quelle wird nicht befragt; ihre Bedingung gilt als bekannt
+  nicht aktiv. Der Eintrag entsteht nur ueber den Schreibweg der Settings
+  (Urheber, Grund, Protokoll) und steht als Dauermeldung im Status. Kein
+  Programm setzt ihn; ein Fehler der Settings ergibt die leere Liste
+  (BASE-080_020 Regel AK-5; BASE-080_070 Abschnitte 3 und 9).
+  Begruendung: Der Unterschied zwischen "die Quelle gibt es hier nicht"
+  und "die Quelle antwortet nicht" ist eine Tatsache, die nur der
+  Betreiber kennt. Ein selbsttaetiges Oeffnen nach einer Frist wuerde
+  SZ-7 aufgeben; ein Eingriff je Connection liesse sich bei einem
+  Ausfall, der alle trifft, nicht durchhalten.
+  EINORDNUNG: Der Befund der Gegenpruefung (F-G80-B-02) nannte eine
+  "Entscheidung des Betreibers". Gemeint ist der Mechanismus; ihn
+  festzulegen ist eine technische Architekturentscheidung. Dem Betreiber
+  bleibt, was er im Betrieb entscheidet: ob er eine Quelle ausnimmt.
+
+DEC-PA-27  KEIN WARTEN AUF EIN SITZUNGSENDE UNTER DEM KERNEL-LOCK
+  Unter dem Kernel-Lock geschieht nur, was sofort wirkt: Admission
+  entziehen, Sets schreiben, Fluesse schneiden. Das Beenden einer
+  L2TP-Sitzung wartet bis zum Zeitlimit des Hard-Cut-Kerns und laeuft
+  deshalb IMMER nach dem Loesen des Locks; die Sitzung ist in der
+  Zwischenzeit ohne Freigabe gesperrt (BASE-080_050 Regel NB-8).
+  Begruendung: Das Ende einer Sitzung loest den Hook --l2tp-down aus, der
+  denselben Lock braucht. Ein Warten unter dem Lock hielte jeden
+  Verbindungsaufbau um das Zeitlimit auf - bei mehreren Sitzungen in
+  einem Abschnitt des Abgleichs um ein Vielfaches. Die Schranken der
+  Haltedauer (Regeln KP-a, NB-5) galten dafuer nicht.
+  DER SIEGEL-ABSCHNITT ist die eine Stelle, an der der Lock laenger als
+  ein Abschnitt gehalten wird: Nachweis und Loesen sind unteilbar. Er
+  hat eine eigene Obergrenze (vpn_policy_apply_timeout_seconds); wird
+  sie ueberschritten, bleibt das Siegel (BASE-080_040 Abschnitt 6).
+  REGELN DAZU: KP-g (Wartezeit plus Zeitlimit unter der Frist der
+  Aufsicht), KP-h (Zeitlimit des Hard-Cut-Kerns unter dem Zeitlimit des
+  Werkzeugs).
+
+DEC-PA-28  MENGENBREMSE DES ABGLEICHS: EIN WEG, EINE BREMSE
+  Schliessende Korrekturen OHNE Auftrag deuten auf einen Fehler der
+  Daten oder der Lesung. Uebersteigt ihre Zahl in einem Lauf oder in
+  einer Stunde die Grenzen, fuehrt der Abgleich keine davon aus und
+  meldet; erst die Betreiber-Freigabe laesst sie zu (BASE-080_040
+  Abschnitt 7). Die Bremse erfasst auch das Entfernen nicht zugelassener
+  Peers durch die Hygiene (Regel P-3) und gilt fuer Einzelziele ohne
+  Auftrag (Regel MB-7).
+  EIN WEG: Auch die Zulassungswaechter anderer Module schliessen nicht
+  berechtigte Laufzeit ueber dieses Werkzeug - der WG-Controller
+  (BASE-040_050) und, angefordert, der L2TP-Abgleich von BASE-070 fuer
+  Sitzungen ohne Berechtigung (ANF-PA-14). So gelten "Admission zuerst
+  entziehen" und die Bremse fuer jeden Weg.
+  Begruendung: Ohne das zaehlte jeder Waechter fuer sich, und der eine
+  schloesse, was der andere eben zurueckgestellt hat. Jede ordentliche
+  Sperrung traegt einen Auftrag und wird nie gebremst. Verbesserung
+  VB-0024.
 
 ================================================================================
 6) DAMIT GESCHLOSSENE OFFENE PUNKTE
@@ -477,6 +637,12 @@ DEC-PA-25  EINE ADRESSE, DIE NICHT ZU ROLLE UND SLOT PASST, IST NICHT
   DOMAIN_MODEL DP-05)                              BASE-080_030 Abschnitt 9
   Verbleib von DOMAIN_MODEL Abschnitt 5         -> BASE-080_080 Abschnitt
   (BF-0100)                                        10
+  Dauerhaft nicht lesbare Auskunft; Zustand     -> DEC-PA-26,
+  vor Inbetriebnahme einer Quelle                  BASE-080_020 Regel AK-5
+  Haltedauer des Kernel-Locks beim Beenden      -> DEC-PA-27,
+  von Sitzungen                                    BASE-080_050 Regel NB-8
+  Mengenbremse und die Waechter anderer Module  -> DEC-PA-28,
+                                                   BASE-080_040 Abschnitt 7
 
 ================================================================================
 CHANGELOG

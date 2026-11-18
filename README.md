@@ -1,7 +1,7 @@
 # RetroTunnel
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
-![Concept version: v2.9.13](https://img.shields.io/badge/Concept-v2.9.13-blue.svg)
+![Concept version: v2.9.14](https://img.shields.io/badge/Concept-v2.9.14-blue.svg)
 ![Status: M2 In Progress](https://img.shields.io/badge/Phase-M2%20In%20Progress-yellow.svg)
 ![Platform: Debian 13](https://img.shields.io/badge/Platform-Debian%2013-informational.svg)
 
@@ -14,7 +14,7 @@ RetroTunnel ist ein in Entwicklung befindliches Architektur- und Implementierung
 
 Geplant ist ein Full-Tunnel-VPN mit deterministischer Server-Side Policy, SQL-first AAA, rollenbasiertem Enforcement, DNS-Zwang, internem Webpanel und einem auf Produktivbetrieb ausgerichteten Betriebsmodell.
 
-> **Projektstand: Konzeptentwicklung (v2.9.13).** Die dokumentierten Module und Entscheidungen beschreiben den vorgesehenen Systemaufbau. Das Repository stellt derzeit **keine fertig implementierte oder als produktionsreif abgenommene VPN-Gesamtlösung** bereit. Fortschrittsangaben beziehen sich auf die Konzeptarbeit, soweit nicht ausdrücklich anders bezeichnet. Die [Prioritätenliste](PRIORITAETENLISTE.txt) dokumentiert die Arbeitsreihenfolge; der [Phasenplan](04_PHASE_PLAN.txt) beschreibt die erforderlichen Reife- und Abnahmekriterien. Einzelne Quelldateien können eigene Versionsstände führen; v2.9.13 bezeichnet den zentral dokumentierten Projektstand im [Changelog](03_CHANGELOG.txt).
+> **Projektstand: Konzeptentwicklung (v2.9.14).** Die dokumentierten Module und Entscheidungen beschreiben den vorgesehenen Systemaufbau. Das Repository stellt derzeit **keine fertig implementierte oder als produktionsreif abgenommene VPN-Gesamtlösung** bereit. Fortschrittsangaben beziehen sich auf die Konzeptarbeit, soweit nicht ausdrücklich anders bezeichnet. Die [Prioritätenliste](PRIORITAETENLISTE.txt) dokumentiert die Arbeitsreihenfolge; der [Phasenplan](04_PHASE_PLAN.txt) beschreibt die erforderlichen Reife- und Abnahmekriterien. Einzelne Quelldateien können eigene Versionsstände führen; v2.9.14 bezeichnet den zentral dokumentierten Projektstand im [Changelog](03_CHANGELOG.txt).
 
 ## Warum existiert dieses Projekt?
 

@@ -2,8 +2,8 @@
 BASE-080 — POLICY APPLY CORE (INDEX)
 ================================================================================
 DATEI: BASE-080_INDEX.txt
-VERSION: v1.2
-DATUM: 2026-11-17
+VERSION: v1.3
+DATUM: 2026-11-18
 STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
 
 ================================================================================
@@ -17,7 +17,7 @@ STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
   jedem Statuswechsel und durch regelmaessigen ABGLEICH.
 
   Leitsatz: SQL SAGT, WAS GILT - DIESES MODUL BRINGT ES IN DEN KERNEL UND
-  HAELT ES DORT. Erst die Policy, dann die Freigabe; erst die Freigabe
+  HAELT ES DORT. Erst die Policy, dann die Zulassung; erst die Zulassung
   entziehen, dann raeumen; im Zweifel bleibt geschlossen, was geschlossen
   ist, und bestehen, was besteht.
 
@@ -72,7 +72,7 @@ STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
                                             Sperr-Set
     Hard-Cut                                _030 Abschnitte 7, 8
     Aufloesung von SM_POLICY_RESTRICT       _080 Abschnitt 9
-    Freigabe nach dem Verbindungsaufbau     _030 Abschnitte 5, 6 -
+    Zulassung nach dem Verbindungsaufbau    _030 Abschnitte 5, 6 -
     (WireGuard: Gate loesen; L2TP:         angepasst: Massgeblich ist der
     Eintrag in allowed_l2tp_v4); bei       Bestand am Kernel (Peer bzw.
     Scheitern kein offener Weg              Schnittstelle), nicht eine
@@ -87,7 +87,7 @@ STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
   BASE-080_INDEX.txt                                 Dieses Dokument
   BASE-080_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt    Schutzziele, Begriffe,
                                                      Komponenten,
-                                                     DEC-PA-01..25
+                                                     DEC-PA-01..28
   BASE-080_020_BEWERTUNG_UND_LIFECYCLE_LAUF.txt      vpn-policy-eval:
                                                      Quellen, Zielzustand,
                                                      Ablauf, Kern, Lauf,
@@ -117,12 +117,12 @@ STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
                                                      Lese- und
                                                      Schreibgrenzen,
                                                      ANF-PA-01..17,
-                                                     E-PA-01..08, Verbleib
+                                                     E-PA-01..11, Verbleib
                                                      der POL-Invarianten
                                                      und von DOMAIN_MODEL
                                                      Abschnitt 5
-  BASE-080_090_INVARIANTEN.txt                       PA-01..PA-69
-  BASE-080_095_TESTS.txt                             T-PA-01..T-PA-90
+  BASE-080_090_INVARIANTEN.txt                       PA-01..PA-75
+  BASE-080_095_TESTS.txt                             T-PA-01..T-PA-95
 
 ================================================================================
 4) TABELLEN DIESES MODULS
@@ -148,7 +148,7 @@ STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
               (Bewerter) - Zeitgeber fest, Takt aus Settings
   Pfade       /run/vpn-policy-apply.lock (Kernel-Lock),
               /run/retrotunnel/policy/ (Statusdateien, Anforderungen des
-              Abgleichs, Einzel-Locks),
+              Abgleichs, Lauf-Locks, Ablagen der Aufsicht),
               /usr/local/lib/retrotunnel/policy-helpers/
   Bereitschaft POLICY_READY (ein fehlerfreier Abgleich seit dem Start und
               Zustand BETRIEB der Firewall); KEINE Voraussetzung fuer
@@ -159,8 +159,8 @@ STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
 6) ZUSAGEN IM UEBERBLICK
 ================================================================================
 
-  - Kein Verkehr vor hergestellter Policy - fuer beide Tunnel und jeden
-    Weg (PA-26, PA-30).
+  - Kein Verkehr vor hergestellter und nachgewiesener Policy - fuer beide
+    Tunnel und jeden Weg (PA-26, PA-30).
   - Ein Schreiber, ein Lock; jede Herstellung ist wiederholbar (PA-18,
     PA-19).
   - Kein Statuswechsel geht verloren: Auftrag in der Transaktion der
@@ -168,12 +168,19 @@ STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
   - Einschraenkung und Sperrung wirken sofort, auch auf bestehende Fluesse
     (PA-32, PA-33).
   - Fehlendes Wissen oeffnet nichts und schaltet nichts um (PA-22, PA-25).
-  - Nichts Unumkehrbares und nichts in Massen aus einem Einzelfehler
-    (PA-11, PA-43).
+    Eine Quelle gilt nur durch ausdrueckliche Festlegung des Betreibers
+    als nicht eingerichtet (PA-07, PA-74).
+  - Nichts Unumkehrbares und nichts in Massen aus einem Einzelfehler -
+    auch nicht ueber einen Status "geloescht", hinter dem keine Handlung
+    steht (PA-11, PA-14, PA-43).
   - Ein Gate laeuft nie ab; das Siegel wird nur mit Nachweis geloest
     (PA-41, PA-42).
-  - Der Abgleich laeuft nie seltener als alle fuenf Minuten (PA-36).
-  - Eine verfaelschte Adresse oeffnet nichts (PA-69).
+  - Der Abgleich laeuft im ungestoerten Betrieb nie seltener als alle
+    fuenf Minuten; eine Ueberschreitung wird gemeldet (PA-36).
+  - Eine verfaelschte Adresse oeffnet nichts und beendet keine laufende
+    Sitzung (PA-69).
+  - Unter dem Kernel-Lock wird nie auf das Ende einer Sitzung gewartet
+    (PA-71).
   - ADMIN-Connections werden nie eingeschraenkt (PA-05).
   - Jeder Automatismus hat einen Eingriffspfad des Betreibers (PA-68).
 
@@ -187,7 +194,7 @@ STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
   ("Aenderung noch nicht im Netz wirksam"); die Betriebsseite mit
   Statusdateien, Marken und Alarmen; die Handlungen des privilegierten
   Auftragswegs (Zustand jetzt herstellen, jetzt abgleichen, Bewertung
-  jetzt, Freigaben, Halt der Bewertung, Rollenwechsel). Das Panel
+  jetzt, Betreiber-Freigaben, Halt der Bewertung, Rollenwechsel). Das Panel
   bearbeitet weder Sets noch Auftraege, Marken oder Status.
 
 ================================================================================
@@ -224,7 +231,7 @@ STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
   (Abbruchstellen: _030 Abschnitt 10; Wettlaeufe: _050 Abschnitt 6).
   Maschinell geprueft ist allein die formale Konsistenz (Nummerierung,
   Verweise, Rueckverfolgung) durch qa/pruefe_register.py. Kein Test dieses
-  Moduls wurde ausgefuehrt; die Annahmen E-PA-01 bis E-PA-08 sind nicht
+  Moduls wurde ausgefuehrt; die Annahmen E-PA-01 bis E-PA-11 sind nicht
   praktisch bestaetigt.
 
   FASSUNG v1.1 (2026-11-17): Nach der Anfangspruefung des Bestands
@@ -246,8 +253,30 @@ STATUS: IN ARBEIT (AP-K080; Modul noch unvollstaendig)
   POLICY_STATE_UNDETERMINED und die ausgewiesene Abweichung "nur der
   Eintritt schneidet". Die Schritte 1 bis 3 sind eine Eigenpruefung.
 
-  GEGENPRUEFUNG: steht aus. Keine Fassung dieses Moduls ist von einem
-  unabhaengigen Pruefer gelesen.
+  FASSUNG v1.3 (2026-11-18): Nach der unabhaengigen Gegenpruefung der
+  Fassung v1.2 durch zwei Pruefer (Berichte unter governance/pruefungen/:
+  BASE-080_GEGENPRUEFUNG_A_... und _B_...; zusammen 45 Befunde: 7 MAJOR,
+  33 MINOR, 5 NICE). Eingearbeitet sind unter anderem: bei L2TP der
+  Nachweis des Policy-Zustands VOR der Freigabe; die Freigabe lebt eine
+  Sitzung; kein Warten auf ein Sitzungsende unter dem Kernel-Lock
+  (DEC-PA-27); eine Adress-Drift beendet keine laufende Sitzung; die
+  Mengenbremse mit Stundenfenster und der eine Weg fuer die Waechter
+  anderer Module (DEC-PA-28); der Tombstone aus dem Netz unter dem Schutz
+  vor unumkehrbaren Massenfolgen; die als nicht eingerichtet festgelegte
+  Quelle (DEC-PA-26); die Erkennung eines Neuladens am Ladestand; die
+  Zusage des Abgleichs nur im ungestoerten Betrieb; der Rollenwechsel mit
+  verbindlicher Pruefung und Bewertungskern in der Transaktion. Neu:
+  DEC-PA-26 bis -28, PA-70 bis PA-75, T-PA-91 bis T-PA-95, E-PA-09 bis
+  E-PA-11, drei Settings, die Regeln KP-g und KP-h.
+  EIGENE BERICHTIGUNG WAEHREND DER EINARBEITUNG: Der zunaechst geplante
+  Verzicht auf den Fluss-Schnitt nach einem Neuladen des Regelwerks
+  widersprach BASE-005 PF-18 und ist verworfen (DEC-PA-08).
+
+  GEGENPRUEFUNG: Fassung v1.2 ist von zwei unabhaengigen Pruefern gelesen.
+  Die Einarbeitung zur Fassung v1.3 stammt vom Hauptarchitekten; ihre
+  unabhaengige Bestaetigung steht aus. Die Anforderungen an die
+  Nachbarmodule (BASE-080_080 Abschnitt 6) sind dort zum Teil noch nicht
+  umgesetzt.
 
 ================================================================================
 CHANGELOG
