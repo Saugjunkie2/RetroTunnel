@@ -215,7 +215,8 @@ ZWECK:
                                ZURUECKGESTELLT heisst: Der Schutz aus
                                Abschnitt 7 laesst ihn nicht zu. RUHEND
                                heisst: Er unterbleibt wegen eines Halts
-                               (Abschnitt 11).
+                               (Abschnitt 11). Trifft beides zu, gilt
+                               er als RUHEND: Der Halt geht vor.
                                ERSATZSPERRUNG: Ist der Tombstone
                                zurueckgestellt - oder ruht er in einem
                                Aufruf, der im Halt umkehrbare
@@ -236,11 +237,14 @@ ZWECK:
                                Ihr Restore-Fenster wird weder geprueft
                                noch offengehalten (E4); auf sie wartet
                                der Tombstone. Der Ersatzgrund ist
-                               wiederherstellbar: Stellt die Verwaltung
-                               sie wieder her (T-08), sperrt der
-                               naechste Lauf sie erneut - ein
-                               Datenfehler am Status des Customers
-                               bleibt so umkehrbar.
+                               wiederherstellbar, solange sein
+                               Restore-Fenster laeuft (E2 haelt es nicht
+                               offen): Stellt die Verwaltung die
+                               Connection wieder her (T-08), sperrt der
+                               naechste Lauf ausserhalb eines Halts sie
+                               erneut. Ein Datenfehler am Status des
+                               Customers bleibt so umkehrbar - wenn er
+                               innerhalb dieses Fensters berichtigt wird.
         Customer SUSPENDED  -> ist die Connection ACTIVE oder RESTRICTED:
                                T-04 bzw. T-07 mit
                                DISABLE_CUSTOMER_SUSPENDED (INV-65). Ende.
@@ -272,17 +276,45 @@ ZWECK:
          Lauf in der Nachfrist.
          KEIN OFFENHALTEN OHNE FENSTER: Hat der Grund ein Restore-Fenster
          der Laenge 0, gibt es nichts offenzuhalten; a) entfaellt.
-      a2) KEIN WIDERRUF NACH EINEM STILLSTAND: Ist das Fenster abgelaufen
-         und hat in der Nachfrist vor seinem Ende KEIN Lauf begonnen
-         (policy_eval_last_run_at, wie dieser Lauf es vorfindet, liegt
-         vor restore_until - NACHFRIST), beginnt der Bewerter das Fenster
-         neu wie in a): Er stand, und niemand hat in der Nachfrist
-         geprueft, ob Wissen fehlte. Das gilt nur, wenn die NACHFRIST
-         mindestens zwei Bewertungstakte umfasst - sonst beweist ein
-         fehlender Lauf keinen Stillstand. Ende.
+      a2) KEIN WIDERRUF NACH EINEM STILLSTAND: Steht die Marke eines
+         Stillstands (policy_eval_stall_from, policy_eval_stall_until;
+         Abschnitt 6, BL3a) und lag die GANZE Nachfrist dieses
+         abgelaufenen Fensters in ihm (policy_eval_stall_from <
+         restore_until - NACHFRIST und restore_until <=
+         policy_eval_stall_until), wird es nicht widerrufen: Der
+         Bewerter stand, und niemand hat in der Nachfrist geprueft, ob
+         Wissen fehlte. Der Bewerter gibt die Nachfrist zurueck:
+         restore_until = jetzt + NACHFRIST, ueber dieselbe Routine;
+         Ereignis POLICY_EVAL_REVOKE_DEFERRED mit dem Anlass STILLSTAND.
+         Ende.
+         ERST, WENN WIDERRUFEN WERDEN DUERFTE: a2 wird nur in einem Lauf
+         ausgefuehrt, in dem U-1 und U-2 erfuellt sind (Abschnitt 7).
+         Bis dahin bleibt das Fenster, wie es ist - b) ruht dann
+         ohnehin. Wird in dieser Zeit die Uhr berichtigt, ist das
+         Fenster nicht mehr abgelaufen, und es gibt nichts
+         zurueckzugeben: Ein Uhrensprung verlaengert so kein Fenster.
+         ABBRUCHFEST: Die Marke des Stillstands bleibt stehen, bis ein
+         Lauf mit erfuellten U-1 und U-2 ohne gescheiterten Kandidaten
+         endet (BL7). Scheitert die Bearbeitung einer betroffenen
+         Connection, greift a2 im naechsten Lauf erneut.
+         GRENZE: a2 gilt nur, wenn die NACHFRIST mindestens zwei
+         Bewertungstakte umfasst - sonst beweist ein fehlender Lauf
+         keinen Stillstand. Bei einem Fenster der Laenge 0 ist auch die
+         Nachfrist 0: a2 entfaellt wie a).
       b) WIDERRUF: sonst, wenn jetzt >= restore_until
          -> Widerruf nach LR-02 (revoked_at, quarantine_until;
-            restore_until NULL). UNUMKEHRBAR (Abschnitt 7).
+            restore_until NULL). UNUMKEHRBAR (Abschnitt 7) - und nur,
+            wenn der Aufruf dieses Fenster als Widerruf GEZAEHLT hat
+            (Abschnitt 6, BL5); sonst bleibt es fuer den naechsten Lauf.
+      OHNE DIE ROUTINE (Uebergang; BASE-080_080 Abschnitt 6a, ANF-PA-01
+      r): Solange BASE-010 die Routine zum Neubeginn nicht bietet,
+      beginnt der Bewerter KEIN Fenster neu - a) und a2) entfallen, und
+      nach dem Ablauf folgt b) unter dem Schutz aus Abschnitt 7. Wo a)
+      greifen wuerde, WARNT der Lauf stattdessen: Die Statusdatei fuehrt
+      die Zahl dieser Fenster und das frueheste Ende (fenster_gefaehrdet),
+      und solange die Zahl ueber null liegt, steht die Dauermeldung
+      POLICY_EVAL_REVOKE_IMMINENT. Beheben kann der Betreiber dann nur
+      die Ursache der unlesbaren Auskunft.
       WARUM a): T-08 ist nur innerhalb des Fensters zulaessig (BASE-010)
       und wird bei unbekannter Auskunft abgelehnt (Abschnitt 5). Liefe
       das Fenster in dieser Zeit ab, waere die Connection endgueltig
@@ -296,7 +328,9 @@ ZWECK:
       laeuft. Fehlte das Wissen nur im letzten Bewertungstakt vor dem
       Fensterende und ist es beim naechsten Lauf wieder da, folgt der
       Widerruf - verloren ist dann hoechstens dieser eine Takt. Steht
-      der Bewerter ueber das Fensterende, greift a2).
+      der Bewerter ueber das Fensterende, greift a2): Es gibt nicht das
+      ganze Fenster zurueck, sondern die Nachfrist - das, was der
+      Stillstand genommen haben kann.
       DAUERZUSTAND: Bleibt eine Auskunft fuer EINE Connection dauerhaft
       unbekannt (etwa widerspruechliche Daten), wird ihr Fenster immer
       wieder neu begonnen. Das endet nicht von selbst. Die Statusdatei
@@ -409,7 +443,9 @@ ZWECK:
   sein duerfte, ist nicht feststellbar - fehlendes Wissen oeffnet nichts
   (SZ-7). Die Meldung nennt restore_until und den Eingriff AK-5; solange
   die Auskunft unbekannt bleibt, haelt der Bewerter das Restore-Fenster
-  offen (Schritt E4 a).
+  offen (Schritt E4 a). IM UEBERGANG, solange BASE-010 die Routine dazu
+  nicht bietet, haelt er es nicht offen, sondern warnt (Schritt E4,
+  OHNE DIE ROUTINE; BASE-080_080 Abschnitt 6a, ANF-PA-01 r und i).
 
 ================================================================================
 6) DER LAUF (vpn-policy-eval)
@@ -503,7 +539,17 @@ ZWECK:
          Uebergaenge in diesem Lauf erlaubt sind. HALT nach Abschnitt
          11: Besteht er, fuehrt der Lauf KEINEN Uebergang aus und zaehlt
          die Kandidaten nach Art; allein das Offenhalten eines
-         Restore-Fensters laeuft weiter (Schritt E4 a).
+         Restore-Fensters laeuft weiter (Schritt E4 a, a2).
+    BL3a STILLSTAND FESTHALTEN: Findet der Lauf policy_eval_last_run_at
+         um mehr als zwei Bewertungstakte zurueck vor - oder fehlt die
+         Marke -, haelt er das fest, bevor er policy_eval_last_run_at
+         fortschreibt: policy_eval_stall_from = der vorgefundene Wert
+         (fehlt er: der frueheste darstellbare Zeitpunkt), sofern die
+         Marke nicht schon steht; policy_eval_stall_until = Beginn
+         dieses Laufs. Steht policy_eval_stall_until in der Zukunft (die
+         Uhr wurde zurueckgestellt), setzt der Lauf es auf seinen
+         Beginn. Ereignis POLICY_EVAL_STALL mit Beginn und Ende. Die
+         Marken dienen allein Schritt E4 a2.
     BL4  KANDIDATEN mengenweise bestimmen (Abschnitt 2, AK-3):
            a) Connections von Customern mit Status SUSPENDED oder DELETED,
               die noch nicht entsprechend gesperrt sind
@@ -515,17 +561,37 @@ ZWECK:
          Die Indizes auf den Fristfeldern (BASE-010_020) tragen a) und b);
          c) ist ein Verbund ueber die sechs Quellen.
     BL5  MENGENBREMSE nach Abschnitt 7 auf die unumkehrbaren Kandidaten.
-         NICHT gezaehlt wird ein abgelaufenes Restore-Fenster, das der
-         Lauf nach E4 a oder a2 neu beginnen wird: Dort ist kein
-         Widerruf faellig. Fehlt eine Auskunft fuer viele Connections,
-         haelt die Mengengrenze (U-3) deshalb nichts an.
+         Der Lauf merkt sich je Kandidat, ob er ihn als unumkehrbaren
+         Uebergang GEZAEHLT hat; eine Connection zaehlt je Lauf
+         hoechstens einmal, auch wenn sie nach BL4 a und b Kandidat
+         ist. NICHT gezaehlt wird ein abgelaufenes
+         Restore-Fenster, das der Lauf nach der mengenweisen Lesung
+         gemaess E4 a oder a2 neu beginnen wird: Dort ist kein Widerruf
+         faellig. Fehlt eine Auskunft fuer viele Connections, haelt die
+         Mengengrenze (U-3) deshalb nichts an.
+         KEIN UNUMKEHRBARER UEBERGANG OHNE ZAEHLUNG: Die Zaehlung ist
+         eine Vorhersage aus der mengenweisen Lesung; entschieden wird
+         je Connection in E1 bis E8 mit frisch gelesenen Daten. Ergibt
+         sich dort ein unumkehrbarer Uebergang (E2 Tombstone, E3, E4 b,
+         E7) fuer einen Kandidaten, den dieser Lauf NICHT gezaehlt hat -
+         etwa weil eine Auskunft bei der Zaehlung fehlte und in E1
+         lesbar ist -, fuehrt der Lauf ihn NICHT aus: Die Connection
+         bleibt, wie sie ist; der Fall steht in der Statusdatei
+         (ungezaehlt_verschoben), und der naechste Lauf zaehlt ihn. Die
+         andere Richtung schadet nicht: Ein gezaehlter Kandidat, fuer
+         den sich in E1 bis E8 kein unumkehrbarer Uebergang ergibt,
+         bleibt einfach aus.
     BL6  Je Kandidat der Ablauf E1 bis E8 in EIGENER Transaktion. Ein
          Fehler bei einer Connection beendet den Lauf nicht; er wird
          gezaehlt und die Connection im naechsten Lauf erneut bearbeitet.
     BL7  Marken und Statusdatei: policy_eval_last_run_at immer;
          policy_eval_last_ok_at nur, wenn kein Kandidat fehlschlug;
          policy_eval_time_anomaly_at nach Abschnitt 7 (U-2 b). Wert der
-         beiden ersten ist der BEGINN des Laufs.
+         beiden ersten ist der BEGINN des Laufs. Die Marken eines
+         Stillstands (BL3a) entfernt der Lauf, wenn U-1 und U-2 erfuellt
+         waren und kein Kandidat fehlschlug - dann ist jedes betroffene
+         Fenster bearbeitet (E4 a2); er meldet dabei die Zahl der
+         Fenster, denen er die Nachfrist zurueckgegeben hat.
 
   EIGENSCHAFTEN: idempotent (ein zweiter Lauf ohne geaenderte Eingaben
   schreibt nichts); jede Connection fuer sich atomar; Abbruch an
@@ -613,7 +679,8 @@ ZWECK:
   EINZIGE AUSNAHME: Der Aufruf --resume setzt policy_eval_time_anomaly_at
   auf jetzt (Regel HL-5) - er verlaengert den Schutz und verkuerzt ihn
   nie. U-3 gilt je Aufruf fuer die Summe seiner unumkehrbaren
-  Uebergaenge. Ein Folgeaufruf einer Handlung fuehrt keinen aus
+  Uebergaenge, und kein Aufruf fuehrt einen aus, den er nicht vorher
+  gezaehlt hat (BL5). Ein Folgeaufruf einer Handlung fuehrt keinen aus
   (Aufrufart A3).
   Das Ende eines Halts der Bewertung BEGINNT eine Ruhezeit (Abschnitt 11,
   Regel HL-5); es beendet nie eine.

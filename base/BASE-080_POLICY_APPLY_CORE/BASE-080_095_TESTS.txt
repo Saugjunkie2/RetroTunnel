@@ -128,19 +128,33 @@ BEWERTUNG
             Nach Rueckkehr der Auskunft ist T-08 mindestens die Nachfrist
             abzueglich eines Bewertungstakts lang moeglich; danach gilt
             das Fenster wie jedes andere. NACHFRIST: bei Ruhezeit 3600 s
-            und Fenster 30 Tage 3600 s; bei Fenster 1 h das halbe Fenster
-            (1800 s). GEGENFAELLE: Mit lesbarer Auskunft wird kein Fenster
-            erneuert; mit bekannt aktivem Grund auch nicht (T-08 ergibt
-            dann RESTRICTED); ein Grund mit Fenster der Laenge 0: kein
-            Offenhalten. STILLSTAND: Der Bewerter steht ueber das
-            Fensterende, die Auskunft ist bei seinem Wiederanlauf lesbar:
-            kein Widerruf - das Fenster beginnt neu (E4 a2); nach dessen
-            Ablauf bei regelmaessigen Laeufen Widerruf. DAUERZUSTAND:
+            und Fenster 30 Tage 3600 s; bei Ruhezeit 86400 s und Fenster
+            1 Tag das halbe Fenster (43200 s). GEGENFAELLE: Mit lesbarer
+            Auskunft wird kein Fenster erneuert; mit bekannt aktivem
+            Grund auch nicht (T-08 ergibt dann RESTRICTED); ein Grund mit
+            Fenster der Laenge 0: kein Offenhalten und - auch nach einem
+            Stillstand - kein Neubeginn, sondern Widerruf nach E4 b.
+            STILLSTAND: Der Bewerter steht ueber das Fensterende, die
+            Auskunft ist bei seinem Wiederanlauf lesbar: Die Marken des
+            Stillstands stehen; waehrend der Ruhezeit bleibt das Fenster
+            unveraendert; im ersten Lauf mit erfuellten U-1 und U-2 kein
+            Widerruf - restore_until = jetzt + Nachfrist (E4 a2), Anlass
+            STILLSTAND; nach deren Ablauf bei regelmaessigen Laeufen
+            Widerruf. ABBRUCH: Scheitert in diesem Lauf die Transaktion
+            der Connection, widerruft auch der naechste Lauf nicht; die
+            Marken stehen, bis ein Lauf ohne Fehler endet. UHRENSPRUNG:
+            Uhr 30 Tage vor und in der Ruhezeit wieder zurueck: Kein
+            Fenster wird neu begonnen, keines endet spaeter als zuvor.
+            Ein Fenster, in dessen Nachfrist ein Lauf begann, erhaelt
+            nichts zurueck. DAUERZUSTAND:
             Bleibt die Auskunft fuer eine Connection unbekannt, fuehrt die
             Statusdatei sie nach dem zweiten Neubeginn in Folge unter
             "wiederholt". KONSISTENZ: Takt 600 s mit Ruhezeit 300 s lehnt
             der Schreibweg der Settings ab (KP-i). (Setzt ANF-PA-01 r
-            voraus.)
+            voraus.) UEBERGANG OHNE DIE ROUTINE: kein Neubeginn; die
+            Statusdatei fuehrt fenster_gefaehrdet, POLICY_EVAL_REVOKE_
+            IMMINENT steht, solange die Zahl ueber null liegt; nach dem
+            Ablauf Widerruf unter dem Schutz.
             (f)
             Jeweils POLICY_EVAL_INPUT_UNKNOWN; faellt die Auskunft fuer alle
             Connections aus: ALERT. Die uebrigen Connections werden normal
@@ -208,7 +222,16 @@ BEWERTUNG
             eine faellige Connection bei entzogenem Zeitsignal: kein
             Uebergang. (e) GRENZEN: genau 25 faellige bei Grenze 25: alle
             werden ausgefuehrt; Datenbankzeit und Systemzeit genau 5 s
-            auseinander: bestaetigt, darueber nicht. [PA-11]
+            auseinander: bestaetigt, darueber nicht. (f) NICHT GEZAEHLT,
+            NICHT AUSGEFUEHRT: 26 abgelaufene Restore-Fenster, von der
+            Mengengrenze gehalten. Im naechsten Lauf ist die mengenweise
+            Auskunft unbekannt (die Zaehlung nimmt die Fenster aus), die
+            Auskunft je Connection aber lesbar - bzw. sie kehrt waehrend
+            des Laufs zurueck: KEIN Widerruf; die Statusdatei nennt 26
+            unter ungezaehlt_verschoben. Der darauf folgende Lauf zaehlt
+            26 und haelt (POLICY_EVAL_HELD). Dasselbe fuer eine
+            Finalisierung und fuer die Sperrung nach claim_deadline, die
+            sich erst bei der Bearbeitung ergeben. [PA-11]
 
   T-PA-12  [L] Ruhezeit: (a) Marke policy_eval_last_run_at loeschen:
             Anomalie; policy_eval_time_anomaly_at ist gesetzt; unumkehrbare
@@ -1032,7 +1055,13 @@ UMBAUTEN
             in eine Rolle ohne Plan bei NICHT LESBARER Kontingent-Auskunft:
             Die Connection bleibt RESTRICTED mit dem gespeicherten Grund
             aus dem Plan (Regel Z-1 c), gemeldet; der naechste Durchgang
-            mit lesbarer Auskunft berichtigt. (f)
+            mit lesbarer Auskunft berichtigt. EINTRITT BEI UNBEKANNTER
+            AUSKUNFT: Wechsel WEG von ADMIN bei abgelaufener Laufzeit
+            und nicht lesbarer Kontingent-Auskunft: Die ACTIVE-Connection
+            ist mit dem Commit RESTRICTED (Regel Z-1 b). IM HALT: Der
+            Rollenwechsel wird nicht abgelehnt; Status, Grund und Frist
+            folgen dem Kern mit dem Commit, waehrend der Lauf im Halt
+            keinen Uebergang ausfuehrt. (f)
             Zielrolle ADMIN: Die eingeschraenkte Connection ist mit dem
             Commit ACTIVE; ihre Tatsachen (Pause,
             Verwaltungs-Einschraenkung) sind geloescht, mit
@@ -1062,7 +1091,10 @@ UMBAUTEN
             nach dem Commit: abgewiesen (BASE-070 SC-63). (e) Kennwort
             wechseln, waehrend ein faelliger Auftrag besteht (eine noch
             nicht hergestellte Sperrung): Seine Faelligkeit bleibt; die
-            Sperrung wird nicht aufgeschoben. (f) GLEICHE SEKUNDE: Eine
+            Sperrung wird nicht aufgeschoben. Besteht ein Auftrag im
+            Wiederholungsabstand, dessen next_try_at SPAETER liegt als
+            die Faelligkeit des Kennwortwechsels, gilt die fruehere;
+            liegt es FRUEHER, bleibt es. (f) GLEICHE SEKUNDE: Eine
             Sitzung beginnt in der Sekunde des Wechsels: Sie gilt als
             vorher begonnen und wird beendet. [PA-56, PA-48]
 

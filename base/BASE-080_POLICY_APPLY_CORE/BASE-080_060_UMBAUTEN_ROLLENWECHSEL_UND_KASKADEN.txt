@@ -148,7 +148,8 @@ ZWECK:
     - STATUS, GRUND UND FRIST FOLGEN DEM BEWERTUNGSKERN (RC3 f) - BEI
       JEDEM ROLLENWECHSEL: Jede Connection, die nicht gesperrt ist, wird
       in der Transaktion des Wechsels mit der neuen Rolle neu bewertet,
-      wie ein Lauf des Bewerters es taete. Was weiter gilt, bleibt
+      wie ein Lauf des Bewerters ausserhalb eines Halts es taete. Was
+      weiter gilt, bleibt
       (Verwaltungs-Einschraenkung, Pause, abgelaufene Laufzeit). Was
       nicht mehr gilt, entfaellt mit dem Commit; was neu gilt, tritt mit
       dem Commit ein:
@@ -169,16 +170,26 @@ ZWECK:
                                Schritt E6)
       Gesperrte Connections beruehrt der Kern nicht.
       UNBEKANNTE AUSKUNFT: Ist beim Wechsel eine Auskunft nicht lesbar
-      und das Ziel deshalb nicht bestimmt, bleibt der gespeicherte
-      Zustand (BASE-080_020 Regel Z-1 c) - auch ein Grund aus dem Plan
-      nach dem Wechsel in eine Rolle ohne Plan: Die Connection bleibt
-      eingeschraenkt, ihr Grund ist dann ueberholt. Das berichtigt der
-      naechste Durchgang mit lesbarer Auskunft. Fuer die Zielrolle
-      ADMIN braucht es keine Auskunft. Die Ausnahme von INV-22 ist bei
-      BASE-010 angemeldet (ANF-PA-01 j).
+      und das Ziel deshalb nicht bestimmt, gilt BASE-080_020 Regel Z-1:
+      Eine ACTIVE-Connection mit einem BEKANNT aktiven Grund wird mit
+      dem Commit eingeschraenkt (Z-1 b) - etwa WEG von ADMIN bei
+      abgelaufener Laufzeit und unbekannter Kontingent-Auskunft. Sonst
+      bleibt der gespeicherte Zustand (Z-1 c) - auch ein Grund aus dem
+      Plan nach dem Wechsel in eine Rolle ohne Plan: Die Connection
+      bleibt eingeschraenkt, ihr Grund ist dann ueberholt. Das
+      berichtigt der naechste Durchgang mit lesbarer Auskunft. Fuer die
+      Zielrolle ADMIN braucht es keine Auskunft. Die Ausnahme von
+      INV-22 ist bei BASE-010 angemeldet (ANF-PA-01 j).
       WARUM: Ohne den Kern truege die Connection bis zum naechsten Lauf
-      einen Status, der nicht zu ihrer Rolle passt - der Lauf stellte
-      dasselbe Ergebnis her, nur spaeter.
+      einen Status, der nicht zu ihrer Rolle passt - ausserhalb eines
+      Halts stellte der Lauf dasselbe Ergebnis her, nur spaeter.
+      IM HALT (BASE-080_020 Abschnitt 11) ist das anders: Der Lauf
+      fuehrt dann keinen Uebergang aus; der Rollenwechsel ist aber eine
+      Handlung der Verwaltung und wird nicht abgelehnt - der Kern in
+      seiner Transaktion laeuft (Regel HL-3 b). Waehrend eines Halts
+      aendert ein Rollenwechsel also Status, Grund und Frist, obwohl der
+      Lauf sie ruhen liesse. Das ist gewollt: Eine Connection soll nie
+      eine Rolle tragen, zu der ihr Status nicht passt.
       ABWEICHUNG VON D002 7.3 UND SM_CONNECTION 4.10 (ausgewiesen): Dort
       bleiben Status, Grund und Finalisierungsfrist beim Rollenwechsel
       unveraendert ("die Rolle aendert sich, der Enforcement-Status
@@ -186,10 +197,12 @@ ZWECK:
       Subpfad B: "bleibt RESTRICTED"). HIER folgen sie bei JEDEM Wechsel
       dem Kern - nicht nur dort, wo R-08 (eine ADMIN-Connection ist nie
       eingeschraenkt) und INV-41 es erzwingen. Unveraendert bleibt, was
-      auch der naechste Lauf unveraendert liesse. D002 ist eine
-      Entscheidung des Betreibers. Die Abweichung ist ihm gemeldet
-      (03_CHANGELOG v2.9.19) und am 2026-11-24 in dieser Reichweite auf
-      seine Frage erlaeutert (BM-0027); eine Entscheidung dazu hat er
+      auch ein Lauf ausserhalb eines Halts unveraendert liesse; waehrend
+      eines Halts wirkt der Wechsel dennoch sofort (oben, IM HALT).
+      D002 ist eine Entscheidung des Betreibers. Die Abweichung ist ihm
+      gemeldet (03_CHANGELOG v2.9.19) und am 2026-11-24 in dieser
+      Reichweite auf seine Frage erlaeutert (BM-0027), die Besonderheit
+      im Halt am selben Tag nachgemeldet; eine Entscheidung dazu hat er
       nicht getroffen - sie steht ihm offen. Die Routine T-09 von
       BASE-010 ist um den Aufruf des Kerns zu erweitern (ANF-PA-01 b).
     - DIE PRUEFUNG IN RC1 BINDET NICHT: Budget, Freimenge und Menge der
@@ -249,9 +262,11 @@ ZWECK:
   Aufruf keine Loeschung: Der Wert kann auch durch einen Fehler in die
   Daten gekommen sein, und der Tombstone ist nicht umkehrbar. Er
   unterliegt deshalb dem Schutz vor unumkehrbaren Massenfolgen und ruht
-  im Halt (BASE-080_020 Abschnitt 7). SOLANGE ER ZURUECKGESTELLT IST,
+  im Halt (BASE-080_020 Abschnitte 7 und 11). SOLANGE ER ZURUECKGESTELLT
+  IST - oder in der Handlung "Bewertung jetzt" wegen eines Halts ruht -,
   wird die Connection gesperrt wie bei SUSPENDED (BASE-080_020 Schritt
-  E2): Ein als geloescht gefuehrter Customer behaelt keinen Zugang.
+  E2): Ein als geloescht gefuehrter Customer behaelt keinen Zugang. Der
+  LAUF im Halt sperrt nicht (HL-2).
   Die Kaskade SUSPENDED aus dem Netz wird nicht gebremst; sie zaehlt in
   der Meldeschwelle der Masseneinschraenkungen und ruht waehrend eines
   Halts. Sie ist im Status umkehrbar, nicht in den Tatsachen

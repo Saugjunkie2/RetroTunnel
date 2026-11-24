@@ -412,7 +412,10 @@ ZWECK:
                             uebergaenge je Art, eingaben_unbekannt,
                             fenster_offengehalten: {anzahl,
                             wiederholt, aeltester_neubeginn_at},
+                            fenster_gefaehrdet: {anzahl,
+                            fruehestes_ende}, stillstand: {von, bis},
                             zurueckgestellt: {anzahl, bedingung},
+                            ungezaehlt_verschoben,
                             halt: {seit, restzeit, anstehend je Art},
                             notwerte_in_gebrauch, dauer
 
@@ -422,6 +425,14 @@ ZWECK:
     einem Neubeginn in Folge, und der aelteste Neubeginn. Ein Wert
     ueber null bei "wiederholt" ist ein andauernder Zustand, der einen
     Eingriff braucht (Abschnitt 9).
+    fenster_gefaehrdet: nur im Uebergang ohne die Routine zum Neubeginn
+    (BASE-080_020 Schritt E4, OHNE DIE ROUTINE) - Fenster, die der
+    Bewerter offenhalten wuerde, aber nicht kann.
+    stillstand: die Marken eines festgestellten, noch nicht
+    abgearbeiteten Stillstands (BASE-080_020 Schritt BL3a).
+    ungezaehlt_verschoben: unumkehrbare Uebergaenge, die sich erst bei
+    der Bearbeitung einer Connection ergaben und deshalb dem naechsten
+    Lauf bleiben (BASE-080_020 Schritt BL5).
 
   Eine Statusdatei, die aelter ist als das Dreifache des Takts ihres
   Laufs, gilt im Panel als "Lauf antwortet nicht".
@@ -442,6 +453,13 @@ ZWECK:
                                                      Ruhezeit laeuft ab
                                                      hier (BASE-080_020
                                                      Abschnitt 7, U-2 b)
+    policy_eval_stall_from         vpn-policy-eval   letzter Lauf vor einem
+                                   (nur --all)       festgestellten
+                                                     Stillstand; fehlt,
+                                                     wenn keiner offen ist
+                                                     (BASE-080_020 BL3a)
+    policy_eval_stall_until        vpn-policy-eval   Beginn des ersten Laufs
+                                   (nur --all)       nach diesem Stillstand
     policy_eval_hold_since         vpn-policy-eval   Beginn eines Halts der
                                    (--hold,          Bewertung; fehlt,
                                    --resume; Ablauf wenn keiner besteht
@@ -547,12 +565,28 @@ ZWECK:
                                              nicht mehr eingeschraenkt
                                              sind
   POLICY_EVAL_REVOKE_DEFERRED      ALERT     Restore-Fenster neu begonnen
-                                             statt Widerruf, weil eine
-                                             Wiederherstellung an einer
-                                             nicht lesbaren Auskunft
-                                             scheitern wuerde; mit dem
-                                             neuen restore_until
-                                             (BASE-080_020 Schritt E4 a)
+                                             statt Widerruf; mit dem
+                                             neuen restore_until und dem
+                                             Anlass: AUSKUNFT (eine
+                                             Wiederherstellung scheiterte
+                                             an einer nicht lesbaren
+                                             Auskunft, Schritt E4 a) oder
+                                             STILLSTAND (Nachfrist
+                                             zurueckgegeben, E4 a2)
+  POLICY_EVAL_REVOKE_IMMINENT      ALERT     Dauermeldung im Uebergang:
+                                             Restore-Fenster laufen ab,
+                                             waehrend eine Auskunft
+                                             unbekannt ist, und koennen
+                                             nicht offengehalten werden
+                                             (Schritt E4, OHNE DIE
+                                             ROUTINE); mit Zahl und
+                                             fruehestem Ende
+  POLICY_EVAL_STALL                ALERT     Stillstand des Bewerters
+                                             festgestellt (Beginn, Ende);
+                                             beim Abschluss mit der Zahl
+                                             der Fenster, denen die
+                                             Nachfrist zurueckgegeben
+                                             wurde (Schritt BL3a, BL7)
   POLICY_EVAL_HOLD_CLOCK           ALERT     Marke eines Halts lag in der
                                              Zukunft und wurde auf jetzt
                                              gesetzt

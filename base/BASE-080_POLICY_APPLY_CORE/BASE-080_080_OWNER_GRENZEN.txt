@@ -384,12 +384,14 @@ ZWECK:
        den Claim ausfuehrt.
     r) RESTORE-FENSTER NEU BEGINNEN: eine Routine, mit der der Bewerter
        das Fenster einer gesperrten, nicht widerrufenen Connection mit
-       einem Grund AFTER_RESTORE_WINDOW neu beginnt (restore_until =
-       jetzt + Restore-Fenster des Grundes; nie frueher als der
-       bisherige Wert) - mit Lifecycle-Ereignis, Akteur SYSTEM und dem
-       Anlass "Auskunft nicht lesbar" bzw. "Stillstand des Bewerters",
-       ohne Auftrag. Der Bewerter ruft sie nur nach _020 Schritt E4 a
-       und a2. Das Ereignis ist im Lifecycle-Log als Neubeginn
+       einem Grund AFTER_RESTORE_WINDOW neu beginnt - mit
+       Lifecycle-Ereignis, Akteur SYSTEM und dem Anlass, ohne Auftrag:
+       beim Anlass "Auskunft nicht lesbar" restore_until = jetzt +
+       Restore-Fenster des Grundes, beim Anlass "Stillstand des
+       Bewerters" restore_until = jetzt + die vom Bewerter genannte
+       Nachfrist (hoechstens das halbe Restore-Fenster); nie frueher
+       als der bisherige Wert. Der Bewerter ruft sie nur nach _020
+       Schritt E4 a und a2. Das Ereignis ist im Lifecycle-Log als Neubeginn
        erkennbar (die Statusdatei zaehlt danach). T-08 und LR-02
        bleiben, wie sie sind: Das Fenster bestimmt weiter, bis wann
        wiederhergestellt werden kann und wann widerrufen wird.
@@ -615,7 +617,9 @@ ZWECK:
        bestimmt und die Adresse prueft das Werkzeug, nicht der Hook.
     c) Die Marken policy_eval_time_anomaly_at, policy_mass_hold_since
        und policy_eval_hold_since in das Verzeichnis der Marken
-       aufnehmen (BASE-070_070 Regel M-5);
+       aufnehmen (BASE-070_070 Regel M-5) - dazu, noch offen,
+       policy_eval_stall_from und policy_eval_stall_until (_070
+       Abschnitt 5);
        fuer die vier schon verzeichneten Marken dieses Moduls gilt als
        Wert der BEGINN des Laufs (_070 Abschnitt 5).
     d) BASE-070_020 Schritt L7 (Mengenbremse) sagt, der Verkehr nicht
@@ -754,8 +758,9 @@ ZWECK:
   ANF-PA-01 b  T-08, T-01, Pause und Verwaltungs-Einschraenkung    Art L
                rufen den Bewertungskern
     HEUTE:  BASE-010_070 nennt fuer T-08 und T-01 eine Neubewertung,
-            aber nicht den Kern als Baustein IHRER Transaktion; fuer
-            Pause und Verwaltungs-Einschraenkung nennt es nichts.
+            aber nicht den Kern als Baustein IHRER Transaktion. Die
+            Pause nennt es als Ausloeser von T-03, ohne den Kern; fuer
+            die Verwaltungs-Einschraenkung nennt es nichts.
     FOLGE:  Ohne den Aufruf gilt das Ergebnis erst mit dem naechsten
             Lauf im Bewertungstakt: Eine Einschraenkung wirkt so lange
             nicht; eine Wiederherstellung oder ein Claim kann so lange
@@ -823,8 +828,9 @@ ZWECK:
             nicht ersichtlich, welche Verwaltungs-Einschraenkung verloren
             ging; der Betreiber muss sie aus eigener Kenntnis neu
             setzen. Die Wirkung selbst (INV-28) ist dieselbe.
-  ANF-PA-01 q  Claim sperrt die Zeile des Customers                Art V
-    HEUTE:  Der Claim nimmt diese Sperre nicht.
+  ANF-PA-01 q  Claim und Weg B sperren die Zeile des Customers     Art V
+    HEUTE:  Der Claim nimmt diese Sperre nicht; Weg B (Anlage durch
+            den Kunden) ist in BASE-010_070 noch nicht ausgearbeitet.
     FOLGE:  Ein Claim, der nach der Lesung in RC3 b und vor RC4
             festschreibt, koennte eine Connection mit der alten Rolle
             hinterlassen (gegen PA-55, "alles oder nichts"). Kein Lauf
@@ -841,13 +847,15 @@ ZWECK:
             EINEN EINGRIFF, DER DAS FENSTER RETTET, GIBT ES IM RUECKFALL
             NICHT: AK-5 ist bis zum Nachzug von BASE-090 und BASE-110
             nicht benutzbar (ANF-PA-09 c), und die Ablehnung der
-            Wiederherstellung haengt an ANF-PA-01 i. Der Bewerter MELDET
-            deshalb jedes Fenster, das in weniger als der Nachfrist
-            endet, waehrend eine Auskunft unbekannt ist
-            (POLICY_EVAL_REVOKE_DEFERRED mit Frist und Lage, _020 Schritt
-            E4 a); beheben kann der Betreiber dann nur die Ursache der
-            unlesbaren Auskunft. PA-15 Satz 3 und T-PA-07 (e) gelten
-            erst mit dem Nachzug.
+            Wiederherstellung haengt an ANF-PA-01 i. Der Bewerter WARNT
+            deshalb, solange Fenster in weniger als der Nachfrist enden
+            oder abgelaufen sind, waehrend eine Auskunft unbekannt ist
+            (Dauermeldung POLICY_EVAL_REVOKE_IMMINENT mit Zahl und
+            fruehestem Ende; _020 Schritt E4, OHNE DIE ROUTINE); beheben
+            kann der Betreiber dann nur die Ursache der unlesbaren
+            Auskunft. Auch nach einem Stillstand gibt er keine Nachfrist
+            zurueck. PA-15 (Offenhalten) und T-PA-07 (e) gelten erst mit
+            dem Nachzug.
   ANF-PA-01 s  Widerruf durch die Verwaltung                       Art R
     HEUTE:  BASE-010 sieht die ausdrueckliche Handlung nur fuer Gruende
             MANUAL_ONLY vor (LR-03).
