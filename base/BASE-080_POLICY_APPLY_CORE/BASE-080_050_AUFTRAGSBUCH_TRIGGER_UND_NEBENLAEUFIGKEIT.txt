@@ -317,7 +317,14 @@ ZWECK:
          schiebt die neue Aenderung nicht nach hinten.
     AL5  AUFTRAG DER ART GESAMT: ERST den Abgleich anfordern (Anlass
          total; gestartet wird er nach AL7), DANN pruefen, ob der Auftrag
-         erledigt werden darf. Erledigt wird er wie in AB-4 - mit dem
+         erledigt werden darf.
+         ANGEFORDERT WIRD JE ANWEISUNG EINMAL: nur solange attempts = 0
+         ist. Mit der Anforderung bucht der Lauf attempts := 1 und
+         last_try_at - NUR mit dem Vergleich revision = :gelesen; trifft
+         die Buchung nicht, fordert der naechste Durchgang erneut an
+         (es bleibt bei EINER Anforderung). Jede Fortschreibung setzt
+         attempts auf 0 (W-3): Eine neue Anweisung fordert neu an.
+         ERLEDIGT wird er wie in AB-4 - mit dem
          PAAR aus first_queued_at und ZAEHLER, das der letzte Abgleich
          mit Ergebnis 0 vor seiner Lesung vorgefunden und in seiner
          Statusdatei vermerkt hat (BASE-080_040 Abschnitt 9):
@@ -331,10 +338,13 @@ ZWECK:
          gelesen hat. Eine Anforderung, die nach dem Erledigen noch
          liegt, fuehrt hoechstens zu einem Abgleich zu viel. Mit dem
          Beginn eines Laufs wird nie verglichen: queued_at ist die Zeit
-         der Anweisung, nicht die des Commits. Bis dahin gilt
-         die Wiederholung nach Abschnitt 7 mit dem Ergebnis des
-         Abgleichs: Ein dauerhaft nicht fehlerfreier Abgleich laeuft
-         nicht in jedem Durchgang.
+         der Anweisung, nicht die des Commits. BIS DAHIN bleibt der
+         Auftrag offen und in jedem Durchgang faellig - die Pruefung
+         kostet eine Lesung der Statusdatei -, OHNE erneut anzufordern.
+         Endet der angeforderte Lauf nicht fehlerfrei, bringt den
+         naechsten die Wiederholung nach AL7 oder der Takt. Ein offener
+         Auftrag der Art GESAMT fuehrt so nie zu einem Abgleich in jedem
+         Durchgang.
     AL6  AUFSICHT OHNE DATENBANK (BASE-080_030 Abschnitt 6.5): nicht
          freigegebene L2TP-Sitzungen pruefen, Reste beendeter Sitzungen
          raeumen (Freigabe-Elemente ohne passende Schnittstelle). Dieser
@@ -350,34 +360,61 @@ ZWECK:
     AL7  ABGLEICH STARTEN, falls keiner laeuft:
          SOFORT, wenn eine NEUE Anforderung eines der Anlaesse recover,
          db-return, wg-restart oder total liegt (BASE-080_040 Abschnitt
-         2). Diese Anlaesse sind einzelne Ereignisse; ihre Haeufigkeit
-         begrenzt, was sie ausloest.
+         2). NEU ist eine Anforderung im Verzeichnis, die noch kein Lauf
+         an sich genommen hat. Diese Anlaesse sind einzelne Ereignisse;
+         ihre Haeufigkeit begrenzt, was sie ausloest - total fordert der
+         Auftragslauf je Anweisung nur einmal an (AL5).
          NACH DEM ABSTAND, wenn
            a) eine Anforderung des Anlasses no-order liegt,
            b) eine Anforderung in taken/ liegt (ein Lauf hat sie an sich
               genommen und nicht abgeschlossen),
            c) der Zustand der Firewall VERSIEGELT ist oder
-           d) im letzten Lauf ein Schritt GESCHEITERT ist (Wiederholung).
-         DER ABSTAND zaehlt vom Ende des letzten Laufs, der V1 erreicht
-         hat: Raster mal 2 hoch (Zahl der Laeufe in Folge, die nicht mit
-         Ergebnis 0 endeten), hoechstens vpn_reconcile_interval_seconds -
-         im Zustand VERSIEGELT hoechstens 60 s (fester Wert). Ein Lauf mit
-         Ergebnis 0 setzt die Zaehlung zurueck.
+           d) der letzte Lauf nicht zu Ende kam (Ende in V0, Abbruch)
+              oder in ihm ein Schritt GESCHEITERT ist (Wiederholung).
+         DER ABSTAND zaehlt vom Ende des letzten Laufs - gleich, wie er
+         endete, auch wenn er schon in V0 endete (Code 2 oder 8): Raster
+         mal 2 hoch (Zahl der Laeufe in Folge, die nicht mit Ergebnis 0
+         endeten; ein Ende in V0 zaehlt mit), hoechstens
+         vpn_reconcile_interval_seconds - im Zustand VERSIEGELT
+         hoechstens 60 s (fester Wert). Ein Lauf mit Ergebnis 0 setzt die
+         Zaehlung zurueck. Der Abgleich fuehrt beides in seiner
+         Statusdatei (BASE-080_040 Abschnitt 9): Er haelt seinen BEGINN
+         fest, sobald feststeht, dass er laeuft (vor den uebrigen
+         Pruefungen von V0; die Zahl in Folge waechst dabei um 1), und
+         sein ENDE mit dem Ergebnis (Ergebnis 0: Zahl 0). Ein Lauf, der
+         abbricht, ohne sein Ende festzuhalten, zaehlt so als nicht
+         fehlerfrei; der Abstand zaehlt dann von seinem Beginn.
+         NIE ZWEI STARTS OHNE BEGINN: Der Auftragslauf haelt jeden
+         Start, den er ausloest, in seiner Statusdatei fest (AL8). Nennt
+         die Statusdatei des Abgleichs danach keinen neueren Beginn -
+         der Start ist gescheitert, oder die Datei fehlt oder ist nicht
+         lesbar -, startet er aus KEINEM Anlass erneut, bevor seit
+         diesem Start der Hoechstwert des Abstands vergangen ist.
          KEINE WIEDERHOLUNG WEGEN DER BREMSE: Hat ein Lauf nur
          ZURUECKGESTELLT (Mengenbremse, BASE-080_040 Abschnitt 7), folgt
          daraus kein Start nach d). Die Bremse wartet auf den Betreiber
          oder auf das Ende ihrer Bedingung und wird mit jedem Lauf im
          Takt neu geprueft.
          KEIN START OHNE AUSSICHT: Hat dieser Durchgang die Datenbank
-         nicht erreicht (AL2) oder meldet die Firewall RIEGEL oder
-         KEIN_REGELWERK (AL1), startet er keinen Abgleich; die
-         Anforderungen bleiben liegen.
-         ZUSAGE: Ein Abgleich, der dauerhaft nicht fehlerfrei endet,
-         laeuft zuletzt im Takt - nie in jedem Durchgang. Die Zahl der
-         Anforderungen ist durch die Zahl der Anlaesse begrenzt. Der
-         Start im Takt (Zeitgeber) und der Aufruf von Hand bleiben
-         unberuehrt.
-    AL8  STATUSDATEI schreiben; Alarme nach Abschnitt 9.
+         nicht erreicht (AL2), meldet die Firewall RIEGEL oder
+         KEIN_REGELWERK (AL1) oder steht nach einer Datenbankstoerung
+         der Lauf des Bewerters noch aus (BASE-080_040 Schritt V0: bis
+         hoechstens einen Bewertungstakt nach der Rueckkehr), startet er
+         keinen Abgleich; die Anforderungen bleiben liegen.
+         ZUSAGE: Ein Abgleich, der dauerhaft nicht fehlerfrei endet -
+         auch einer, der immer wieder in V0 endet oder abbricht -,
+         laeuft zuletzt im Takt und nie in jedem Durchgang. Die Zahl der
+         Anforderungen ist durch die Zahl der Anlaesse begrenzt.
+         DIE REGEL GILT FUER JEDEN START: Der Abgleich prueft Takt,
+         SOFORT und ABSTAND bei seinem Beginn selbst (BASE-080_040
+         Abschnitt 2 und Schritt V0) - gleich ob ihn der Auftragslauf,
+         sein eigener Zeitgeber, vpn-fw-load recover oder der Controller
+         startet. Ein Start, der danach nicht faellig ist, endet sofort
+         und haelt nichts fest. Der Aufruf von Hand und der
+         Startabgleich laufen immer.
+    AL8  STATUSDATEI schreiben - mit dem Zeitpunkt des letzten Starts des
+         Abgleichs, den der Auftragslauf ausgeloest hat (von Durchgang zu
+         Durchgang uebernommen); Alarme nach Abschnitt 9.
 
   EIGENSCHAFTEN:
     - Ein Durchgang ohne faellige Auftraege kostet eine Lesung und die
@@ -672,7 +709,8 @@ ZWECK:
   ohne personenbezogene Daten): offene Auftraege gesamt und nach
   last_result; Alter des aeltesten (first_queued_at); schliessende
   Auftraege offen; Datenbank gestoert seit; Zustand der Firewall;
-  nicht freigegebene L2TP-Sitzungen; Dauer des Durchgangs.
+  nicht freigegebene L2TP-Sitzungen; letzter ausgeloester Start des
+  Abgleichs (Schritt AL7); Dauer des Durchgangs.
 
   ALARME:
     POLICY_OUTBOX_STUCK        aeltester Auftrag aelter als

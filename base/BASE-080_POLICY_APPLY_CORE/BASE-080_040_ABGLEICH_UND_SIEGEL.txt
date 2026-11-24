@@ -61,9 +61,9 @@ ZWECK:
   Regelwerk neu geladen          vpn-fw-load recover stoesst an
   (recover)                      (Anforderung und Start der Unit, ohne zu
                                  warten)
-  Firewall VERSIEGELT            solange der Zustand VERSIEGELT ist, gilt der
-                                 Abgleich bei JEDEM Durchgang des
-                                 Auftragslaufs als faellig
+  Firewall VERSIEGELT            solange der Zustand VERSIEGELT ist, folgt
+                                 Lauf auf Lauf mit Abstand - hoechstens
+                                 60 s (BASE-080_050 Schritt AL7)
   Datenbank wieder erreichbar    Auftragslauf stellt die Rueckkehr fest
                                  (BASE-080_050); zuvor laeuft der Bewerter
   WG-Schnittstelle neu           Start-Aktion des Controllers
@@ -73,11 +73,26 @@ ZWECK:
                                  Einstellungen mit Wirkung auf alle
   Betreiber                      Aufruf von Hand (root)
 
-  FAELLIGKEIT: Ein Abgleich ist faellig, wenn der Takt abgelaufen ist
-  ODER eine Anforderung vorliegt ODER der Zustand der Firewall VERSIEGELT
-  ist ODER ein Auftrag der Art GESAMT faellig ist (BASE-080_070 Regel
-  UP-1). Ein Start aus einem Anlass dieser Tabelle laeuft deshalb auch
-  dann, wenn der Takt noch nicht abgelaufen ist.
+  FAELLIGKEIT: Ein Abgleich ist faellig,
+    - wenn der TAKT abgelaufen ist. Kam der letzte Lauf nicht zu Ende
+      (Ende in V0, Abbruch), zaehlt der Takt von SEINEM Beginn laut
+      Statusdatei - sonst liefe ein Abgleich, der immer wieder in V0
+      endet, in jedem Raster seines Zeitgebers;
+    - SOFORT, wenn eine neue Anforderung eines einzelnen Ereignisses
+      liegt (recover, db-return, wg-restart, total);
+    - NACH DEM ABSTAND, wenn eine Anforderung no-order oder eine in
+      taken/ liegt, der Zustand der Firewall VERSIEGELT ist, der letzte
+      Lauf nicht zu Ende kam oder in ihm ein Schritt gescheitert ist.
+  Im Einzelnen: BASE-080_050 Schritt AL7. DER ABGLEICH PRUEFT DAS BEI
+  SEINEM BEGINN SELBST (Schritt V0), gleich wer ihn startet - der
+  Auftragslauf, sein eigener Zeitgeber (BASE-080_070 Regel UP-1),
+  vpn-fw-load recover oder der Controller. Ein Start, der nicht faellig
+  ist, endet sofort und haelt nichts fest: Er ist kein Lauf. So laeuft
+  ein Start aus einem Anlass dieser Tabelle auch dann, wenn der Takt
+  noch nicht abgelaufen ist - und kein Zeitgeber umgeht den Abstand.
+  Der Aufruf von Hand und der Startabgleich laufen immer. Ein Auftrag
+  der Art GESAMT wirkt allein ueber seine Anforderung total, die der
+  Auftragslauf je Anweisung einmal stellt (BASE-080_050 Schritt AL5).
 
   ANFORDERUNG: Verzeichnis /run/retrotunnel/policy/reconcile.request.d/
   (nur root schreibbar). Wer den Abgleich anfordert, legt darin eine
@@ -101,7 +116,7 @@ ZWECK:
   Anforderung, sondern die Wiederholung mit wachsendem Abstand
   (BASE-080_050 Schritt AL7). Ein Ziel, das immer wieder scheitert, und
   eine Mengenbremse, die haelt, fuehren deshalb nie zu einem Lauf nach
-  dem anderen.
+  dem anderen - auch nicht ein Lauf, der immer wieder in V0 endet.
 
 ================================================================================
 3) ABLAUF (verbindlich)
@@ -138,6 +153,13 @@ ZWECK:
   Handlungen, die Zugang geben.
 
   V0  VORBEDINGUNGEN (ohne Lock)
+      FAELLIGKEIT nach Abschnitt 2 - ausser beim Aufruf von Hand und
+      beim Startabgleich. Nicht faellig: Ende ohne Wirkung und ohne
+      Vermerk; das ist kein Lauf. Ist die Datenbank dabei nicht lesbar,
+      rechnet der Abgleich mit dem Notwert des Takts (BASE-080_070
+      Abschnitt 3). Ist er faellig, haelt er seinen BEGINN in der
+      Statusdatei fest (Abschnitt 9) und nimmt die Anforderungen an
+      sich (Abschnitt 2).
       Datenbank lesbar, sonst Ende mit Code 2 ohne Wirkung.
       NACH EINER DATENBANKSTOERUNG ERST DER BEWERTER: Der Auftragslauf
       haelt in seiner Statusdatei fest, dass die Datenbank gestoert ist
@@ -515,10 +537,15 @@ ZWECK:
          Zulassungswaechter selbst, wirkte sie erst NACH dem ersten
          Lauf, der den Fehler zaehlt - bis dahin haetten sie Ziel um
          Ziel geschlossen. So gibt es fuer jedes Schliessen ohne Auftrag
-         EINEN Weg und EINE Bremse (DEC-PA-28). Der Preis ist eine
-         Verzoegerung um hoechstens einen Durchgang des Auftragslaufs
-         und die Dauer des Laufs; fuer eine Abweichung, die ohnehin erst
-         ein Waechter oder der Abgleich findet, ist das hingenommen.
+         EINEN Weg und EINE Bremse (DEC-PA-28). DER PREIS ist eine
+         Verzoegerung: in der Regel bis zum naechsten Start des
+         Abgleichs (ein Durchgang des Auftragslaufs) und die Dauer des
+         Laufs. Nach nicht fehlerfreien Laeufen - ein einziges dauerhaft
+         scheiterndes Ziel genuegt - oder bei stehender Marke wartet ein
+         neues Ziel ohne Auftrag bis zum naechsten Lauf im Abstand,
+         zuletzt im Takt: hoechstens Takt plus Laufdauer, innerhalb der
+         Frist von BASE-005 PF-18. Fuer eine Abweichung, die ohnehin
+         erst ein Waechter oder der Abgleich findet, ist das hingenommen.
          WER SO RUFT: der WireGuard-Waechter (BASE-040_050 Schritt B2)
          schon heute. Fuer L2TP ist es angefordert (ANF-PA-14 f): Der
          L2TP-Abgleich von BASE-070 beendet Sitzungen OHNE BERECHTIGUNG
@@ -624,7 +651,21 @@ ZWECK:
 
   Ergebniscode: 0, wenn kein Schritt gescheitert ist und nichts
   zurueckgestellt wurde; 1 (PARTIAL_OK), wenn einzelne Ziele gescheitert
-  oder zurueckgestellt sind; 2 bzw. 8 bei V0.
+  oder zurueckgestellt sind; 2 bzw. 8, wenn der Lauf in V0 endet - und
+  ebenso, wenn NACH V1 die Datenbank ausfaellt (2) oder die Firewall in
+  RIEGEL oder KEIN_REGELWERK wechselt (8): Der Lauf bricht dann ab,
+  ohne weitere Ziele zu bearbeiten. An diesen Codes haengt, ob die
+  Anforderungen in taken/ bleiben (Abschnitt 2: geloescht wird nur nach
+  V1 mit 0 oder 1).
+  FUER FAELLIGKEIT UND ABSTAND (Abschnitt 2; BASE-080_050 Schritt AL7)
+  fuehrt die Statusdatei: den BEGINN des letzten Laufs gleich welchen
+  Endes (festgehalten in V0), sein ENDE mit dem Ergebniscode und die
+  ZAHL der Laeufe in Folge, die nicht mit Ergebnis 0 endeten - sie
+  waechst am Beginn um 1 und faellt nur durch ein Ende mit Ergebnis 0
+  auf null. Ein Lauf ohne festgehaltenes Ende ist abgebrochen. Ein
+  Start, der an der Faelligkeit endet, schreibt nichts. Daneben fuehrt
+  sie - wie die Marke - den Beginn des letzten Laufs, der V1 erreicht
+  hat.
 
   Marken (vpn_runtime_marks, BASE-070_070; Verzeichnis dieses Moduls:
   BASE-080_070 Abschnitt 5):
@@ -658,9 +699,10 @@ ZWECK:
   auswertbare Zeilen; zurueckgestellte Handlungen; Dauer je Abschnitt
   und laengste Haltedauer des Locks.
 
-  ALARME: POLICY_RECONCILE_OVERDUE (letzter Beginn eines Laufs aelter
-  als das Doppelte des Takts - gelesen aus der Statusdatei, damit die
-  Meldung auch ohne Datenbank entsteht), POLICY_RECONCILE_SLOW (Dauer
+  ALARME: POLICY_RECONCILE_OVERDUE (Beginn des letzten Laufs, der V1
+  erreicht hat, aelter als das Doppelte des Takts - gelesen aus der
+  Statusdatei, damit die Meldung auch ohne Datenbank entsteht; ein
+  Lauf, der in V0 endet, stillt sie nicht), POLICY_RECONCILE_SLOW (Dauer
   eines Laufs ueber 60 s; WARN), POLICY_RECONCILE_FAILED (Code
   ungleich 0 in Folge), POLICY_RECONCILE_MASS_HOLD,
   POLICY_UNSEAL_TIMEOUT, CONNECT_PURGE_DEFERRED; als Information
