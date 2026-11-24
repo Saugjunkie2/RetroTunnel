@@ -78,14 +78,27 @@ ZWECK:
 
   ANFORDERUNG: Verzeichnis /run/retrotunnel/policy/reconcile.request.d/
   (nur root schreibbar). Wer den Abgleich anfordert, legt darin eine
-  leere Datei mit eindeutigem Namen an. Das macht den Anstoss unabhaengig
-  von der Datenbank und von der Dienstverwaltung: Der Auftragslauf prueft
-  das Verzeichnis bei jedem Durchgang und startet den Abgleich, falls
-  keiner laeuft.
-  Der Abgleich merkt sich bei seinem BEGINN die vorhandenen Anforderungen
-  und entfernt nach einem Lauf OHNE Fehler genau diese. Eine Anforderung,
-  die waehrend eines Laufs eintrifft, bleibt und fuehrt zu einem weiteren
-  Lauf: Ihr Anlass kann nach den Lesungen des laufenden Abgleichs liegen.
+  leere Datei an, deren Name allein den ANLASS nennt: recover, db-return,
+  wg-restart, total (Auftrag der Art GESAMT) oder no-order (Regel MB-7).
+  JE ANLASS GIBT ES HOECHSTENS EINE ANFORDERUNG: Liegt sie schon, aendert
+  ein weiteres Anfordern nichts. Das macht den Anstoss unabhaengig von
+  der Datenbank und von der Dienstverwaltung - und die Zahl der
+  Anforderungen ist durch die Zahl der Anlaesse begrenzt, gleich wie oft
+  angefordert wird. Der Auftragslauf prueft das Verzeichnis bei jedem
+  Durchgang und startet den Abgleich nach BASE-080_050 Schritt AL7.
+  Der Abgleich NIMMT die vorhandenen Anforderungen bei seinem BEGINN AN
+  SICH: Er verschiebt sie in den Unterordner taken/. Hat der Lauf V1
+  erreicht und endet er mit Ergebnis 0 oder 1, loescht er sie - ein
+  Lauf, der NACH ihnen begonnen hat, hat gelesen, was sie meldeten.
+  Endet er anders (V0, Abbruch), bleiben sie in taken/ und gelten weiter
+  als Anforderung. Eine Anforderung, die waehrend eines Laufs eintrifft,
+  liegt wieder im Verzeichnis und fuehrt zu einem weiteren Lauf: Ihr
+  Anlass kann nach den Lesungen des laufenden Abgleichs liegen.
+  WAS AUF EINEN NICHT FEHLERFREIEN LAUF FOLGT, regelt nicht die
+  Anforderung, sondern die Wiederholung mit wachsendem Abstand
+  (BASE-080_050 Schritt AL7). Ein Ziel, das immer wieder scheitert, und
+  eine Mengenbremse, die haelt, fuehren deshalb nie zu einem Lauf nach
+  dem anderen.
 
 ================================================================================
 3) ABLAUF (verbindlich)
@@ -150,8 +163,11 @@ ZWECK:
       a) SQL mengenweise lesen (kein Zugriff je Zeile): fuer alle
          Connections die Felder der Soll-Funktion und der Zuordnung
          (BASE-080_030 Abschnitt 4), noch ohne Schluesselmaterial; dazu
-         Ziel, Herkunft und Merkmale aller offenen Auftraege (fuer
-         Schritt e4 und Abschnitt 7). VOR diesen Daten werden Zaehler
+         Ziel, Herkunft, Merkmale UND ZAEHLER (revision) aller offenen
+         Auftraege (fuer Schritt e4 und Abschnitt 7). Auf diesen Stand
+         schreibt der Abgleich das Auftragsbuch nur bedingt
+         (BASE-080_050 Regel AB-8); liest ein spaeterer Abschnitt SQL
+         frisch, gilt dessen Lesung. VOR diesen Daten werden Zaehler
          (revision) und first_queued_at eines offenen Auftrags der Art
          GESAMT gelesen und gemerkt (Abschnitt 9).
       b) Kernel lesen: WireGuard-Peers mit AllowedIPs; ppp-
@@ -465,9 +481,15 @@ ZWECK:
          Auftrag der Herkunft CHANGE besteht, entfernt keinen Peer,
          entzieht keine Freigabe und beendet keine freigegebene Sitzung
          - gleich, ob die Marke policy_mass_hold_since steht. Sie
-         fordert den Abgleich an und endet mit Ergebnis 6
-         (BASE-080_030 Abschnitt 8). Der Abgleich zaehlt das Ziel nach
-         MB-1 und schliesst es, wenn MB-2 nicht haelt.
+         fordert den Abgleich an (Anlass no-order) und endet mit
+         Ergebnis 6 (BASE-080_030 Abschnitt 8). Der Abgleich zaehlt das
+         Ziel nach MB-1 und schliesst es, wenn MB-2 nicht haelt.
+         DIE ANFORDERUNG ENTSTEHT HOECHSTENS EINMAL: Liegt sie schon,
+         kommt keine hinzu (Abschnitt 2). STEHT DIE MARKE
+         policy_mass_hold_since, fordert die Herstellung NICHT an: Die
+         Lage ist dem Abgleich bekannt, und er prueft sie mit jedem Lauf
+         im Takt neu (MB-8). Ein Waechter, der fuer dasselbe Ziel
+         wiederkehrt, erzeugt so weder Anforderungen noch Laeufe.
          GRUND: Die Bremse wird nur hier ausgewertet. Schloessen die
          Zulassungswaechter selbst, wirkte sie erst NACH dem ersten
          Lauf, der den Fehler zaehlt - bis dahin haetten sie Ziel um

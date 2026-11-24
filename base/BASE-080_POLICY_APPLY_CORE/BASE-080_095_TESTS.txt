@@ -784,21 +784,31 @@ ABGLEICH UND SIEGEL
             BEVOR ein Abgleich laeuft, ruft der Waechter das Werkzeug fuer
             jedes Ziel (--connection-id): kein Peer entfernt, keine
             freigegebene Sitzung beendet; je Aufruf Ergebnis 6 (Art
-            NO_ORDER) und eine Anforderung des Abgleichs; der angeforderte
-            Abgleich zaehlt 30 und haelt. Dasselbe mit EINEM Ziel: Der
-            angeforderte Abgleich schliesst es. (q) L2TP ueber die Stunde:
+            NO_ORDER); im Verzeichnis liegt danach EINE Anforderung des
+            Anlasses no-order, gleich wie viele Aufrufe es waren; der
+            angeforderte Abgleich zaehlt 30 und haelt. Dasselbe mit
+            EINEM Ziel: Der Abgleich schliesst es. (q) L2TP ueber die Stunde:
             mehr betroffene Sitzungen ZUSAMMEN mit den in 3600 s ohne
             Auftrag beendeten als vpn_l2tp_kill_hold_per_hour: Bremse. (r)
             NICHT ERFASST: Die Sitzung OHNE Freigabe einer am Buch vorbei
-            gesperrten Connection beendet das Einzelziel selbst.
-            (Proof fuer RT-PH6-PROOF-05) [PA-43]
+            gesperrten Connection beendet das Einzelziel selbst. (s)
+            DIE BREMSE HAELT 60 MINUTEN, 100 Peers betroffen, der Waechter
+            ruft im Zyklus von 5 s: Im Verzeichnis der Anforderungen
+            liegen nie mehr Dateien, als es Anlaesse gibt (taken/
+            eingerechnet); solange die Marke steht, entsteht keine
+            Anforderung no-order; der Abgleich laeuft in dieser Zeit im
+            Takt und nicht oefter.
+            (Proof fuer RT-PH6-PROOF-05) [PA-43, PA-44]
 
   T-PA-54  [L] Fehlerfreiheit und Anforderungen: (a) Ein Schritt scheitert
             fuer EIN Ziel: Ergebnis 1, die uebrigen Ziele sind berichtigt;
             policy_reconcile_last_ok_at unveraendert. (b) Anforderung
             waehrend eines laufenden Abgleichs anlegen: Sie bleibt und
             fuehrt zu einem weiteren Lauf; die vor dem Beginn vorhandenen
-            werden nur nach fehlerfreiem Lauf entfernt. (c) Zwei Abgleiche
+            nimmt der Lauf an sich und loescht sie, wenn er V1 erreicht und
+            mit 0 oder 1 endet - bricht er ab oder endet er in V0, gelten
+            sie weiter. Dieselbe Anforderung zweimal anlegen: Es bleibt
+            eine. (c) Zwei Abgleiche
             zugleich starten: Der zweite endet sofort ohne Wirkung. (d)
             Datenbank faellt im Lauf aus: Ergebnis 2, Erreichtes bleibt,
             keine Marke. (e) Die Marken tragen den Beginn des Laufs. (f)
@@ -813,7 +823,15 @@ ABGLEICH UND SIEGEL
             den Vermerk des frueheren Laufs (anderer erster
             Eintragszeitpunkt) und bleibt offen, bis ein Abgleich ihn
             gelesen hat. Protokoll des Auftragslaufs: erst anfordern, dann
-            erledigen. [PA-44, PA-66]
+            erledigen. (g) DAUERFEHLER EINES ZIELS: Der Abgleich endet
+            wiederholt mit Ergebnis 1: Die Starts folgen mit wachsendem
+            Abstand (Raster mal 2, 4, 8 ...) bis zum Takt, nie in jedem
+            Durchgang; nach einem Lauf mit Ergebnis 0 beginnt die Zaehlung
+            neu. (h) Eine neue Anforderung recover, db-return, wg-restart
+            oder total startet den Abgleich im selben Durchgang - auch
+            waehrend des Abstands. (i) Ohne Datenbank und bei RIEGEL
+            startet der Auftragslauf keinen Abgleich; die Anforderung
+            bleibt und wirkt nach der Rueckkehr. [PA-44, PA-66]
 
   T-PA-55  [L, E] Nach Stoerungen: (a) Systemstart: Siegel, leere Sets; der
             Startabgleich loest das Siegel und traegt die Peers ueber das

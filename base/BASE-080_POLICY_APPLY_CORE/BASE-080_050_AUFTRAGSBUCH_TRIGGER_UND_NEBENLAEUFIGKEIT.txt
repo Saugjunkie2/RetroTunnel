@@ -308,9 +308,14 @@ ZWECK:
          Schritte H2 bis H8) mit den Merkmalen des Auftrags (Abschnitt 5).
            Ergebnis 0        -> erledigen (AB-4)
            sonst             -> attempts + 1, last_result, last_try_at;
-                                next_try_at nach Abschnitt 7
-    AL5  AUFTRAG DER ART GESAMT: ERST den Abgleich anfordern (und
-         starten, falls keiner laeuft), DANN pruefen, ob der Auftrag
+                                next_try_at nach Abschnitt 7 - NUR mit
+                                dem Vergleich revision = :gelesen
+         Wurde der Auftrag waehrend des Versuchs fortgeschrieben, trifft
+         die Buchung nicht: Die Fortschreibung hat ihn neu faellig
+         gestellt (AB-3), und ein gescheiterter Versuch am alten Stand
+         schiebt die neue Aenderung nicht nach hinten.
+    AL5  AUFTRAG DER ART GESAMT: ERST den Abgleich anfordern (Anlass
+         total; gestartet wird er nach AL7), DANN pruefen, ob der Auftrag
          erledigt werden darf. Erledigt wird er wie in AB-4 - mit dem
          PAAR aus first_queued_at und ZAEHLER, das der letzte Abgleich
          mit Ergebnis 0 vor seiner Lesung vorgefunden und in seiner
@@ -338,11 +343,36 @@ ZWECK:
          (Sperr-Set und Formung raeumen). Beendet wird ueber den
          Hard-Cut-Kern, ohne Kernel-Lock (NB-8; Teilabfolge TB, je
          Durchgang einmal).
-    AL7  ANFORDERUNGEN DES ABGLEICHS pruefen und den Abgleich starten,
-         falls angefordert und keiner laeuft; ebenso, solange der Zustand
-         der Firewall VERSIEGELT ist - nach einem gescheiterten Versuch
-         mit wachsendem Abstand (Raster mal 2 hoch Zahl der gescheiterten
-         Versuche in Folge, hoechstens 60 s; fester Wert).
+    AL7  ABGLEICH STARTEN, falls keiner laeuft:
+         SOFORT, wenn eine NEUE Anforderung eines der Anlaesse recover,
+         db-return, wg-restart oder total liegt (BASE-080_040 Abschnitt
+         2). Diese Anlaesse sind einzelne Ereignisse; ihre Haeufigkeit
+         begrenzt, was sie ausloest.
+         NACH DEM ABSTAND, wenn
+           a) eine Anforderung des Anlasses no-order liegt,
+           b) eine Anforderung in taken/ liegt (ein Lauf hat sie an sich
+              genommen und nicht abgeschlossen),
+           c) der Zustand der Firewall VERSIEGELT ist oder
+           d) im letzten Lauf ein Schritt GESCHEITERT ist (Wiederholung).
+         DER ABSTAND zaehlt vom Ende des letzten Laufs, der V1 erreicht
+         hat: Raster mal 2 hoch (Zahl der Laeufe in Folge, die nicht mit
+         Ergebnis 0 endeten), hoechstens vpn_reconcile_interval_seconds -
+         im Zustand VERSIEGELT hoechstens 60 s (fester Wert). Ein Lauf mit
+         Ergebnis 0 setzt die Zaehlung zurueck.
+         KEINE WIEDERHOLUNG WEGEN DER BREMSE: Hat ein Lauf nur
+         ZURUECKGESTELLT (Mengenbremse, BASE-080_040 Abschnitt 7), folgt
+         daraus kein Start nach d). Die Bremse wartet auf den Betreiber
+         oder auf das Ende ihrer Bedingung und wird mit jedem Lauf im
+         Takt neu geprueft.
+         KEIN START OHNE AUSSICHT: Hat dieser Durchgang die Datenbank
+         nicht erreicht (AL2) oder meldet die Firewall RIEGEL oder
+         KEIN_REGELWERK (AL1), startet er keinen Abgleich; die
+         Anforderungen bleiben liegen.
+         ZUSAGE: Ein Abgleich, der dauerhaft nicht fehlerfrei endet,
+         laeuft zuletzt im Takt - nie in jedem Durchgang. Die Zahl der
+         Anforderungen ist durch die Zahl der Anlaesse begrenzt. Der
+         Start im Takt (Zeitgeber) und der Aufruf von Hand bleiben
+         unberuehrt.
     AL8  STATUSDATEI schreiben; Alarme nach Abschnitt 9.
 
   EIGENSCHAFTEN:

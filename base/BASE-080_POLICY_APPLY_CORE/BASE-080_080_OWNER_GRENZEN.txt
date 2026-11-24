@@ -493,7 +493,12 @@ ZWECK:
        Der Controller meldet in diesem Fall keinen Beginn. BASE-040_050
        beschreibt das Ergebnis 6 bisher nur fuer die zurueckgehaltene
        Massenkorrektur (und nennt die Regel "M-7"); der Wortlaut dort ist
-       anzugleichen, das Verhalten des Controllers bleibt dasselbe.
+       anzugleichen.
+       NEU ANGEFORDERT (v1.5): Nach Ergebnis 6 wiederholt der Controller
+       den Aufruf fuer diesen Peer nicht in jedem Zyklus, sondern mit
+       wachsendem Abstand, hoechstens im Takt des Abgleichs. Schliessen
+       kann den Peer nur der Abgleich; jeder weitere Aufruf nimmt nur
+       den Kernel-Lock (Uebergang: Abschnitt 6a).
     e) Die Soll-Funktion des Treibers ordnet eine Connection, deren
        Adressen nicht der Ableitung aus access_role und ip_slot
        entsprechen oder deren Pool-Zeile ungueltig ist, als UNBESTIMMT
@@ -773,6 +778,14 @@ ZWECK:
   ANF-PA-04 f  Je Sitzung eine neue Schnittstelle                  Art R
     HEUTE:  nicht verbindlich festgelegt.
     FOLGE:  Annahme E-PA-09 mit ihrem Ausweichweg.
+  ANF-PA-07 d  Wiederholung des Waechters nach Ergebnis 6          Art R
+    HEUTE:  Der Controller ruft fuer einen solchen Peer in jedem Zyklus
+            erneut (BASE-040_050 Schritt B2; Takt 5 s).
+    FOLGE:  Je Zyklus und Peer ein Aufruf mit Ergebnis 6, der kurz den
+            Kernel-Lock nimmt. Anforderungen und Laeufe wachsen dadurch
+            nicht (_040 Abschnitt 2 und MB-7; _050 Schritt AL7). Nie
+            offener; die Last traegt die Wartezeit der uebrigen Aufrufe
+            am Lock.
   ANF-PA-07 i  Vermerk "Profil faellig" bleibt bei Sperrung        Art R
     HEUTE:  BASE-040_040 Abschnitt 6 stellt zu, sobald fuer die
             Connection kein Auftrag mehr offen ist - auch fuer eine
