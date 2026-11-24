@@ -537,6 +537,11 @@ ZWECK:
     e) BASE-050_030 Abschnitt 9 nennt "Reste entfernen, danach das
        Siegel loesen"; massgeblich ist die Reihenfolge aus DEC-PA-10
        (Siegel vor Hygiene).
+    f) BASE-050_030 Abschnitt 4 nennt fuer das Element der L2TP-Freigabe
+       "ENTFERNEN: beim Sitzungsende". Massgeblich ist: durch das
+       Sitzungsende, wenn die Schnittstelle schon fehlt, sonst durch die
+       Aufsicht in ihrem naechsten Durchgang (_030 Abschnitte 6.4, 6.5;
+       Annahme E-PA-10). Der Wortlaut dort ist anzugleichen.
 
   ANF-PA-09 (BASE-090)
     a) Keys aus _070 Abschnitt 3 katalogisieren (Grenzen,
@@ -681,16 +686,37 @@ ZWECK:
   Dieses Modul beschreibt an mehreren Stellen einen ZIELZUSTAND, der
   erst gilt, wenn ein Nachbarmodul nachgezogen ist. Hier steht je
   offener Anforderung, die eine Zusage dieses Moduls traegt: was der
-  Nachbar HEUTE festlegt und was daraus FOLGT. Zwei Arten:
-    V  VORAUSSETZUNG: Ohne den Nachzug geht der genannte Teil dieses
-       Moduls nicht in Betrieb. Nichts wird dadurch offener.
+  Nachbar HEUTE festlegt und was daraus FOLGT. Drei Arten:
+    V  VORAUSSETZUNG: Ohne den Nachzug geht der genannte Teil DIESES
+       Moduls nicht in Betrieb. Offener wird dadurch nichts; was der
+       Teil geleistet haette, fehlt bis dahin und steht beim Eintrag.
     R  RUECKFALL: Bis zum Nachzug gilt ein benanntes, schwaecheres
        Verhalten. Es ist nie offener als der Zielzustand; die genannte
        Zusage gilt aber noch nicht.
+    L  LUECKE: Bis zum Nachzug FEHLT eine schliessende Wirkung, oder sie
+       tritt verspaetet ein - die Lage ist OFFENER als der Zielzustand.
+       Dieses Modul kann das nicht abfangen, weil der Nachbar den
+       betroffenen Schritt selbst ausfuehrt. Ein Eintrag der Art L ist
+       eine VORAUSSETZUNG DER INBETRIEBNAHME: Der genannte Schritt des
+       Nachbarn geht nicht in Betrieb, solange er offen ist
+       (BASE-080_INDEX Abschnitt 9).
   Fuer jede offene Anforderung aus Abschnitt 6, die hier NICHT steht,
-  gilt Art V fuer den Teil, der an ihr haengt. Die Invarianten, die am
-  Zielzustand haengen, verweisen auf diesen Abschnitt.
+  gilt Art V fuer den Teil DIESES Moduls, der an ihr haengt. Fuer eine
+  Anforderung an einen Schritt, den ein Nachbar selbst in Betrieb nimmt
+  (die Routinen von BASE-010, die Hooks von BASE-030), genuegt das
+  nicht; sie steht hier einzeln. Die Invarianten, die am Zielzustand
+  haengen, verweisen auf diesen Abschnitt.
 
+  ANF-PA-01 a  Jede Routine schreibt ihren Auftrag                 Art L
+    HEUTE:  BASE-010 nennt das Auftragsbuch nicht; keine Routine traegt
+            dort einen Auftrag ein.
+    FOLGE:  Ein Statuswechsel erreicht den Kernel dann nicht innerhalb
+            von Sekunden (SZ-3), sondern erst mit dem Abgleich - nach
+            Takt plus 60 s - und dort als Abweichung OHNE Auftrag: Die
+            Mengenbremse zaehlt ihn (_040 Regel MB-1) und kann auch eine
+            ordentliche Sperrung zurueckstellen. PA-46, PA-50 und die
+            Zusage "kein Statuswechsel geht verloren" gelten erst mit
+            dem Nachzug (Annahme E-PA-08).
   ANF-PA-01 b  T-09 ruft den Bewertungskern                        Art V
     HEUTE:  BASE-010_070 fuehrt T-09 ohne Aenderung von Status und
             Grund.
@@ -698,14 +724,39 @@ ZWECK:
             truege eine Connection nach dem Wechsel bis zum naechsten
             Lauf des Bewerters einen Status, der nicht zu ihrer Rolle
             passt.
-  ANF-PA-01 d  Akteur SYSTEM fuer T-04 und T-07                    Art V
+  ANF-PA-01 b  T-08, T-01, Pause und Verwaltungs-Einschraenkung    Art L
+               rufen den Bewertungskern
+    HEUTE:  BASE-010_070 nennt fuer T-08 und T-01 eine Neubewertung,
+            aber nicht den Kern als Baustein IHRER Transaktion; fuer
+            Pause und Verwaltungs-Einschraenkung nennt es nichts.
+    FOLGE:  Ohne den Aufruf gilt das Ergebnis erst mit dem naechsten
+            Lauf im Bewertungstakt: Eine Einschraenkung wirkt so lange
+            nicht; eine Wiederherstellung oder ein Claim kann so lange
+            einen Status tragen, den die Bedingungen nicht decken. PA-10
+            gilt erst mit dem Nachzug.
+  ANF-PA-01 d  Akteur SYSTEM fuer T-04 und T-07                    Art L
     HEUTE:  BASE-010_070 nennt fuer T-04 und T-07 nur ADMIN.
-    FOLGE:  Lehnt die Routine den Aufruf ohne Akteur ab, laufen die
-            Kaskade aus dem Netz (Schritt E2), die Sperrung an Stelle
-            eines zurueckgestellten Tombstones und die harte Frist aus
-            ACTIVE (E3) nicht; der Lauf meldet den Fehler je Connection
-            (_020 Abschnitt 9). Der Bewerter geht erst mit dem Nachzug
-            in Betrieb.
+    FOLGE:  Lehnt die Routine einen Aufruf ohne Akteur ab, FEHLEN drei
+            schliessende Wirkungen: die Kaskade aus dem Netz (Schritt
+            E2 ohne Vollzug), die Sperrung an Stelle eines
+            zurueckgestellten Tombstones und die harte Frist aus ACTIVE
+            (E3). Der Lauf meldet den Fehler je Connection (_020
+            Abschnitt 9). Der Bewerter laeuft sonst: Der VOLLZUG einer
+            Sperrung oder Loeschung (Aufrufart A5) traegt einen Akteur,
+            und T-02, T-03 und T-06 fuehrt BASE-010 schon mit den
+            Akteuren JOB und SYSTEM.
+  ANF-PA-01 i  Ablehnung von T-08 bei unbekannter Auskunft         Art L
+    HEUTE:  BASE-010_070 kennt die Ablehnung nicht (T-08: "ACTIVE oder
+            RESTRICTED - Policy-Re-Eval entscheidet").
+    FOLGE:  Eine Wiederherstellung bei unbekannter Auskunft koennte die
+            Connection frei stellen (gegen SZ-7). T-08 geht erst mit dem
+            Nachzug in Betrieb.
+  ANF-PA-01 j  Ausnahme von INV-22                                 Art R
+    HEUTE:  INV-22 gilt in BASE-010 ohne Ausnahme.
+    FOLGE:  Der gespeicherte Grund kann in den drei Faellen aus _020
+            Regel Z-1 hinter dem hoechstprioren zurueckbleiben. Am
+            Verhalten dieses Moduls aendert das nichts; eine Pruefung,
+            die INV-22 woertlich nimmt, meldet die Abweichung.
   ANF-PA-01 l  Tatsachen loeschen beim Wechsel nach ADMIN          Art R
     HEUTE:  BASE-010 kennt den Schritt nicht.
     FOLGE:  Die Tatsachen einer ADMIN-Connection bleiben stehen. Der
@@ -717,14 +768,19 @@ ZWECK:
     FOLGE:  Schritt RC3 c ist nicht ausfuehrbar; vpn-role-change lehnt
             jeden Wechsel ab, solange es das Budget nicht verbindlich
             pruefen kann.
-  ANF-PA-01 n  Kennwortwechsel: spaetere Faelligkeit               Art R
-    HEUTE:  Der Auftrag wird sofort faellig eingetragen (Regel AB-3
-            ohne die Ausnahme).
-    FOLGE:  Der Schnitt aus dem Auftrag kann der Bestaetigung des
-            Wechsels zuvorkommen: Eine Sitzung, die schon mit dem neuen
-            Kennwort begann, wird einmal zu viel getrennt - nie eine zu
-            wenig. PA-56 gilt in seiner Reihenfolge erst mit dem
-            Nachzug.
+  ANF-PA-01 n  Kennwortwechsel: Auftrag mit spaeterer              Art L
+               Faelligkeit
+    HEUTE:  BASE-010 beschreibt fuer den Kennwortwechsel keinen Auftrag
+            (wie a).
+    FOLGE:  Ohne Auftrag hat der Schnitt nach dem Wechsel kein Netz:
+            Bricht der Ablauf zwischen Wechsel und Schnitt ab (_060
+            Schritt KW3), bleibt eine vorher begonnene Sitzung bestehen,
+            bis sie von selbst endet. Der Kennwortwechsel geht erst mit
+            dem Nachzug in Betrieb. Traegt BASE-010 den Auftrag ein,
+            aber SOFORT faellig, ist das nur noch ein Rueckfall: Eine
+            Sitzung, die schon mit dem neuen Kennwort begann, wird
+            einmal zu viel getrennt - nie eine zu wenig. PA-56 gilt in
+            seiner Reihenfolge erst mit der spaeteren Faelligkeit.
   ANF-PA-01 o  Sperren an Stelle des zurueckgestellten Tombstones  Art R
     HEUTE:  Ob T-04 und T-07 mit DISABLE_CUSTOMER_SUSPENDED fuer einen
             Customer im Status DELETED zulaessig sind, legt BASE-010
@@ -755,19 +811,29 @@ ZWECK:
             Wiederherstellung wegen einer unbekannten Auskunft
             abgelehnt und laeuft das Fenster in dieser Zeit ab, folgt
             der Widerruf - die Connection ist dann endgueltig verloren.
-            Die Ablehnung nennt restore_until und den Eingriff AK-5
-            (_020 Abschnitt 5). PA-15 Satz 3 und T-PA-07 (e) gelten
+            EINEN EINGRIFF, DER DAS FENSTER RETTET, GIBT ES IM RUECKFALL
+            NICHT: AK-5 ist bis zum Nachzug von BASE-090 und BASE-110
+            nicht benutzbar (ANF-PA-09 c), und die Ablehnung der
+            Wiederherstellung haengt an ANF-PA-01 i. Der Bewerter MELDET
+            deshalb jedes Fenster, das in weniger als der Nachfrist
+            endet, waehrend eine Auskunft unbekannt ist
+            (POLICY_EVAL_REVOKE_DEFERRED mit Frist und Lage, _020 Schritt
+            E4 a); beheben kann der Betreiber dann nur die Ursache der
+            unlesbaren Auskunft. PA-15 Satz 3 und T-PA-07 (e) gelten
             erst mit dem Nachzug.
-  ANF-PA-04 a  ip-down nennt Adresse und Anmeldename; Spiegel      Art R
-    HEUTE:  BASE-030_040 beschreibt den Hook nach dem alten Stand
-            (ANF-PA-04 g).
-    FOLGE:  Fehlt --addr, entfaellt SE4: Sperr-Set und Formung der
-            Connection raeumen dann die Aufsicht (_030 Abschnitt 6.5)
-            bzw. der Abgleich. SE3 haengt nicht an --addr. Entfernt der
-            Hook den Spiegel nach dem Namen der Schnittstelle, kann er
-            den Spiegel einer neuen Sitzung treffen; fuer sie ist dann
-            ein Hard-Cut ohne Datenbank nicht moeglich (BASE-070_040
-            Schritt K2). Nie offener.
+  ANF-PA-04 a, b, g  Duenne Hooks, kein zweiter Schreiber          Art V
+    HEUTE:  BASE-030_040 laesst die Hooks die Sets SELBST schreiben: Der
+            Hook des Beginns traegt die Freigabe ein, der des Endes
+            entfernt die Adresse aus Freigabe- UND Sperr-Set.
+    FOLGE:  Solange das gilt, gibt es einen zweiten Schreiber der Sets
+            (gegen SZ-5 und PA-18), und das Ende einer alten Sitzung
+            koennte der naechsten derselben Connection Freigabe und
+            Einschraenkung nehmen. Der L2TP-Pfad dieses Moduls - und
+            damit der L2TP-Tunnel - geht deshalb erst mit dem Nachzug
+            von BASE-030 in Betrieb. Die Einzelheiten aus ANF-PA-04 a
+            (--addr und --login beim Ende; Spiegel nur der eigenen
+            Sitzung entfernen) setzen diesen Nachzug voraus und haben
+            keinen eigenen Rueckfall.
   ANF-PA-04 e  Helfer zum Nachtragen der Kennung im Spiegel        Art R
     HEUTE:  BASE-030 kennt den Helfer nicht.
     FOLGE:  Eine Sitzung, die erst die Aufsicht oder der Abgleich
@@ -842,9 +908,11 @@ ZWECK:
             erst nach der Aenderung der Adresse gemeldet wird.
     FOLGE:  In diesem Fall endet eine Sitzung, die DEC-PA-25 stehen
             liesse - gemeldet (RT_ADDRESS_MISMATCH), nie offener.
-  ANF-PA-14 i  Hard-Cut-Kern ohne Connection                       Art R
+  ANF-PA-14 i  Hard-Cut-Kern ohne Connection und ohne Sperre       Art R
     HEUTE:  Der Kern verlangt eine vpn_connection_id; ohne Datenbank und
-            ohne Eintrag im Spiegel endet er mit TEMPFAIL_DB.
+            ohne Eintrag im Spiegel endet er mit TEMPFAIL_DB. Als
+            Bibliothek sieht BASE-070_040 Abschnitt 6 ihn nur "innerhalb
+            der eigenen Sperre" des Aufrufers vor.
     FOLGE:  Eine Sitzung ohne bestimmbare Connection wird ueber kill()
             des Adapters mit ihrer Sitzungskennung beendet - ohne
             Ende-Vermerk und ohne Grund-Hinweis. Gehoert sie doch zu
@@ -853,6 +921,13 @@ ZWECK:
             (BASE-070_040 Regel G-8). Die Sitzung ist in jedem Fall ohne
             Freigabe gesperrt. PA-33 gilt in der Form "ueber den
             Hard-Cut-Kern" erst mit dem Nachzug.
+            OHNE SPERRE: Dieses Modul ruft den Kern ohne Sperre in
+            vpn_session_locks (_050 Regel NB-1; ein Umbau haelt seine
+            Sperre selbst). Laesst BASE-070 das nicht zu, bleibt nur
+            der Weg oben ueber kill() des Adapters. Waehrend des
+            Beendens kann dann eine neue Anmeldung derselben Connection
+            beginnen; zugelassen wird sie nur, wenn SQL sie deckt (_030
+            Abschnitt 6.3). Nie offener.
 
 ================================================================================
 7) ZU VERIFIZIERENDE ANNAHMEN
@@ -882,9 +957,10 @@ ZWECK:
            Laufzeit-Spiegel. Die Schutzwirkung haengt nicht an der
            zweiten Haelfte der Annahme: Jeder Sitzungsbeginn entfernt
            zuerst alle Elemente zu Adresse und Index (_030 Schritt SB3);
-           Sitzungsende und Aufsicht entfernen jedes Element, dessen
-           Schnittstelle fehlt oder die Adresse nicht traegt (Schritt
-           SE3, Abschnitt 6.5). Was bleibt, nennt E-PA-09.
+           das Sitzungsende entfernt jedes Element, dessen Schnittstelle
+           fehlt (Schritt SE3), die Aufsicht zusaetzlich jedes, dessen
+           Schnittstelle die Adresse nicht traegt (Abschnitt 6.5). Was
+           bleibt, nennt E-PA-09.
   E-PA-04  Der Kernel-Lock laesst sich an einen Kindprozess uebergeben
            (vererbter Dateideskriptor); er endet erst mit dem letzten
            Halter.
@@ -946,14 +1022,16 @@ ZWECK:
            AUSWEICHWEG: eingebaut. Laeuft der Hook DANACH, raeumt er
            selbst (_030 Schritte SE3, SE4). Laeuft er DAVOR, findet er
            die Schnittstelle noch vor und laesst ihr Element stehen; den
-           Rest raeumt die Aufsicht im naechsten Durchgang des
-           Auftragslaufs - hoechstens ein Raster spaeter (_030 Abschnitt
-           6.5). Bis dahin gibt das Element nichts Neues frei: Solange
-           die Schnittstelle besteht, gehoert es zu der endenden
+           Rest raeumt die Aufsicht in ihrem naechsten Durchgang - in
+           der Regel binnen eines Rasters, spaetestens der Abgleich (_030
+           Abschnitt 6.5). Bis dahin gibt das Element nichts Neues frei:
+           Solange die Schnittstelle besteht, gehoert es zu der endenden
            Sitzung; danach passt es auf keine Schnittstelle mehr
            (E-PA-03). "Entfernen beim Sitzungsende" (BASE-030 LT-20;
-           BASE-050_030 Abschnitt 4) ist in diesem Fall um hoechstens
-           ein Raster verzoegert erfuellt.
+           BASE-050_030 Abschnitt 4) ist in diesem Fall verzoegert
+           erfuellt - eine ausgewiesene Abweichung vom Wortlaut dort,
+           ohne Sicherheitswirkung; der Wortlaut ist anzugleichen
+           (ANF-PA-08 f).
   E-PA-11  Ein Schreibzugriff auf ein Set, der Erfolg meldet, hat gewirkt.
            AUSWEICHWEG: eingebaut. Die Herstellung liest nach: Nachweis
            vor der Freigabe (_030 Schritt B4), Pruefung danach (B6),
