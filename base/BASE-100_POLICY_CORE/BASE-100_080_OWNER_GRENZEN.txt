@@ -21,13 +21,14 @@ ZWECK:
                 (BASE-100_070 Abschnitt 1)
   Keys          max_active_connections, max_connection_creates_per_hour,
                 max_quota_bytes_per_period
-  Auskuenfte    AW, BA, AK-2 und AK-1 (BASE-100_030 bis _050)
+  Auskuenfte    AW, BA, AK-2, AK-1 und AK-6 (BASE-100_030 bis _050)
   Regeln        Aufloesung, "unbegrenzt", Zaehlung und Pruefung des
                 Verbindungsbudgets, Rate der Anlagen, Ueberbelegung,
                 Kundenverbrauch und Deckel, Vorschau der Folgen
   Werkzeuge     vpn-rights-get, -set, -seed, -check; Status des Prueflaufs
   Settings      vpn_disabled_connection_buffer,
-                policy_check_interval_seconds (gefuehrt in BASE-090)
+                policy_check_interval_seconds, policy_plan_required
+                (gefuehrt in BASE-090)
 
 ================================================================================
 2) WAS DIESES MODUL NICHT BESITZT
@@ -112,7 +113,7 @@ ZWECK:
   Auskuenfte AW, BA            BASE-010 (Zulassungen),    -
                                BASE-080 (Rollenwechsel),
                                Panel, Prueflauf
-  Auskuenfte AK-1, AK-2        nur der Bewerter von       -
+  Auskuenfte AK-1, AK-2, AK-6  nur der Bewerter von       -
                                BASE-080; das Panel fuer
                                die Anzeige
   Status des Prueflaufs        Panel, Ueberwachung        Prueflauf
@@ -169,6 +170,15 @@ ZWECK:
        Kunden nicht als Uebergang, INV-64 setzt es voraus
        (SM_CONNECTION 5.6). Dort zu klaeren; fuer die Zaehlung gilt: Was
        widerrufen ist, zaehlt nicht mehr (BASE-100_040 ZR-4).
+    f) NEUER GRUND RESTRICT_PLAN_MISSING in vpn_reason_registry
+       (BASE-010_050), mit Uebergaengen und Tests wie die anderen
+       berechneten Gruende (DEC-PO-18). Vorschlag: Rang unmittelbar VOR
+       RESTRICT_PLAN_LIMIT_EXCEEDED (ohne gueltigen Plan stellt sich die
+       Frage nach seinem Limit nicht); Finalisierung wie
+       RESTRICT_EXPIRY_PASSED. Rang und Fristen legt der Owner fest.
+    g) BASE-010_010 beschreibt plan_id mit "NULL = kein Plan (nur
+       Rollen-Defaults)": um den Verweis auf die Plan-Pflicht zu
+       ergaenzen (DEC-PO-18).
 
   ANF-PO-03 (BASE-070)
     a) Die Auskunft AK-2 liest quota_used, quota_period_start und
@@ -200,6 +210,14 @@ ZWECK:
        Bewertungskern - eine abgelehnte Wiederherstellung aendert nichts.
     f) FOLGEAUFRUF nach einer geaenderten Ausnahme: Aufrufart A3 fuer den
        Kunden, ueber den privilegierten Auftragsweg (BASE-100_060 NF-2).
+    g) PLAN-PFLICHT (DEC-PO-18): neue Zeile in den Bedingungsquellen
+       (BASE-080_020 Abschnitt 2) - Grund RESTRICT_PLAN_MISSING, aktiv,
+       wenn die Auskunft AK-6 "ja" meldet; AK-6 in den Vertrag der
+       Auskuenfte aufnehmen (unbekannt nach AK-4). Ein Eintrag in
+       vpn_policy_eval_sources_off ist dafuer nicht noetig: Der Schalter
+       der Plan-Pflicht leistet dasselbe. Beim Rollenwechsel zeigt RC1,
+       ob der Kunde nach dem Wechsel auf USER ohne gueltigen Plan
+       eingeschraenkt waere; RC3 f bewertet es mit.
 
   ANF-PO-05 (BASE-090)
     a) vpn_vip_max_connections und vpn_moderator_max_connections aus dem
@@ -210,6 +228,11 @@ ZWECK:
     b) vpn_disabled_connection_buffer: Eigentuemer BASE-100.
     c) Neuer Key policy_check_interval_seconds mit den Angaben aus
        BASE-100_070 Abschnitt 3.
+    d) Neuer Key policy_plan_required mit den Angaben aus BASE-100_070
+       Abschnitt 3 (BOOL, Fehlerklasse FAIL_CLOSED). Das Schreiben
+       verlangt die ausdrueckliche Bestaetigung mit Urheber und Grund
+       (wie bei vpn_policy_eval_sources_off): "true" kann viele Kunden
+       zugleich einschraenken.
 
   ANF-PO-06 (BASE-110, MOD-006)
     a) Anzeige nach BASE-100_070 Abschnitt 6; nichts wird im Panel
@@ -223,6 +246,11 @@ ZWECK:
     d) Dem Kunden: eigene Werte und Verbrauch (SI-3); bei einer
        abgelehnten Zulassung die Meldung mit den Zahlen der Auskunft BA.
     e) MODERATOR: nur lesend.
+    f) PLAN-PFLICHT (DEC-PO-18): Dem Kunden ohne gueltigen Plan zeigt
+       das Panel, dass und warum er eingeschraenkt ist, und den Weg zu
+       einem Plan. Der Verwaltung zeigt es vor dem Einschalten die Zahl
+       der betroffenen Kunden und Connections (vpn-rights-get
+       --assume-plan-required).
 
   ANF-PO-07 (MOD-010)
     Die Nahtstelle aus BASE-100_050 Abschnitt 6: Tabelle der Plaene;
@@ -230,6 +258,11 @@ ZWECK:
     des Kontingents je Plan (NP-5); Regel des Plan-Limits (NP-6);
     Planwechsel und Auffuellen rufen die Bewertung; ob ein Auffuellen
     eine Ausnahme oder ein eigener Gegenstand ist (OPEN-PO-05).
+    PLAN-PFLICHT (DEC-PO-18): je Kunde die Antwort "gueltig oder
+    abgelaufen" (NP-10); Zuweisung, Entzug und Ende eines Plans rufen
+    die Bewertung; der Weg zu einem Plan ist fuer einen eingeschraenkten
+    Kunden erreichbar (Panel als interner Dienst); der Uebergang der
+    Bestandskunden, bevor die Pflicht eingeschaltet wird.
 
   ANF-PO-08 (MOD-007)
     Aufbewahrung von log_policy_audit (nur der Aufbewahrungslauf
@@ -285,16 +318,16 @@ ZWECK:
 8) OFFENE PUNKTE
 ================================================================================
 
-  OPEN-PO-01  GESCHAEFTSWERTE DES BETREIBERS: das Kontingent der Rollen
-              USER, VIP und MODERATOR fuer Kunden ohne Plan
-              (BASE-100_070 Anmerkung *4). Der Vorschlag der Rate
-              (Anmerkung *2) ist eine Festlegung dieses Moduls und steht
-              dem Betreiber zur Aenderung offen.
+  OPEN-PO-01  ERLEDIGT (2026-11-24): Die Kontingente der Rollen sind
+              festgelegt - der Betreiber hat die Wahl diesem Modul
+              ueberlassen (BM-0027; BASE-100_070 Anmerkung *4). Der
+              Vorschlag der Rate (Anmerkung *2) ist eine Festlegung
+              dieses Moduls und steht dem Betreiber zur Aenderung offen.
   OPEN-PO-02  NACHZUEGE an den geschriebenen Modulen (ANF-PO-01 bis
               ANF-PO-05) stehen aus. Bis dahin gilt fuer Rechte und
               Limits bei einem Unterschied dieses Modul.
-  OPEN-PO-03  PLAENE: die Eingaben nach BASE-100_050 NP-5 und NP-6
-              (MOD-010). Bis dahin traegt kein Kunde einen Plan.
+  OPEN-PO-03  PLAENE: die Eingaben nach BASE-100_050 NP-5, NP-6 und
+              NP-10 (MOD-010). Bis dahin traegt kein Kunde einen Plan.
   OPEN-PO-04  SELBSTBEDIENUNG UND EIGENES LOESCHEN sind in BASE-010 nicht
               ausgearbeitet (ANF-PO-02 e; BASE-010_070 Weg B). Rate und
               Kundendeckel sind dafuer ausgelegt, wirken aber erst mit
@@ -307,6 +340,12 @@ ZWECK:
   OPEN-PO-06  FORM DER KATALOG-DEFINITION (Dateiformat, kanonische Form
               fuer die Pruefsumme): Sache der Umsetzung, gemeinsam mit
               BASE-090 (dort OPEN-ST-03).
+  OPEN-PO-07  PLAN-PFLICHT (DEC-PO-18): Der Grund RESTRICT_PLAN_MISSING
+              (BASE-010, ANF-PO-02 f), die Zeile der Bedingungsquellen
+              (BASE-080, ANF-PO-04 g), das Setting (BASE-090, ANF-PO-05
+              d) und die Gueltigkeit eines Plans (MOD-010, NP-10) stehen
+              aus. Bis dahin ist die Pflicht nicht durchsetzbar; der
+              Schalter bleibt auf "false".
 
 ================================================================================
 9) VERBLEIB VON DOMAIN_MODEL ABSCHNITT 6 UND VON D003
@@ -346,6 +385,10 @@ ZWECK:
   6.6 SimUse                           BASE-070_030
   6.7 Interim-Regelung                 DEC-PO-15
   6.8 Plaene                           BASE-100_050 Abschnitt 6; MOD-010
+  6.8 "NULL = kein Plan, nur           ANGEPASST durch Entscheidung des
+  Rollen-Defaults"                     Betreibers (BM-0027): gilt, bis
+                                       die Plan-Pflicht eingeschaltet
+                                       ist; danach DEC-PO-18
   D003-E01                             DEC-PO-01
   D003-E02                             BASE-010; hier DEC-PO-14 (Ausnahme
                                        beim Rollenwechsel)

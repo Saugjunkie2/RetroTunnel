@@ -20,7 +20,7 @@ ZWECK:
   Ausnahme fuer einen Kunden - alle in SQL), WIE daraus fuer jeden Kunden
   genau ein wirksamer Wert mit Herkunft wird (Aufloesung), WAS
   "unbegrenzt" bedeutet, WIE das Verbindungsbudget gezaehlt und geprueft
-  wird, WAS die anderen Module erfragen koennen (vier Auskuenfte) und WER
+  wird, WAS die anderen Module erfragen koennen (fuenf Auskuenfte) und WER
   einen Wert auf welchem Weg aendert (Schreibkern).
 
   BASE-100 legt NICHT fest, was geschieht, wenn ein Limit erreicht ist
@@ -123,9 +123,12 @@ ZWECK:
                    widerrufenen und geloeschten (BASE-100_050 KQ-3).
   KUNDENDECKEL     Die Obergrenze fuer U: Aktiv-Budget mal Kontingent
                    (DEC-PO-11).
-  AUSKUNFT         Eine der vier Antworten dieses Moduls: AW (wirksamer
+  PLAN-PFLICHT     Gilt sie, erreicht ein Kunde der Rolle USER ohne
+                   gueltigen Plan nur die internen Dienste (DEC-PO-18).
+  AUSKUNFT         Eine der fuenf Antworten dieses Moduls: AW (wirksamer
                    Wert), BA (Budget), AK-2 (Kontingent), AK-1
-                   (Plan-Limit). AK-1 und AK-2 heissen so in BASE-080.
+                   (Plan-Limit), AK-6 (Plan fehlt). AK-1 und AK-2 heissen
+                   so in BASE-080; AK-6 ist dort angemeldet (ANF-PO-04 g).
   AUFLOESER        Die eine Implementierung, die Auskuenfte liefert.
   SCHREIBKERN      Die eine Implementierung, die Werte schreibt.
   VERBRAUCHER      Ein Programm, das eine Auskunft benutzt.
@@ -155,7 +158,7 @@ ZWECK:
   log_policy_audit         Protokoll aller Schreibvorgaenge und
                            Ablehnungen (nur anfuegend).
   AUFLOESER                Bibliothek und Werkzeug vpn-rights-get aus
-                           derselben Quelle; liefert die vier Auskuenfte
+                           derselben Quelle; liefert die fuenf Auskuenfte
                            (BASE-100_030 bis _050).
   SCHREIBKERN              Bibliothek und Werkzeug vpn-rights-set
                            (BASE-100_060).
@@ -301,10 +304,12 @@ DEC-PO-06  STANDARDS DER ROLLEN SIND DATEN DES BETREIBERS; DER KATALOG
     b) Der Katalog nennt je Key und Rolle, wie die Zeile ENTSTEHT: mit
        einem VORSCHLAG (eine Zahl, ja/nein oder "unbegrenzt"), den die
        Einspielung eintraegt - oder als BETREIBERWERT, den nur der
-       Betreiber kennen kann (ein Geschaeftswert wie das Datenvolumen
-       eines Kunden ohne Plan). Ein Betreiberwert wird bei der
-       Einrichtung eingegeben; bis dahin ist der Key fuer diese Rolle
-       MISSING.
+       Betreiber kennen kann (ein Geschaeftswert, den keine Quelle
+       nennt). Ein Betreiberwert wird bei der Einrichtung eingegeben;
+       bis dahin ist der Key fuer diese Rolle MISSING. STAND: Kein Key
+       des Verzeichnisses ist heute ein Betreiberwert; die Wahl des
+       Datenvolumens hat der Betreiber diesem Modul ueberlassen
+       (BM-0027; BASE-100_070 Anmerkung *4).
     c) Die Aufloesung kennt den Vorschlag nicht. Fehlt die Zeile spaeter,
        gilt NICHT der Vorschlag, sondern DEC-PO-05.
     d) Fuer die Rolle ADMIN ist der Vorschlag jedes Keys, der es erlaubt,
@@ -439,7 +444,7 @@ DEC-PO-11  KONTINGENT: DAS LIMIT GILT JE CONNECTION, DER DECKEL JE KUNDE
     gespeichert. Einzelheiten und die Antwort auf ANF-SC-12:
     BASE-100_050.
 
-DEC-PO-12  VIER AUSKUENFTE, JEDE GIBT ES GENAU EINMAL
+DEC-PO-12  FUENF AUSKUENFTE, JEDE GIBT ES GENAU EINMAL
   Quelle: BASE-080_020 Regeln AK-1 bis AK-4 und ANF-PA-02; BASE-080
     ANF-PA-01 m (Budgetpruefung in der Transaktion aufrufbar);
     D003-E07; DEC-ST-09; TRUTH_MODEL 4.2 (Verbraucher lesen nie rohe
@@ -455,6 +460,9 @@ DEC-PO-12  VIER AUSKUENFTE, JEDE GIBT ES GENAU EINMAL
     AK-1  PLAN-LIMIT je Connection: ob sie als ueberzaehlig gilt. Ohne
           Plan: nein. Die Regel fuer Kunden mit Plan liefert MOD-010
           (BASE-100_050).
+    AK-6  PLAN FEHLT je Connection: ob ihr Kunde als USER ohne gueltigen
+          Plan unter die Plan-Pflicht faellt (DEC-PO-18; BASE-100_050
+          Abschnitt 4a).
     Jede Auskunft ist eine Routine der Bibliothek dieses Moduls. Kein
     Verbraucher liest die Tabellen policy_... selbst, und keiner rechnet
     eine Auskunft nach.
@@ -577,6 +585,51 @@ DEC-PO-17  WER WELCHEN WERT SIEHT
     Herkunft, um einem Kunden Auskunft zu geben.
   Einzelheiten: BASE-100_070 Abschnitt 6.
 
+DEC-PO-18  PLAN-PFLICHT: EIN USER OHNE GUELTIGEN PLAN ERREICHT NUR DIE
+           INTERNEN DIENSTE
+  Quelle: Entscheidung des Betreibers vom 2026-11-24 (Betreibermitteilung
+    BM-0027; Wortlaut dort). 00_MANIFEST 4.2 (USER: "Plan-gebunden");
+    Entwurf "Plans" der Nachlieferung ("Laufzeit abgelaufen -> Walled
+    Garden").
+  Entscheidung:
+    a) Gilt die Plan-Pflicht, ist jede Connection eines Kunden der Rolle
+       USER, der KEINEN GUELTIGEN PLAN traegt, eingeschraenkt (Status
+       RESTRICTED): Sie verbindet sich und erreicht die internen
+       Dienste, nicht das Internet. Kein gueltiger Plan heisst: keiner
+       zugewiesen ODER abgelaufen - beides gilt gleich.
+    b) VIP, MODERATOR und ADMIN tragen nie einen Plan (BASE-010 INV-41);
+       die Plan-Pflicht trifft sie nie. Eine Connection ohne Kunden
+       trifft sie auch nicht.
+    c) DER SCHALTER: Die Plan-Pflicht gilt, wenn das Setting
+       policy_plan_required "true" ist. Der Vorschlag ist "false":
+       Plaene gibt es erst mit MOD-010; bis dahin kann kein Kunde einen
+       Plan tragen, und mit der Pflicht waere jeder USER ohne Internet.
+       Der Betreiber schaltet sie ein, wenn MOD-010 in Betrieb ist und
+       die Bestandskunden ihren Plan haben.
+    d) Dieses Modul sagt dem Bewerter, WEN die Pflicht trifft (Auskunft
+       AK-6); es schraenkt nichts selbst ein (PO-45). Der Grund heisst
+       RESTRICT_PLAN_MISSING; er ist bei BASE-010 und BASE-080
+       angefordert (ANF-PO-02 f, ANF-PO-04 g).
+    e) Ob ein Plan gueltig ist, sagt MOD-010 (Laufzeit); dieses Modul
+       erhaelt die Antwort als feste Eingabe (BASE-100_050 NP-10).
+    f) Die Plan-Pflicht aendert keinen Wert der Aufloesung: Ein USER
+       ohne gueltigen Plan behaelt, was fuer ihn gilt (Ausnahme, sonst
+       Standard der Rolle USER).
+  ANPASSUNG GEGENUEBER DEM BESTAND (ausgewiesen): DOMAIN_MODEL 6.8 und
+    BASE-010_010 sagen "NULL = kein Plan, nur Rollen-Defaults". Das gilt
+    weiter, SOLANGE die Plan-Pflicht ausgeschaltet ist. Danach sagen die
+    Standards der Rolle USER nur noch, was ein Plan auslaesst (DEC-PO-16
+    b) und was ein eingeschraenkter USER behaelt - etwa die Zahl seiner
+    Connections.
+  Folgen: Bis zum Einschalten sind die Standards der Rolle USER das, was
+    ein USER darf. Das Einschalten kann viele Kunden zugleich treffen:
+    Es verlangt die ausdrueckliche Bestaetigung mit Urheber und Grund
+    (ANF-PO-05 d); vorher zeigt der Aufloeser die Zahl der betroffenen
+    Kunden und Connections. Der Bewerter behandelt diese
+    Einschraenkungen wie jede andere (BASE-080_020; Meldeschwelle
+    vpn_policy_eval_restrict_alert_per_run).
+  Einzelheiten: BASE-100_050 Abschnitte 4a und 6.
+
 ================================================================================
 6) DAMIT GESCHLOSSENE OFFENE PUNKTE
 ================================================================================
@@ -615,6 +668,10 @@ DEC-PO-17  WER WELCHEN WERT SIEHT
     Ueberbelegung nach gesenktem Wert                  -> DEC-PO-10
     fehlender oder ungueltiger Wert                    -> DEC-PO-05
     Kontingent ohne Plan                               -> DEC-PO-11
+  Vom Betreiber am 2026-11-24 entschieden (BM-0027):
+    USER ohne gueltigen Plan                           -> DEC-PO-18
+    Datenvolumen der Rollen (bisher offen)             -> BASE-100_070
+                                                          Abschnitt 1
 
 ================================================================================
 CHANGELOG

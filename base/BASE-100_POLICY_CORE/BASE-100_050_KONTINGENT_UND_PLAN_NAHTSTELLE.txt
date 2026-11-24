@@ -6,10 +6,10 @@ STATUS: IN ARBEIT (AP-K100; Modul noch unvollstaendig)
 
 ZWECK:
   Wie aus dem Kontingent eines Kunden und dem gebuchten Verbrauch die
-  Auskunft AK-2 wird, was die Auskunft AK-1 liefert, was dieses Modul
-  ueber Plaene festlegt und was MOD-010 ueberlassen bleibt. Grundlage sind
-  DEC-PO-11, DEC-PO-12 und DEC-PO-16. Gebucht und gemessen wird in
-  BASE-070; bewertet wird in BASE-080.
+  Auskunft AK-2 wird, was die Auskuenfte AK-1 und AK-6 liefern, was
+  dieses Modul ueber Plaene festlegt und was MOD-010 ueberlassen bleibt.
+  Grundlage sind DEC-PO-11, DEC-PO-12, DEC-PO-16 und DEC-PO-18. Gebucht
+  und gemessen wird in BASE-070; bewertet wird in BASE-080.
 
 ================================================================================
 1) DAS KONTINGENT ALS POLICY-WERT
@@ -161,6 +161,74 @@ ZWECK:
   fuer jede Connection "nein".
 
 ================================================================================
+4a) DIE AUSKUNFT AK-6 (PLAN FEHLT)
+================================================================================
+
+  Grundlage ist DEC-PO-18 (Entscheidung des Betreibers, BM-0027): Ein
+  Kunde der Rolle USER ohne gueltigen Plan erreicht nur die internen
+  Dienste.
+
+  AUFRUF: eine Menge von Connections.
+  ERGEBNIS je Connection: state und plan_missing (ja | nein).
+
+  PF-1  WEN ES TRIFFT: plan_missing ist "ja" genau dann, wenn
+          a) die Plan-Pflicht gilt (PF-3),
+          b) die Connection einen Kunden der Rolle USER hat und
+          c) dieser Kunde keinen GUELTIGEN Plan traegt (PF-2).
+  PF-2  GUELTIG ist ein Plan, wenn der Kunde ein plan_id traegt und
+        MOD-010 den Plan dieses Kunden nicht als abgelaufen meldet
+        (Abschnitt 6, NP-10). Kein plan_id und ein abgelaufener Plan
+        gelten gleich: kein gueltiger Plan.
+  PF-3  DIE PLAN-PFLICHT GILT, wenn das Setting policy_plan_required
+        "true" ist (BASE-100_070 Abschnitt 3). Ist es "false", ist
+        plan_missing fuer jede Connection "nein" - ohne dass ein Plan
+        gelesen wird.
+  PF-4  WEN ES NIE TRIFFT: Fuer eine Connection ohne Kunden und fuer die
+        Connection eines Kunden der Rollen VIP, MODERATOR oder ADMIN ist
+        das Ergebnis OK und "nein" - gleich wie der Schalter steht und
+        in welchem Zustand die Daten der Plaene sind. Diese Rollen
+        tragen keinen Plan (BASE-010 INV-41).
+  PF-5  UNBEKANNT BLEIBT UNBEKANNT: Liefert die Auskunft der Settings
+        den Schalter nicht als gelesenen Wert (er hat die Fehlerklasse
+        FAIL_CLOSED: kein Notwert), ist state fuer die Connections ALLER
+        Kunden der Rolle USER PLAN_UNKNOWN. Gilt die Pflicht und ist
+        fuer einen Kunden mit plan_id nicht lesbar, ob sein Plan gueltig
+        ist, ist state fuer seine Connections PLAN_UNKNOWN. Ist die
+        Datenbank nicht lesbar: DB_UNKNOWN. Der Bewerter behandelt die
+        Bedingung dann als UNBEKANNT (BASE-080 AK-4): Er oeffnet nichts
+        und schraenkt deshalb nichts ein.
+  PF-6  AK-6 schreibt nichts, sperrt nichts und liest nur
+        festgeschriebene Daten; ein Aufruf braucht eine feste Zahl von
+        Abfragen (SZ-9).
+  PF-7  NUR DIESE EINE FOLGE: Die Plan-Pflicht aendert keinen Wert der
+        Aufloesung. Ein USER ohne gueltigen Plan behaelt die Werte, die
+        fuer ihn gelten (Ausnahme, sonst Standard der Rolle USER) - etwa
+        die Zahl seiner Connections. Im Internet nuetzen sie ihm nichts,
+        solange er eingeschraenkt ist.
+
+  WAS DER KUNDE DAVON HAT: Er bleibt verbunden und erreicht die internen
+  Dienste. Welche das sind, legt BASE-050 fest; der Weg zu einem Plan
+  muss dazugehoeren, damit er dort einen Plan waehlen oder verlaengern
+  kann (ANF-PO-07).
+
+  VERHAELTNIS ZUR LAUFZEIT EINER CONNECTION: expiry_date (BASE-010_020
+  VC-07; Grund RESTRICT_EXPIRY_PASSED) bleibt die Laufzeit einer
+  EINZELNEN Connection. Die Laufzeit eines Plans gehoert dem Kunden; ihr
+  Ende meldet AK-6. Ob MOD-010 daneben expiry_date benutzt, entscheidet
+  MOD-010 - AK-6 haengt nicht davon ab.
+
+  VOR DEM EINSCHALTEN zeigt vpn-rights-get mit --assume-plan-required,
+  wie viele Kunden und Connections die Pflicht jetzt traefe (BASE-100_070
+  Abschnitt 2). Das Einschalten selbst ist ein Schreibvorgang der
+  Settings (BASE-090; ANF-PO-05 d).
+
+  STAND HEUTE: Der Schalter steht auf "false"; AK-6 liefert fuer jede
+  Connection "nein". Eingeschaltet wird, wenn MOD-010 in Betrieb ist
+  und die Bestandskunden ihren Plan haben - vorher traefe die Pflicht
+  JEDEN Kunden der Rolle USER. Durchsetzbar ist sie erst mit den
+  Nachzuegen bei BASE-010 und BASE-080 (BASE-100_080 OPEN-PO-07).
+
+================================================================================
 5) ANTWORTEN AUF DIE ANFORDERUNGEN DER NACHBARN
 ================================================================================
 
@@ -244,12 +312,21 @@ ZWECK:
           kann etwas schalten, was der Katalog nicht als Key fuehrt.
     NP-9  OHNE MOD-010 KEIN PLAN: Ein gesetztes plan_id ist bis dahin ein
           Widerspruch (PLAN_UNKNOWN; gemeldet).
+    NP-10 GUELTIGKEIT EINES PLANS (DEC-PO-18): MOD-010 liefert je Kunde
+          mit plan_id, ob sein Plan GUELTIG oder ABGELAUFEN ist - als
+          feste Eingabe der Auskunft AK-6: mengenweise, aus
+          festgeschriebenen Daten, ohne Nebenwirkung. Wie die Laufzeit
+          gefuehrt wird und ob ein abgelaufener Plan am Kunden stehen
+          bleibt, bestimmt MOD-010; fuer AK-6 ist beides "kein gueltiger
+          Plan".
 
   Was MOD-010 ZU LEISTEN HAT (ANF-PO-07): die Tabelle der Plaene mit
   unveraenderlichem Schluessel (TRUTH_MODEL GV-02), Laufzeit und Preis;
-  Zuweisung und Wechsel eines Plans; die Eingaben nach NP-5 und NP-6;
-  das Auffuellen eines Kontingents; weitere Keys (Geschwindigkeit mit
-  MOD-003). Ein Planwechsel und ein Auffuellen rufen die Bewertung
+  Zuweisung und Wechsel eines Plans; die Eingaben nach NP-5, NP-6 und
+  NP-10; das Auffuellen eines Kontingents; weitere Keys
+  (Geschwindigkeit mit MOD-003); den Uebergang der Bestandskunden,
+  bevor die Plan-Pflicht eingeschaltet wird. Zuweisung, Wechsel, Entzug
+  und Ende eines Plans und ein Auffuellen rufen die Bewertung
   (BASE-080_020 Abschnitt 5).
 
   VERBLEIB DER SIEBEN OFFENEN FRAGEN DES ENTWURFS "PLANS"
@@ -268,7 +345,10 @@ ZWECK:
     4  Kontingent in Echtzeit oder        periodisch, mit begrenzter
        periodisch?                        Ueberziehung (BASE-080_020
                                           Abschnitt 8; BASE-070_050 Q-1)
-    5  Laufzeit-Modell                    MOD-010 (offen)
+    5  Laufzeit-Modell                    MOD-010 (offen). Fest steht die
+                                          Folge: Ein abgelaufener Plan
+                                          gilt als keiner (DEC-PO-18;
+                                          NP-10)
     6  Planwechsel waehrend der Laufzeit  kein Zuruecksetzen; ein
                                           niedrigeres Limit gilt sofort
                                           (D004-E08; NP-7); alles Weitere
@@ -294,8 +374,14 @@ ZWECK:
                                          die Buchung zu aendern
   D004-E08 Planwechsel setzt nicht       NP-7; derselbe Schutz fuer das
   zurueck ("Missbrauchsschutz")          Ersetzen einer Connection (KQ-3)
-  DOMAIN_MODEL 6.8 Plaene                NP-1 bis NP-9; Einzelheiten
+  DOMAIN_MODEL 6.8 Plaene                NP-1 bis NP-10; Einzelheiten
                                          MOD-010
+  DOMAIN_MODEL 6.8 "NULL = kein Plan,    ANGEPASST (Entscheidung des
+  nur Rollen-Defaults"                   Betreibers, BM-0027): gilt, bis
+                                         die Plan-Pflicht eingeschaltet
+                                         ist; danach Abschnitt 4a
+  Entwurf "Plans": "Laufzeit abgelaufen  Abschnitt 4a: Ein abgelaufener
+  -> Walled Garden"                      Plan gilt als keiner (PF-2)
   BASE-080_020 AK-1 bis AK-4             Abschnitte 3 und 4
   SM_CONNECTION 5.4 "PLAN_LIMIT_         PL-2, NP-6
   EXCEEDED: Plan-Engine Ergebnis"
