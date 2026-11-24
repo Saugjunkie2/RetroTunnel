@@ -20,8 +20,9 @@ ZWECK:
   Ausnahme fuer einen Kunden - alle in SQL), WIE daraus fuer jeden Kunden
   genau ein wirksamer Wert mit Herkunft wird (Aufloesung), WAS
   "unbegrenzt" bedeutet, WIE das Verbindungsbudget gezaehlt und geprueft
-  wird, WAS die anderen Module erfragen koennen (fuenf Auskuenfte) und WER
-  einen Wert auf welchem Weg aendert (Schreibkern).
+  wird, WEN die Plan-Pflicht trifft, WAS die anderen Module erfragen
+  koennen (fuenf Auskuenfte) und WER einen Wert auf welchem Weg aendert
+  (Schreibkern).
 
   BASE-100 legt NICHT fest, was geschieht, wenn ein Limit erreicht ist
   (BASE-080 bewertet, BASE-010 fuehrt den Statuswechsel aus), was ein
@@ -91,8 +92,9 @@ ZWECK:
                    gibt.
   ZUSTAND          OK, MISSING (die Zeile der Rolle fehlt), INVALID (die
                    entscheidende Zeile ist ungueltig), PLAN_UNKNOWN (der
-                   Kunde traegt einen Plan, dessen Werte nicht lesbar
-                   sind), DB_UNKNOWN (Datenbank nicht lesbar).
+                   Kunde traegt einen Plan, dessen Werte oder dessen
+                   Gueltigkeit nicht lesbar sind), DB_UNKNOWN (Datenbank
+                   nicht lesbar).
   UNBEGRENZT       Der Wert "kein Limit". Ihn kann nur eine VORHANDENE
                    Zeile tragen, und nur bei einem Key, dessen
                    Katalogeintrag es erlaubt (DEC-PO-04).
@@ -423,7 +425,10 @@ DEC-PO-11  KONTINGENT: DAS LIMIT GILT JE CONNECTION, DER DECKEL JE KUNDE
     Neuanlegen -, erhielte mit jeder neuen ein frisches Kontingent.
   Entscheidung:
     a) Ohne Plan gilt das Kontingent L je Connection: Erschoepft ist
-       eine Connection, deren gebuchter Verbrauch L erreicht.
+       eine Connection, deren gebuchter Verbrauch L erreicht. Praktisch
+       betrifft das VIP und MODERATOR - und einen USER nur, solange die
+       Plan-Pflicht ausgesetzt ist (DEC-PO-18): Sonst ist er ohne Plan
+       ohnehin eingeschraenkt.
     b) Zusaetzlich gilt ein DECKEL JE KUNDE: Alle Connections eines
        Kunden zusammen verbrauchen in einer Periode nie mehr als
        Aktiv-Budget mal L. Gezaehlt wird der KUNDENVERBRAUCH - auch der
@@ -518,7 +523,10 @@ DEC-PO-14  EINE AUSNAHME GEHOERT ZUM KUNDEN UND UEBERDAUERT EINEN
   Folgen: "Neu evaluiert" (T-D003-09) heisst: Die wirksamen Werte
     ergeben sich mit dem Wechsel aus der neuen Rolle; gespeichert wird
     dabei nichts. Der Plan eines Kunden endet, wenn die Zielrolle nicht
-    USER ist (BASE-010 INV-41).
+    USER ist (BASE-010 INV-41). Wechselt ein Kunde IN die Rolle USER,
+    traegt er zunaechst keinen Plan: Nach DEC-PO-18 ist er dann
+    eingeschraenkt, bis ihm ein Plan zugewiesen ist. Die Vorpruefung
+    des Rollenwechsels zeigt das (ANF-PO-04 g).
 
 DEC-PO-15  DIE ZWEI VERBINDUNGSLIMITS DER SETTINGS GEHEN IN DIESES MODUL
            UEBER
@@ -601,7 +609,9 @@ DEC-PO-18  PLAN-PFLICHT: EIN USER OHNE GUELTIGEN PLAN ERREICHT NUR DIE
        abgelaufen - beides gilt gleich.
     b) VIP, MODERATOR und ADMIN tragen nie einen Plan (BASE-010 INV-41);
        die Plan-Pflicht trifft sie nie. Eine Connection ohne Kunden
-       trifft sie auch nicht.
+       trifft sie auch nicht. Das ist keine Verzweigung nach der Rolle
+       an einem Key (SZ-5): Die Pflicht haengt daran, WER einen Plan
+       tragen kann, und ist kein Wert des Katalogs.
     c) DIE REGEL GILT OHNE SCHALTER, vom ersten Tag an. Dieses Modul
        kennt keinen Weg, sie abzustellen.
     d) Dieses Modul sagt dem Bewerter, WEN die Pflicht trifft (Auskunft
