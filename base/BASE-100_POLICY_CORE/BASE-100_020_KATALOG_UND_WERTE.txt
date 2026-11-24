@@ -1,0 +1,296 @@
+================================================================================
+BASE-100 — KATALOG UND WERTE
+================================================================================
+DATEI: BASE-100_020_KATALOG_UND_WERTE.txt
+STATUS: IN ARBEIT (AP-K100; Modul noch unvollstaendig)
+
+ZWECK:
+  Was ein Katalogeintrag enthaelt, welche Typen es gibt und wie ein Wert
+  streng gelesen wird, wie "unbegrenzt" geschrieben steht, wie der
+  Standard einer Rolle entsteht, wie die Tabellen der Werte aussehen und
+  was beim Laden des Katalogs geprueft wird. Die Eintraege selbst stehen
+  im Verzeichnis (BASE-100_070 Abschnitt 1).
+
+================================================================================
+1) DIE KATALOG-DEFINITION
+================================================================================
+
+  Die Katalog-Definition ist EINE Datei der Auslieferung (DEC-PO-02) - in
+  derselben Form wie die der Settings (BASE-090_020 Abschnitt 1), aber
+  eine eigene Datei:
+    - nur lesbar (root:root 0644), nie im Betrieb geschrieben;
+    - mit Versionsnummer und Pruefsumme (SHA-256 ueber den Inhalt in
+      kanonischer Form); die Pruefsumme steht in einer zweiten Datei der
+      Auslieferung daneben;
+    - maschinenlesbar und zeilenweise vergleichbar (ein Eintrag je Key,
+      Keys alphabetisch).
+  Pfad: BASE-100_070 Abschnitt 3.
+
+  Die Datei beschreibt Keys. Sie traegt keine eingestellten Werte: Was
+  fuer einen Kunden gilt, steht allein in SQL. Aus der Datei stammt nur
+  der Vorschlag fuer den Standard einer Rolle - einmal, bei der
+  Einspielung.
+
+  policy_catalog ist die Kopie in SQL. Sie hat je Key eine Zeile mit
+  denselben Feldern, dazu catalog_version und seeded_at. Niemand ausser
+  der Einspielung schreibt sie (BASE-100_060 Abschnitt 6).
+
+================================================================================
+2) FELDER EINES KATALOGEINTRAGS
+================================================================================
+
+  Feld                Inhalt
+  ------------------- ----------------------------------------------------
+  policy_key          Name; unveraenderlich; Form nach BASE-000_020 PR-02;
+                      beginnt mit max_ (Limit) oder allow_ (Recht)
+  owner_module        Modul, das den Key anmeldet und seine Bedeutung
+                      festlegt
+  enforced_by         die durchsetzende Stelle: Modul und Vorgang, die
+                      den Wert wirksam machen (DEC-PO-01, Frage 3)
+  value_type          INT | BOOL (Abschnitt 3)
+  unit                count | bytes | per_hour | none
+  range_min,          Grenzen fuer INT (beide Pflicht, beide
+  range_max           einschliesslich; range_min ist nie negativ)
+  allows_unlimited    true, wenn "unbegrenzt" ein zulaessiger Wert ist;
+                      nur bei INT
+  default_mode        je Rolle (USER, VIP, MODERATOR, ADMIN) eines von
+                      VALUE | UNLIMITED | OPERATOR (Abschnitt 4)
+  default_value       je Rolle der Vorschlag (nur bei default_mode VALUE)
+  customer_visible    true, wenn der Kunde seinen wirksamen Wert sieht
+                      (DEC-PO-17)
+  impact_check        was der Schreibkern zaehlt, bevor er eine
+                      Verschaerfung schreibt: eine Liste aus BUDGET und
+                      QUOTA, auch leer (BASE-100_060 Abschnitt 4)
+  description         Text fuer den Betreiber: was der Key erlaubt und
+                      was ein groesserer Wert bewirkt
+  docs_anchor         Datei und Abschnitt des Konzepts, die den Key
+                      erklaeren
+
+  VERHAELTNIS ZU D003-E03 a ("policy_key (PK), Datentyp, allows_unlimited
+  (BOOL), Validierungsgrenzen, Beschreibung, Panel-Sichtbarkeit"):
+    policy_key, value_type, allows_unlimited,   uebernommen
+    range_min/range_max, description
+    Panel-Sichtbarkeit                          customer_visible: Die
+                                                Verwaltung sieht jeden
+                                                Key; das Feld sagt, ob
+                                                auch der Kunde ihn sieht
+  NEU: owner_module, enforced_by, unit, default_mode und default_value je
+    Rolle, impact_check, docs_anchor. Eine Angabe der Richtung braucht es
+    nicht (DEC-PO-07), ebenso wenig Fehlerklasse und Notwert (DEC-PO-05).
+
+================================================================================
+3) TYPEN, STRENGES LESEN UND "UNBEGRENZT"
+================================================================================
+
+  Jeder Wert steht in den Tabellen als Text (value_raw) oder als NULL.
+  Gelesen wird streng nach dem Typ des Katalogs; alles, was der Form
+  nicht GENAU entspricht, ist ungueltig - auch Leerraum davor oder
+  danach.
+
+  INT        Ziffern ohne fuehrende Null (ausser der Zahl 0 selbst), kein
+             Vorzeichen, kein Trennzeichen, hoechstens 18 Ziffern.
+             Gueltig, wenn range_min <= Wert <= range_max.
+  BOOL       genau "true" oder "false".
+  NULL       bedeutet "unbegrenzt" - und ist nur gueltig, wenn der Key
+             vom Typ INT ist und allows_unlimited traegt.
+
+  REGELN
+    KW-1  NULL IST NUR IN EINER VORHANDENEN ZEILE EIN WERT. Gibt es fuer
+          Key und Bezug keine Zeile, gibt es keinen Wert (DEC-PO-04 c).
+    KW-2  NULL bei einem Key ohne allows_unlimited ist ungueltig (Grund
+          RIGHTS_UNLIMITED_NOT_ALLOWED).
+    KW-3  Der leere Text ist nie ein Wert - auch nicht "unbegrenzt".
+    KW-4  KEIN ZURECHTSTUTZEN: Ein Wert ausserhalb seiner Grenzen ist
+          ungueltig. Er wird nicht auf die naechste Grenze gesetzt und
+          nicht als "unbegrenzt" gelesen.
+    KW-5  Keine Zahl bedeutet etwas anderes als ihre Groesse. Die Null
+          laesst nichts zu; der groesste zulaessige Wert ist ein Limit
+          wie jedes andere.
+    KW-6  Ein Recht (BOOL) ist nie "unbegrenzt".
+    KW-7  Groessen sind INT mit Einheit. Die Einheit steht im Feld unit
+          UND im Namen des Keys (_bytes, _per_hour); eine Anzahl (count)
+          traegt keine Endung. Beides stimmt ueberein.
+    KW-8  Es gibt keinen Typ fuer Kommazahlen, Text, Listen oder
+          Auswahlwerte. Braucht ein Modul mehr, ist das eine
+          Entscheidung in diesem Modul mit einer neuen Auslieferung; bis
+          dahin gilt: lieber mehrere einfache Keys als ein
+          zusammengesetzter (wie BASE-090_020 KF-5).
+
+  WARUM NUR ZWEI TYPEN: Jeder Key, den eine Quelle nennt, ist eine Zahl
+  oder ein Schalter (D003-E03 a: max_connections, max_storage_gb,
+  streaming_access; D003-E06: max_active_connections,
+  max_connection_creates_per_hour). Zwei Typen genuegen fuer DEC-PO-07:
+  Bei beiden steht fest, welcher von zwei Werten mehr erlaubt.
+
+================================================================================
+4) WIE DER STANDARD EINER ROLLE ENTSTEHT
+================================================================================
+
+  default_mode  Bedeutung
+  ------------- -----------------------------------------------------------
+  VALUE         Der Katalog nennt den Vorschlag (default_value). Die
+                Einspielung traegt ihn als Standard der Rolle ein, wenn
+                dort noch keine Zeile steht.
+  UNLIMITED     Der Vorschlag ist "unbegrenzt". Die Einspielung traegt
+                eine Zeile mit NULL ein, wenn dort noch keine steht.
+  OPERATOR      Den Wert kann nur der Betreiber wissen (ein
+                Geschaeftswert). Die Einrichtung verlangt die Eingabe -
+                eine Zahl oder ausdruecklich "unbegrenzt"; bis dahin ist
+                der Key fuer diese Rolle MISSING.
+
+  VS-1  Der Vorschlag ist kein Rueckfall. Fehlt eine Zeile spaeter - weil
+        sie geloescht wurde oder eine Einspielung unvollstaendig blieb -,
+        gilt NICHT der Vorschlag, sondern DEC-PO-05. Der Betreiber kann
+        den Vorschlag ueber den Schreibkern ausdruecklich einsetzen
+        (BASE-100_060 Abschnitt 5).
+  VS-2  Ein geaenderter Vorschlag einer spaeteren Auslieferung
+        ueberschreibt keinen Standard, der schon steht (BASE-100_060
+        EV-2).
+  VS-3  ADMIN: Erlaubt ein Key "unbegrenzt", ist das sein Vorschlag fuer
+        die Rolle ADMIN; ein Recht (BOOL) hat fuer ADMIN den Vorschlag
+        "true" (DEC-PO-06 d).
+  VS-4  OPERATOR ist kein Weg, eine Entscheidung offen zu lassen: Vor dem
+        Betrieb hat jeder Key fuer jede Rolle eine gueltige Zeile
+        (BASE-100_070 Abschnitt 7, EB-1).
+
+================================================================================
+5) TABELLEN DER WERTE
+================================================================================
+
+  policy_role_defaults         (Ebene ROLLE)
+    id             Primaerschluessel
+    access_role    USER | VIP | MODERATOR | ADMIN
+    policy_key     Fremdschluessel auf policy_catalog.policy_key
+    value_raw      der Wert als Text in der festen Form seines Typs -
+                   oder NULL fuer "unbegrenzt" (Abschnitt 3)
+    updated_at     Zeitpunkt der letzten Aenderung
+    changed_by     Urheber der letzten Aenderung
+    change_reason  Grund der letzten Aenderung (Pflicht)
+    EINDEUTIG: (access_role, policy_key)
+
+  policy_customer_overrides    (Ebene AUSNAHME)
+    id               Primaerschluessel
+    customer_id      Fremdschluessel auf web_customers.id
+    policy_key       Fremdschluessel auf policy_catalog.policy_key
+    value_raw        wie oben
+    created_at       seit wann DIESER Wert der Ausnahme gilt
+    created_by       wer ihn gesetzt hat
+    override_reason  warum (Pflicht)
+    EINDEUTIG: (customer_id, policy_key)
+
+  policy_plan_values           (Ebene PLAN; angelegt mit MOD-010)
+    id             Primaerschluessel
+    plan_id        Fremdschluessel auf die Tabelle der Plaene (MOD-010)
+    policy_key     Fremdschluessel auf policy_catalog.policy_key
+    value_raw      wie oben
+    updated_at, changed_by, change_reason   wie bei den Standards
+    EINDEUTIG: (plan_id, policy_key)
+
+  log_policy_audit             (nur anfuegend)
+    id             Primaerschluessel
+    at             Zeitpunkt
+    actor          Urheber
+    action         SET | DELETE | SEED | REJECTED
+    level          ROLE | PLAN | CUSTOMER
+    level_ref      die Rolle, die Kennung des Plans oder die Kennung des
+                   Kunden
+    policy_key     der genannte Name (auch ein unbekannter)
+    old_kind       NONE (keine Zeile) | VALUE | UNLIMITED
+    old_value      der Wert vor dem Vorgang (nur bei VALUE)
+    new_kind       NONE | VALUE | UNLIMITED
+    new_value      der Wert nach dem Vorgang (nur bei VALUE)
+    reason         der angegebene Grund
+    affected       Zahl der Betroffenen, die der Schreibkern vor einer
+                   Verschaerfung gezeigt hat; sonst leer
+    result         bei REJECTED der feste Ablehnungsgrund
+                   (BASE-100_060 Abschnitt 3)
+    request_id     verbindet die Zeilen EINES Vorgangs
+
+  TB-1  Die Tabellen tragen Werte, keine Logik. Was fuer einen Kunden
+        gilt, bestimmt allein die Aufloesung.
+  TB-2  STANDARDS SIND VOLLSTAENDIG: Fuer jeden Key des Katalogs und
+        jede der vier Rollen gibt es genau eine Zeile. Eine Zeile der
+        Ebene ROLLE wird nie geloescht, solange der Key im Katalog steht.
+  TB-3  AUSNAHME UND PLAN-WERT SIND FREIWILLIG: Gibt es keine Zeile, gilt
+        die naechste Ebene. Eine solche Zeile darf geloescht werden.
+  TB-4  Die Felder an der Zeile zeigen den LETZTEN Stand. Wird eine
+        Ausnahme geaendert, tragen created_at, created_by und
+        override_reason den neuen Wert; die Folge der Aenderungen steht
+        im Protokoll.
+  TB-5  Wird ein Kunde endgueltig geloescht, entfallen seine Ausnahmen
+        mit (Fremdschluessel mit Loeschweitergabe). Solange die Zeile
+        des Kunden besteht - auch gesperrt oder als geloescht gefuehrt -,
+        bleiben sie. Das Protokoll bleibt in jedem Fall.
+  TB-6  Werte stehen offen im Protokoll: Kein Recht und kein Limit ist
+        ein Geheimnis. Der Grundtext einer Ausnahme ist eine Notiz der
+        Verwaltung; ein Kunde sieht ihn nicht (DEC-PO-17).
+  TB-7  log_policy_audit kennt nur das Anfuegen. Die Aufbewahrung regelt
+        MOD-007 (ANF-PO-08).
+
+  VERHAELTNIS ZU D003-E03:
+    b) "role_policy_defaults: Default-Wert pro   uebernommen (Name nach
+       Rolle pro Parameter. ALLE vier Rollen"    BASE-000 K-05); dazu
+                                                 Zeitpunkt, Urheber, Grund
+    c) "customer_policy_overrides: customer_id,  uebernommen (Name nach
+       policy_key, value, created_by,            BASE-000 K-06); value
+       override_reason, created_at"              heisst value_raw
+    d) "plan_policy_values (optional, spaeter)"  Form hier, Anlage mit
+                                                 MOD-010 (BASE-000 K-07)
+    NEU: log_policy_audit (D003 R-04 verlangt eine Audit-Spur, nennt
+    aber keine Tabelle).
+  Die ersten vier Tabellen fuehrt die Registry von BASE-000;
+  log_policy_audit ist dort anzumelden (ANF-PO-01).
+
+================================================================================
+6) PRUEFUNG BEIM LADEN UND ZUSTAND DES KATALOGS
+================================================================================
+
+  Aufloeser, Schreibkern, Einspielung und Prueflauf laden die
+  Katalog-Definition, bevor sie etwas anderes tun, und pruefen:
+
+    LP-1   Die Pruefsumme stimmt.
+    LP-2   Jeder Key entspricht der Form (BASE-000_020 PR-02), beginnt
+           bei INT mit max_ und bei BOOL mit allow_, traegt keinen Prefix
+           einer Zone (BASE-000_010 Abschnitt 3) und kommt nur einmal
+           vor.
+    LP-3   Typ, Einheit und Name passen zusammen (KW-7); die fuer den
+           Typ noetigen Felder sind gesetzt, die uebrigen leer.
+    LP-4   0 <= range_min <= range_max, und range_max hat hoechstens 18
+           Ziffern.
+    LP-5   allows_unlimited steht nur bei INT.
+    LP-6   Je Rolle: Bei default_mode VALUE ist default_value ein
+           gueltiger Wert des Keys; UNLIMITED setzt allows_unlimited
+           voraus; bei OPERATOR ist default_value leer.
+    LP-7   Rolle ADMIN: UNLIMITED, wenn der Key es erlaubt; bei BOOL der
+           Vorschlag "true" (VS-3).
+    LP-8   enforced_by und owner_module sind gesetzt; impact_check
+           nennt nur die festen Werte BUDGET und QUOTA.
+    LP-9   KEIN UEBERLAUF: Fuer zwei Keys, die eine Auskunft miteinander
+           multipliziert, ist das Produkt ihrer range_max kleiner als
+           2 hoch 63 (heute max_active_connections und
+           max_quota_bytes_per_period, BASE-100_050 KQ-5).
+    LP-10  description und docs_anchor sind gesetzt.
+
+  Scheitert EINE Pruefung, ist der Katalog-Zustand UNREADABLE: Die
+  Auslieferung ist fehlerhaft, nichts wird aufgeloest oder geschrieben
+  (BASE-100_030 AF-1). LP-2 bis LP-10 werden zusaetzlich VOR der
+  Auslieferung geprueft (BASE-100_095), sodass im Betrieb nur LP-1
+  scheitern kann - durch eine beschaedigte oder veraenderte Datei.
+
+  ZUSTAND DES KATALOGS (wie BASE-090, DEC-ST-07):
+    OK           Definition geladen; die Kopie in SQL stimmt ueberein.
+    DRIFT        Die Kopie policy_catalog weicht ab - ein fehlender oder
+                 ueberzaehliger Key, ein anderes Feld, eine andere
+                 Version. ES GILT DIE DEFINITION; die Einspielung stellt
+                 die Kopie wieder her. Gemeldet: RIGHTS_CATALOG_DRIFT.
+    UNREADABLE   Definition fehlt oder besteht eine Pruefung nicht.
+                 Gemeldet: RIGHTS_CATALOG_UNREADABLE.
+  Den Vergleich mit der Kopie fuehrt der Prueflauf (BASE-100_070
+  Abschnitt 4). Eine von Hand geaenderte Zeile in policy_catalog aendert
+  weder eine Grenze noch die Erlaubnis "unbegrenzt".
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

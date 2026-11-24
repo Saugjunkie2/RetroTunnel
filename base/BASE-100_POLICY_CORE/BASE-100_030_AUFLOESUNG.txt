@@ -1,0 +1,251 @@
+================================================================================
+BASE-100 — AUFLOESUNG
+================================================================================
+DATEI: BASE-100_030_AUFLOESUNG.txt
+STATUS: IN ARBEIT (AP-K100; Modul noch unvollstaendig)
+
+ZWECK:
+  Wie aus den Zeilen der drei Ebenen fuer einen Key und einen Bezug genau
+  ein wirksamer Wert mit Herkunft und Zustand wird (Auskunft AW), was der
+  Verbraucher mit dem Ergebnis tun darf und wann gelesen wird. Die
+  Auskuenfte BA, AK-2 und AK-1 bauen auf AW auf (BASE-100_040, _050).
+
+================================================================================
+1) VERTRAG DER AUSKUNFT AW (WIRKSAMER WERT)
+================================================================================
+
+  AUFRUF: eine Liste von Keys und eine Liste von Bezuegen.
+    Bezug CUSTOMER   ein Kunde: Ebenen AUSNAHME, PLAN (nur Rolle USER mit
+                     Plan), ROLLE
+    Bezug ROLE       eine Rolle: nur die Ebene ROLLE. Diesen Bezug hat
+                     eine Connection OHNE Kunden; fuer sie gilt der
+                     Standard ihrer eigenen Rolle
+                     (vpn_connections.access_role).
+  Der Aufruf liest in EINEM Schnappschuss (AZ-3) und mit einer festen
+  Zahl von Abfragen, gleich wie viele Bezuege er nennt (Abschnitt 5).
+
+  ERGEBNIS je Key und Bezug:
+    policy_key      der Name
+    state           OK | MISSING | INVALID | PLAN_UNKNOWN | DB_UNKNOWN
+    value           der wirksame Wert im Typ des Katalogs - nur bei
+                    state OK und unlimited = nein
+    unlimited       ja | nein - nur bei state OK (DEC-PO-04 b)
+    source          OVERRIDE | PLAN | ROLE_DEFAULT; NONE, wenn state
+                    nicht OK ist
+    reason          fester Grund aus der Liste in BASE-100_070
+                    Abschnitt 5; bei OK leer
+    role            die Rolle, mit der aufgeloest wurde
+    plan_id         der Plan, mit dem aufgeloest wurde - oder leer
+    role_default    der Standard der Rolle fuer diesen Key (Wert oder
+                    "unbegrenzt", mit eigenem Zustand) - auch wenn eine
+                    hoehere Ebene entschieden hat: fuer die Anzeige "was
+                    ohne Ausnahme gaelte" (D003-E07)
+    override_meta   bei source OVERRIDE: seit wann, von wem, warum
+  ERGEBNIS des Aufrufs: Zustand der Datenbank (lesbar oder nicht),
+    Zustand und Version des Katalogs, Zeitpunkt, die Liste der Bezuege,
+    die es nicht gibt (unknown_subjects).
+
+  ZUSAGEN
+    AZ-1  DETERMINISTISCH: Derselbe Inhalt von Katalog und Tabellen
+          ergibt dasselbe Ergebnis - gleich in welcher Reihenfolge und
+          von wem gefragt wird (SZ-4).
+    AZ-2  NIE EIN WERT AUS DEM NICHTS: value und unlimited stammen aus
+          GENAU EINER vorhandenen, gueltigen Zeile. Etwas anderes gibt es
+          nicht - insbesondere nicht den Vorschlag des Katalogs, keinen
+          frueher gelesenen Wert und kein "unbegrenzt", weil eine Zeile
+          fehlt (SZ-2).
+    AZ-3  EIN SCHNAPPSCHUSS: Alle Zeilen eines Aufrufs werden in einer
+          lesenden Transaktion gelesen - oder, wenn der Aufrufer schon
+          in einer Transaktion steht, in dieser (BASE-100_040 Abschnitt
+          4).
+    AZ-4  NUR LESEND: Die Aufloesung schreibt nichts. Sie meldet
+          (BASE-100_070 Abschnitt 5).
+
+================================================================================
+2) ABLAUF
+================================================================================
+
+  AF-1  KATALOG. Der Aufloeser laedt die Katalog-Definition
+        (BASE-100_020 Abschnitt 6). Ist sie UNREADABLE, scheitert der
+        Aufruf als Ganzes (RIGHTS_CATALOG_UNREADABLE): kein Key erhaelt
+        ein Ergebnis.
+  AF-2  NAMEN. Jeder angefragte Name muss ein Key des Katalogs sein.
+        Sonst scheitert der Aufruf als Ganzes (RIGHTS_UNKNOWN_KEY). Das
+        ist ein Fehler des Programms, kein Zustand eines Keys.
+  AF-3  LESEN. In einem Schnappschuss werden gelesen: je Kunde seine
+        Rolle und sein Plan (web_customers), die Ausnahmen der genannten
+        Kunden, die Standards der betroffenen Rollen und - fuer Kunden
+        der Rolle USER mit Plan - die Werte ihrer Plaene. Scheitert das
+        Lesen (keine Verbindung, Zeitlimit, Fehler der Datenbank), ist
+        die Datenbank NICHT LESBAR: Jedes Ergebnis erhaelt den Zustand
+        DB_UNKNOWN.
+  AF-4  BEZUG. Ein genannter Kunde, den es nicht gibt, erhaelt kein
+        Ergebnis und steht unter unknown_subjects.
+  AF-5  KANDIDAT. Je Key und Kunde gilt die Zeile der ERSTEN Ebene, auf
+        der eine Zeile VORHANDEN ist (DEC-PO-03):
+          a) AUSNAHME: Gibt es eine Zeile, ist sie der Kandidat.
+          b) PLAN - nur wenn der Kunde die Rolle USER traegt und plan_id
+             gesetzt ist: Sind die Werte des Plans nicht lesbar (die
+             Ebene ist nicht eingerichtet, oder den Plan gibt es nicht),
+             ist der Zustand PLAN_UNKNOWN; Ende. Definiert der Plan den
+             Key, ist seine Zeile der Kandidat. Sonst weiter.
+          c) ROLLE: Gibt es die Zeile fuer die Rolle des Kunden, ist sie
+             der Kandidat. Sonst: MISSING.
+        Fuer den Bezug ROLE gilt nur c.
+  AF-6  PRUEFEN. Der Kandidat wird streng nach dem Typ gelesen und gegen
+        die Grenzen geprueft (BASE-100_020 Abschnitt 3). Besteht er
+        nicht: INVALID. Es wird NICHT auf die naechste Ebene ausgewichen
+        und nichts zurechtgestutzt.
+  AF-7  ERGEBNIS. Bei OK: Wert oder "unbegrenzt" und die Herkunft. Sonst:
+        kein Wert, kein "unbegrenzt", Herkunft NONE.
+  AF-8  STANDARD DANEBEN. Unabhaengig vom Kandidaten wird die Zeile der
+        Rolle gelesen und geprueft und als role_default mitgegeben.
+  AF-9  MELDEN. Jeder Zustand ausser OK wird gemeldet (BASE-100_070
+        Abschnitt 5).
+
+  BESONDERHEITEN
+    AB-1  EINE GUELTIGE AUSNAHME ENTSCHEIDET AUCH DANN, wenn der Standard
+          der Rolle fehlt oder der Plan nicht lesbar ist: Die erste
+          vorhandene Ebene gilt. Der fehlende Standard bleibt ein
+          gemeldeter Mangel (Prueflauf).
+    AB-2  PLAN BEI ANDERER ROLLE: Traegt ein Kunde, der nicht USER ist,
+          ein plan_id, wird die Ebene PLAN nicht befragt (DEC-PO-16 c).
+          Der Widerspruch zu BASE-010 INV-41 wird gemeldet
+          (RIGHTS_ROLE_PLAN_MISMATCH).
+    AB-3  ZEILE ZU EINEM UNBEKANNTEN KEY: Sie wird nie gelesen (kein
+          Aufruf kann sie nennen) und vom Prueflauf gemeldet.
+    AB-4  DER STATUS DES KUNDEN SPIELT KEINE ROLLE: Aufgeloest wird auch
+          fuer einen gesperrten oder noch nicht bestaetigten Kunden. Ob
+          er etwas tun darf, entscheidet der Vorgang, der fragt.
+
+================================================================================
+3) WAS DER VERBRAUCHER MIT DEM ERGEBNIS TUT
+================================================================================
+
+  Zustand         Der Verbraucher ...
+  --------------- ---------------------------------------------------------
+  OK, Wert        benutzt den Wert.
+  OK, unbegrenzt  wendet kein Limit an.
+  jeder andere    hat KEINEN Wert (DEC-PO-05):
+                    - eine ZULASSUNG, die den Wert braucht, findet nicht
+                      statt und nennt den Grund LIMIT_UNKNOWN;
+                    - was BESTEHT, bleibt bestehen;
+                    - der BEWERTER erhaelt "unbekannt" (BASE-080 AK-4);
+                    - eine ANZEIGE zeigt den Zustand statt eines Wertes.
+  Aufruf          behandelt jeden angefragten Key wie "kein Wert".
+  gescheitert
+
+  VERBOTEN:
+    VB-1  einen eigenen Ersatzwert einsetzen - auch nicht den Vorschlag
+          aus dem Katalog oder aus dem Text eines Moduls;
+    VB-2  die Tabellen policy_... selbst lesen oder eine Auskunft
+          nachrechnen;
+    VB-3  "unbegrenzt" aus einem leeren Wert schliessen, statt das Feld
+          unlimited bei Zustand OK zu lesen;
+    VB-4  ein Ergebnis ueber den Vorgang oder Lauf hinaus aufbewahren,
+          der es erfragt hat, um es spaeter statt einer Auskunft zu
+          benutzen;
+    VB-5  ein Recht oder Limit des Katalogs an der ROLLE festmachen
+          ("wenn VIP, dann ..."), statt den Key aufzuloesen (SZ-5).
+  Zu VB-5: Was eine Rolle in der VERWALTUNG darf (Zugang zu ihren
+  Seiten, Kunden sehen und sperren), ist keine Frage dieses Katalogs,
+  sondern der Rolle selbst (00_MANIFEST 4.2; BASE-110).
+
+================================================================================
+4) WANN GELESEN WIRD
+================================================================================
+
+  Verbraucher                  loest auf ...
+  ---------------------------- --------------------------------------------
+  Zulassung (Anlage, Claim,    in IHRER Transaktion, nach dem Sperren der
+  Wiederherstellung,           Zeile des Kunden (BASE-100_040)
+  Rollenwechsel)
+  Bewerter (BASE-080)          je Lauf einmal fuer alle Connections, die er
+                               bewertet; je Einzelaufruf fuer das Ziel
+  Anzeige (Panel)              je Anzeige
+  Prueflauf                    je Lauf fuer alle Kunden, abschnittsweise
+
+  LR-1  KEIN LESEN IM ZEITKRITISCHEN PFAD: Anmeldung, Verbindungsaufbau,
+        Hooks der Tunnel-Dienste und der Paketfluss loesen keine
+        Auskunft aus (SZ-9). Ob eine Connection sich anmelden darf, sagt
+        ihr Status; ein Limit wirkt bei der Zulassung und ueber die
+        Bewertung, nicht bei der Anmeldung.
+  LR-2  EIN AUFRUF JE ANLASS: Wer mehrere Keys zusammen braucht, loest
+        sie in EINEM Aufruf auf - damit sie aus demselben Schnappschuss
+        stammen (AZ-3).
+  LR-3  FRISCHE: Eine Aenderung gilt fuer die naechste Zulassung sofort
+        und fuer den Bestand mit der naechsten Bewertung: nach einer
+        Ausnahme durch den Folgeaufruf fuer diesen Kunden, sonst mit dem
+        Lauf im Bewertungstakt (BASE-080_020 Abschnitt 5;
+        BASE-100_060 Abschnitt 7).
+
+  KEIN HALTEN: Anders als bei den Settings (DEC-ST-06) haelt niemand
+  einen frueher gelesenen Wert. Ist die Datenbank nicht lesbar, gibt es
+  keinen Wert. Das kostet nichts, was nicht ohnehin stuende: Eine
+  Zulassung schreibt in die Datenbank und findet ohne sie nicht statt,
+  und der Bewerter endet ohne Datenbank ohne Wirkung (BASE-080
+  DEC-PA-18).
+
+================================================================================
+5) VIELE BEZUEGE IN EINEM ZUGRIFF
+================================================================================
+
+  Ein Aufruf fuer viele Kunden liest
+    - Rolle und Plan der genannten Kunden in einer Abfrage,
+    - ihre Ausnahmen fuer die genannten Keys in einer Abfrage,
+    - die Standards der vier Rollen fuer die genannten Keys in einer
+      Abfrage (hoechstens vier Zeilen je Key),
+    - die Werte der vorkommenden Plaene in einer Abfrage (mit MOD-010)
+  und bildet das Ergebnis je Kunde nach Abschnitt 2. Die Zahl der
+  Abfragen haengt nicht von der Zahl der Kunden ab (SZ-9).
+
+  GRENZE: Ein Lauf ueber alle Kunden arbeitet in Abschnitten und loest je
+  Abschnitt auf; die Groesse legt der Verbraucher fest. Jeder Abschnitt
+  ist ein eigener Schnappschuss.
+
+  MENGE: Ausnahmen sind die Ausnahme - hoechstens eine Zeile je Kunde und
+  Key, in der Regel keine. Bei 5.000 Kunden und drei Keys liest ein Lauf
+  wenige tausend kurze Zeilen.
+
+================================================================================
+6) VERHAELTNIS ZU D003 UND ZU DEN SETTINGS
+================================================================================
+
+  D003 / DOMAIN_MODEL 6                  hier
+  -------------------------------------- ---------------------------------
+  E04 Reihenfolge Override, Plan (nur    uebernommen (AF-5)
+  USER), Rollen-Default
+  E04 "role_policy_defaults: Immer       als Pflicht des Bestands
+  vorhanden, Fallback fuer alle Rollen"  (BASE-100_020 TB-2); fehlt die
+                                         Zeile dennoch: MISSING, kein
+                                         Ersatz (DEC-PO-05)
+  E04 "Ein Codepfad, eine Lookup-Logik"  uebernommen (SZ-5, VB-5)
+  E05 "NULL = unlimited"                 uebernommen fuer das Speichern;
+                                         geliefert als eigenes Feld
+                                         (DEC-PO-04)
+  E05 "Kein Consumer darf NULL als 0,    uebernommen und verschaerft: Kein
+  leer oder Fehler interpretieren"       Verbraucher deutet einen leeren
+                                         Wert ueberhaupt (VB-3)
+  E07 "effective value + source"         uebernommen (Abschnitt 1); dazu
+                                         der Standard daneben (AF-8)
+  R-04 "Explain/Diag"                    vpn-rights-get und die Anzeige
+                                         (BASE-100_070 Abschnitte 2, 6)
+
+  Settings (BASE-090_030)                Policy
+  -------------------------------------- ---------------------------------
+  Ebenen CONNECTION, CUSTOMER, GLOBAL    AUSNAHME, PLAN, ROLLE; kein Wert
+                                         je Connection
+  zwei Fehlerklassen, Notwert            eine Regel: kein Wert
+  Halten bei nicht lesbarer Datenbank    kein Halten
+  Regelgruppen zwischen Keys             keine: Zwei Keys haengen nur in
+                                         einer Auskunft zusammen
+                                         (Kundendeckel), nicht in ihrer
+                                         Gueltigkeit
+  NULL ist nie ein Wert                  NULL in einer vorhandenen Zeile
+                                         ist "unbegrenzt"
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

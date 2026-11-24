@@ -1,0 +1,623 @@
+================================================================================
+BASE-100 — ARCHITEKTUR UND ENTSCHEIDUNGEN
+================================================================================
+DATEI: BASE-100_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt
+STATUS: IN ARBEIT (AP-K100; Modul noch unvollstaendig)
+
+ZWECK:
+  Schutzziele, Begriffe, Komponenten und die tragenden Entscheidungen des
+  Policy-Kerns. Dieses Modul fuehrt die Entscheidung D003 aus (eigenes
+  Policy-System neben den Settings) und loest Abschnitt 6 von
+  model/DOMAIN_MODEL.txt auf. Was Settings sind, steht in BASE-090; was
+  ein Limit AUSLOEST, in BASE-080.
+
+================================================================================
+1) AUFGABE IN EINEM SATZ
+================================================================================
+
+  BASE-100 legt fest, WELCHE Rechte und Limits eines Kunden es gibt
+  (Katalog), WO ihre Werte liegen (Standard der Rolle, Wert des Plans,
+  Ausnahme fuer einen Kunden - alle in SQL), WIE daraus fuer jeden Kunden
+  genau ein wirksamer Wert mit Herkunft wird (Aufloesung), WAS
+  "unbegrenzt" bedeutet, WIE das Verbindungsbudget gezaehlt und geprueft
+  wird, WAS die anderen Module erfragen koennen (vier Auskuenfte) und WER
+  einen Wert auf welchem Weg aendert (Schreibkern).
+
+  BASE-100 legt NICHT fest, was geschieht, wenn ein Limit erreicht ist
+  (BASE-080 bewertet, BASE-010 fuehrt den Statuswechsel aus), was ein
+  eingeschraenkter Kunde noch erreicht (feste Struktur des Regelwerks,
+  BASE-050), was ein Plan ist und kostet (MOD-010), wie schnell eine
+  Connection sein darf (MOD-003), wie sich das System verhaelt (Settings,
+  BASE-090) und wie die Oberflaeche aussieht (BASE-110, MOD-006).
+
+================================================================================
+2) SCHUTZZIELE
+================================================================================
+
+  SZ-1  KEIN RECHT OHNE KATALOG. Kein Programmteil arbeitet mit einem
+        Recht oder Limit eines Kunden, das nicht im Katalog steht. Es
+        gibt keinen Standardwert im Code und keine zweite Quelle.
+  SZ-2  KEIN RECHT AUS UNWISSEN. Fehlt ein Wert, ist er ungueltig oder
+        nicht lesbar, gibt es keinen Wert: Was ihn braucht, um etwas
+        zuzulassen, laesst nichts zu. "Unbegrenzt" entsteht nie aus einer
+        fehlenden Zeile und nie aus einem leeren Feld.
+  SZ-3  KEINE EINSCHRAENKUNG AUS UNWISSEN. Derselbe Zustand nimmt
+        niemandem etwas weg: Bestehende Connections bleiben, wie sie
+        sind, und der Bewerter erhaelt "unbekannt" statt "erschoepft".
+  SZ-4  EIN WERT, EINE HERKUNFT. Die Aufloesung ist deterministisch, und
+        jeder wirksame Wert nennt, woher er stammt. "Warum darf dieser
+        Kunde vier?" ist ohne Abfrage der Datenbank beantwortbar.
+  SZ-5  EIN WEG FUER ALLE ROLLEN. Fuer jede Rolle gilt dieselbe
+        Aufloesung. Was eine Rolle darf, steht in ihren Werten, nicht in
+        einer Verzweigung des Programms.
+  SZ-6  EIN SCHREIBWEG. Werte aendert allein der Schreibkern: geprueft
+        gegen den Katalog, mit Urheber, Grund und Zeitpunkt protokolliert.
+  SZ-7  DAS BUDGET GILT IM AUGENBLICK DER ZULASSUNG. Zaehlung, Limit und
+        das Schreiben des zugelassenen Vorgangs liegen in EINER
+        Transaktion unter EINER Sperre je Kunde. Zwei gleichzeitige
+        Vorgaenge koennen ein Limit nicht gemeinsam ueberschreiten.
+  SZ-8  DER KATALOG IST IM BETRIEB UNVERAENDERLICH. Typ, Grenzen und die
+        Erlaubnis "unbegrenzt" aendert kein Schreibrecht auf eine
+        Tabelle, sondern nur eine neue Auslieferung.
+  SZ-9  KEIN ZEITKRITISCHER PFAD FRAGT NACH RECHTEN. Anmeldung,
+        Verbindungsaufbau und Paketfluss loesen keine Aufloesung aus. Bei
+        1.000 und mehr gleichzeitigen Verbindungen kostet eine Auskunft
+        je Lauf eine feste Zahl von Abfragen, nicht eine je Verbindung.
+  SZ-10 SICHERHEIT IST KEIN RECHT, DAS MAN EINSTELLT. Kein Key schaltet
+        den DNS-Zwang, die Filterung, die Sperren gegen Missbrauch, die
+        Trennung der Clients oder eine andere Schutzfunktion - fuer
+        keinen Kunden, keine Rolle und keinen Plan (R-07).
+
+================================================================================
+3) BEGRIFFE
+================================================================================
+
+  POLICY-KEY       Name eines Rechts oder Limits (lower_snake_case; ein
+                   Limit beginnt mit max_, ein Recht mit allow_;
+                   DEC-PO-07, DEC-PO-08). Kurz: Key.
+  KATALOGEINTRAG   Die Beschreibung eines Keys: Typ, Einheit, Grenzen,
+                   ob "unbegrenzt" zulaessig ist, Vorschlag je Rolle,
+                   Sichtbarkeit, durchsetzende Stelle (BASE-100_020).
+  EBENE            Wo ein Wert liegt: AUSNAHME (policy_customer_overrides,
+                   fuer einen Kunden), PLAN (policy_plan_values, fuer
+                   einen Plan), ROLLE (policy_role_defaults, fuer eine
+                   Rolle).
+  BEZUG            Fuer wen aufgeloest wird: ein Customer - oder, fuer
+                   eine Connection ohne Customer, eine Rolle.
+  WIRKSAMER WERT   Das Ergebnis der Aufloesung fuer einen Key und einen
+                   Bezug: eine Zahl, ja/nein oder "unbegrenzt".
+  HERKUNFT         Die Ebene, deren Zeile entschieden hat: OVERRIDE,
+                   PLAN, ROLE_DEFAULT - oder NONE, wenn es keinen Wert
+                   gibt.
+  ZUSTAND          OK, MISSING (die Zeile der Rolle fehlt), INVALID (die
+                   entscheidende Zeile ist ungueltig), PLAN_UNKNOWN (der
+                   Kunde traegt einen Plan, dessen Werte nicht lesbar
+                   sind), DB_UNKNOWN (Datenbank nicht lesbar).
+  UNBEGRENZT       Der Wert "kein Limit". Ihn kann nur eine VORHANDENE
+                   Zeile tragen, und nur bei einem Key, dessen
+                   Katalogeintrag es erlaubt (DEC-PO-04).
+  VORSCHLAG        Der Wert, mit dem der Standard einer Rolle bei der
+                   Einrichtung eingetragen wird. Die Aufloesung benutzt
+                   ihn NIE.
+  STANDARD         Kurz fuer den Wert einer Rolle (Zeile in
+                   policy_role_defaults).
+  AUSNAHME         Der Wert fuer EINEN Kunden (Zeile in
+                   policy_customer_overrides), mit Grund und Urheber.
+  AKTIV-ZAEHLUNG   A: Zahl der Connections eines Kunden, die nutzbar oder
+                   eingeschraenkt sind (BASE-100_040 ZR-1).
+  GESAMT-ZAEHLUNG  G: Zahl seiner Connections, die nicht widerrufen sind
+                   (ZR-2).
+  AKTIV-BUDGET     MA: der wirksame Wert von max_active_connections.
+  GESAMT-BUDGET    MG: MA plus der Puffer fuer gesperrte Connections
+                   (Setting vpn_disabled_connection_buffer). Abgeleitet,
+                   nie gespeichert.
+  ZULASSUNG        Ein Vorgang, der A oder G erhoeht oder die Rolle eines
+                   Kunden wechselt: Anlage, Claim, Wiederherstellung,
+                   Rollenwechsel.
+  UEBERBELEGUNG    A groesser als MA oder G groesser als MG - nach einem
+                   gesenkten Wert (DEC-PO-10).
+  KONTINGENT       Das Datenvolumen je Quota-Periode (Key
+                   max_quota_bytes_per_period).
+  KUNDENVERBRAUCH  U: der in einer Periode gebuchte Verbrauch ALLER
+                   Connections eines Kunden - auch der gesperrten,
+                   widerrufenen und geloeschten (BASE-100_050 KQ-3).
+  KUNDENDECKEL     Die Obergrenze fuer U: Aktiv-Budget mal Kontingent
+                   (DEC-PO-11).
+  AUSKUNFT         Eine der vier Antworten dieses Moduls: AW (wirksamer
+                   Wert), BA (Budget), AK-2 (Kontingent), AK-1
+                   (Plan-Limit). AK-1 und AK-2 heissen so in BASE-080.
+  AUFLOESER        Die eine Implementierung, die Auskuenfte liefert.
+  SCHREIBKERN      Die eine Implementierung, die Werte schreibt.
+  VERBRAUCHER      Ein Programm, das eine Auskunft benutzt.
+  DURCHSETZENDE    Der Verbraucher, der einen Key wirksam macht: Er
+  STELLE           laesst zu, lehnt ab oder meldet dem Bewerter.
+
+  ZUR WORTWAHL: Tabellen dieses Moduls tragen den Prefix policy_
+  (BASE-000). Werkzeuge und Ereignisse heissen dagegen "rights"
+  (vpn-rights-..., RIGHTS_...): Die Namen vpn-policy-... und POLICY_...
+  gehoeren BASE-080, das Zustaende herstellt und keine Rechte kennt.
+
+================================================================================
+4) KOMPONENTEN
+================================================================================
+
+  KATALOG-DEFINITION       Datei der Auslieferung, nur lesbar, mit
+                           Pruefsumme. Enthaelt alle Katalogeintraege.
+                           Massgeblich.
+  policy_catalog           Kopie des Katalogs in SQL: fuer Fremdschluessel,
+                           Anzeige und Vergleich; geschrieben nur bei der
+                           Einspielung.
+  policy_role_defaults     Je Key und Rolle genau ein Wert.
+  policy_customer_overrides  Je Kunde und Key hoechstens ein Wert.
+  policy_plan_values       Je Plan und Key hoechstens ein Wert. Form und
+                           Regeln stehen hier fest; angelegt wird die
+                           Tabelle mit MOD-010 (DEC-PO-16).
+  log_policy_audit         Protokoll aller Schreibvorgaenge und
+                           Ablehnungen (nur anfuegend).
+  AUFLOESER                Bibliothek und Werkzeug vpn-rights-get aus
+                           derselben Quelle; liefert die vier Auskuenfte
+                           (BASE-100_030 bis _050).
+  SCHREIBKERN              Bibliothek und Werkzeug vpn-rights-set
+                           (BASE-100_060).
+  EINSPIELUNG              vpn-rights-seed: gleicht policy_catalog an die
+                           Katalog-Definition an und traegt fehlende
+                           Standards mit ihrem Vorschlag ein.
+  PRUEFLAUF                vpn-rights-check: prueft regelmaessig jeden
+                           Standard, jede Ausnahme und jeden Plan-Wert
+                           und zaehlt Ueberbelegungen (BASE-100_070).
+
+  Tabellen, Werkzeuge, Pfade und Rechte im Einzelnen: BASE-100_070.
+
+================================================================================
+5) ENTSCHEIDUNGEN
+================================================================================
+
+DEC-PO-01  POLICY-WERTE SIND RECHTE UND LIMITS EINES KUNDEN - KEIN
+           BETRIEBSPARAMETER, KEINE SCHUTZFUNKTION, KEIN ZUSTAND
+  Quelle: D003-E01 (Settings und Policy sind getrennte Domaenen);
+    DOMAIN_MODEL 5.5; R-07 und DOMAIN_MODEL 6.8 (Plaene unterscheiden
+    sich nicht ueber Sicherheit); Entwurf "Plans" der Nachlieferung,
+    Abschnitt 2; BASE-050_010 (OPEN-PHP-10: Grundregeln des Regelwerks
+    sind feste Struktur und kein Policy-Wert); DEC-ST-01.
+  Entscheidung: Ein Key gehoert in den Katalog, wenn er ALLE drei Fragen
+    mit Ja beantwortet:
+      1. Sagt er, WAS oder WIE VIEL ein Kunde darf - und nicht, wie sich
+         das System verhaelt?
+      2. Darf der Wert zwischen Kunden, Rollen oder Plaenen verschieden
+         sein, ohne dass sich der Schutz anderer Kunden oder des Systems
+         aendert?
+      3. Gibt es genau eine durchsetzende Stelle, die der Katalogeintrag
+         nennt?
+    Sonst ist es ein Setting (BASE-090), feste Struktur des Regelwerks
+    (BASE-050), ein Feld seines Fachobjekts (Rolle, Tunneltyp, Laufzeit
+    einer Connection) oder ein Zustand (Status und Grund, BASE-010).
+  Folgen: OPEN-PHP-10 ist auch von dieser Seite geschlossen: Standard-
+    Verbot, Trennung der Clients und DNS-Zwang sind keine Policy-Werte.
+    04_PHASE_PLAN K-PH8-02 nennt "allowed Services in BASE-100"; was eine
+    eingeschraenkte Connection erreicht, ist feste Struktur des
+    Regelwerks (BASE-050) und fuer alle Kunden gleich - der Satz ist
+    dort zu berichtigen (ANF-PO-12). Ein Key ohne durchsetzende Stelle
+    ist ein Versprechen, das niemand haelt; er wird nicht aufgenommen.
+
+DEC-PO-02  DER KATALOG IST TEIL DER AUSLIEFERUNG; SQL FUEHRT EINE KOPIE
+  Quelle: D003-E03 a (policy_catalog beschreibt, welche Parameter es
+    gibt); D003 R-04 ("dieselbe Disziplin wie Settings ... keine Hidden
+    Defaults im Code"); DEC-ST-02; BASE-090 ANF-ST-11.
+  Optionen: (A) Der Katalog lebt allein in SQL und ist ueber das Panel
+    aenderbar. (B) Der Katalog ist eine Datei der Auslieferung; SQL
+    erhaelt bei der Einspielung eine Kopie, die im Betrieb niemand aendert.
+  Entscheidung: B, wie bei den Settings - mit EIGENER Datei.
+  Begruendung: Ein neuer Key wirkt nur, wenn ein Programm ihn durchsetzt;
+    er entsteht also ohnehin mit einer Auslieferung. Typ, Grenzen und die
+    Erlaubnis "unbegrenzt" sind Zusagen dieses Programms. Bei A koennte
+    ein Schreibrecht auf eine Tabelle jedem Key "unbegrenzt" erlauben
+    oder eine Grenze weiten, ohne dass ein Wert ungueltig wuerde (SZ-8).
+    Die eigene Datei haelt eine Stoerung dort, wo sie ist: Ein
+    unbrauchbarer Policy-Katalog laesst die Settings unberuehrt und
+    umgekehrt.
+  Folgen: D003-E03 a und DOMAIN_MODEL 6.1 ("Neuer Parameter = neue
+    Zeilen, kein Schema-Change") gelten weiter: Ein neuer Key braucht
+    keine Aenderung des Schemas, aber eine Auslieferung. Weicht
+    policy_catalog von der Definition ab, gilt die Definition; der
+    Zustand heisst DRIFT und wird gemeldet (BASE-100_020 Abschnitt 6).
+
+DEC-PO-03  DREI EBENEN: AUSNAHME VOR PLAN VOR ROLLE - DIE ERSTE
+           VORHANDENE ZEILE ENTSCHEIDET
+  Quelle: D003-E04; DOMAIN_MODEL 6.2 ("Ein Codepfad, eine Lookup-Logik,
+    keine Sonderbehandlung pro Rolle"); DEC-ST-03.
+  Entscheidung: Fuer einen Kunden und einen Key gilt die Zeile der
+    ERSTEN Ebene, auf der eine Zeile vorhanden ist:
+      1. AUSNAHME des Kunden,
+      2. PLAN - nur wenn der Kunde die Rolle USER und einen Plan traegt
+         und der Plan den Key definiert,
+      3. STANDARD seiner Rolle.
+    Ist die entscheidende Zeile ungueltig, ist der Zustand INVALID. Es
+    wird NICHT auf die naechste Ebene ausgewichen.
+  Begruendung: Eine Ausnahme ist eine bewusste Festlegung fuer diesen
+    Kunden. Ist sie unbrauchbar, weiss das System nicht, was gewollt war;
+    der Standard kann mehr erlauben als das Gewollte (wie DEC-ST-03).
+  Folgen: Die Ebene PLAN ist von Anfang an Teil des Aufloesers; ihre
+    Werte kommen mit MOD-010 (DEC-PO-16). Bis dahin ist sie fuer jeden
+    Kunden leer.
+
+DEC-PO-04  "UNBEGRENZT" IST EIN WERT, DEN NUR EINE VORHANDENE ZEILE
+           TRAGEN KANN
+  Quelle: D003-E05 ("NULL = unlimited. Keine Magic Numbers ... Kein
+    Consumer darf NULL als 0, leer oder Fehler interpretieren");
+    DOMAIN_MODEL 6.3; DEC-ST-15 (bei den Settings bedeutet kein Wert
+    "unbegrenzt").
+  Lage: In SQL entsteht NULL auch dort, wo gar keine Zeile ist - etwa
+    wenn eine Abfrage einen Kunden ohne passende Zeile mitfuehrt. Wer
+    dann "NULL heisst unbegrenzt" liest, macht aus einer fehlenden Zeile
+    ein Recht ohne Grenze.
+  Entscheidung:
+    a) GESPEICHERT wird "unbegrenzt", wie D003 es entschieden hat: als
+       NULL im Wertfeld einer VORHANDENEN Zeile - zulaessig nur bei einem
+       Key, dessen Katalogeintrag allows_unlimited traegt.
+    b) GELIEFERT wird "unbegrenzt" als EIGENES Feld der Auskunft
+       (unlimited), neben Wert und Zustand. Kein Verbraucher leitet es
+       aus einem leeren Wert ab.
+    c) Eine fehlende Zeile ist MISSING, nie unbegrenzt. Ein Ergebnis,
+       dessen Zustand nicht OK ist, hat weder Wert noch "unbegrenzt".
+    d) GESCHRIEBEN wird "unbegrenzt" nur auf ausdruecklichen Wunsch (ein
+       eigenes Kennzeichen des Aufrufs). Ein leerer Wert ist kein Wert
+       und wird abgelehnt (BASE-100_060 SK-4).
+  Folgen: Keine Zahl bedeutet "unbegrenzt" (nicht 0, nicht 9999, nicht
+    der groesste zulaessige Wert). Die Null ist die Null: Ein Limit 0
+    laesst nichts zu.
+
+DEC-PO-05  EIN FEHLERVERHALTEN: OHNE GUELTIGEN WERT GIBT ES KEINEN WERT
+  Quelle: 00_MANIFEST DP-02 ("Kein Consumer darf stille Defaults
+    verwenden"); D003 R-04; DEC-ST-04 (Klasse FAIL_CLOSED); BASE-080_020
+    Regeln AK-4 und Z-1 (eine nicht lesbare Auskunft ist UNBEKANNT; sie
+    oeffnet nichts und schraenkt nichts neu ein).
+  Optionen: (A) wie bei den Settings zwei Klassen, eine davon mit einem
+    Notwert je Key. (B) Eine Regel fuer alle Keys: kein Wert.
+  Entscheidung: B. Ist der Zustand eines Wertes nicht OK, dann
+    - findet eine ZULASSUNG, die ihn braucht, nicht statt (SZ-2),
+    - bleibt jeder BESTAND, wie er ist (SZ-3),
+    - erhaelt der BEWERTER "unbekannt" (BASE-080 AK-4) und
+    - zeigt die Verwaltung den Zustand.
+  Begruendung: Fuer ein Recht gibt es keinen Ersatzwert, der in beide
+    Richtungen sicher waere. Ein strenger Notwert - etwa das Kontingent
+    0 - wuerde alle Kunden einer Rolle einschraenken, weil EINE Zeile
+    fehlt; ein grosszuegiger gaebe Rechte, die niemand vergeben hat.
+    "Kein Wert" trennt die beiden Fragen: Zugelassen wird nichts Neues,
+    weggenommen wird nichts Bestehendes.
+  Folgen: Es gibt keinen Notwert und kein Halten eines frueheren Wertes
+    im Speicher: Kein Dienst arbeitet dauernd mit Policy-Werten; jede
+    Auskunft liest neu (BASE-100_030 Abschnitt 5).
+
+DEC-PO-06  STANDARDS DER ROLLEN SIND DATEN DES BETREIBERS; DER KATALOG
+           TRAEGT NUR DEN VORSCHLAG
+  Quelle: D003-E03 b (Tabelle der Standards, ALLE vier Rollen) und
+    Abschnitt 2 ("Rollen-Defaults im Code - bricht SQL-first");
+    DEC-ST-05 a (der Vorschlag ist kein Rueckfall); 00_MANIFEST 4.2
+    (Rollenmodell).
+  Entscheidung:
+    a) Fuer JEDEN Key und JEDE der vier Rollen gibt es genau eine Zeile
+       in policy_role_defaults. Sie gehoert dem Betreiber; er aendert sie
+       ueber den Schreibkern.
+    b) Der Katalog nennt je Key und Rolle, wie die Zeile ENTSTEHT: mit
+       einem VORSCHLAG (eine Zahl, ja/nein oder "unbegrenzt"), den die
+       Einspielung eintraegt - oder als BETREIBERWERT, den nur der
+       Betreiber kennen kann (ein Geschaeftswert wie das Datenvolumen
+       eines Kunden ohne Plan). Ein Betreiberwert wird bei der
+       Einrichtung eingegeben; bis dahin ist der Key fuer diese Rolle
+       MISSING.
+    c) Die Aufloesung kennt den Vorschlag nicht. Fehlt die Zeile spaeter,
+       gilt NICHT der Vorschlag, sondern DEC-PO-05.
+    d) Fuer die Rolle ADMIN ist der Vorschlag jedes Keys, der es erlaubt,
+       "unbegrenzt" (00_MANIFEST 4.2: "Keine Limits"). Das ist ein Wert
+       wie jeder andere - es gibt keine Verzweigung fuer ADMIN im
+       Aufloeser (SZ-5).
+  Abgrenzung: Dass eine ADMIN-Connection nie eingeschraenkt wird (R-08),
+    folgt nicht aus diesen Werten. Das stellt der Bewerter sicher
+    (BASE-080_020 Abschnitt 3).
+
+DEC-PO-07  MEHR IST MEHR
+  Quelle: D003-E03 a (Beispiele max_connections, max_storage_gb) und
+    D003-E06 (max_active_connections,
+    max_connection_creates_per_hour); DEC-ST-05 c (Richtung eines
+    Settings).
+  Entscheidung: Jeder Key ist so gefasst, dass ein groesserer Wert MEHR
+    erlaubt. Ein Limit ist eine ganze Zahl und heisst max_...; ein Recht
+    ist ja/nein und heisst allow_..., wobei "ja" mehr erlaubt.
+    "Unbegrenzt" erlaubt am meisten. Einen Key, bei dem der kleinere
+    Wert mehr erlaubt, gibt es nicht.
+  Begruendung: So ist jede Aenderung eindeutig eine LOCKERUNG oder eine
+    VERSCHAERFUNG. Der Schreibkern kann vor einer Verschaerfung zeigen,
+    wen sie trifft (DEC-PO-13), und die Verwaltung kann zwei Werte
+    vergleichen, ohne den Key zu kennen.
+  Folgen: Das Beispiel "streaming_access" aus D003 hiesse hier
+    allow_streaming. Eine eigene Angabe der Richtung im Katalog
+    entfaellt.
+
+DEC-PO-08  POLICY-KEYS TRAGEN KEINEN ZONEN-PREFIX
+  Quelle: D003, DOMAIN_MODEL 6, BASE-010 INV-63 und 01_GLOSSARY nennen
+    die Keys ohne Prefix (max_active_connections); BASE-000_010 Abschnitt
+    3 verlangt den Prefix fuer "jede Tabelle und jeden Settings-Key";
+    BASE-000_020 PR-01 sagt kuerzer "jeder Key".
+  Entscheidung: Ein Policy-Key folgt der Form von BASE-000_020 PR-02
+    (lower_snake_case) und beginnt mit max_ oder allow_ (DEC-PO-07). Er
+    traegt KEINEN Prefix einer Sicherheitszone.
+  Begruendung: Die Prefixe der Zonen ordnen Tabellen und Settings einem
+    Dienst und seinen Rechten in der Datenbank zu. Ein Policy-Key
+    gehoert keinem Dienst, sondern dem Kunden. Weil kein Settings-Key
+    mit max_ oder allow_ beginnen kann (er braucht einen Zonen-Prefix),
+    ist jeder Name in genau einem der beiden Kataloge moeglich.
+  Folgen: BASE-000_020 PR-01 ist auf "jede Tabelle und jeder
+    Settings-Key" zu fassen, wie BASE-000_010 es schon sagt (ANF-PO-01).
+
+DEC-PO-09  DAS VERBINDUNGSBUDGET WIRD AM GESPEICHERTEN ZUSTAND GEZAEHLT
+           UND IN DER TRANSAKTION DER ZULASSUNG GEPRUEFT
+  Quelle: D003-E06 (Zaehlregel) und T-D003-01 bis -07; DOMAIN_MODEL 6.4
+    ("Budget-Pruefung ... MUSS VOR Erstellung stattfinden") und 6.5;
+    BASE-010 INV-63; D002 7.6 (Budget der neuen Rolle); BASE-080
+    ANF-PA-01 m und q.
+  Entscheidung:
+    a) GEZAEHLT wird, was in SQL steht: aktiv zaehlt eine Connection des
+       Kunden im Status ACTIVE oder RESTRICTED; gesamt zaehlt jede, die
+       nicht widerrufen ist. Wer sie in diesen Zustand gebracht hat,
+       spielt keine Rolle.
+    b) GEPRUEFT wird von EINER Routine dieses Moduls (Auskunft BA), die
+       der zulassende Vorgang in SEINER Transaktion ruft, nachdem die
+       Zeile des Kunden gesperrt ist (SZ-7).
+    c) ZULASSUNGEN sind Anlage, Claim, Wiederherstellung und
+       Rollenwechsel. Nichts anderes wird am Budget geprueft.
+  AUSGEWIESENE ANPASSUNG: D003 T-D003-07 und DOMAIN_MODEL 6.5 b gehen
+    davon aus, dass ein Kunde eine Connection selbst "deaktiviert" und
+    sie danach nur noch gegen das Gesamt-Budget zaehlt. Im Bestand
+    (BASE-010_050, BASE-010_070) ist das Deaktivieren durch den Kunden
+    eine PAUSE: Die Connection ist RESTRICTED (Grund
+    RESTRICT_CUSTOMER_PAUSED) und zaehlt nach D003-E06 a weiter aktiv.
+    Eine Sperrung (DISABLED) spricht heute nur die Verwaltung oder eine
+    Frist aus. Es gilt die Zaehlregel, wie D003-E06 und INV-63 sie
+    fassen; T-D003-07 gilt fuer gesperrte Connections, gleich wer sie
+    gesperrt hat. Zaehlte eine Pause nicht mehr aktiv, muesste das
+    Aufheben der Pause am Budget scheitern koennen - eine Bewertung
+    haette dann ein Limit zu pruefen, das BASE-080 nicht kennt.
+  Einzelheiten: BASE-100_040.
+
+DEC-PO-10  EIN GESENKTES LIMIT NIMMT NICHTS WEG - ES LAESST NUR NICHTS
+           MEHR ZU
+  Quelle: D003 T-D003-01, -02 ("wird abgelehnt"); D002 7.6 (der
+    Rollenwechsel wird abgelehnt, nicht die Connection gesperrt);
+    SM_CONNECTION 5.3 (RESTRICT_PLAN_LIMIT_EXCEEDED: "Plan-Downgrade");
+    BASE-080_020 Regel AK-1 (ohne Plan trifft das Plan-Limit eine
+    Connection nie).
+  Lage: Senkt die Verwaltung den Standard einer Rolle oder eine
+    Ausnahme, kann ein Kunde mehr Connections haben, als sein Budget
+    nun erlaubt.
+  Optionen: (A) Die Aenderung wird abgelehnt, solange ein Kunde darueber
+    liegt. (B) Ueberzaehlige Connections werden eingeschraenkt. (C) Der
+    Bestand bleibt; zugelassen wird erst wieder, wenn der Kunde im
+    Budget ist.
+  Entscheidung: C. Der Zustand heisst UEBERBELEGUNG. Er ist sichtbar -
+    fuer die Verwaltung und fuer den Kunden -, und der Schreibkern zeigt
+    VOR jeder Verschaerfung, wie viele Kunden sie in diesen Zustand
+    bringt (DEC-PO-13).
+  Begruendung: A machte den Standard einer Rolle unaenderbar, sobald EIN
+    Kunde darueber liegt. Fuer B fehlen Grund und Auswahl: Das
+    Verzeichnis der Gruende kennt nur das Plan-Limit, und welche
+    Connections "ueberzaehlig" sind, bestimmt allein MOD-010. Die
+    Verwaltung hat fuer den Einzelfall eigene Mittel (Sperren,
+    Einschraenken).
+  Abgrenzung: Die Herabstufung eines PLANS ist ein eigener Fall: Sie
+    fuehrt ueber die Auskunft AK-1 zur Einschraenkung (MOD-010,
+    BASE-080).
+
+DEC-PO-11  KONTINGENT: DAS LIMIT GILT JE CONNECTION, DER DECKEL JE KUNDE
+  Quelle: D004-E04 (gebucht wird je Connection; die Geltung "je
+    Connection" ist der Regelfall); D004-E08 (ein Planwechsel setzt den
+    Verbrauch nicht zurueck - "Missbrauchsschutz"); DOMAIN_MODEL 6.8
+    (geteiltes oder eigenes Kontingent bestimmt der Plan); BASE-080_020
+    Regel AK-2; BASE-070 ANF-SC-12.
+  Lage: Gilt ein Kontingent je Connection, beginnt jede NEUE Connection
+    bei null. Wer eine Connection ersetzen kann - durch Loeschen und
+    Neuanlegen -, erhielte mit jeder neuen ein frisches Kontingent.
+  Entscheidung:
+    a) Ohne Plan gilt das Kontingent L je Connection: Erschoepft ist
+       eine Connection, deren gebuchter Verbrauch L erreicht.
+    b) Zusaetzlich gilt ein DECKEL JE KUNDE: Alle Connections eines
+       Kunden zusammen verbrauchen in einer Periode nie mehr als
+       Aktiv-Budget mal L. Gezaehlt wird der KUNDENVERBRAUCH - auch der
+       Verbrauch gesperrter, widerrufener und inzwischen geloeschter
+       Connections dieser Periode. Ist der Deckel erreicht, gelten ALLE
+       Connections des Kunden als erschoepft.
+    c) Ist das Aktiv-Budget unbegrenzt, gibt es keinen Deckel; ist das
+       Kontingent unbegrenzt, ist nichts erschoepft.
+    d) Mit einem Plan bestimmt der Plan die Geltung (geteilt oder je
+       Connection); die Regeln a bis c gelten dann mit seinen Werten
+       (DEC-PO-16).
+  Begruendung: b gibt dem Kunden genau das, was ihm zusteht - so viel,
+    wie alle Connections seines Budgets zusammen duerften -, und nimmt
+    dem Ersetzen einer Connection jeden Vorteil. Es ist derselbe Schutz,
+    den D004-E08 fuer den Planwechsel ausspricht.
+  Folgen: BASE-070 bucht weiter je Connection (D004-E04, SC-36); die
+    Summe je Kunde wird bei der Auskunft gebildet und nirgends
+    gespeichert. Einzelheiten und die Antwort auf ANF-SC-12:
+    BASE-100_050.
+
+DEC-PO-12  VIER AUSKUENFTE, JEDE GIBT ES GENAU EINMAL
+  Quelle: BASE-080_020 Regeln AK-1 bis AK-4 und ANF-PA-02; BASE-080
+    ANF-PA-01 m (Budgetpruefung in der Transaktion aufrufbar);
+    D003-E07; DEC-ST-09; TRUTH_MODEL 4.2 (Verbraucher lesen nie rohe
+    Zeilen).
+  Entscheidung:
+    AW    WIRKSAMER WERT je Key und Bezug: Wert, unbegrenzt, Herkunft,
+          Zustand (BASE-100_030).
+    BA    BUDGET je Kunde: Zaehlungen, Budgets, Ueberbelegung - und die
+          Antwort, ob ein bestimmtes Vorhaben zulaessig ist
+          (BASE-100_040).
+    AK-2  KONTINGENT je Connection: Limit und der dagegen zu rechnende
+          Verbrauch (BASE-100_050).
+    AK-1  PLAN-LIMIT je Connection: ob sie als ueberzaehlig gilt. Ohne
+          Plan: nein. Die Regel fuer Kunden mit Plan liefert MOD-010
+          (BASE-100_050).
+    Jede Auskunft ist eine Routine der Bibliothek dieses Moduls. Kein
+    Verbraucher liest die Tabellen policy_... selbst, und keiner rechnet
+    eine Auskunft nach.
+  Begruendung: Gueltig ist ein Wert nur gegen die Katalog-Definition,
+    und die liegt nicht in der Datenbank (DEC-PO-02). Eine Sicht in SQL
+    muesste gegen die Kopie pruefen - eine geaenderte Zeile der Kopie
+    koennte dann eine Grenze weiten. Die Bibliothek liest mengenweise
+    (SZ-9) und prueft selbst.
+  Folgen: BASE-080 nennt als Form der Auskuenfte "Sicht oder
+    gespeicherte Routine" (Regel AK-3). Erfuellt ist, worauf es dort
+    ankommt: mengenweise, nur festgeschriebene Daten, keine
+    Nebenwirkung. Die Form ist dort nachzuziehen (ANF-PO-04).
+
+DEC-PO-13  SCHREIBEN: NUR UEBER DEN SCHREIBKERN, NUR DIE VERWALTUNG,
+           IMMER MIT GRUND
+  Quelle: D003-E03 c (created_by, override_reason) und R-04
+    ("Audit-Spur"); DEC-ST-13; B345 (ein Nutzer schreibt nie selbst in
+    SQL); 00_MANIFEST 4.2 (MODERATOR: "Kunden sehen/sperren").
+  Entscheidung:
+    - WER: die Rolle ADMIN, ueber das Panel oder das Werkzeug; das System
+      nur in der Einspielung. MODERATOR liest, schreibt aber nie. Ein
+      Kunde aendert kein eigenes Recht.
+    - WIE: Pruefung gegen den Katalog, dann Schreiben und Protokoll in
+      einer Transaktion. Ablehnen statt berichtigen.
+    - GRUND: Jeder Schreibvorgang traegt einen Grund.
+    - VORSCHAU: Vor einer Verschaerfung zaehlt der Schreibkern, wen sie
+      trifft. Trifft sie jemanden - und bei JEDER Aenderung eines
+      Standards -, verlangt er eine ausdrueckliche Bestaetigung.
+    - PROTOKOLL: Jeder Vorgang und jede Ablehnung steht in
+      log_policy_audit.
+  Begruendung: Ein Standard gilt fuer alle Kunden einer Rolle; eine
+    Ausnahme kann einem Kunden mehr geben als jedem anderen. Beides
+    aendert sich selten und soll nie beilaeufig geschehen.
+  Einzelheiten: BASE-100_060.
+
+DEC-PO-14  EINE AUSNAHME GEHOERT ZUM KUNDEN UND UEBERDAUERT EINEN
+           ROLLENWECHSEL - SICHTBAR
+  Quelle: D003-E02 ("Budget-Subjekt ist CUSTOMER, nicht CUSTOMER+ROLE");
+    T-D003-09 ("Rolle aendern -> alle Policy-Werte neu evaluiert"); D002
+    7.6. Keine Quelle sagt, was mit einer Ausnahme beim Rollenwechsel
+    geschieht.
+  Optionen: (A) Ausnahmen bleiben. (B) Ausnahmen werden mit dem
+    Rollenwechsel geloescht. (C) Die Verwaltung entscheidet je Ausnahme.
+  Entscheidung: A - mit zwei Pflichten: Die Vorpruefung des
+    Rollenwechsels zeigt jede Ausnahme des Kunden mit dem wirksamen Wert
+    vorher und nachher, und die Budgetpruefung rechnet mit den Werten
+    der Zielrolle EINSCHLIESSLICH der Ausnahmen (BASE-100_040 ZL-4).
+  Begruendung: Eine Ausnahme ist eine Aussage des Betreibers ueber
+    diesen Kunden. B wuerde auch die strenge Ausnahme loeschen, die
+    nach einem Vorfall gesetzt wurde - der Kunde erhielte mit dem
+    Wechsel mehr als gewollt. C ist A mit einem Zwischenschritt: Die
+    Verwaltung kann eine Ausnahme vor dem Wechsel loeschen.
+  Folgen: "Neu evaluiert" (T-D003-09) heisst: Die wirksamen Werte
+    ergeben sich mit dem Wechsel aus der neuen Rolle; gespeichert wird
+    dabei nichts. Der Plan eines Kunden endet, wenn die Zielrolle nicht
+    USER ist (BASE-010 INV-41).
+
+DEC-PO-15  DIE ZWEI VERBINDUNGSLIMITS DER SETTINGS GEHEN IN DIESES MODUL
+           UEBER
+  Quelle: D003-E08 (Interim-Regelung); TRUTH_MODEL 7.3; DEC-ST-16;
+    BASE-090 ANF-ST-11.
+  Entscheidung: Mit diesem Modul entfallen die Settings
+    vpn_vip_max_connections und vpn_moderator_max_connections. An ihre
+    Stelle tritt der Key max_active_connections: mit dem Standard der
+    Rolle (Vorschlag 3 fuer VIP und MODERATOR, D003-E03 b) und, wo ein
+    Kunde abweicht, mit einer Ausnahme.
+  Begruendung: Es gibt keine Installation, in der die beiden Settings
+    Werte tragen (DEC-ST-12, Lage). Eine Umschreibung von Werten ist
+    deshalb nicht noetig; sie werden nie eingespielt.
+  Folgen: BASE-090 streicht beide Keys aus seinem Verzeichnis und fuehrt
+    sie als Altnamen ohne Nachfolger bei den Settings (ANF-PO-05).
+    Damit erlaubt kein Setting mehr einen Wert je Kunde. Das Setting
+    vpn_disabled_connection_buffer bleibt ein Setting (D003-E06: "global,
+    Systemverhalten, nicht Kundenrecht"); Eigentuemer ist dieses Modul.
+
+DEC-PO-16  PLAENE: DIESES MODUL LEGT DIE NAHTSTELLE FEST, NICHT DEN PLAN
+  Quelle: D003-E03 d und -E04; DOMAIN_MODEL 6.8 (Grundarchitektur der
+    Plaene); TRUTH_MODEL GV-02 und B057 13.9 (plan_key); D004-E08;
+    Entwurf "Plans" der Nachlieferung (sieben offene Fragen).
+  Entscheidung: Hier steht fest,
+    a) dass Plan-Werte in policy_plan_values liegen - gleiche Form,
+       gleiche Pruefung, gleicher Schreibkern wie jede andere Ebene;
+    b) dass ein Plan einen Key definieren oder auslassen kann; laesst er
+       ihn aus, gilt der Standard der Rolle USER;
+    c) dass nur ein Kunde der Rolle USER einen Plan traegt (BASE-010
+       INV-41) und die Ebene PLAN fuer jede andere Rolle nicht befragt
+       wird;
+    d) dass die Geltung des Kontingents (geteilt oder je Connection)
+       eine Eigenschaft des Plans ist und der Auskunft AK-2 ueber eine
+       feste Eingabe zugeht;
+    e) dass die Regel, welche Connections bei einem ueberschrittenen
+       Plan-Limit ueberzaehlig sind, von MOD-010 kommt und in die
+       Auskunft AK-1 eingesetzt wird;
+    f) dass nichts in diesem Modul einen Verbrauch zuruecksetzt.
+    Alles andere - die Tabelle der Plaene, ihre Namen, Laufzeit, Preis,
+    Zuweisung, Wechsel, Auffuellen - gehoert MOD-010.
+  Folgen: Solange MOD-010 nicht geschrieben ist, traegt kein Kunde einen
+    Plan. Ein dennoch gesetztes plan_id ist ein Widerspruch: Der Zustand
+    ist PLAN_UNKNOWN, es gibt keinen Wert (DEC-PO-05). Einzelheiten und
+    der Verbleib der sieben Fragen: BASE-100_050 Abschnitt 6.
+
+DEC-PO-17  WER WELCHEN WERT SIEHT
+  Quelle: D003-E07 und R-03 (wirksamer Wert MIT Quelle, sonst
+    "undebugbar"); 00_MANIFEST 4.2; BASE-090_070 AK-1 bis AK-3.
+  Entscheidung:
+    ADMIN       sieht und aendert alles: je Kunde und Key den wirksamen
+                Wert, seine Herkunft, den Standard daneben, Grund und
+                Urheber einer Ausnahme, den Verlauf.
+    MODERATOR   sieht dasselbe fuer jeden Kunden und aendert nichts.
+    KUNDE       sieht seine EIGENEN wirksamen Werte der Keys, die der
+                Katalog fuer Kunden sichtbar macht, und seinen
+                Verbrauch dagegen - ohne den Grundtext einer Ausnahme.
+  ANPASSUNG GEGENUEBER D003-E07: Dort steht "Unlimited" in der Reihe der
+    Quellen (Default / Plan / Individualisiert / Unlimited). "Unbegrenzt"
+    ist ein WERT; die Herkunft bleibt daneben sichtbar ("unbegrenzt,
+    Standard der Rolle" oder "unbegrenzt, Ausnahme").
+  Begruendung: Anders als bei den Settings (BASE-090_070 AK-1) geht es
+    hier um die Rechte des Kunden selbst; sie zu kennen hilft niemandem,
+    eine Schutzschwelle zu unterlaufen. Der Moderator braucht die
+    Herkunft, um einem Kunden Auskunft zu geben.
+  Einzelheiten: BASE-100_070 Abschnitt 6.
+
+================================================================================
+6) DAMIT GESCHLOSSENE OFFENE PUNKTE
+================================================================================
+
+  04_PHASE_PLAN OPEN-PHP-08    Abgrenzung BASE-080 /   -> Abschnitt 1;
+                               BASE-100                   DEC-PO-12;
+                                                          BASE-100_080
+                                                          Abschnitt 2
+  04_PHASE_PLAN OPEN-PHP-10    Grundregeln des         -> DEC-PO-01
+                               Regelwerks                 (bestaetigt
+                                                          BASE-050_010)
+  04_PHASE_PLAN K-PH8-06       Abgrenzung Herstellung  -> wie OPEN-PHP-08
+                               / Regeln
+  D003-E08, DEC-ST-16          Interim-Settings        -> DEC-PO-15
+  DOMAIN_MODEL Abschnitt 6     wartet auf BASE-100     -> dieses Modul;
+                                                          Verbleib je
+                                                          Aussage in
+                                                          BASE-100_080
+                                                          Abschnitt 8
+  BASE-080 ANF-PA-02           Auskuenfte AK-1, AK-2   -> DEC-PO-11,
+                                                          DEC-PO-12;
+                                                          BASE-100_050
+  BASE-080 ANF-PA-01 m         Budgetpruefung in der   -> DEC-PO-09;
+                               Transaktion                BASE-100_040
+  BASE-070 ANF-SC-12           Limit je Connection,    -> DEC-PO-11;
+                               geteilte Kontingente       BASE-100_050
+                                                          Abschnitt 5
+  BASE-090 ANF-ST-11           Uebergangs-Keys;        -> DEC-PO-15,
+                               gleiche Disziplin          DEC-PO-02,
+                                                          DEC-PO-05
+  Entwurf "Plans", Fragen 2,   Geltung, Gleichzeitig-  -> BASE-100_050
+  3, 6 und 7                   keit, Planwechsel,         Abschnitt 6
+                               plan_id
+  In D003 nicht entschieden und hier entschieden:
+    Ausnahme beim Rollenwechsel                        -> DEC-PO-14
+    Ueberbelegung nach gesenktem Wert                  -> DEC-PO-10
+    fehlender oder ungueltiger Wert                    -> DEC-PO-05
+    Kontingent ohne Plan                               -> DEC-PO-11
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

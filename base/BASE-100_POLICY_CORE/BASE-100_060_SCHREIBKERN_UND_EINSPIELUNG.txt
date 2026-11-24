@@ -1,0 +1,319 @@
+================================================================================
+BASE-100 — SCHREIBKERN, VORSCHAU UND EINSPIELUNG
+================================================================================
+DATEI: BASE-100_060_SCHREIBKERN_UND_EINSPIELUNG.txt
+STATUS: IN ARBEIT (AP-K100; Modul noch unvollstaendig)
+
+ZWECK:
+  Wer Werte schreiben darf, der Ablauf eines Schreibvorgangs, die
+  Vorschau der Folgen einer Verschaerfung, die Ablehnungsgruende, die
+  Einspielung einer Auslieferung, was nach dem Schreiben geschieht und
+  wie ein Schreiben am Schreibkern vorbei erkannt wird. Grundlage sind
+  DEC-PO-04 d, DEC-PO-13 und DEC-PO-15. Die Tabellen stehen in
+  BASE-100_020 Abschnitt 5.
+
+================================================================================
+1) WER SCHREIBT
+================================================================================
+
+  Urheber                          ROLLE     PLAN      AUSNAHME
+  -------------------------------- --------- --------- ---------
+  ADMIN ueber das Panel            ja        ja *      ja
+  ADMIN am Server (Werkzeug        ja        ja *      ja
+  vpn-rights-set, als root)
+  SYSTEM: Einspielung              nur       nein      nein
+                                   fehlende
+                                   Zeilen
+  MODERATOR, VIP, USER             nein      nein      nein
+  jedes andere Programm            nein      nein      nein
+
+  * Die Ebene PLAN gibt es erst mit MOD-010; bis dahin wird jeder
+    Schreibvorgang auf ihr abgelehnt (PLAN_LEVEL_ABSENT).
+
+  SR-1  "ja" heisst: ueber den Schreibkern. Der Urheber steht in jeder
+        Protokollzeile - bei einem ADMIN seine Kennung aus dem Panel, am
+        Server "root" mit dem angegebenen Namen, bei SYSTEM der Name des
+        Ablaufs.
+  SR-2  KEIN KUNDE AENDERT EIN EIGENES RECHT - auch nicht nach unten. Wer
+        mehr braucht, bekommt es von der Verwaltung (Ausnahme) oder mit
+        einem Plan (MOD-010).
+  SR-3  MODERATOR liest (DEC-PO-17) und schreibt nie. Aus keiner Anzeige
+        entsteht ein Schreibrecht.
+  SR-4  Kommt eine neue Rolle hinzu, schreibt sie nicht, bis diese
+        Tabelle sie nennt.
+
+================================================================================
+2) ABLAUF EINES SCHREIBVORGANGS
+================================================================================
+
+  Ein Vorgang nennt den Urheber, einen GRUND und EINE ODER MEHRERE
+  Aenderungen. Eine Aenderung nennt Key, Ebene und Bezug (eine Rolle,
+  einen Plan oder einen Kunden) und eines von dreien: einen neuen Wert,
+  das Kennzeichen UNBEGRENZT oder das Loeschen der Zeile. Der Vorgang
+  gelingt ganz oder gar nicht.
+
+  SK-1  KATALOG. Laden und pruefen (BASE-100_020 Abschnitt 6). Bei
+        UNREADABLE wird nichts geschrieben.
+  SK-2  NAME. Jeder Name ist ein Key des Katalogs.
+  SK-3  BEZUG. Die Rolle ist eine der vier; den Plan gibt es; den Kunden
+        gibt es, und er ist nicht als geloescht gefuehrt.
+  SK-4  WERT. Ein Wert wird streng gelesen und geprueft (BASE-100_020
+        Abschnitt 3). "Unbegrenzt" entsteht NUR durch das Kennzeichen
+        UNBEGRENZT - und nur bei einem Key, der es erlaubt. Ein leerer
+        Wert, Leerraum oder ein fehlendes Feld ist kein Wert und wird
+        abgelehnt (DEC-PO-04 d). Nichts wird angepasst.
+  SK-5  GRUND. Er ist vorhanden: 1 bis 255 Zeichen ohne Steuerzeichen.
+  SK-6  TRANSAKTION. Der Schreibkern oeffnet eine Transaktion. Fuer eine
+        Ausnahme sperrt er zuerst die Zeile des Kunden - dieselbe Sperre
+        wie die Zulassung (BASE-100_040 BP-1) -, dann die betroffenen
+        Zeilen der Werte. Nennt der Vorgang den Stand, den der Urheber
+        zuletzt gesehen hat, und steht inzwischen ein anderer dort, wird
+        abgelehnt (die Anzeige war veraltet).
+  SK-7  LOESCHEN. Eine Ausnahme und ein Plan-Wert duerfen geloescht
+        werden; danach gilt die naechste Ebene. Der Standard einer Rolle
+        wird NIE geloescht - der Key waere fuer diese Rolle MISSING.
+  SK-8  VORSCHAU UND BESTAETIGUNG (Abschnitt 4). Der Schreibkern
+        bestimmt in der Transaktion, wen die Aenderung trifft. Eine
+        ausdrueckliche Bestaetigung ist noetig, wenn
+          a) die Ebene ROLLE geaendert wird (jede Aenderung),
+          b) der neue Wert "unbegrenzt" ist oder
+          c) eine Verschaerfung jemanden trifft (Zahl groesser 0).
+        Die Bestaetigung nennt die Zahl, die dem Urheber gezeigt wurde.
+        Ist die jetzt ermittelte Zahl GROESSER, wird abgelehnt
+        (PREVIEW_CHANGED) - er soll bestaetigen, was gilt, nicht, was
+        galt.
+  SK-9  SCHREIBEN. Je Aenderung ein Einfuegen-oder-Aendern in EINER
+        Anweisung bzw. ein Loeschen, und eine Zeile im Protokoll - alles
+        in der Transaktion aus SK-6; dann Abschluss.
+  SK-10 MELDEN (RIGHTS_CHANGED) und Folge nach Abschnitt 7.
+
+  ZS-1  (Zusage) KEINE DOPPELTEN ZEILEN, DER LETZTE ABGESCHLOSSENE
+        VORGANG GILT. Zwei gleichzeitige Vorgaenge an derselben Zeile
+        laufen nacheinander; beide stehen vollstaendig im Protokoll.
+  ZS-2  (Zusage) NIE EIN HALBER VORGANG: Scheitert ein Schritt, bleibt
+        jede Zeile, wie sie war; im Protokoll steht eine Zeile REJECTED
+        je genannter Aenderung.
+  ZS-3  (Zusage) NICHTS WIRD STILL BERICHTIGT: Der Schreibkern schreibt
+        den Wert, der verlangt war, oder keinen.
+  ZS-4  (Zusage) EINE AUSNAHME UND EINE ZULASSUNG FUER DENSELBEN KUNDEN
+        laufen nacheinander (SK-6). Eine Zulassung sieht entweder den
+        alten oder den neuen Wert ganz.
+
+================================================================================
+3) ABLEHNUNGSGRUENDE
+================================================================================
+
+  Fester Wertevorrat fuer result:
+    CATALOG_UNREADABLE     SK-1
+    UNKNOWN_KEY            SK-2: kein Katalogeintrag
+    TARGET_MISSING         SK-3: Rolle, Plan oder Kunde unbekannt; Kunde
+                           als geloescht gefuehrt
+    PLAN_LEVEL_ABSENT      SK-3: Ebene PLAN nicht eingerichtet
+    VALUE_INVALID          SK-4: Form oder Grenzen verletzt; leerer Wert
+    UNLIMITED_NOT_ALLOWED  SK-4: Key erlaubt "unbegrenzt" nicht
+    REASON_MISSING         SK-5
+    STALE                  SK-6: zuletzt gesehener Stand stimmt nicht mehr
+    DEFAULT_DELETE         SK-7: Loeschen eines Standards
+    CONFIRMATION_MISSING   SK-8: Bestaetigung fehlt
+    PREVIEW_CHANGED        SK-8: mehr Betroffene als bestaetigt
+    NOT_AUTHORIZED         Urheber darf nicht schreiben (Abschnitt 1)
+    DATABASE_ERROR         die Transaktion ist gescheitert
+
+  AG-1  Jede Ablehnung steht im Protokoll (action REJECTED). Laesst sich
+        das Protokoll nicht schreiben, weil die Datenbank nicht
+        erreichbar ist, meldet der Schreibkern die Ablehnung als
+        Ereignis (RIGHTS_WRITE_REJECTED).
+  AG-2  Ein abgelehnter Versuch, ohne Recht zu schreiben
+        (NOT_AUTHORIZED), ist ein Ereignis mit Warnung.
+
+================================================================================
+4) VORSCHAU DER FOLGEN
+================================================================================
+
+  Weil mehr immer mehr erlaubt (DEC-PO-07), ist jede Aenderung fuer
+  jeden Kunden, dessen WIRKSAMER Wert sich aendert, eine Lockerung oder
+  eine Verschaerfung. Der Schreibkern rechnet das VOR dem Schreiben aus
+  und zeigt es.
+
+  FV-1  WEN EINE AENDERUNG BETRIFFT: bei einer Ausnahme den einen Kunden;
+        bei einem Standard die Kunden der Rolle, fuer die keine hoehere
+        Ebene entscheidet; bei einem Plan-Wert die Kunden des Plans ohne
+        Ausnahme. Ein Standard, den bei allen Kunden eine Ausnahme
+        ueberdeckt, betrifft niemanden.
+  FV-2  WAS GEZAEHLT WIRD, sagt der Katalogeintrag (impact_check):
+          BUDGET  Kunden, die NACH der Aenderung ueberbelegt waeren und
+                  es vorher nicht sind (BASE-100_040 UE-1)
+          QUOTA   Connections, die NACH der Aenderung als erschoepft
+                  gaelten und es vorher nicht sind (BASE-100_050
+                  Abschnitt 3) - auch ueber einen kleineren Deckel
+        Gerechnet wird mit den Auskuenften BA und AK-2 dieses Moduls und
+        den Werten, wie sie nach der Aenderung waeren. Eine andere
+        Zaehlung entsteht nur mit einer neuen Auslieferung.
+  FV-3  DIE VORSCHAU GIBT ES ZWEIMAL: als eigenen, nur lesenden Aufruf
+        fuer die Anzeige - und noch einmal in der Transaktion des
+        Schreibens (SK-8). Nur die zweite zaehlt.
+  FV-4  DIE ZAHL STEHT IM PROTOKOLL (affected), zusammen mit Grund und
+        Urheber.
+  FV-5  HINWEISE OHNE ZAHL, die der Schreibkern zusaetzlich gibt:
+          a) ein endliches Kontingent bei unbegrenztem Aktiv-Budget: Es
+             gibt dann keinen Deckel je Kunde (BASE-100_050 Abschnitt 3);
+          b) der Wert 0: Er laesst nichts zu;
+          c) ein Standard der Rolle ADMIN, der nicht mehr "unbegrenzt"
+             ist: Der Betreiber begrenzt sich selbst;
+          d) ein Betroffener mit der Rolle ADMIN wird nie eingeschraenkt
+             (R-08) - ein Limit wirkt bei ihm nur auf Zulassungen.
+  FV-6  EINE LOCKERUNG ZAEHLT NICHTS, verlangt aber auf der Ebene ROLLE
+        und bei "unbegrenzt" die Bestaetigung (SK-8 a, b).
+  FV-7  DIE VORSCHAU VERSPRICHT NICHT, WAS DER BEWERTER TUT: Ob eine
+        erschoepfte Connection eingeschraenkt wird, haengt an ihren
+        uebrigen Gruenden und an den Schutzregeln von BASE-080
+        (BASE-080_020 Abschnitte 3 und 7). Die Zahl sagt, wie viele die
+        Aenderung treffen KANN.
+
+================================================================================
+5) EINEN STANDARD AUSDRUECKLICH EINSETZEN
+================================================================================
+
+  Fuer einen Standard im Zustand MISSING oder INVALID bietet die
+  Verwaltung einen Handgriff an:
+    VORSCHLAG EINSETZEN   schreibt den Vorschlag des Katalogs als
+                          Standard der Rolle (nur bei default_mode VALUE
+                          oder UNLIMITED)
+  Bei default_mode OPERATOR gibt es keinen Vorschlag: Der Betreiber gibt
+  den Wert ein. Beides sind gewoehnliche Schreibvorgaenge nach Abschnitt
+  2 - mit Urheber, Grund, Bestaetigung und Protokoll. Kein Programm setzt
+  einen Standard von sich aus ein.
+
+  Eine ungueltige Ausnahme wird nicht "repariert": Der Betreiber ersetzt
+  sie durch einen gueltigen Wert oder loescht sie.
+
+================================================================================
+6) EINSPIELUNG EINER AUSLIEFERUNG
+================================================================================
+
+  vpn-rights-seed bringt die Datenbank auf den Stand der
+  Katalog-Definition. Es laeuft bei der Einrichtung und nach jeder neuen
+  Auslieferung, als Urheber SYSTEM, in EINER Transaktion, und ist
+  wiederholbar: Ein zweiter Lauf am selben Stand aendert nichts.
+
+  ES-1  PRUEFEN. Katalog-Definition laden und pruefen. Dann die
+        Vorpruefung ES-2; scheitert sie, wird nichts geschrieben.
+  ES-2  VORPRUEFUNG DER BESTEHENDEN WERTE. Jeder Wert, der heute auf
+        einer der drei Ebenen steht, wird gegen die NEUE Definition
+        geprueft. Wuerde ein Wert ungueltig (engere Grenzen, "unbegrenzt"
+        nicht mehr erlaubt), bricht die Einspielung ab und nennt Key,
+        Ebene, Bezug und Wert. Der Betreiber berichtigt zuerst.
+  ES-3  KOPIE. policy_catalog wird der Definition angeglichen;
+        catalog_version und seeded_at werden gesetzt.
+  ES-4  FEHLENDE STANDARDS. Fuer jeden Key und jede Rolle OHNE Zeile:
+        Bei default_mode VALUE oder UNLIMITED wird der Vorschlag
+        eingetragen (Protokoll: SEED). Bei OPERATOR wird nichts
+        eingetragen; die Luecke steht im Ergebnis.
+  ES-5  ENTFALLENE KEYS. Werte zu Keys, die die Definition nicht mehr
+        kennt, werden auf allen drei Ebenen geloescht (Protokoll: SEED
+        mit dem alten Wert), danach ihre Zeilen in policy_catalog.
+  ES-6  ABSCHLUSS. Nach dem Abschluss der Transaktion laeuft der
+        Prueflauf; sein Ergebnis ist das Ergebnis der Einspielung.
+
+  EV-1  DIE EINSPIELUNG IST DER EINZIGE SCHREIBER VON policy_catalog.
+  EV-2  KEIN WERT DES BETREIBERS WIRD UEBERSCHRIEBEN - auch dann nicht,
+        wenn eine Auslieferung einen Vorschlag aendert. Ein geaenderter
+        Vorschlag gilt fuer neue Installationen; die Hinweise der
+        Auslieferung nennen ihn.
+  EV-3  DIE EINSPIELUNG SETZT NIE "UNBEGRENZT", wo der Katalog es nicht
+        als Vorschlag nennt, und nie eine Ausnahme.
+  EV-4  KEYS WERDEN NICHT UMBENANNT. Ein Key mit neuem Namen ist ein
+        neuer Key; den alten laesst die Auslieferung entfallen (ES-5),
+        und ihre Hinweise nennen, welche Werte der Betreiber zu
+        uebertragen hat. Ein Verzeichnis frueherer Namen fuehrt dieses
+        Modul nicht: Kein Key hat je unter einem anderen Namen Werte
+        getragen (BASE-100_070 Abschnitt 1 nennt die Namen der Quellen).
+
+  DIE ZWEI VERBINDUNGSLIMITS DER SETTINGS (DEC-PO-15) uebernimmt die
+  Einspielung NICHT als Werte: Es gibt keine Installation, die sie
+  traegt. Der Standard fuer VIP und MODERATOR entsteht aus dem Vorschlag
+  des Keys max_active_connections.
+
+================================================================================
+7) WAS NACH DEM SCHREIBEN GESCHIEHT
+================================================================================
+
+  NF-1  EINE ZULASSUNG SIEHT DEN NEUEN WERT SOFORT - mit ihrer naechsten
+        Pruefung (BASE-100_040 Abschnitt 4).
+  NF-2  NACH EINER AUSNAHME wird die Bewertung fuer diesen Kunden
+        gerufen: vpn-policy-eval --customer-id mit dem Urheber als
+        Akteur (BASE-080_020 Abschnitt 5, "Limit aendern"; Aufrufart A3:
+        nur der Bewertungskern, nichts Unumkehrbares). Den Aufruf stellt
+        der privilegierte Auftragsweg; der Webprozess ruft das Werkzeug
+        nie selbst (BASE-080 ANF-PA-03). Am Server fordert vpn-rights-set
+        ihn selbst an.
+  NF-3  NACH EINEM STANDARD ODER PLAN-WERT gibt es keinen Einzelaufruf:
+        Der Lauf im Bewertungstakt bewertet alle Connections neu.
+  NF-4  UNTERBLEIBT DER FOLGEAUFRUF, holt der Lauf die Bewertung nach
+        (BASE-080_020 Abschnitt 5). Er dient der Schnelligkeit, nicht
+        der Richtigkeit.
+  NF-5  BASE-100 SCHREIBT KEINEN STATUS UND KEINEN AUFTRAG. Ob sich fuer
+        eine Connection etwas aendert, entscheidet der Bewerter aus den
+        Auskuenften; herstellen laesst es BASE-080.
+  NF-6  EINE VERSCHAERFUNG NIMMT NIEMANDEM EINE CONNECTION: Das
+        Aktiv-Budget wirkt nur auf Zulassungen (DEC-PO-10). Einschraenken
+        kann allein ein kleineres Kontingent - ueber die Bewertung, mit
+        deren Schutz vor Massenfolgen (BASE-080_020 Abschnitt 7).
+
+================================================================================
+8) SCHREIBEN AM SCHREIBKERN VORBEI
+================================================================================
+
+  Wer Schreibrechte auf die Datenbank hat, kann eine Zeile aendern, ohne
+  den Schreibkern zu benutzen. Das laesst sich mit Rechten nicht ganz
+  ausschliessen; es wird ERKANNT und kann nichts erlauben, was der
+  Katalog nicht erlaubt:
+
+  UW-1  JEDER WERT WIRD BEIM LESEN GEPRUEFT. Ein vorbei geschriebener
+        ungueltiger Wert ist INVALID; ein NULL bei einem Key ohne
+        allows_unlimited ist nie "unbegrenzt" (BASE-100_030 AF-6).
+  UW-2  JEDE ZEILE HAT IHR PROTOKOLL. Der Prueflauf vergleicht je Zeile
+        der drei Ebenen Wert und Zeitpunkt mit dem juengsten
+        Protokolleintrag fuer Key, Ebene und Bezug. Stimmen sie nicht
+        ueberein, meldet er eine Aenderung ohne Protokoll als Stoerung
+        (RIGHTS_UNAUDITED_CHANGE).
+  UW-3  DER KATALOG LIEGT NICHT IN DER DATENBANK. Eine geaenderte Zeile
+        in policy_catalog aendert keine Grenze und erlaubt kein
+        "unbegrenzt"; sie ist DRIFT.
+  UW-4  DIE RECHTE SIND ENG: Auf policy_catalog schreibt allein die
+        Einspielung; auf log_policy_audit wird nur angefuegt
+        (BASE-100_070 Abschnitt 3).
+  WAS BLEIBT (offen ausgewiesen): Ein vorbei geschriebener GUELTIGER
+  Wert - etwa ein hoeheres Limit - wirkt, bis der Prueflauf ihn meldet
+  (hoechstens ein Prueftakt). Dagegen hilft nur, wer die Rechte in der
+  Datenbank haelt; das Panel haelt sie, weil der Schreibkern in seinem
+  Prozess laeuft (BASE-100_070 DR-3).
+
+================================================================================
+9) VERHAELTNIS ZU D003 UND ZUM SCHREIBKERN DER SETTINGS
+================================================================================
+
+  Quelle                                 hier
+  -------------------------------------- ---------------------------------
+  D003-E03 c created_by, override_reason uebernommen; der Grund ist auf
+                                         JEDER Ebene Pflicht (SK-5)
+  D003-E07 "Input-Feld zum Aendern",     Abschnitt 2; "unbegrenzt" nur
+  "Unlimited-Checkbox (wenn              ueber das eigene Kennzeichen
+  allows_unlimited = true)"              (SK-4)
+  D003-E07 T-D003-08 "Override loeschen  SK-7
+  -> Default greift wieder"
+  D003 R-04 "Audit-Spur"                 log_policy_audit; UW-2
+  BASE-090_050 SK-1 bis SK-9             derselbe Aufbau; anders: Grund
+                                         immer Pflicht; Vorschau der
+                                         Folgen; keine Regelgruppen; keine
+                                         Wirkung "Neustart"
+  BASE-090_050 Abschnitt 5 (Vorschlag    nur "Vorschlag einsetzen"
+  oder Notwert einsetzen)                (Abschnitt 5); einen Notwert gibt
+                                         es nicht
+  BASE-090_050 ES-5 (umbenannte Keys)    entfaellt (EV-4)
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

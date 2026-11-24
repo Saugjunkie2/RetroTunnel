@@ -1,0 +1,386 @@
+================================================================================
+BASE-100 — TESTS UND VALIDIERUNG (Policy-Kern)
+================================================================================
+DATEI: BASE-100_095_TESTS.txt
+STATUS: IN ARBEIT (AP-K100; Modul noch unvollstaendig)
+
+BELEGSTAND ALLER TESTS: GEPLANT. Keiner dieser Tests wurde ausgefuehrt; es
+existiert keine Implementierung. Die Tests sind Abnahmekriterien fuer die
+spaetere Umsetzung (Definition of Done von BASE-100).
+
+TESTARTEN:
+  [K]  Konzept-/Konfigurationspruefung (Review, statische Pruefung, Pruefung
+       der Katalog-Definition vor der Auslieferung)
+  [L]  Labortest an einer Implementierung (isolierte Testumgebung)
+
+PROOF-ANKER (04_PHASE_PLAN):
+  RT-PH8-PROOF-04 (Kontingent erschoepft ->
+                   eingeschraenkt; Anteil
+                   dieses Moduls)               -> T-PO-32, T-PO-29
+Der Phasenplan nennt dafuer "MOD-010_095 T-PL-XX (Plan-Engine Quota)". Fuer
+Kunden OHNE Plan liefert dieses Modul Limit und Verbrauch (Auskunft AK-2);
+der Anker ist um diese Tests zu ergaenzen (Nachzug AP-A06, ANF-PO-12).
+
+KENNUNG: T-PO gehoert diesem Modul (Praefix der Invarianten: PO).
+
+ZUORDNUNG DER TESTS AUS D003 ABSCHNITT 6:
+  T-D003-01 (Standard VIP 3, vierte abgelehnt)    -> T-PO-22 a
+  T-D003-02 (Ausnahme 4, fuenfte abgelehnt)       -> T-PO-22 b
+  T-D003-03 (anderer Kunde unberuehrt)            -> T-PO-13 d
+  T-D003-04 (USER per Plan; Planwechsel)          -> T-PO-14 c; setzt
+                                                     MOD-010 voraus
+  T-D003-05 (Rollenwechsel USER nach VIP)         -> T-PO-24, T-PO-41
+  T-D003-06a (ohne Kunden zaehlt nicht)           -> T-PO-20 c
+  T-D003-06b ("Fuer User" zaehlt sofort)          -> T-PO-20 d
+  T-D003-07 (Puffer fuer gesperrte Connections)   -> T-PO-21; ANGEPASST
+                                                     nach DEC-PO-09: mit
+                                                     von der Verwaltung
+                                                     gesperrten
+                                                     Connections
+  T-D003-08 (wirksamer Wert mit Quelle; Ausnahme  -> T-PO-16, T-PO-13 c
+            loeschen)
+  T-D003-09 (Rolle aendern, Werte neu)            -> T-PO-41
+  T-D003-10 (NULL = unbegrenzt, nie 0 oder        -> T-PO-07, T-PO-08
+            Fehler)
+ZUORDNUNG AUS DOMAIN_MODEL ABSCHNITT 11:
+  T-DOM-06 (Connection-Limits)                    -> T-PO-22; der Teil
+                                                     "USER nach Plan":
+                                                     T-PO-14 c
+
+================================================================================
+KATALOG
+================================================================================
+
+  T-PO-01  [K] Kein Programm mit eigenem Recht. Der Programmtext jedes
+           Verbrauchers wird durchsucht: (a) kein Zahlenwert steht dort, wo
+           ein Limit benutzt wird; (b) kein Zugriff auf policy_... ausserhalb
+           der Bibliothek; (c) kein Nachrechnen von Budget oder Kontingent.
+           [L] Ein Verbraucher mit einem Key im Zustand MISSING laesst nichts
+           zu - er benutzt nie den Vorschlag. [PO-01]
+
+  T-PO-02  [L] Katalog unveraenderlich. (a) Kein Werkzeug hat einen Aufruf,
+           der die Katalog-Definition schreibt. (b) Das Panel kann
+           policy_catalog nicht schreiben (Recht fehlt). (c) Nur die
+           Einspielung aendert die Kopie. [PO-02]
+
+  T-PO-03  [L] Unbrauchbarer Katalog. Pruefsumme der Definition verfaelschen:
+           vpn-rights-get scheitert mit Code 3 und liefert keinen Wert;
+           vpn-rights-set schreibt nichts; eine Anlage fuer einen Kunden wird
+           mit LIMIT_UNKNOWN abgelehnt; bestehende Connections bleiben. [K]
+           Jede der Pruefungen LP-2 bis LP-10 schlaegt an einer eigens
+           verfaelschten Definition an. [PO-03]
+
+  T-PO-04  [K] Form der Keys. Jeder Key des Verzeichnisses besteht LP-2 und
+           LP-3: Limit mit max_, Recht mit allow_, kein Prefix einer Zone,
+           Einheit im Namen wie im Feld. Kein Name steht zugleich im Katalog
+           der Settings. [PO-04]
+
+  T-PO-05  [K] Abgrenzung. Jeder Key besteht die drei Fragen aus DEC-PO-01;
+           seine durchsetzende Stelle ist in einem geschriebenen Modul
+           benannt. Kein Key schaltet DNS-Zwang, Filter, Sperren oder die
+           Trennung der Clients. [PO-05]
+
+  T-PO-06  [L] Abweichende Kopie. In policy_catalog von Hand range_max
+           erhoehen und allows_unlimited setzen: (a) ein Wert ueber der
+           Grenze der Definition bleibt INVALID; (b) NULL bleibt ungueltig;
+           (c) der Prueflauf meldet RIGHTS_CATALOG_DRIFT; (d) die Einspielung
+           stellt die Kopie wieder her. [PO-06]
+
+================================================================================
+WERTE UND "UNBEGRENZT"
+================================================================================
+
+  T-PO-07  [L] Was "unbegrenzt" ist. (a) Zeile mit NULL bei einem Key, der es
+           erlaubt: unbegrenzt. (b) Zeile mit NULL bei einem Key, der es
+           nicht erlaubt: INVALID (RIGHTS_UNLIMITED_NOT_ALLOWED). (c) Keine
+           Zeile: MISSING - nicht unbegrenzt. (d) Leerer Text, "0", der
+           groesste zulaessige Wert: keiner ist unbegrenzt; die Null laesst
+           nichts zu. [PO-07]
+
+  T-PO-08  [L] Unbegrenzt als eigenes Feld. (a) Jede Auskunft traegt
+           unlimited getrennt vom Wert. (b) Ein Ergebnis mit Zustand MISSING,
+           INVALID, PLAN_UNKNOWN oder DB_UNKNOWN hat weder Wert noch
+           unlimited. (c) Eine Abfrage, die einen Kunden ohne passende Zeile
+           mitfuehrt, ergibt bei keinem Verbraucher "unbegrenzt": Die
+           Zulassung wird abgelehnt, der Bewerter erhaelt "unbekannt".
+           [PO-08]
+
+  T-PO-09  [L] Kein Zurechtstutzen. Wert ueber range_max, unter range_min,
+           mit fuehrender Null, mit Leerraum, mit Vorzeichen: (a) beim
+           Schreiben abgelehnt (VALUE_INVALID), nichts gespeichert; (b) von
+           Hand in die Tabelle gesetzt: INVALID, kein Wert - nicht die
+           naechste Grenze. [PO-09]
+
+  T-PO-10  [L] Vollstaendige Standards. (a) Nach der Einspielung hat jeder
+           Key fuer jede Rolle mit Vorschlag eine Zeile. (b) Das Loeschen
+           eines Standards ueber den Schreibkern wird abgelehnt
+           (DEFAULT_DELETE). (c) Ein von Hand geloeschter Standard: MISSING
+           fuer die Kunden der Rolle ohne Ausnahme; der Prueflauf meldet
+           RIGHTS_VALUE_MISSING. [PO-10]
+
+  T-PO-11  [L] Vorschlag ist kein Rueckfall. Standard von Hand loeschen: Die
+           Auskunft liefert MISSING, nicht den Vorschlag. Erst der Handgriff
+           "Vorschlag einsetzen" schreibt ihn - mit Urheber, Grund und
+           Protokoll. [PO-11]
+
+================================================================================
+AUFLOESUNG
+================================================================================
+
+  T-PO-12  [L] Determinismus. Dieselben Tabellen, Aufrufe in wechselnder
+           Reihenfolge, einzeln und mengenweise, durch Werkzeug, Panel und
+           Zulassung: je Key und Kunde dasselbe Ergebnis. [PO-12]
+
+  T-PO-13  [L] Reihenfolge der Ebenen. (a) Nur Standard: Herkunft
+           ROLE_DEFAULT. (b) Ausnahme dazu: Herkunft OVERRIDE, auch wenn sie
+           kleiner ist als der Standard. (c) Ausnahme loeschen: Der Standard
+           gilt wieder. (d) Die Ausnahme von Kunde A aendert nichts fuer
+           Kunde B derselben Rolle. (e) Ungueltige Ausnahme, gueltiger
+           Standard: INVALID, kein Wert - kein Ausweichen. (f) Gueltige
+           Ausnahme, fehlender Standard: Die Ausnahme gilt; der Mangel ist
+           gemeldet. [PO-13]
+
+  T-PO-14  [L] Ebene PLAN. (a) Kunde der Rolle USER mit plan_id, Ebene PLAN
+           nicht eingerichtet: PLAN_UNKNOWN, ausser fuer Keys mit Ausnahme.
+           (b) Kunde der Rolle VIP mit plan_id: Die Ebene wird nicht befragt;
+           RIGHTS_ROLE_PLAN_MISMATCH ist gemeldet. (c) Setzt MOD-010 voraus:
+           Plan definiert den Key - Herkunft PLAN; Plan laesst ihn aus -
+           Standard der Rolle USER; Planwechsel - der neue Wert gilt mit der
+           naechsten Auskunft. [PO-14]
+
+  T-PO-15  [L] Kein Wert. Standard einer Rolle ungueltig machen: (a) Anlage,
+           Claim und Wiederherstellung fuer Kunden dieser Rolle werden mit
+           LIMIT_UNKNOWN abgelehnt und RIGHTS_ADMISSION_BLOCKED gemeldet; (b)
+           keine bestehende Connection aendert ihren Status; (c) die Auskunft
+           AK-2 liefert fuer ihre Connections einen Zustand ungleich OK und
+           kein Limit. [PO-15]
+
+  T-PO-16  [L] Herkunft und Standard daneben. Je Key und Kunde nennt die
+           Auskunft die Herkunft und den Standard der Rolle; die Anzeige der
+           Verwaltung zeigt beides ("individuell" bzw. "Standard"). Ein
+           unbegrenzter Wert zeigt seine Herkunft ebenso. [PO-16]
+
+  T-PO-17  [K] Ein Weg fuer alle Rollen. Im Programmtext der Verbraucher
+           steht keine Verzweigung nach der Rolle, wo ein Key des Katalogs
+           gilt. [L] ADMIN mit einem endlichen Standard: Seine Zulassungen
+           werden an diesem Wert geprueft wie die jeder Rolle. [PO-17]
+
+  T-PO-18  [L] Schnappschuss, nur lesend. (a) Waehrend ein Schreibvorgang
+           zwei Keys aendert, sieht eine Auskunft beide alt oder beide neu.
+           (b) Keine Auskunft hinterlaesst eine Zeile, eine Sperre oder eine
+           Datei. [K] Kein Verbraucher haelt ein Ergebnis ueber seinen
+           Vorgang oder Lauf hinaus. [PO-18]
+
+  T-PO-19  [L] Last. (a) Waehrend 1.000 Anmeldungen und bestehender
+           Verbindungen entsteht keine Abfrage auf policy_.... (b) Die
+           Auskuenfte AW, BA und AK-2 fuer 5.000 Kunden bzw. Connections
+           brauchen je Abschnitt eine feste Zahl von Abfragen; gemessen wird
+           die Dauer (Annahme E-PO-04). [PO-19]
+
+================================================================================
+VERBINDUNGSBUDGET
+================================================================================
+
+  T-PO-20  [L] Zaehlung. Ein Kunde mit je einer Connection ACTIVE, RESTRICTED
+           wegen Kontingent, RESTRICTED wegen Pause, DISABLED im
+           Restore-Fenster, widerrufen: (a) aktiv 3, gesamt 4. (b) Nach dem
+           Widerruf der gesperrten: gesamt 3. (c) Drei Connections ohne
+           Kunden aendern nichts; nach dem Claim einer davon zaehlt sie. (d)
+           Eine von der Verwaltung fuer ihn angelegte Connection zaehlt
+           sofort. [PO-20]
+
+  T-PO-21  [L] Gesamt-Budget. Aktiv-Budget 3, Puffer 2: (a) drei aktive,
+           zwei von der Verwaltung gesperrte: voll; eine weitere Anlage wird
+           mit BUDGET_TOTAL abgelehnt. (b) Eine gesperrte widerrufen: Anlage
+           nur moeglich, wenn auch aktiv weniger als 3. (c) Aktiv-Budget
+           unbegrenzt: kein Gesamt-Budget. (d) Nirgends ist ein Gesamt-Budget
+           gespeichert. [PO-21]
+
+  T-PO-22  [L] Pruefung bei der Zulassung. (a) VIP mit Standard 3: Die
+           vierte aktive Connection wird abgelehnt (BUDGET_ACTIVE) - bei
+           Anlage, Claim und Wiederherstellung. (b) Ausnahme 4: Die vierte
+           gelingt, die fuenfte nicht. (c) Bei Ablehnung entsteht nichts:
+           kein Anmeldename, kein Schluessel, kein Adressplatz. [K] Kein Weg
+           erhoeht eine Zaehlung, ohne die Auskunft BA zu rufen. [PO-22]
+
+  T-PO-23  [L] Zwei zugleich. Ein Kunde mit einem freien Platz; zwei Anlagen
+           (ebenso Anlage und Claim, Claim und Wiederherstellung) starten
+           gleichzeitig, auch wenn die zweite Transaktion vor dem Warten
+           schon gelesen hat: Genau eine gelingt (Annahme E-PO-01). [PO-23]
+
+  T-PO-24  [L] Rollenwechsel. (a) Vier aktive Connections, Zielrolle mit
+           Aktiv-Budget 3: abgelehnt; keine Connection ist gesperrt oder
+           eingeschraenkt. (b) Zwei aktive: zugelassen; danach gelten die
+           Werte der Zielrolle, nichts zaehlt doppelt. (c) Gesamt ueber dem
+           Gesamt-Budget der Zielrolle: abgelehnt. [PO-24]
+
+  T-PO-25  [L] Reihenfolge der Sperren. Zwei Wiederherstellungen
+           verschiedener Connections desselben Kunden und ein Bewertungslauf
+           ueber dieselben Connections laufen gleichzeitig: kein Abbruch
+           wegen gegenseitiger Sperre; jeder zulassende Vorgang nimmt die
+           Zeile des Kunden zuerst. [PO-25]
+
+  T-PO-26  [L] Rate. Limit 3 je Stunde: (a) Die vierte vom Kunden ausgeloeste
+           Anlage binnen einer Stunde wird abgelehnt (RATE); 61 Minuten nach
+           der ersten gelingt wieder eine. (b) Ein abgelehnter Versuch
+           verlaengert nichts. (c) Eine Anlage durch die Verwaltung wird
+           nicht abgelehnt, zaehlt aber. (d) Limit 0: keine eigene Anlage;
+           "unbegrenzt": keine Rate. [PO-26]
+
+  T-PO-27  [L] Ueberbelegung. Standard einer Rolle von 3 auf 2 senken, ein
+           Kunde hat 3 aktive: (a) die Vorschau nennt ihn; (b) nach dem
+           Schreiben aendert keine Connection ihren Status; (c) Anlage,
+           Claim und Wiederherstellung werden abgelehnt, bis er hoechstens
+           eine aktive weniger als sein Budget hat; (d) Auskunft und Anzeige
+           nennen die Ueberbelegung, der Prueflauf zaehlt sie; (e) nach dem
+           Loeschen einer Connection endet sie. [PO-27]
+
+================================================================================
+KONTINGENT UND PLAN-LIMIT
+================================================================================
+
+  T-PO-28  [L] Ein Kontingent je Kunde. (a) Alle Connections eines Kunden
+           erhalten dasselbe Limit, mit der Herkunft des Kunden. (b) Eine
+           Connection ohne Kunden erhaelt den Standard ihrer eigenen Rolle.
+           (c) Eine Ausnahme aendert das Limit aller Connections des Kunden
+           mit der naechsten Auskunft. [PO-28]
+
+  T-PO-29  [L] Kein Erneuern. Aktiv-Budget 2, Kontingent L: (a) Connection 1
+           verbraucht L und wird geloescht (ebenso: gesperrt, widerrufen);
+           eine neue Connection beginnt bei null, aber der Kundenverbrauch
+           enthaelt weiter L. (b) Sobald alle zusammen 2 L verbraucht haben,
+           gelten alle Connections des Kunden als erschoepft - auch eine
+           eben angelegte. (c) Mit der naechsten Periode ist der
+           Kundenverbrauch wieder der der neuen Periode. (d) Setzt ANF-PO-03
+           b voraus: Der Verbrauch einer in der Periode physisch geloeschten
+           Connection zaehlt weiter. [PO-29]
+
+  T-PO-30  [L] Der Deckel trifft alle. Ist er erreicht, liefert die Auskunft
+           fuer jede Connection des Kunden in der Periode dasselbe Paar
+           (Limit N * L, Kundenverbrauch) und die Grundlage CUSTOMER_CAP.
+           [PO-30]
+
+  T-PO-31  [L] Keine eigene Zahl. (a) Nach beliebig vielen Auskuenften ist
+           keine Tabelle dieses Moduls und kein Feld einer Connection
+           geaendert. (b) Planwechsel, Ausnahme, Rollenwechsel und neue
+           Connection lassen quota_used unveraendert. [PO-31]
+
+  T-PO-32  [L] Auskunft AK-2 je Regel. Je ein Fall fuer QA-1 bis QA-7: kein
+           Wert fuer das Kontingent; unbegrenzt; eigenes Kontingent erreicht
+           (auch bei nicht bestimmbarem Aktiv-Budget: Ergebnis steht fest);
+           Connection ohne Kunden; Aktiv-Budget unbegrenzt; Aktiv-Budget ohne
+           Wert bei nicht erreichtem eigenem Kontingent (Zustand ungleich
+           OK, kein Limit); Deckel erreicht; nichts erreicht. Der Bewerter
+           schraenkt genau die Faelle "Verbrauch >= Limit" ein und laesst
+           die Faelle ohne Wert unveraendert (RT-PH8-PROOF-04). [PO-32]
+
+  T-PO-33  [L] Plan-Limit ohne Plan. Fuer Connections ohne Kunden, von Kunden
+           ohne Plan und von Kunden anderer Rollen liefert die Auskunft AK-1
+           "nein" - auch wenn die Ebene PLAN nicht eingerichtet ist. Fuer
+           einen Kunden mit plan_id ohne MOD-010: PLAN_UNKNOWN. [PO-33]
+
+  T-PO-34  [K] Kein Ueberlauf. Das Produkt der oberen Grenzen von
+           max_active_connections und max_quota_bytes_per_period ist kleiner
+           als 2 hoch 63. [L] Beide Werte an der oberen Grenze: Die Auskunft
+           rechnet richtig. [PO-34]
+
+================================================================================
+SCHREIBEN
+================================================================================
+
+  T-PO-35  [L] Wer schreibt. (a) MODERATOR, VIP und USER koennen ueber das
+           Panel keinen Wert aendern (NOT_AUTHORIZED, protokolliert). (b) Ein
+           Kunde kann sein eigenes Limit auch nicht senken. (c) Die
+           Einspielung traegt nur fehlende Standards ein. [PO-35]
+
+  T-PO-36  [L] Grund und Protokoll. (a) Ein Schreibvorgang ohne Grund wird
+           abgelehnt (REASON_MISSING). (b) Jeder Vorgang steht mit Urheber,
+           altem und neuem Stand (keine Zeile, Wert, unbegrenzt), Grund und
+           Zahl der Betroffenen im Protokoll; jede Ablehnung mit ihrem Grund.
+           (c) Der Datenbank-Benutzer des Panels kann keine Protokollzeile
+           aendern oder loeschen. [PO-36]
+
+  T-PO-37  [L] Unbegrenzt nur ausdruecklich. (a) Leeres Feld, Leerraum,
+           fehlender Wert: abgelehnt (VALUE_INVALID) - nie "unbegrenzt". (b)
+           Das Kennzeichen UNBEGRENZT bei einem Key, der es nicht erlaubt:
+           abgelehnt (UNLIMITED_NOT_ALLOWED). (c) Mit Kennzeichen und
+           Bestaetigung: geschrieben als NULL. [PO-37]
+
+  T-PO-38  [L] Vorschau und Bestaetigung. (a) Aenderung eines Standards ohne
+           Bestaetigung: abgelehnt, auch wenn sie niemanden trifft. (b)
+           Senken einer Ausnahme unter den Bestand: Die Vorschau nennt 1;
+           ohne Bestaetigung abgelehnt. (c) Kleineres Kontingent: Die
+           Vorschau zaehlt die Connections, die danach erschoepft waeren. (d)
+           Zwischen Vorschau und Schreiben kommt ein Betroffener hinzu:
+           abgelehnt (PREVIEW_CHANGED). (e) Ein Standard, den bei allen
+           Kunden eine Ausnahme ueberdeckt: Vorschau 0. [PO-38]
+
+  T-PO-39  [L] Ganz oder gar nicht. Ein Vorgang mit drei Aenderungen, die
+           dritte ungueltig: Keine Zeile ist geaendert; drei Zeilen REJECTED
+           im Protokoll. Gleichzeitig eine Ausnahme und eine Anlage fuer
+           denselben Kunden: Die Anlage sieht den alten oder den neuen Wert,
+           nie einen Zwischenstand. [PO-39]
+
+  T-PO-40  [L] Einspielung. (a) Ein geaenderter Vorschlag ueberschreibt
+           keinen Standard. (b) Eine Definition mit engerer Grenze, unter der
+           ein bestehender Wert ungueltig wuerde: Abbruch ohne Aenderung, mit
+           Nennung von Key, Ebene, Bezug und Wert. (c) Keys mit Betreiberwert
+           bleiben ohne Zeile; das Ergebnis nennt die Luecke. (d) Zweiter
+           Lauf am selben Stand: keine Aenderung. (e) Entfallener Key: seine
+           Zeilen aller Ebenen sind geloescht und protokolliert. [PO-40]
+
+  T-PO-41  [L] Ausnahme und Rollenwechsel. Kunde der Rolle USER mit Ausnahme
+           4, drei aktive Connections, Wechsel nach VIP (Standard 3): (a) Die
+           Vorpruefung zeigt die Ausnahme mit dem Wert vorher und nachher;
+           (b) der Wechsel gelingt, weil die Ausnahme weiter gilt; (c) ohne
+           die Ausnahme und mit vier aktiven waere er abgelehnt; (d) nach dem
+           Wechsel ergeben sich alle uebrigen Werte aus der neuen Rolle.
+           [PO-41]
+
+================================================================================
+BEOBACHTBARKEIT UND GRENZEN
+================================================================================
+
+  T-PO-42  [L] Meldungen. Je ein Fall: fehlender Standard, ungueltige
+           Ausnahme, Zeile zu einem unbekannten Key, von Hand geaenderte
+           Zeile ohne Protokoll, Kunde der Rolle VIP mit plan_id. Jeder ist
+           beim Eintritt gemeldet, steht im Status, wird bei Andauern nicht
+           bei jeder Auskunft erneut gemeldet und nach der Behebung als
+           behoben gemeldet. [PO-42]
+
+  T-PO-43  [L] Prueflauf. (a) Nach einem Lauf ist keine Zeile geaendert. (b)
+           Bei angehaltenem Prueflauf liefern alle Auskuenfte weiter; der
+           Status ist als veraltet gekennzeichnet. (c) Ohne Datenbank prueft
+           er den Katalog und meldet die Datenbank. [PO-43]
+
+  T-PO-44  [L] Sichtbarkeit. (a) Ein Kunde erhaelt nur eigene Werte, nur die
+           fuer ihn sichtbaren Keys und nie den Grundtext einer Ausnahme; die
+           Rate sieht er nicht. (b) MODERATOR sieht Werte, Herkunft und
+           Verlauf und kann nichts aendern. (c) Ausserhalb des VPN ist die
+           Auskunft nicht erreichbar. [PO-44]
+
+  T-PO-45  [L] Keine Folgen. Nach Schreibvorgaengen und Auskuenften hat kein
+           Werkzeug dieses Moduls einen Status, einen Grund, eine Frist oder
+           einen Auftrag geschrieben oder eine Sitzung beendet. Nach einer
+           geaenderten Ausnahme ist die Bewertung des Kunden ueber den
+           Auftragsweg angefordert; unterbleibt das, holt der naechste Lauf
+           sie nach. [PO-45]
+
+  T-PO-46  [L] Rechte. Der Datenbank-Benutzer radius hat kein Recht auf
+           policy_... und log_policy_audit. [PO-46]
+
+================================================================================
+ABNAHME DER EINRICHTUNG
+================================================================================
+
+  T-PO-47  [L] Vor dem Betrieb (BASE-100_070 EB-1 bis EB-4). Nach
+           Einspielung und Eingabe der Betreiberwerte meldet der Prueflauf
+           fuer jeden Key und jede Rolle OK; fehlt ein Betreiberwert, gilt
+           die Einrichtung nicht als abgeschlossen. Kein Kunde traegt ein
+           plan_id. [PO-47, PO-10]
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

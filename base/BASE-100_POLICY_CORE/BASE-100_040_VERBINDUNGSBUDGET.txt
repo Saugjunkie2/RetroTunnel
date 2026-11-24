@@ -1,0 +1,289 @@
+================================================================================
+BASE-100 — VERBINDUNGSBUDGET
+================================================================================
+DATEI: BASE-100_040_VERBINDUNGSBUDGET.txt
+STATUS: IN ARBEIT (AP-K100; Modul noch unvollstaendig)
+
+ZWECK:
+  Wie die Connections eines Kunden gezaehlt werden, welche Budgets
+  gelten, welche Vorgaenge am Budget geprueft werden, wie die Pruefung in
+  der Transaktion des Vorgangs ablaeuft (Auskunft BA), wie die Rate der
+  Anlagen begrenzt ist und was bei einer Ueberbelegung gilt. Grundlage
+  sind DEC-PO-09 und DEC-PO-10.
+
+================================================================================
+1) ZAEHLUNG
+================================================================================
+
+  Fuer einen Kunden k:
+
+    A(k)  AKTIV-ZAEHLUNG:  Zahl der Zeilen in vpn_connections mit
+                           customer_id = k, revoked_at IS NULL und
+                           op_status ACTIVE oder RESTRICTED
+    G(k)  GESAMT-ZAEHLUNG: Zahl der Zeilen in vpn_connections mit
+                           customer_id = k und revoked_at IS NULL
+
+  ZR-1  GEZAEHLT WIRD DER GESPEICHERTE ZUSTAND - nicht, ob gerade eine
+        Sitzung besteht, und nicht, wer die Connection in ihren Zustand
+        gebracht hat (DEC-PO-09 a).
+  ZR-2  EINGESCHRAENKT ZAEHLT AKTIV, gleich aus welchem Grund:
+        ausgeschoepftes Kontingent, abgelaufene Laufzeit, Plan-Limit,
+        Einschraenkung durch die Verwaltung - und die PAUSE durch den
+        Kunden (D003-E06 a: "Zaehlt: ACTIVE, RESTRICTED"). Sonst liesse
+        sich eine Einschraenkung umgehen, indem man eine neue Connection
+        anlegt.
+  ZR-3  GESPERRT ZAEHLT NUR GESAMT - solange die Connection nicht
+        widerrufen ist: waehrend ihres Restore-Fensters und bis ein
+        faelliger Widerruf ausgefuehrt ist.
+  ZR-4  WIDERRUFEN ZAEHLT NICHT MEHR: weder der Tombstone noch eine
+        Connection in Quarantaene (D003-E06 b: "Zaehlt NICHT: Terminal
+        revoked/recycled").
+  ZR-5  OHNE KUNDEN ZAEHLT NICHTS: Eine Connection ohne Kunden belastet
+        kein Budget. Sie zaehlt vom Claim an gegen das Budget dessen, der
+        sie uebernimmt (D003 T-D003-06a).
+  ZR-6  Eine Connection, die die Verwaltung FUER einen Kunden anlegt,
+        zaehlt sofort (D003 T-D003-06b).
+
+  Zusammen mit BASE-010 INV-63 ist das EINE Regel an zwei Stellen: INV-63
+  nennt sie als Invariante des Datenmodells; hier steht, wie gezaehlt und
+  wann geprueft wird. INV-63 verweist kuenftig hierher (ANF-PO-02).
+
+================================================================================
+2) BUDGETS
+================================================================================
+
+    MA(k)  AKTIV-BUDGET:   der wirksame Wert von max_active_connections
+                           fuer k (Auskunft AW)
+    B      PUFFER:         das Setting vpn_disabled_connection_buffer
+                           (global; aufgeloest ueber BASE-090)
+    MG(k)  GESAMT-BUDGET:  MA(k) + B
+
+  BU-1  MG WIRD ABGELEITET, NIE GESPEICHERT (D003-E06 b). Es gibt keinen
+        Key und keine Ausnahme fuer das Gesamt-Budget.
+  BU-2  Ist MA unbegrenzt, ist auch MG unbegrenzt.
+  BU-3  Hat MA keinen Wert (Zustand nicht OK), hat auch MG keinen.
+  BU-4  DER PUFFER IST EIN SETTING, kein Recht (D003-E06 b:
+        "Systemverhalten, nicht Kundenrecht"): Er gilt fuer alle Kunden
+        gleich. Fehlt er oder ist er ungueltig, liefert die Aufloesung
+        der Settings seinen Notwert (BASE-090_060: 2). Scheitert sie als
+        Ganzes, hat MG keinen Wert.
+
+  WOZU DER PUFFER: Eine gesperrte Connection belegt weiter Adresse und
+  Platz und kann wiederhergestellt werden. Der Puffer sagt, wie viele
+  solche Connections ein Kunde NEBEN seinen aktiven behalten darf, ohne
+  dass ihm die Anlage einer neuen verwehrt wird.
+
+================================================================================
+3) WAS AM BUDGET GEPRUEFT WIRD
+================================================================================
+
+  Vorhaben                         zulaessig, wenn
+  -------------------------------- ----------------------------------------
+  CREATE   Anlage einer            A + 1 <= MA  UND  G + 1 <= MG;
+           Connection FUER einen   loest der KUNDE sie aus, zusaetzlich
+           Kunden                  die Rate (Abschnitt 5)
+  CLAIM    Uebernahme einer        A + 1 <= MA  UND  G + 1 <= MG
+           Connection ohne Kunden
+           (T-01)
+  RESTORE  Wiederherstellung       A + 1 <= MA
+           (T-08)
+  ROLE_    Rollenwechsel des       A <= MA'  UND  G <= MG'  - mit den
+  CHANGE   Kunden (T-09)           Werten der ZIELROLLE
+
+  ZL-1  ANLAGE (DOMAIN_MODEL 6.4, Weg "Fuer User"; BASE-010_070 Weg B):
+        Die Pruefung steht VOR dem Anlegen und in derselben Transaktion.
+        Schlaegt sie fehl, entsteht nichts - kein Anmeldename, kein
+        Schluessel, kein Adressplatz.
+  ZL-2  CLAIM: Die uebernommene Connection ist ACTIVE oder RESTRICTED und
+        zaehlt danach aktiv und gesamt.
+  ZL-3  WIEDERHERSTELLUNG: G aendert sich nicht; geprueft wird allein das
+        Aktiv-Budget. Das gilt auch, wenn der Kunde im Gesamt-Budget
+        ueberbelegt ist.
+  ZL-4  ROLLENWECHSEL (D002 7.6): MA' ist der wirksame Wert, den der
+        Kunde MIT der Zielrolle haette - seine Ausnahmen bleiben
+        (DEC-PO-14), sein Plan zaehlt nur, wenn die Zielrolle USER ist.
+        Ueberschreitet der Bestand das Budget der Zielrolle, wird der
+        Wechsel ABGELEHNT; keine Connection wird dafuer gesperrt.
+  ZL-5  NICHT GEPRUEFT werden: Pause und ihr Aufheben, jede Bewertung
+        (T-02, T-03, T-05, T-06), Sperren (T-04, T-07), Widerruf,
+        Loeschen, das Aufheben der Sperrung eines Kunden (es stellt
+        keine Connection von selbst wieder her, BASE-080 ANF-PA-01 e)
+        und die Anlage OHNE Kunden. Keiner dieser Vorgaenge erhoeht A
+        oder G.
+  ZL-6  PLANWECHSEL: Ihn prueft MOD-010. Senkt er ein Limit unter den
+        Bestand, entsteht eine Ueberbelegung, die ueber die Auskunft
+        AK-1 zur Einschraenkung fuehren kann (BASE-100_050 Abschnitt 4).
+  ZL-7  OHNE WERT KEINE ZULASSUNG: Hat ein benoetigtes Budget keinen
+        Wert, wird das Vorhaben abgelehnt (Grund LIMIT_UNKNOWN;
+        DEC-PO-05).
+
+================================================================================
+4) DIE AUSKUNFT BA UND DIE PRUEFUNG IN DER TRANSAKTION
+================================================================================
+
+  AUFRUF: ein Kunde; wahlweise ein VORHABEN (CREATE, CLAIM, RESTORE,
+    ROLE_CHANGE mit Zielrolle) und sein AUSLOESER (CUSTOMER oder
+    OPERATOR).
+  ERGEBNIS:
+    a, g            die Zaehlungen
+    ma, mg          die Budgets - je Wert oder "unbegrenzt", mit Zustand
+                    und Herkunft von MA
+    buffer          der Puffer
+    over            ja, wenn a > ma oder g > mg (Ueberbelegung)
+    created_1h, mr  Anlagen der letzten Stunde und das Limit der Rate
+    verdict         nur mit Vorhaben: ALLOWED oder DENIED
+    deny_reason     BUDGET_ACTIVE | BUDGET_TOTAL | RATE | LIMIT_UNKNOWN |
+                    SUBJECT_UNKNOWN
+  Die Zahlen genuegen fuer die Meldung an den Kunden (DOMAIN_MODEL 6.5):
+  "Du hast g Verbindungen (a aktive, g - a deaktivierte). Maximum: ma
+  aktive, mg gesamt."
+
+  ZWEI ARTEN DES AUFRUFS
+    PRUEFUNG   mit Vorhaben, IN DER TRANSAKTION des zulassenden Vorgangs.
+               Nur ihr Ergebnis laesst etwas zu.
+    AUSKUNFT   ohne Vorhaben, in einem eigenen Schnappschuss, ohne
+               Sperre. Fuer Anzeige, Vorschau und Prueflauf. Sie kann
+               veraltet sein, sobald sie angezeigt wird, und laesst
+               nichts zu.
+
+  ABLAUF DER PRUEFUNG (der Aufrufer hat seine Transaktion geoeffnet):
+    BP-1  SPERREN. BA sperrt die Zeile des Kunden in web_customers
+          (SELECT ... FOR UPDATE). Gibt es ihn nicht: DENIED,
+          SUBJECT_UNKNOWN.
+    BP-2  WERTE. BA loest max_active_connections und - bei CREATE durch
+          den Kunden - max_connection_creates_per_hour in DIESER
+          Transaktion auf (Auskunft AW; bei ROLE_CHANGE mit der
+          Zielrolle) und den Puffer ueber BASE-090.
+    BP-3  ZAEHLEN. BA zaehlt A und G - und, wo noetig, die Anlagen der
+          letzten Stunde - mit SPERRENDEM Lesen der Connection-Zeilen
+          des Kunden.
+    BP-4  URTEIL nach Abschnitt 3.
+    BP-5  Der Aufrufer schreibt bei ALLOWED seine Aenderung in derselben
+          Transaktion und schliesst sie ab. Bei DENIED schreibt er
+          nichts.
+
+  ZUSAGEN UND PFLICHTEN
+    BZ-1  NACHEINANDER JE KUNDE: Zwei Zulassungen fuer denselben Kunden
+          laufen an der Sperre aus BP-1 nacheinander. Die zweite zaehlt
+          die Connection der ersten mit (SZ-7).
+    BZ-2  SPERRENDES LESEN IST PFLICHT: Die Zaehlung liest den Stand, der
+          NACH dem Erhalt der Sperre festgeschrieben ist - nicht einen
+          Schnappschuss, den die Transaktion vor dem Warten begonnen
+          hat. Sonst saehe die zweite Zulassung die Connection der
+          ersten nicht (Annahme E-PO-01).
+    BZ-3  REIHENFOLGE DER SPERREN: Pools, dann Kunde, dann Connections -
+          wie beim Rollenwechsel (BASE-080_060 Schritt RC3 a). Ein
+          zulassender Vorgang sperrt die Zeile des Kunden, BEVOR er eine
+          Connection-Zeile sperrt; braucht er einen Pool, sperrt er ihn
+          vor dem Aufruf von BA. Laeufe, die nur EINE Connection sperren
+          (der Bewerter), nehmen die Sperre des Kunden nicht und koennen
+          deshalb mit einer Zulassung keinen Kreis bilden.
+    BZ-4  BA SCHREIBT NICHTS und fuehrt nichts aus.
+    BZ-5  NUR ZULASSUNGEN ERHOEHEN A ODER G, und jede Zulassung ruft BA
+          (ZL-1 bis ZL-4). Ein Vorgang, der A oder G erhoeht, ohne BA zu
+          rufen, ist ein Fehler des Programms.
+    BZ-6  ABLEHNUNGEN aus dem Budget oder der Rate sind gewoehnlicher
+          Betrieb und kein Ereignis. Eine Ablehnung mit LIMIT_UNKNOWN
+          wird gemeldet (RIGHTS_ADMISSION_BLOCKED): Dann fehlt nicht dem
+          Kunden ein Recht, sondern dem System ein Wert.
+
+  WER RUFT: die Routinen von BASE-010 fuer Anlage, Claim (T-01),
+  Wiederherstellung (T-08) und Rollenwechsel (T-09); beim Rollenwechsel
+  im Schritt RC3 c von BASE-080_060. Die Anforderung steht in
+  ANF-PO-02; sie beantwortet BASE-080 ANF-PA-01 m.
+
+================================================================================
+5) RATE DER ANLAGEN
+================================================================================
+
+    MR(k)  der wirksame Wert von max_connection_creates_per_hour
+    R(k)   Zahl der Connections, die in den letzten 3.600 Sekunden FUER
+           den Kunden k angelegt wurden (Datenbankzeit)
+
+  RT-1  GEPRUEFT wird die Rate nur, wenn der KUNDE die Anlage ausloest
+        (Selbstbedienung, BASE-010_070 Weg B): zulaessig, wenn
+        R + 1 <= MR. Sie schuetzt vor schnellem Anlegen in Serie
+        (D003-E06: "Rapid-Create Abuse").
+  RT-2  GEZAEHLT wird jede Anlage fuer den Kunden - auch die der
+        Verwaltung -, aber eine Anlage durch die Verwaltung wird an der
+        Rate nicht abgelehnt.
+  RT-3  Das Fenster GLEITET: Es gibt keinen Stichzeitpunkt, an dem alle
+        Zaehler zugleich frei werden. Ein abgelehnter Versuch zaehlt
+        nicht.
+  RT-4  QUELLE DER ZAEHLUNG: ein Lifecycle-Ereignis je Anlage mit der
+        Kennung des Kunden (angefordert, ANF-PO-02 c). BIS DAHIN: die
+        Zeilen in vpn_connections mit customer_id = k und created_at im
+        Fenster, widerrufene eingeschlossen. Das zaehlt eine uebernommene
+        Connection mit, die in der letzten Stunde angelegt wurde - nie
+        zu wenig, hoechstens zu viel.
+  RT-5  MR = 0 heisst: Der Kunde legt nichts selbst an. "Unbegrenzt"
+        heisst: keine Rate.
+
+  STAND: Die Selbstbedienung ist vorgesehen, aber nicht ausgearbeitet
+  (BASE-010_070 Abschnitt 4: "Aktuell NICHT implementiert"). Der Key
+  steht schon im Katalog, damit sie nicht ohne diesen Schutz beginnt.
+
+================================================================================
+6) UEBERBELEGUNG
+================================================================================
+
+  UE-1  UEBERBELEGT ist ein Kunde, wenn A > MA oder G > MG gilt und
+        beide Budgets einen Wert haben (DEC-PO-10).
+  UE-2  SIE ENTSTEHT NUR DURCH EINEN GESENKTEN WERT: Standard der Rolle,
+        Ausnahme (auch ihr Loeschen), Plan-Wert, Puffer. Keine Zulassung
+        fuehrt in sie hinein (Abschnitt 3).
+  UE-3  NICHTS WIRD WEGGENOMMEN: Kein Status aendert sich, keine Sitzung
+        endet. BASE-100 stoesst keinen Uebergang an.
+  UE-4  NICHTS WIRD ZUGELASSEN, was die Bedingung aus Abschnitt 3 nicht
+        erfuellt - bis der Kunde wieder im Budget ist.
+  UE-5  SIE IST SICHTBAR: Die Auskunft BA nennt sie (over); die
+        Verwaltung sieht die Liste der ueberbelegten Kunden, der Kunde
+        einen Hinweis mit seinen Zahlen. Der Prueflauf zaehlt sie und
+        meldet die Zahl (RIGHTS_OVERBOOKED).
+  UE-6  SIE ENDET, wenn Connections wegfallen (Widerruf, Loeschen; fuer
+        das Aktiv-Budget auch Sperren) oder der Wert steigt.
+  UE-7  DER SCHREIBKERN WARNT VORHER: Vor dem Senken eines Wertes zeigt
+        er, wie viele Kunden danach ueberbelegt waeren, und verlangt die
+        Bestaetigung (BASE-100_060 Abschnitt 4).
+
+================================================================================
+7) VERHAELTNIS ZU D003, DOMAIN_MODEL UND D002
+================================================================================
+
+  Quelle                                 hier
+  -------------------------------------- ---------------------------------
+  D003-E06 a Aktiv-Budget; "Zaehlt:      uebernommen (A, ZR-2 bis ZR-4)
+  ACTIVE, RESTRICTED. Zaehlt NICHT:
+  DISABLED, PREPROVISIONED, revoked"
+  D003-E06 b Gesamt-Budget abgeleitet;   uebernommen (G, MG, BU-1, ZR-5)
+  ownerlose zaehlen erst nach Claim
+  D003-E06 Rate                          uebernommen und gefasst
+                                         (Abschnitt 5)
+  D003-E06 "fachlich formuliert, nicht   die technische Fassung steht in
+  technisch ... 'Ist der Slot noch       Abschnitt 1; sie folgt der
+  belegt?'"                              fachlichen: Belegt ist, was
+                                         nicht widerrufen ist
+  DOMAIN_MODEL 6.4 zwei Wege der         uebernommen (ZR-5, ZR-6, ZL-1)
+  Anlage; Pruefung vor der Erstellung
+  DOMAIN_MODEL 6.5 Panel-Meldung         die Zahlen liefert BA
+                                         (Abschnitt 4); den Wortlaut das
+                                         Panel
+  DOMAIN_MODEL 6.5 b "DISABLED (user +   ANGEPASST (DEC-PO-09): Gesperrt
+  admin-restoreable)"; T-D003-07         wird heute nur durch Verwaltung
+  ("User deaktiviert")                   oder Frist; die Pause des Kunden
+                                         ist RESTRICTED und zaehlt aktiv
+  D002 7.6 Budget der neuen Rolle;       uebernommen (ZL-4)
+  Ablehnung des Wechsels
+  D003-E02 "Budget-Subjekt ist           uebernommen: gezaehlt und
+  CUSTOMER, nicht CUSTOMER+ROLE"         geprueft wird je Kunde
+  BASE-010 INV-63                        dieselbe Regel; Verweis
+                                         angefordert (ANF-PO-02)
+  DOMAIN_MODEL 6.6 SimUse = 1 je         bleibt bei BASE-070_030; kein
+  Connection                             Policy-Key (BASE-100_050
+                                         Abschnitt 6, Frage 3)
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

@@ -1,0 +1,269 @@
+================================================================================
+BASE-100 — POLICY CORE (INDEX)
+================================================================================
+DATEI: BASE-100_INDEX.txt
+VERSION: v1.0
+DATUM: 2026-11-24
+STATUS: IN ARBEIT (AP-K100; Modul noch unvollstaendig)
+
+================================================================================
+1) ZWECK
+================================================================================
+
+  BASE-100 ist der Policy-Kern von RetroTunnel: das System der Rechte und
+  Limits eines Kunden. Er legt fest, WELCHE Rechte und Limits es gibt
+  (Katalog), WO ihre Werte liegen (Standard der Rolle, Wert des Plans,
+  Ausnahme fuer einen Kunden), WIE daraus fuer jeden Kunden genau ein
+  wirksamer Wert mit Herkunft wird (Aufloesung), WIE das
+  Verbindungsbudget gezaehlt und bei jeder Zulassung geprueft wird, WAS
+  dem Bewerter ueber Kontingent und Plan-Limit gesagt wird und WER einen
+  Wert auf welchem Weg aendert.
+
+  Leitsatz: KEIN RECHT OHNE KATALOG, KEIN RECHT AUS UNWISSEN.
+  Was fehlt oder falsch ist, laesst nichts zu - und nimmt nichts weg.
+
+  Das Modul fuehrt die Entscheidung D003 aus (eigenes Policy-System neben
+  den Settings), loest Abschnitt 6 von model/DOMAIN_MODEL.txt auf und
+  uebernimmt die zwei Verbindungslimits, die bisher uebergangsweise
+  Settings waren.
+
+================================================================================
+2) SCOPE UND ABGRENZUNG
+================================================================================
+
+  IN SCOPE:
+  - Katalog: Felder eines Eintrags, zwei Typen und strenges Lesen,
+    "unbegrenzt", Vorschlag je Rolle, Pruefung beim Laden
+  - Werte: Standards der Rollen, Ausnahmen je Kunde, Form der Plan-Werte,
+    Protokoll
+  - Aufloesung: Vertrag und Ablauf der Auskunft "wirksamer Wert", ein
+    Fehlerverhalten, wann gelesen wird, viele Bezuege in einem Zugriff
+  - Verbindungsbudget: Zaehlung, Aktiv- und Gesamt-Budget, Pruefung in
+    der Transaktion der Zulassung, Rate der Anlagen, Ueberbelegung
+  - Kontingent: Limit je Connection, Deckel je Kunde, Auskunft fuer den
+    Bewerter; Auskunft zum Plan-Limit; Nahtstelle zu Plaenen
+  - Schreibkern: Urheber, Ablauf, Vorschau der Folgen,
+    Ablehnungsgruende, Einspielung, Schreiben am Schreibkern vorbei
+  - Verzeichnis der Keys (3 Eintraege), Anmeldung eines Keys, Werkzeuge,
+    Pfade, Rechte, Prueflauf, Ereignisse, Auskunft fuer Verwaltung und
+    Kunden, Einrichtung vor dem Betrieb
+
+  NICHT IN SCOPE (Owner anderswo):
+  - Was ein erreichtes Limit ausloest: Bewertung,
+    Zielzustand, Herstellung                        -> BASE-080
+  - Statusuebergaenge, Gruende, Fristen; Felder von
+    Kunde und Connection; Rolle, plan_id            -> BASE-010
+  - Buchung des Verbrauchs, Quota-Periode, SimUse   -> BASE-070
+  - Was eine eingeschraenkte Connection erreicht;
+    DNS-Zwang, Filter, Trennung der Clients         -> BASE-050, BASE-060
+  - Betriebsparameter                               -> BASE-090
+  - Plaene (Tabelle, Laufzeit, Preis, Wechsel,
+    Auffuellen, Regel des Plan-Limits)              -> MOD-010
+  - Geschwindigkeit                                 -> MOD-003
+  - Oberflaeche, privilegierter Auftragsweg         -> BASE-110, MOD-006
+  - Aufbewahrung von Protokollen                    -> MOD-007
+
+  ABDECKUNG DER PLANUNG (PRIORITAETENLISTE M2-100):
+    policy_catalog, policy_role_defaults,   _020 Abschnitt 5 - angepasst:
+    policy_customer_overrides               Der Katalog ist eine Datei der
+                                            Auslieferung, policy_catalog
+                                            ihre Kopie (DEC-PO-02)
+    Aufloesung Override, Plan, Default;     _030 (DEC-PO-03)
+    wirksamer Wert
+    Panel-Integration (D003-E07)            _070 Abschnitt 6 (DEC-PO-17)
+    Unlimited-Semantik (NULL)               DEC-PO-04; _020 Abschnitt 3
+    DOMAIN_MODEL Abschnitt 6 lesen,         _080 Abschnitt 9 und die
+    zurueckverfolgen, abgleichen            Rueckverfolgung
+    Altes Konzept B057 (teilweise), B030,   Abschnitt 8 unten
+    B058
+
+================================================================================
+3) DATEIEN IN DIESEM ORDNER
+================================================================================
+
+  BASE-100_INDEX.txt                                 Dieses Dokument
+  BASE-100_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt    Schutzziele, Begriffe,
+                                                     Komponenten,
+                                                     DEC-PO-01..17
+  BASE-100_020_KATALOG_UND_WERTE.txt                 Katalog-Definition,
+                                                     Felder, Typen,
+                                                     "unbegrenzt",
+                                                     Vorschlag, Tabellen,
+                                                     Pruefung beim Laden
+  BASE-100_030_AUFLOESUNG.txt                        Auskunft AW: Vertrag,
+                                                     Ablauf, Verbraucher,
+                                                     Lesen
+  BASE-100_040_VERBINDUNGSBUDGET.txt                 Zaehlung, Budgets,
+                                                     Zulassungen, Auskunft
+                                                     BA, Rate,
+                                                     Ueberbelegung
+  BASE-100_050_KONTINGENT_UND_PLAN_NAHTSTELLE.txt    Kontingent,
+                                                     Kundenverbrauch,
+                                                     Auskuenfte AK-2 und
+                                                     AK-1, Nahtstelle zu
+                                                     Plaenen
+  BASE-100_060_SCHREIBKERN_UND_EINSPIELUNG.txt       Urheber,
+                                                     Schreibvorgang,
+                                                     Vorschau,
+                                                     Ablehnungsgruende,
+                                                     Einspielung
+  BASE-100_070_KEY_VERZEICHNIS_UND_BETRIEB.txt       die Keys; Werkzeuge,
+                                                     Pfade, Rechte,
+                                                     Prueflauf,
+                                                     Ereignisse, Auskunft,
+                                                     Einrichtung
+  BASE-100_080_OWNER_GRENZEN.txt                     Besitz, Grenzregeln,
+                                                     Antworten auf vier
+                                                     Anforderungen,
+                                                     ANF-PO-01..13,
+                                                     E-PO-01..05,
+                                                     OPEN-PO-01..06,
+                                                     Verbleib von
+                                                     DOMAIN_MODEL 6 und
+                                                     D003
+  BASE-100_090_INVARIANTEN.txt                       PO-01..PO-47
+  BASE-100_095_TESTS.txt                             T-PO-01..T-PO-47
+
+================================================================================
+4) TABELLEN DIESES MODULS
+================================================================================
+
+  Tabelle                    Zweck                             Datei
+  -------------------------- --------------------------------- --------
+  policy_catalog             Kopie der Katalog-Definition      _020
+  policy_role_defaults       je Key und Rolle genau ein Wert   _020
+  policy_customer_overrides  je Kunde und Key hoechstens ein   _020
+                             Wert
+  policy_plan_values         je Plan und Key hoechstens ein    _020, _050
+                             Wert (angelegt mit MOD-010)
+  log_policy_audit           Protokoll der Schreibvorgaenge    _020, _060
+                             und Ablehnungen (nur anfuegend)
+
+  Die ersten vier fuehrt die Registry von BASE-000 bereits; die fuenfte
+  ist neu und dort beantragt (ANF-PO-01). Massgeblich fuer Typ, Grenzen
+  und die Erlaubnis "unbegrenzt" ist die Katalog-Definition, nicht ihre
+  Kopie.
+
+================================================================================
+5) PLATTFORM-CONTRACT (KURZFASSUNG)
+================================================================================
+
+  Werkzeuge   vpn-rights-get (Aufloeser, vier Auskuenfte), vpn-rights-set
+              (Schreibkern mit Vorschau), vpn-rights-seed (Einspielung),
+              vpn-rights-check (Prueflauf) - alle aus derselben
+              Bibliothek wie Panel und Verbraucher
+  Lauf        vpn-rights-check - Zeitgeber fest, Takt aus
+              policy_check_interval_seconds
+  Pfade       /usr/local/share/retrotunnel/rights/ (Katalog-Definition
+              und Pruefsumme, Teil der Auslieferung),
+              /run/retrotunnel/rights/ (Status des Prueflaufs)
+  Bereitschaft keine eigene: Kein Dienst wartet auf dieses Modul; die
+              Auskuenfte liest, wer sie braucht, in seinem Vorgang
+  Einzelheiten: BASE-100_070 Abschnitte 2 und 3; die Aufnahme der Pfade
+  in das Verzeichnis der Plattform ist beantragt (ANF-PO-10).
+
+================================================================================
+6) ZUSAGEN IM UEBERBLICK
+================================================================================
+
+  - Kein Recht und kein Limit ohne Katalogeintrag; kein Standardwert im
+    Programm und keine zweite Quelle (PO-01).
+  - "Unbegrenzt" traegt nur eine vorhandene Zeile; eine fehlende Zeile,
+    ein leeres Feld und jede Zahl sind es nie (PO-07, PO-08, PO-37).
+  - Ohne gueltigen Wert gibt es keinen Wert: Nichts wird zugelassen,
+    nichts wird weggenommen, der Bewerter erhaelt "unbekannt" (PO-15).
+  - Die erste vorhandene Zeile entscheidet - Ausnahme vor Plan vor Rolle;
+    eine ungueltige laesst nicht ausweichen (PO-13).
+  - Jeder wirksame Wert nennt seine Herkunft (PO-16); fuer alle Rollen
+    gilt dieselbe Aufloesung (PO-17).
+  - Das Verbindungsbudget wird in der Transaktion der Zulassung geprueft;
+    zwei gleichzeitige Zulassungen ueberschreiten es nie gemeinsam
+    (PO-22, PO-23).
+  - Ein gesenktes Limit nimmt nichts weg; es laesst nur nichts mehr zu
+    (PO-27).
+  - Kein Kontingent erneuert sich durch Loeschen und Neuanlegen (PO-29).
+  - Ein Schreibweg, nur die Verwaltung, immer mit Grund; vor einer
+    Verschaerfung steht die Zahl der Betroffenen (PO-35, PO-36, PO-38).
+  - Der Katalog ist im Betrieb unveraenderlich; weicht die Kopie in SQL
+    ab, gilt die Definition (PO-02, PO-06).
+  - Kein zeitkritischer Pfad fragt nach Rechten (PO-19).
+  - Keine Schutzfunktion ist ein Key (PO-05).
+  - BASE-100 schreibt keinen Status und fuehrt keine Folge einer
+    Aenderung aus (PO-45).
+
+  WAS VON NACHZUEGEN ANDERER MODULE ABHAENGT (BASE-100_080 Abschnitte 6
+  und 8): PO-22, PO-23 und PO-25 gelten, sobald BASE-010 die Pruefung in
+  seinen Routinen ruft (ANF-PO-02); PO-29 gilt fuer eine innerhalb ihrer
+  Periode physisch geloeschte Connection erst mit ANF-PO-03 b; die Rate
+  (PO-26) wirkt erst mit der Selbstbedienung (OPEN-PO-04).
+
+================================================================================
+7) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  BASE-100 liefert dem Panel ueber die Bibliothek: je Kunde und Key den
+  wirksamen Wert (Zahl, ja/nein oder "unbegrenzt"), seine Herkunft
+  (Standard der Rolle, Plan, Ausnahme), den Standard daneben, Grund und
+  Urheber einer Ausnahme und den Zustand; je Kunde das Budget mit den
+  Zaehlungen und die Ueberbelegung; je Connection Limit und Verbrauch des
+  Kontingents; die Standards der Rollen, alle Ausnahmen, den Verlauf mit
+  den abgelehnten Versuchen; vor dem Speichern die Vorschau der Folgen.
+  Die Verwaltung schreibt nur ueber den Schreibkern - mit Grund und, wo
+  verlangt, Bestaetigung. MODERATOR liest; ein Kunde sieht seine eigenen
+  sichtbaren Werte und seinen Verbrauch (BASE-100_070 Abschnitt 6).
+
+================================================================================
+8) VORGAENGER UND AUFGELOESTE DOKUMENTE
+================================================================================
+
+  RetroTunnel:
+    decisions/D003 (Policy-System, Rolle am Kunden)    ausgefuehrt; bleibt
+                                                       als Entscheidung;
+                                                       Verbleib in _080
+                                                       Abschnitt 9
+    model/DOMAIN_MODEL.txt Abschnitt 6 und 5.5         aufgeloest; Verbleib
+    (DEPRECATED)                                       in _080 Abschnitt 9
+    D002 7.6 (Budget beim Rollenwechsel)               _040 ZL-4
+    D004-E04, -E08 (Buchung je Connection;             _050
+    Planwechsel ohne Zuruecksetzen)
+    BASE-010 INV-63, INV-41                            _040; _030 AB-2
+    BASE-070 ANF-SC-12, BASE-080 ANF-PA-02 und         beantwortet (_080
+    ANF-PA-01 m, BASE-090 ANF-ST-11                    Abschnitt 5)
+    04_PHASE_PLAN OPEN-PHP-08, OPEN-PHP-10, K-PH8-02   _010 Abschnitt 6
+  Vorgaenger xp-vpn-stack und Nachlieferung:
+    B057 13.9 (Auswahl statt Freitext; plan_key)       _020 (zwei Typen,
+                                                       kein Freitext);
+                                                       plan_key: MOD-010
+    B030 (Grundsaetze: Policy im Betriebssystem)       betrifft BASE-050;
+                                                       hier nur SZ-10
+    B058 (abgeleitete Policy je Connection)            BASE-080_080
+                                                       Abschnitt 10; kein
+                                                       Gegenstand dieses
+                                                       Moduls
+    Entwurf "Plans" der Nachlieferung                  _050 Abschnitt 6
+  Die Einordnung jeder Vorgaenger-Aussage (uebernommen, angepasst,
+  ersetzt, nicht anwendbar) steht in den Rueckverfolgungs-Records unter
+  governance/register/trace/.
+
+================================================================================
+9) BELEGSTAND
+================================================================================
+
+  ENTWURF, erste Fassung (2026-11-24). Dokumentiert; die Quellen D003,
+  DOMAIN_MODEL Abschnitte 5.5 und 6, der Entwurf "Plans", B030 und die
+  Anforderungen der Nachbarmodule wurden beim Schreiben vollstaendig
+  gelesen, die angrenzenden Stellen von BASE-010, BASE-070, BASE-080 und
+  BASE-090 in den genannten Abschnitten.
+
+  NOCH OFFEN: die Eigenpruefung im Zusammenhang (Schritte 1 bis 3 des
+  Qualitaets-Gates), die Rueckverfolgung Aussage fuer Aussage und die
+  unabhaengige Pruefung. Kein Test dieses Moduls wurde ausgefuehrt; die
+  Annahmen E-PO-01 bis E-PO-05 sind nicht praktisch bestaetigt. Die
+  Geschaeftswerte des Betreibers (OPEN-PO-01) und die Nachzuege an den
+  geschriebenen Modulen (ANF-PO-01 bis ANF-PO-05) stehen aus.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

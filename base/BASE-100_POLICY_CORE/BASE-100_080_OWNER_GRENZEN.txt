@@ -1,0 +1,370 @@
+================================================================================
+BASE-100 — OWNER-GRENZEN, ANFORDERUNGEN UND VERBLEIB DER QUELLEN
+================================================================================
+DATEI: BASE-100_080_OWNER_GRENZEN.txt
+STATUS: IN ARBEIT (AP-K100; Modul noch unvollstaendig)
+
+ZWECK:
+  Was dieses Modul besitzt und was nicht, die Grenzregeln, die Antworten
+  auf die Anforderungen der Nachbarn, die Anforderungen an andere Module,
+  die zu verifizierenden Annahmen, die offenen Punkte und der Verbleib
+  von DOMAIN_MODEL Abschnitt 6 und D003.
+
+================================================================================
+1) WAS DIESES MODUL BESITZT
+================================================================================
+
+  Tabellen      policy_catalog, policy_role_defaults,
+                policy_customer_overrides, log_policy_audit; Form und
+                Regeln von policy_plan_values (BASE-100_020 Abschnitt 5)
+  Katalog       die Katalog-Definition und das Verzeichnis der Keys
+                (BASE-100_070 Abschnitt 1)
+  Keys          max_active_connections, max_connection_creates_per_hour,
+                max_quota_bytes_per_period
+  Auskuenfte    AW, BA, AK-2 und AK-1 (BASE-100_030 bis _050)
+  Regeln        Aufloesung, "unbegrenzt", Zaehlung und Pruefung des
+                Verbindungsbudgets, Rate der Anlagen, Ueberbelegung,
+                Kundenverbrauch und Deckel, Vorschau der Folgen
+  Werkzeuge     vpn-rights-get, -set, -seed, -check; Status des Prueflaufs
+  Settings      vpn_disabled_connection_buffer,
+                policy_check_interval_seconds (gefuehrt in BASE-090)
+
+================================================================================
+2) WAS DIESES MODUL NICHT BESITZT
+================================================================================
+
+  Gegenstand                                          Owner
+  --------------------------------------------------- -------------------
+  Was geschieht, wenn ein Limit erreicht ist:         BASE-080 (Bewerter,
+  Bewertung, Zielzustand, Herstellung im Kernel       Herstellung)
+  Statusuebergaenge, Gruende, Fristen; die Felder     BASE-010
+  einer Connection und eines Kunden; Rolle und
+  plan_id am Kunden
+  Buchung des Verbrauchs, Quota-Periode,              BASE-070
+  log_quota_period, SimUse
+  Was eine eingeschraenkte Connection erreicht;       BASE-050 (BASE-060
+  DNS-Zwang, Filter, Sperren, Trennung der Clients    fuer DNS)
+  Betriebsparameter (Fristen, Takte, Schwellen)       BASE-090 und das
+                                                      Modul des Keys
+  Plaene: Tabelle, Laufzeit, Preis, Zuweisung,        MOD-010
+  Wechsel, Auffuellen, Regel des Plan-Limits
+  Laufzeit einer Connection (expiry_date)             BASE-010 (Feld);
+                                                      MOD-010 (Werte)
+  Geschwindigkeit, Formung                            MOD-003
+  Claim, Fristen ohne Claim, Selbstbedienung          MOD-001
+  Oberflaeche, erneute Anmeldung, privilegierter      BASE-110, MOD-006
+  Auftragsweg
+  Aufbewahrung der Protokolle; Alarmierung            MOD-007; MOD-006
+  Was eine Rolle in der Verwaltung darf               00_MANIFEST 4.2;
+                                                      BASE-110
+
+  ABGRENZUNG ZU BASE-080 (04_PHASE_PLAN OPEN-PHP-08, K-PH8-06): BASE-100
+  sagt, WAS einem Kunden zusteht und wie viel davon verbraucht ist.
+  BASE-080 sagt, was daraus fuer den Status einer Connection FOLGT, und
+  stellt es her. BASE-100 kennt keinen Status als Ergebnis; BASE-080
+  kennt kein Limit als Eingabe ausser dem, was eine Auskunft liefert.
+
+================================================================================
+3) GRENZREGELN
+================================================================================
+
+  GP-1  BASE-100 SCHREIBT KEINEN STATUS, KEINEN GRUND, KEINE FRIST UND
+        KEINEN AUFTRAG - und beendet keine Sitzung. Es liefert Auskuenfte.
+  GP-2  KEIN VERBRAUCHER LIEST DIE TABELLEN policy_... SELBST; keiner
+        rechnet Budget oder Kontingent nach (BASE-100_030 VB-2).
+  GP-3  BASE-100 LIEST Tabellen anderer Module (web_customers,
+        vpn_connections, log_quota_period) und schreibt sie nie
+        (BASE-100_070 DR-4).
+  GP-4  DIE PRUEFUNG DES BUDGETS LAEUFT IN FREMDEN TRANSAKTIONEN, aendert
+        dort nichts und entscheidet nichts ausser ALLOWED oder DENIED.
+        Was daraus folgt, schreibt der Aufrufer.
+  GP-5  KEIN SETTING IST EIN RECHT, KEIN RECHT EIN SETTING (DEC-PO-01,
+        DEC-ST-01). Ein Wert je Kunde gehoert hierher; ein Wert fuer das
+        Verhalten des Systems zu BASE-090.
+  GP-6  KEINE SCHUTZFUNKTION IST EIN KEY (SZ-10, R-07).
+  GP-7  EIN PLAN IST KEIN GEGENSTAND DIESES MODULS; seine Werte sind es
+        (DEC-PO-16).
+  GP-8  DAS PANEL SCHREIBT NUR UEBER DEN SCHREIBKERN und zeigt nur, was
+        die Auskuenfte liefern (BASE-100_070 SI-5).
+  GP-9  BASE-100 FUEHRT KEINE FOLGE EINER AENDERUNG AUS: Die Bewertung
+        ruft der Auftragsweg bzw. der Lauf von BASE-080 (BASE-100_060
+        Abschnitt 7).
+
+================================================================================
+4) LESE- UND SCHREIBGRENZEN
+================================================================================
+
+  Objekt                       liest                      schreibt
+  ---------------------------- -------------------------- -----------------
+  Katalog-Definition           Bibliothek dieses Moduls   niemand im
+                                                          Betrieb
+  policy_catalog               Bibliothek, Panel          Einspielung
+  policy_role_defaults         Bibliothek                 Schreibkern;
+                                                          Einspielung nur
+                                                          fehlende Zeilen
+  policy_customer_overrides    Bibliothek                 Schreibkern
+  policy_plan_values           Bibliothek                 Schreibkern (auf
+                                                          Veranlassung von
+                                                          MOD-010)
+  log_policy_audit             Panel, Prueflauf           Schreibkern und
+                                                          Einspielung (nur
+                                                          anfuegend)
+  Auskuenfte AW, BA            BASE-010 (Zulassungen),    -
+                               BASE-080 (Rollenwechsel),
+                               Panel, Prueflauf
+  Auskuenfte AK-1, AK-2        nur der Bewerter von       -
+                               BASE-080; das Panel fuer
+                               die Anzeige
+  Status des Prueflaufs        Panel, Ueberwachung        Prueflauf
+
+================================================================================
+5) ANTWORTEN AUF ANFORDERUNGEN DER NACHBARN
+================================================================================
+
+  BASE-080 ANF-PA-02     Auskuenfte AK-1 und AK-2 -> BASE-100_050
+                         Abschnitte 3 bis 5
+  BASE-080 ANF-PA-01 m   Budgetpruefung in der Transaktion des
+                         Rollenwechsels aufrufbar -> BASE-100_040
+                         Abschnitt 4 (Auskunft BA als Pruefung). Die
+                         Routine gehoert diesem Modul; BASE-010 ruft sie
+                         (ANF-PO-02 a).
+  BASE-070 ANF-SC-12     Limit je Connection, geteilte Kontingente,
+                         Planwechsel -> BASE-100_050 Abschnitt 5
+  BASE-090 ANF-ST-11     "Die zwei Uebergangs-Keys uebernehmen" ->
+                         DEC-PO-15. "Dieselbe Disziplin: Katalog, Auskunft
+                         mit Herkunft, kein stiller Standardwert" ->
+                         DEC-PO-02, BASE-100_030 Abschnitt 1, DEC-PO-05.
+
+================================================================================
+6) ANFORDERUNGEN AN ANDERE MODULE
+================================================================================
+
+  ANF-PO-01 (BASE-000)
+    a) Registry: log_policy_audit (Zone log_) aufnehmen;
+       policy_plan_values bleibt geplant (MOD-010), mit der Form aus
+       BASE-100_020 Abschnitt 5; zu policy_catalog vermerken, dass die
+       Tabelle die Kopie der Katalog-Definition ist.
+    b) Rechte je Tabelle nach BASE-100_070 Abschnitt 3 - enger als
+       "SELECT, INSERT, UPDATE, DELETE" auf policy_... (BASE-000_010
+       Abschnitt 2).
+    c) BASE-000_020 PR-01 auf "jede Tabelle und jeder Settings-Key"
+       fassen, wie BASE-000_010 Abschnitt 3 es sagt; Policy-Keys folgen
+       DEC-PO-08. Der Test T-SQL-06 gilt fuer Settings-Keys.
+
+  ANF-PO-02 (BASE-010, Nachzug AP-Q04)
+    a) Die Routinen fuer die Anlage mit Kunden, den Claim (T-01), die
+       Wiederherstellung (T-08) und den Rollenwechsel (T-09) rufen in
+       IHRER Transaktion die Auskunft BA als Pruefung und schreiben nur
+       bei ALLOWED (BASE-100_040 Abschnitt 4). Sie sperren die Zeile des
+       Kunden, BEVOR sie eine Connection-Zeile sperren (BZ-3).
+    b) INV-63 verweist fuer Zaehlung, Budget und Pruefung auf
+       BASE-100_040: eine Regel, ein Ort. Der Test T-CL-01 bleibt.
+    c) Ein Lifecycle-Ereignis je ANLAGE einer Connection, mit der
+       Kennung des Kunden, wo sie fuer einen Kunden entsteht
+       (BASE-010_060 kennt heute kein Ereignis fuer die Anlage). Es
+       dient der Rate (BASE-100_040 RT-4) und dem Verlauf.
+    d) Beim Rollenwechsel auf eine andere Rolle als USER endet der Plan
+       des Kunden in derselben Transaktion (INV-41).
+    e) BASE-010_070 fuehrt das Loeschen einer Connection durch den
+       Kunden nicht als Uebergang, INV-64 setzt es voraus
+       (SM_CONNECTION 5.6). Dort zu klaeren; fuer die Zaehlung gilt: Was
+       widerrufen ist, zaehlt nicht mehr (BASE-100_040 ZR-4).
+
+  ANF-PO-03 (BASE-070)
+    a) Die Auskunft AK-2 liest quota_used, quota_period_start und
+       quota_period_end; die Zusagen Q-1 bis Q-4 gelten unveraendert.
+    b) Wird eine Connection physisch geloescht, bevor ihre Periode endet
+       (BASE-070_060 Wege R2 und W3), schliesst der Loeschweg ihre
+       Periode in derselben Transaktion ab: eine Zeile in
+       log_quota_period mit Kunde, Periode und Endstand. Sonst fehlt ihr
+       Verbrauch im Kundenverbrauch (BASE-100_050 KQ-3).
+    c) Ein Index auf log_quota_period (customer_id, period_start).
+    d) BASE-070_080 ANF-SC-12 ist mit BASE-100_050 Abschnitt 5
+       beantwortet.
+
+  ANF-PO-04 (BASE-080)
+    a) FORM DER AUSKUENFTE (BASE-080_020 Regel AK-3): Routinen der
+       Bibliothek von BASE-100 statt "Sicht oder gespeicherte Routine"
+       (DEC-PO-12). Jeder Zustand ungleich OK ist dort UNBEKANNT (AK-4).
+    b) QUELLEN (BASE-080_020 Abschnitt 2): AK-1 liefert BASE-100; die
+       Regel fuer Kunden mit Plan kommt von MOD-010. Mit abgeschlossener
+       Einrichtung (BASE-100_070 EB-1) sind beide Quellen eingerichtet.
+    c) AK-2 nennt, worauf sich Limit und Verbrauch beziehen (basis). Bei
+       CUSTOMER_CAP und CUSTOMER_SHARED sind ALLE Connections eines
+       Kunden zugleich erschoepft; der Schutz vor Massenfolgen zaehlt
+       sie wie jede andere Einschraenkung.
+    d) ROLLENWECHSEL (BASE-080_060): Schritt RC1 zeigt die Ausnahmen des
+       Kunden mit dem wirksamen Wert vorher und nachher (DEC-PO-14);
+       Schritt RC3 c ruft die Auskunft BA mit dem Vorhaben ROLE_CHANGE.
+    e) WIEDERHERSTELLUNG (T-08): Die Budgetpruefung steht VOR dem
+       Bewertungskern - eine abgelehnte Wiederherstellung aendert nichts.
+    f) FOLGEAUFRUF nach einer geaenderten Ausnahme: Aufrufart A3 fuer den
+       Kunden, ueber den privilegierten Auftragsweg (BASE-100_060 NF-2).
+
+  ANF-PO-05 (BASE-090)
+    a) vpn_vip_max_connections und vpn_moderator_max_connections aus dem
+       Verzeichnis streichen und als Altnamen ohne Nachfolger fuehren
+       (Grund: jetzt der Policy-Key max_active_connections; DEC-PO-15).
+       Die Ausnahme fuer Keys des Uebergangs (BASE-090_020 LP-8, ST-07)
+       hat danach keinen Fall mehr.
+    b) vpn_disabled_connection_buffer: Eigentuemer BASE-100.
+    c) Neuer Key policy_check_interval_seconds mit den Angaben aus
+       BASE-100_070 Abschnitt 3.
+
+  ANF-PO-06 (BASE-110, MOD-006)
+    a) Anzeige nach BASE-100_070 Abschnitt 6; nichts wird im Panel
+       nachgerechnet.
+    b) Schreiben nur ueber die Bibliothek des Schreibkerns, mit Grund,
+       Vorschau und Bestaetigung (BASE-100_060 SK-5, SK-8). Als Handlung
+       der Klasse C mit erneuter Anmeldung mindestens: jede Aenderung
+       eines Standards und jedes Setzen von "unbegrenzt".
+    c) Nach einer geaenderten Ausnahme fordert das Panel den Folgeaufruf
+       der Bewertung ueber den privilegierten Auftragsweg an.
+    d) Dem Kunden: eigene Werte und Verbrauch (SI-3); bei einer
+       abgelehnten Zulassung die Meldung mit den Zahlen der Auskunft BA.
+    e) MODERATOR: nur lesend.
+
+  ANF-PO-07 (MOD-010)
+    Die Nahtstelle aus BASE-100_050 Abschnitt 6: Tabelle der Plaene;
+    Plan-Werte ueber den Schreibkern dieses Moduls (NP-1, NP-2); Geltung
+    des Kontingents je Plan (NP-5); Regel des Plan-Limits (NP-6);
+    Planwechsel und Auffuellen rufen die Bewertung; ob ein Auffuellen
+    eine Ausnahme oder ein eigener Gegenstand ist (OPEN-PO-05).
+
+  ANF-PO-08 (MOD-007)
+    Aufbewahrung von log_policy_audit (nur der Aufbewahrungslauf
+    loescht); Meldeweg der Ereignisse aus BASE-100_070 Abschnitt 5.
+
+  ANF-PO-09 (MOD-003)
+    Keys der Geschwindigkeit nach BASE-100_070 AM-1 bis AM-5 anmelden;
+    die Formung liest den wirksamen Wert ueber die Auskunft AW.
+
+  ANF-PO-10 (BASE-005)
+    Werkzeuge, Pfade und Units aus BASE-100_070 Abschnitt 3 in das
+    Verzeichnis der Plattform aufnehmen.
+
+  ANF-PO-11 (MOD-001)
+    Der Claim laeuft ueber T-01 und damit ueber die Budgetpruefung; die
+    Selbstbedienung nennt bei der Anlage den Ausloeser CUSTOMER, damit
+    die Rate gilt (BASE-100_040 Abschnitt 5).
+
+  ANF-PO-12 (04_PHASE_PLAN, Nachzug AP-A06)
+    K-PH8-02 nennt "allowed Services in BASE-100": zu berichtigen auf
+    BASE-050 (DEC-PO-01). OPEN-PHP-10 ist geschlossen. OPEN-PHP-08 wird
+    geschlossen, wenn dieses Modul bestaetigt ist.
+
+  ANF-PO-13 (MOD-008)
+    Sicherungsumfang: policy_role_defaults, policy_customer_overrides,
+    policy_plan_values, log_policy_audit. policy_catalog stellt die
+    Einspielung wieder her. Nach einer Wiederherstellung laeuft der
+    Prueflauf vor dem Betrieb.
+
+================================================================================
+7) ZU VERIFIZIERENDE ANNAHMEN
+================================================================================
+
+  E-PO-01  Ein sperrendes Lesen sieht den zuletzt festgeschriebenen
+           Stand, auch wenn die Transaktion vorher schon gelesen hat
+           (bei MariaDB/InnoDB mit der voreingestellten Isolation). Daran
+           haengt BASE-100_040 BZ-2. Ausweichweg: Zulassende
+           Transaktionen sperren die Zeile des Kunden als ERSTE
+           Anweisung, oder sie laufen mit der Isolation READ COMMITTED.
+  E-PO-02  Die Sperre EINER Zeile in web_customers haelt nur Vorgaenge
+           fuer DIESEN Kunden auf (Zugriff ueber den Primaerschluessel).
+  E-PO-03  Summen ueber quota_used rechnet die Datenbank genau (kein
+           Ueberlauf einer 64-Bit-Zahl); das Produkt N * L bleibt durch
+           BASE-100_020 LP-9 unter 2 hoch 63.
+  E-PO-04  Die Auskunft AK-2 fuer 5.000 Connections und die Auskunft BA
+           fuer 5.000 Kunden kosten je Lauf wenige Sekunden. Zu messen;
+           davon haengt ab, ob der Bewertungstakt von BASE-080 (Vorschlag
+           60 s) eingehalten wird.
+  E-PO-05  "Einfuegen oder Aendern" je Zeile ist in einer Anweisung
+           unteilbar (wie BASE-090 E-ST-01).
+
+================================================================================
+8) OFFENE PUNKTE
+================================================================================
+
+  OPEN-PO-01  GESCHAEFTSWERTE DES BETREIBERS: das Kontingent der Rollen
+              USER, VIP und MODERATOR fuer Kunden ohne Plan
+              (BASE-100_070 Anmerkung *4). Der Vorschlag der Rate
+              (Anmerkung *2) ist eine Festlegung dieses Moduls und steht
+              dem Betreiber zur Aenderung offen.
+  OPEN-PO-02  NACHZUEGE an den geschriebenen Modulen (ANF-PO-01 bis
+              ANF-PO-05) stehen aus. Bis dahin gilt fuer Rechte und
+              Limits bei einem Unterschied dieses Modul.
+  OPEN-PO-03  PLAENE: die Eingaben nach BASE-100_050 NP-5 und NP-6
+              (MOD-010). Bis dahin traegt kein Kunde einen Plan.
+  OPEN-PO-04  SELBSTBEDIENUNG UND EIGENES LOESCHEN sind in BASE-010 nicht
+              ausgearbeitet (ANF-PO-02 e; BASE-010_070 Weg B). Rate und
+              Kundendeckel sind dafuer ausgelegt, wirken aber erst mit
+              ihnen spuerbar.
+  OPEN-PO-05  AUFFUELLEN UND BEFRISTETE AUSNAHME: Eine Ausnahme gilt, bis
+              die Verwaltung sie aendert oder loescht; eine Ausnahme mit
+              Ablauf gibt es nicht. Ob ein zusaetzliches Volumen fuer
+              die laufende Periode eine Ausnahme ist oder ein eigener
+              Gegenstand, entscheidet MOD-010.
+  OPEN-PO-06  FORM DER KATALOG-DEFINITION (Dateiformat, kanonische Form
+              fuer die Pruefsumme): Sache der Umsetzung, gemeinsam mit
+              BASE-090 (dort OPEN-ST-03).
+
+================================================================================
+9) VERBLEIB VON DOMAIN_MODEL ABSCHNITT 6 UND VON D003
+================================================================================
+
+  model/DOMAIN_MODEL.txt Abschnitt 6 ist mit diesem Modul aufgeloest. D003
+  bleibt als Entscheidung stehen; dieses Modul fuehrt sie aus. Der
+  Verbleib Aussage fuer Aussage steht in der Rueckverfolgung
+  (governance/register/trace/); hier die Uebersicht.
+
+  Abschnitt / Entscheidung             Verbleib
+  ------------------------------------ -----------------------------------
+  DOMAIN_MODEL 5.5 Settings und        DEC-PO-01; BASE-090 DEC-ST-01.
+  Policy getrennt                      "Beides hat Audit, Explain,
+                                       Reconcile": Protokoll
+                                       (BASE-100_060), --explain
+                                       (BASE-100_070); einen Abgleich in
+                                       den Kernel braucht dieses Modul
+                                       nicht - es stellt nichts her. An
+                                       seine Stelle tritt der Prueflauf.
+  6.1 drei Tabellen, eine vierte fuer  BASE-100_020 Abschnitt 5; der
+  Plaene                               Katalog ist eine Datei, die
+                                       Tabelle ihre Kopie (DEC-PO-02)
+  6.1 b Werte der Standards            BASE-100_070 Abschnitt 1
+                                       (Vorschlaege)
+  6.2 Reihenfolge der Aufloesung       BASE-100_030 Abschnitt 2
+  6.3 Unlimited                        DEC-PO-04
+  6.4 Rolle gehoert zum Kunden         BASE-010 (Felder, Rollenwechsel);
+                                       hier: Bezug ROLE fuer Connections
+                                       ohne Kunden (BASE-100_030)
+  6.4 zwei Wege der Anlage, Pruefung   BASE-100_040 ZR-5, ZR-6, ZL-1
+  vor der Erstellung
+  6.4 keine ADMIN-Connection ohne      nicht Gegenstand dieses Moduls
+  Kunden                               (BASE-010, MOD-001)
+  6.5 Zaehlregel, Zusammenspiel,       BASE-100_040; die Pause ANGEPASST
+  Panel-Meldung, Rate                  (DEC-PO-09)
+  6.6 SimUse                           BASE-070_030
+  6.7 Interim-Regelung                 DEC-PO-15
+  6.8 Plaene                           BASE-100_050 Abschnitt 6; MOD-010
+  D003-E01                             DEC-PO-01
+  D003-E02                             BASE-010; hier DEC-PO-14 (Ausnahme
+                                       beim Rollenwechsel)
+  D003-E03                             DEC-PO-02, DEC-PO-06; BASE-100_020
+  D003-E04                             DEC-PO-03; BASE-100_030
+  D003-E05                             DEC-PO-04
+  D003-E06                             DEC-PO-09; BASE-100_040
+  D003-E07                             DEC-PO-17; BASE-100_070 Abschnitt 6
+  D003-E08                             DEC-PO-15
+  D003 R-01 (D002 neu lesen)           BASE-080_060 Abschnitt 2;
+                                       BASE-100_040 ZL-4
+  D003 R-02 (access_role abgeleitet)   BASE-010
+  D003 R-03 (Quellenanzeige)           SZ-4; BASE-100_070 Abschnitt 6
+  D003 R-04 (dieselbe Disziplin)       DEC-PO-02, DEC-PO-05, DEC-PO-13;
+                                       BASE-100_060, BASE-100_070
+  D003 T-D003-01 bis -10               BASE-100_095 (Zuordnung dort)
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

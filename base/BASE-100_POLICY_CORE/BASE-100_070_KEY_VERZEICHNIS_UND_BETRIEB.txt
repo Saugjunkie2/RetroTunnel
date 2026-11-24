@@ -1,0 +1,433 @@
+================================================================================
+BASE-100 — KEY-VERZEICHNIS, BETRIEB UND BEOBACHTBARKEIT
+================================================================================
+DATEI: BASE-100_070_KEY_VERZEICHNIS_UND_BETRIEB.txt
+STATUS: IN ARBEIT (AP-K100; Modul noch unvollstaendig)
+
+ZWECK:
+  Das Verzeichnis der Keys mit ihren Katalogeintraegen, die Anmeldung
+  eines neuen Keys, die Werkzeuge, Pfade und Rechte in der Datenbank, der
+  Prueflauf, die Gruende und Ereignisse, die Auskunft fuer Verwaltung und
+  Kunden, die Einrichtung vor dem Betrieb und das Verhalten bei
+  Stoerungen.
+
+================================================================================
+1) VERZEICHNIS DER KEYS
+================================================================================
+
+  Hier wird ein Key verbindlich. Die Katalog-Definition der Auslieferung
+  enthaelt genau diese Eintraege.
+
+  max_active_connections
+    Eigentuemer      BASE-100
+    setzt durch      Auskunft BA in den zulassenden Vorgaengen von
+                     BASE-010: Anlage, Claim, Wiederherstellung,
+                     Rollenwechsel (BASE-100_040)
+    Typ, Einheit     INT, count
+    Grenzen          0 bis 1.000 *1
+    unbegrenzt       zulaessig
+    Vorschlag        USER 2 | VIP 3 | MODERATOR 3 | ADMIN unbegrenzt
+                     (D003-E03 b)
+    Kunde sieht ihn  ja
+    Vorschau zaehlt  BUDGET, QUOTA
+    Bedeutung        Wie viele Connections ein Kunde zugleich nutzbar
+                     oder eingeschraenkt halten darf. Ein groesserer Wert
+                     laesst mehr Connections zu - und hebt den Deckel
+                     seines Kontingents.
+
+  max_connection_creates_per_hour
+    Eigentuemer      BASE-100
+    setzt durch      Auskunft BA beim Vorhaben CREATE, wenn der Kunde die
+                     Anlage ausloest (BASE-100_040 Abschnitt 5)
+    Typ, Einheit     INT, per_hour
+    Grenzen          0 bis 1.000 *1
+    unbegrenzt       zulaessig
+    Vorschlag        USER 3 | VIP 3 | MODERATOR 3 | ADMIN unbegrenzt *2
+    Kunde sieht ihn  nein *3
+    Vorschau zaehlt  nichts (eine Rate trifft keinen Bestand)
+    Bedeutung        Wie viele Connections ein Kunde in einer Stunde
+                     selbst anlegen darf.
+
+  max_quota_bytes_per_period
+    Eigentuemer      BASE-100
+    setzt durch      der Bewerter von BASE-080 ueber die Auskunft AK-2
+                     (Grund RESTRICT_QUOTA_EXHAUSTED; BASE-100_050)
+    Typ, Einheit     INT, bytes
+    Grenzen          0 bis 1.000.000.000.000.000 (10 hoch 15) *1
+    unbegrenzt       zulaessig
+    Vorschlag        USER Betreiberwert | VIP Betreiberwert | MODERATOR
+                     Betreiberwert | ADMIN unbegrenzt *4
+    Kunde sieht ihn  ja
+    Vorschau zaehlt  QUOTA
+    Bedeutung        Wie viel Datenvolumen (beide Richtungen zusammen)
+                     eine Connection des Kunden in einer Quota-Periode
+                     verbrauchen darf; alle Connections zusammen
+                     hoechstens das Aktiv-Budget mal diesen Wert.
+
+  Zahl: 3 Keys.
+
+  ANMERKUNGEN
+    *1 Grenzen hier festgelegt; die Quellen nennen keine. Die oberen
+       Grenzen von max_active_connections und
+       max_quota_bytes_per_period sind so gewaehlt, dass ihr Produkt
+       unter 2 hoch 63 bleibt (BASE-100_020 LP-9). Die Null ist
+       zulaessig und laesst nichts zu.
+    *2 OHNE QUELLE: D003-E06 nennt den Key, aber keine Zahl. Der
+       Vorschlag 3 je Stunde ist eine Festlegung dieses Moduls - genug,
+       um ein Geraet zu ersetzen und sich einmal zu vertun, zu wenig fuer
+       eine Serie. Der Betreiber kann ihn aendern.
+    *3 Eine Schwelle gegen Missbrauch hilft dem, der knapp unter ihr
+       bleiben will (wie BASE-090_070 AK-1). Wer an ihr scheitert,
+       erfaehrt, DASS er zu schnell angelegt hat und wann es wieder
+       geht - nicht die Zahl.
+    *4 GESCHAEFTSWERT: Keine Quelle nennt ein Datenvolumen fuer Kunden
+       ohne Plan. 00_MANIFEST 4.2 sagt fuer VIP und MODERATOR "Kein
+       Speed/BW-Limit" - das betrifft die Geschwindigkeit; der Entwurf
+       "Plans" der Nachlieferung fuehrt die Volumen als verloren und neu
+       zu erarbeiten. Der Betreiber legt die drei Werte bei der
+       Einrichtung fest: je Rolle eine Zahl oder ausdruecklich
+       "unbegrenzt" (OPEN-PO-01). Fuer ADMIN folgt "unbegrenzt" aus
+       00_MANIFEST 4.2 ("Keine Limits").
+
+  NAMEN IN DEN QUELLEN, DIE KEIN KEY SIND
+    max_connections (D003-E01, -E03 a)       gemeint ist
+                                             max_active_connections
+    max_total (D003-E03 b, -E06 b)           kein Key: das Gesamt-Budget
+                                             ist abgeleitet
+                                             (BASE-100_040 BU-1)
+    vpn_vip_max_connections,                 Settings des Uebergangs;
+    vpn_moderator_max_connections            entfallen (DEC-PO-15)
+    max_storage_gb, streaming_access         Beispiele aus D003-E03 a;
+                                             nicht angemeldet, weil kein
+                                             Modul sie durchsetzt
+                                             (DEC-PO-01, Frage 3)
+    quota_scope (D004-E04)                   Setting der BUCHUNG bei
+                                             BASE-070 (vpn_quota_scope);
+                                             die Geltung des Limits steht
+                                             in BASE-100_050
+
+  ANGEKUENDIGTE KEYS (noch nicht im Katalog; sie entstehen mit ihrem
+  Modul und einer Auslieferung):
+    Geschwindigkeit je Connection        MOD-003, mit MOD-010 (00_MANIFEST
+                                         4.2: "Speed/BW per Plan")
+    max_port_forwards                    mit den Portfreigaben (VB-0009;
+                                         BASE-050 Entwurf
+                                         DISKUSSION_PORTFREIGABEN 3.3)
+
+  ANMELDUNG EINES KEYS
+    AM-1  Ein Modul meldet einen Key mit allen Feldern des
+          Katalogeintrags an (BASE-100_020 Abschnitt 2) und zeigt, dass
+          er die drei Fragen aus DEC-PO-01 mit Ja beantwortet.
+    AM-2  Die durchsetzende Stelle steht in einem GESCHRIEBENEN Modul.
+          Ein Key ohne sie wird nicht aufgenommen.
+    AM-3  Der Name folgt DEC-PO-07 und DEC-PO-08; der Vorschlag fuer
+          ADMIN folgt BASE-100_020 VS-3.
+    AM-4  Verbindlich ist der Key, wenn er in diesem Verzeichnis steht.
+          Wirksam wird er mit der Auslieferung, die ihn enthaelt.
+    AM-5  Trifft das Senken des Keys einen Bestand, nennt die Anmeldung,
+          wie die Betroffenen gezaehlt werden (impact_check).
+
+================================================================================
+2) WERKZEUGE
+================================================================================
+
+  Alle vier Werkzeuge benutzen dieselbe Bibliothek wie Panel und
+  Verbraucher (DEC-PO-12). Sie laufen am Server als root.
+
+  vpn-rights-get    AUFLOESER. Liefert die vier Auskuenfte
+                    maschinenlesbar: AW fuer Kunden oder Rollen (mit
+                    --all: alle Keys), BA fuer einen Kunden, AK-2 und
+                    AK-1 fuer Connections. Mit --explain zeigt es je Key
+                    die Zeilen aller drei Ebenen und welche entschieden
+                    hat. Nur lesend.
+  vpn-rights-set    SCHREIBKERN. Ein Vorgang mit einer oder mehreren
+                    Aenderungen (BASE-100_060 Abschnitt 2). Mit
+                    --preview: nur die Vorschau der Folgen.
+  vpn-rights-seed   EINSPIELUNG (BASE-100_060 Abschnitt 6). Mit --check:
+                    nur die Vorpruefung, ohne zu schreiben.
+  vpn-rights-check  PRUEFLAUF (Abschnitt 4).
+
+  ERGEBNISCODES (fuer alle vier gleich; wie BASE-090_070):
+    0  ausgefuehrt; bei -get und -check: jeder Wert OK
+    1  ausgefuehrt; mindestens ein Wert ist nicht OK oder der Katalog ist
+       im Zustand DRIFT
+    2  Datenbank nicht lesbar
+    3  Katalog UNREADABLE
+    4  Aufruf abgelehnt (unbekannter Key, Schreibvorgang abgelehnt,
+       fehlende Bestaetigung)
+    5  interner Fehler
+  Ein Verbraucher entscheidet nie allein nach dem Code, sondern nach dem
+  Zustand je Ergebnis (BASE-100_030 Abschnitt 3).
+
+================================================================================
+3) PFADE, UNITS UND RECHTE IN DER DATENBANK
+================================================================================
+
+  /usr/local/bin/vpn-rights-get, -set, -seed, -check
+  /usr/local/share/retrotunnel/rights/catalog.json     Katalog-Definition
+  /usr/local/share/retrotunnel/rights/catalog.sha256   ihre Pruefsumme
+        beide root:root 0644, Teil der Auslieferung; der Ordner ist fuer
+        niemanden ausser root schreibbar
+  /run/retrotunnel/rights/                              root:root 0755
+  /run/retrotunnel/rights/status-rights-check.json     Status des
+        Prueflaufs (root:root 0644; ersetzt als Ganzes)
+
+  vpn-rights-check.timer     festes Raster (Vorschlag 60 s)
+  vpn-rights-check.service   Lauf; entscheidet aus
+                             policy_check_interval_seconds und dem
+                             Zeitpunkt seines letzten Laufs, ob er
+                             faellig ist
+
+  Die Pfade folgen den Mustern der anderen Module; ihre Aufnahme in das
+  Verzeichnis der Plattform ist beantragt (ANF-PO-10).
+
+  SETTINGS DIESES MODULS (Betriebsparameter; bei BASE-090 gefuehrt bzw.
+  anzumelden, ANF-PO-05):
+    vpn_disabled_connection_buffer   INT 0..20 | Vorschlag 2 | Notwert 2 |
+                                     kleiner ist strenger | wirkt sofort
+                                     (BASE-090_060 Abschnitt 5.1;
+                                     Eigentuemer jetzt BASE-100)
+    policy_check_interval_seconds    INT 60..3600 | Vorschlag 300 |
+                                     Notwert 300 | ohne Richtung (der
+                                     Takt aendert nur, wie schnell ein
+                                     Mangel gemeldet wird) | wirkt sofort
+
+  RECHTE IN DER DATENBANK
+  Tabelle                    radius  webpanel                system
+  -------------------------- ------- ----------------------- --------------
+  policy_catalog             -       SELECT                  alle (nur die
+                                                             Einspielung
+                                                             schreibt)
+  policy_role_defaults       -       SELECT, INSERT, UPDATE  alle
+  policy_customer_overrides  -       SELECT, INSERT, UPDATE, alle
+                                     DELETE
+  policy_plan_values         -       mit MOD-010             alle
+  log_policy_audit           -       SELECT, INSERT          SELECT,
+                                                             INSERT;
+                                                             DELETE nur
+                                                             der
+                                                             Aufbewah-
+                                                             rungslauf
+                                                             (MOD-007)
+
+  DR-1  Der Benutzer radius hat auf keine dieser Tabellen Zugriff
+        (BASE-000_010 Abschnitt 2). Die Anmeldung fragt kein Recht ab
+        (SZ-9).
+  DR-2  Das Panel schreibt policy_catalog nicht und loescht keinen
+        Standard. BASE-000_010 gibt dem Panel heute auf policy_... alle
+        vier Rechte; die Einengung ist beantragt (ANF-PO-01).
+  DR-3  Rechte in der Datenbank koennen "nur ueber den Schreibkern"
+        nicht erzwingen: Das Panel haelt die Rechte, die der Schreibkern
+        in seinem Prozess braucht. Deshalb die Erkennung nach
+        BASE-100_060 Abschnitt 8.
+  DR-4  Die Auskuenfte LESEN ausserdem web_customers (Rolle, Plan),
+        vpn_connections (Kunde, Status, Widerruf, Verbrauch, Periode,
+        Anlagezeit) und log_quota_period. Diese Tabellen gehoeren
+        BASE-010 und BASE-070; BASE-100 schreibt sie nie.
+
+================================================================================
+4) PRUEFLAUF
+================================================================================
+
+  vpn-rights-check macht sichtbar, was sonst erst auffiele, wenn eine
+  Zulassung scheitert oder eine Bewertung "unbekannt" bleibt.
+
+  PL-1  Katalog-Definition laden und pruefen (BASE-100_020 Abschnitt 6).
+  PL-2  Ist die Datenbank lesbar: die Kopie policy_catalog Feld fuer Feld
+        mit der Definition vergleichen (OK oder DRIFT).
+  PL-3  STANDARDS: Fuer jeden Key und jede der vier Rollen ist die Zeile
+        vorhanden und gueltig.
+  PL-4  AUSNAHMEN UND PLAN-WERTE: Jede Zeile ist gueltig, und ihr Bezug
+        besteht.
+  PL-5  Zeilen zu Namen, die der Katalog nicht kennt, melden.
+  PL-6  Je Zeile der drei Ebenen Wert und Zeitpunkt mit dem juengsten
+        Protokolleintrag vergleichen (BASE-100_060 UW-2).
+  PL-7  WIDERSPRUECHE: Kunden mit plan_id, die nicht die Rolle USER
+        tragen; Kunden mit plan_id, solange die Ebene PLAN nicht
+        eingerichtet ist.
+  PL-8  UEBERBELEGUNG: die Auskunft BA (als Auskunft, ohne Sperre) fuer
+        alle Kunden, abschnittsweise; die ueberbelegten zaehlen.
+  PL-9  Status schreiben, Ereignisse melden (Abschnitt 5).
+
+  STATUS (status-rights-check.json): Zeitpunkt des Laufs, Dauer, Version
+    und Zustand des Katalogs, Zustand der Datenbank, je Key und Rolle der
+    Zustand des Standards, je Key die Zahl der Ausnahmen, die Liste der
+    ungueltigen Zeilen, die Liste der Zeilen ohne Protokoll, die Zahl der
+    ueberbelegten Kunden, die Zahl der Kunden im Zustand PLAN_UNKNOWN.
+  PZ-1  Der Prueflauf aendert keinen Wert und keine Zeile.
+  PZ-2  Er laeuft auch ohne Datenbank: Dann prueft er den Katalog (PL-1)
+        und meldet die Datenbank als nicht lesbar.
+  PZ-3  Ein alter Status ist selbst eine Stoerung: Wer ihn anzeigt,
+        kennzeichnet ihn als veraltet, wenn er aelter ist als zweimal
+        policy_check_interval_seconds.
+  PZ-4  LAST: Der Katalog hat wenige Keys; die Standards sind vier Zeilen
+        je Key. PL-8 liest je Abschnitt mit einer festen Zahl von
+        Abfragen. Keine Auskunft haengt am Prueflauf.
+
+================================================================================
+5) GRUENDE UND EREIGNISSE
+================================================================================
+
+  GRUENDE (Feld reason der Auskunft AW; fester Wertevorrat):
+    RIGHTS_DEFAULT_MISSING        die Zeile der Rolle fehlt
+    RIGHTS_INVALID_FORM           Wert entspricht nicht der Form des Typs
+    RIGHTS_INVALID_RANGE          Wert ausserhalb der Grenzen
+    RIGHTS_UNLIMITED_NOT_ALLOWED  NULL bei einem Key, der "unbegrenzt"
+                                  nicht erlaubt
+    RIGHTS_PLAN_UNKNOWN           Werte des Plans nicht lesbar
+    RIGHTS_DB_UNREADABLE          Datenbank nicht lesbar
+  GRUENDE EINES GESCHEITERTEN AUFRUFS:
+    RIGHTS_UNKNOWN_KEY, RIGHTS_CATALOG_UNREADABLE
+
+  EREIGNISSE (ins Journal, mit Key, Ebene, Bezug, Zustand, Grund):
+    Ereignis                   Stufe  Anlass
+    -------------------------- ------ -----------------------------------
+    RIGHTS_VALUE_MISSING       ALERT  der Standard einer Rolle fehlt
+    RIGHTS_VALUE_INVALID       ALERT  eine Zeile ist ungueltig (mit dem
+                                      vorgefundenen Wert)
+    RIGHTS_PLAN_UNKNOWN        ALERT  ein Kunde traegt einen Plan ohne
+                                      lesbare Werte
+    RIGHTS_ROLE_PLAN_MISMATCH  ALERT  ein Kunde, der nicht USER ist,
+                                      traegt einen Plan
+    RIGHTS_UNKNOWN_ROW         ALERT  Zeile zu einem Namen, den der
+                                      Katalog nicht kennt
+    RIGHTS_UNAUDITED_CHANGE    ALERT  Zeile ohne passenden
+                                      Protokolleintrag
+    RIGHTS_CATALOG_DRIFT       ALERT  Kopie in SQL weicht ab
+    RIGHTS_CATALOG_UNREADABLE  ALERT  Katalog-Definition nicht verwendbar
+    RIGHTS_ADMISSION_BLOCKED   ALERT  eine Zulassung unterblieb, weil ein
+                                      Wert fehlt (LIMIT_UNKNOWN)
+    RIGHTS_OVERBOOKED          INFO   Zahl der ueberbelegten Kunden hat
+                                      sich geaendert
+    RIGHTS_CHANGED             INFO   erfolgreicher Schreibvorgang
+    RIGHTS_WRITE_REJECTED      WARN   abgelehnter Schreibvorgang
+    RIGHTS_RESOLVED            INFO   ein zuvor gemeldeter Zustand ist
+                                      behoben
+
+  ER-1  BEGRENZT: Ein Zustand, der andauert, wird je Key, Bezug und
+        Ereignis beim Eintritt gemeldet und danach hoechstens einmal je
+        policy_check_interval_seconds - nicht bei jeder Auskunft.
+  ER-2  DER EINTRITT GEHT NIE VERLOREN: Das erste Ereignis eines neuen
+        Zustands wird nicht unterdrueckt.
+  ER-3  DAS ENDE WIRD GEMELDET (RIGHTS_RESOLVED), damit ein Alarm
+        geschlossen werden kann.
+  ER-4  ZWEI BLICKE, EIN SACHVERHALT: Dieses Modul meldet, WELCHER Wert
+        fehlt. Der Verbraucher meldet in seinem eigenen Status, WAS
+        deshalb unterbleibt oder unbestimmt ist (bei BASE-080
+        POLICY_EVAL_INPUT_UNKNOWN). Beides bleibt.
+  ER-5  Ereignisse und Status tragen Werte offen; Kunden stehen als
+        Kennung, nicht als Name oder Adresse. Der Grundtext einer
+        Ausnahme steht im Protokoll, nicht im Journal.
+
+================================================================================
+6) AUSKUNFT FUER VERWALTUNG UND KUNDEN (R-17; D003-E07)
+================================================================================
+
+  Das Panel zeigt ueber die Bibliothek alles, was die Verwaltung braucht,
+  ohne eine Tabelle selbst zu deuten:
+
+  FUER DIE VERWALTUNG, je Kunde und Key (D003-E07):
+    - Name und Beschreibung des Keys (aus dem Katalog)
+    - der wirksame Wert: eine Zahl, ja/nein oder "unbegrenzt"
+    - die Herkunft: Standard der Rolle, Plan oder Ausnahme - als
+      Kennzeichen "(Standard)" bzw. "(individuell)"
+    - der Standard der Rolle daneben (was ohne Ausnahme gaelte)
+    - bei einer Ausnahme: seit wann, von wem, warum
+    - der Zustand, wenn er nicht OK ist
+    - fuer ADMIN: ein Eingabefeld, das Kennzeichen "unbegrenzt" nur bei
+      Keys, die es erlauben, und die Vorschau der Folgen vor dem
+      Speichern
+  UEBERSICHTEN:
+    - je Key die Standards der vier Rollen
+    - alle Ausnahmen, nach Key und Kunde
+    - die ueberbelegten Kunden mit ihren Zahlen
+    - je Kunde das Budget (aktiv, gesamt, Aktiv-Budget, Gesamt-Budget)
+      und je Connection das Kontingent (Limit, Verbrauch, worauf es sich
+      bezieht)
+    - Zustand des Katalogs, Alter des Status
+    - der Verlauf aus log_policy_audit (wer, wann, alt, neu, Grund,
+      Zahl der Betroffenen), auch die abgelehnten Versuche
+
+  FUER DEN KUNDEN:
+    - seine wirksamen Werte der Keys, die der Katalog fuer ihn sichtbar
+      macht, und der Verbrauch dagegen
+    - bei einer Ueberbelegung ein Hinweis mit seinen Zahlen
+    - bei einer abgelehnten Zulassung die Meldung mit den Zahlen aus BA
+      (BASE-100_040 Abschnitt 4)
+
+  SICHTBARKEIT (DEC-PO-17)
+    SI-1  ADMIN sieht und aendert alles.
+    SI-2  MODERATOR sieht, was die Verwaltung sieht, und aendert nichts.
+    SI-3  Ein Kunde sieht nur EIGENE Werte, nur die fuer ihn sichtbaren
+          Keys und nie den Grundtext einer Ausnahme. Dass sein Wert vom
+          Standard abweicht, darf er sehen.
+    SI-4  Die Auskunft gibt es nur im VPN (das Panel ist nur dort
+          erreichbar, BASE-110) und am Server.
+    SI-5  Das Panel rechnet nichts nach: Wert, Herkunft, Budget und
+          Kontingent kommen aus den Auskuenften (BASE-100_030 VB-2).
+
+================================================================================
+7) EINRICHTUNG VOR DEM BETRIEB
+================================================================================
+
+  EB-1  VOLLSTAENDIGE STANDARDS: Nach der Einspielung und der Eingabe
+        der Betreiberwerte meldet der Prueflauf fuer JEDEN Key und JEDE
+        Rolle OK. Vorher ist die Einrichtung nicht abgeschlossen: Fuer
+        die Kunden einer Rolle ohne Standard unterbleibt jede Zulassung,
+        und ihre Bewertung bleibt "unbekannt".
+  EB-2  "UNBEGRENZT" IST EINE ENTSCHEIDUNG, KEIN AUSLASSEN: Will der
+        Betreiber einer Rolle kein Kontingent setzen, traegt er
+        ausdruecklich "unbegrenzt" ein.
+  EB-3  SETTINGS ZUERST: Die Auskunft BA braucht den Puffer. Die
+        Einspielung der Settings (BASE-090) geht der Einrichtung dieses
+        Moduls voraus.
+  EB-4  KEIN PLAN OHNE MOD-010: Vor dem Betrieb traegt kein Kunde ein
+        plan_id (Prueflauf, PL-7).
+
+================================================================================
+8) VERHALTEN BEI STOERUNGEN (UEBERBLICK)
+================================================================================
+
+  Stoerung                     Verhalten
+  ---------------------------- ------------------------------------------
+  Datenbank nicht lesbar       keine Auskunft hat einen Wert; nichts wird
+                               zugelassen (eine Zulassung schreibt
+                               ohnehin); der Bewerter endet ohne Wirkung;
+                               Schreiben nicht moeglich
+  Standard einer Rolle fehlt   kein Wert fuer die Kunden dieser Rolle
+  oder ist ungueltig           ohne hoehere Ebene: ihre Zulassungen
+                               unterbleiben, ihre Bewertung ist
+                               "unbekannt", ihr Bestand bleibt; gemeldet;
+                               der Betreiber behebt (BASE-100_060
+                               Abschnitt 5)
+  Ausnahme ungueltig           kein Wert fuer diesen Kunden - kein
+                               Ausweichen auf den Standard
+  Plan gesetzt, Werte nicht    PLAN_UNKNOWN fuer diesen Kunden, ausser wo
+  lesbar                       eine Ausnahme entscheidet
+  Katalog-Kopie weicht ab      es gilt die Definition; die Einspielung
+                               stellt her
+  Katalog-Definition           nichts wird aufgeloest oder geschrieben;
+  unbrauchbar                  nichts wird zugelassen; neue Auslieferung
+                               noetig
+  Puffer nicht aufloesbar      das Gesamt-Budget hat keinen Wert:
+                               Anlage, Claim und Rollenwechsel
+                               unterbleiben
+  Schreibvorgang scheitert     nichts geaendert; Ablehnung protokolliert
+  mittendrin                   (BASE-100_060 ZS-2)
+  Zeile am Schreibkern vorbei  beim Lesen geprueft; vom Prueflauf als
+  geaendert                    Aenderung ohne Protokoll gemeldet
+  Prueflauf laeuft nicht       Status veraltet und so gekennzeichnet;
+                               keine Auskunft haengt am Prueflauf
+  Uhr des Servers falsch       das Fenster der Rate verschiebt sich;
+                               Zeitpunkte in Protokoll und Status sind
+                               falsch - die Folge der Protokollzeilen
+                               bleibt durch die fortlaufende Nummer
+                               erhalten. Budgets und Kontingente haengen
+                               nicht an der Uhr dieses Moduls (die
+                               Periode fuehrt BASE-070)
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
