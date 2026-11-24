@@ -301,9 +301,11 @@ ZWECK:
     b) T-08, T-01, T-09, Pause und Verwaltungs-Einschraenkung rufen in
        ihrer Transaktion den Bewertungskern (_020 Abschnitt 5). Fuer
        T-09 (Rollenwechsel) heisst das: Status, Grund und
-       Finalisierungsfrist koennen sich mit dem Wechsel aendern, wo R-08
-       bzw. INV-41 es verlangen - eine ausgewiesene Abweichung von D002
-       7.3 und SM_CONNECTION 4.10 (_060 Abschnitt 2, EIGENSCHAFTEN).
+       Finalisierungsfrist jeder nicht gesperrten Connection folgen BEI
+       JEDEM Wechsel dem Kern - sie koennen entfallen, eintreten oder
+       wechseln, nicht nur dort, wo R-08 bzw. INV-41 es erzwingen. Das
+       ist eine ausgewiesene Abweichung von D002 7.3 und SM_CONNECTION
+       4.10, Subpfade A und B (_060 Abschnitt 2, EIGENSCHAFTEN).
     c) Die Routinen sind die EINZIGEN Schreibwege fuer op_status,
        op_reason_code und die Fristfelder; sie pruefen ihre
        Vorbedingungen selbst und lehnen Einschraenkungs-Tatsachen fuer
@@ -341,7 +343,8 @@ ZWECK:
        einer ausgewiesenen Ausnahme: Solange eine Auskunft nicht lesbar
        ist, ist der gespeicherte Grund der hoechstpriore BEKANNTE - ein
        unbekannter kann ihm vorgehen. Drei Faelle: Der gespeicherte
-       Grund bleibt stehen, auch nach einem Claim (_020 Regel Z-1 c);
+       Grund bleibt stehen, auch nach einem Claim oder einem
+       Rollenwechsel (_020 Regel Z-1 c; _060 Abschnitt 2);
        der Eintritt geschieht mit dem hoechstprioren bekannten Grund
        (Z-1 b); eine Wiederherstellung endet mit einem bekannt aktiven
        Grund (T-08; _020 Abschnitt 5). Dort aufzunehmen.
@@ -381,10 +384,18 @@ ZWECK:
        einem Grund AFTER_RESTORE_WINDOW neu beginnt (restore_until =
        jetzt + Restore-Fenster des Grundes; nie frueher als der
        bisherige Wert) - mit Lifecycle-Ereignis, Akteur SYSTEM und dem
-       Anlass "Auskunft nicht lesbar", ohne Auftrag. Der Bewerter ruft
-       sie nur nach _020 Schritt E4 a. T-08 und LR-02 bleiben, wie sie
-       sind: Das Fenster bestimmt weiter, bis wann wiederhergestellt
-       werden kann und wann widerrufen wird.
+       Anlass "Auskunft nicht lesbar" bzw. "Stillstand des Bewerters",
+       ohne Auftrag. Der Bewerter ruft sie nur nach _020 Schritt E4 a
+       und a2. Das Ereignis ist im Lifecycle-Log als Neubeginn
+       erkennbar (die Statusdatei zaehlt danach). T-08 und LR-02
+       bleiben, wie sie sind: Das Fenster bestimmt weiter, bis wann
+       wiederhergestellt werden kann und wann widerrufen wird.
+    s) WIDERRUF DURCH DIE VERWALTUNG auch fuer eine gesperrte Connection
+       mit einem Grund AFTER_RESTORE_WINDOW (LR-03 nennt die
+       ausdrueckliche Handlung nur fuer MANUAL_ONLY): als Handlung der
+       Klasse C, mit Lifecycle-Ereignis. Sie ist der Eingriff je
+       Connection, wenn ein Restore-Fenster dauerhaft offengehalten
+       wird (_020 Schritt E4, DAUERZUSTAND).
 
   ANF-PA-02 (BASE-100, MOD-010)
     Auskuenfte AK-1 (Plan-Limit je Connection, deterministisch) und AK-2
@@ -545,7 +556,7 @@ ZWECK:
 
   ANF-PA-09 (BASE-090)
     a) Keys aus _070 Abschnitt 3 katalogisieren (Grenzen,
-       Konsistenzregeln KP-a bis KP-h, Fehlerklasse und Notwert) -
+       Konsistenzregeln KP-a bis KP-i, Fehlerklasse und Notwert) -
        darunter die drei neuen Keys vpn_policy_eval_quiet_seconds,
        vpn_policy_eval_sources_off (Liste aus festem Wertevorrat) und
        vpn_reconcile_mass_close_per_hour; geaenderte Bedeutung und neue
@@ -821,6 +832,13 @@ ZWECK:
             E4 a); beheben kann der Betreiber dann nur die Ursache der
             unlesbaren Auskunft. PA-15 Satz 3 und T-PA-07 (e) gelten
             erst mit dem Nachzug.
+  ANF-PA-01 s  Widerruf durch die Verwaltung                       Art R
+    HEUTE:  BASE-010 sieht die ausdrueckliche Handlung nur fuer Gruende
+            MANUAL_ONLY vor (LR-03).
+    FOLGE:  Fuer ein dauerhaft offengehaltenes Restore-Fenster gibt es
+            keinen Eingriff je Connection. Es bleiben das Beheben der
+            Ursache und AK-5 (wirkt fuer alle). Die Connection bleibt
+            gesperrt - nie offener.
   ANF-PA-04 a, b, g  Duenne Hooks, kein zweiter Schreiber          Art V
     HEUTE:  BASE-030_040 laesst die Hooks die Sets SELBST schreiben: Der
             Hook des Beginns traegt die Freigabe ein, der des Endes

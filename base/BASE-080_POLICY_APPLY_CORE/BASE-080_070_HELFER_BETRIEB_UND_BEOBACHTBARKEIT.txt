@@ -331,6 +331,10 @@ ZWECK:
           Sitzungsende bleibt kuerzer als die Arbeit, die es
           unterbricht; beide zusammen mit der Wartezeit auf den Lock
           bestimmen das Zeitlimit des Einzelauftrags, Regel UP-5)
+    KP-i  2 * vpn_policy_eval_interval_seconds <=
+          vpn_policy_eval_quiet_seconds (die Ruhezeit - und mit ihr die
+          Nachfrist eines Restore-Fensters - umfasst mindestens zwei
+          Bewertungstakte; BASE-080_020 Schritt E4 a)
   VERLETZTE REGEL: Der Schreibweg der Settings lehnt eine Aenderung ab,
   nach der eine Regel verletzt waere; eine Verletzung kann nur an ihm
   vorbei entstehen. Dann gilt fuer jeden beteiligten Key DIESES Moduls
@@ -341,8 +345,8 @@ ZWECK:
   Regel danach noch verletzt oder liegt die Ursache in einem fremden Key
   (KP-e, KP-h), bleibt der Konflikt gemeldet (POLICY_SETTING_CONFLICT),
   bis der Betreiber ihn aufloest. Die Notwerte erfuellen KP-a bis KP-d,
-  KP-f und KP-g untereinander. Die Regel selbst fuehrt der Settings-Kern
-  (BASE-090).
+  KP-f, KP-g und KP-i untereinander. Die Regel selbst fuehrt der
+  Settings-Kern (BASE-090).
 
   LESEN DER SETTINGS: je Lauf; vpn-policy-apply fuer ein Einzelziel
   liest die wenigen Werte, die es braucht, zusammen mit der Connection.
@@ -392,10 +396,18 @@ ZWECK:
     status-eval.json        generated_at, letzter_lauf_at,
                             letzter_lauf_ok_at, kandidaten je Art,
                             uebergaenge je Art, eingaben_unbekannt,
-                            fenster_offengehalten,
+                            fenster_offengehalten: {anzahl,
+                            wiederholt, aeltester_neubeginn_at},
                             zurueckgestellt: {anzahl, bedingung},
                             halt: {seit, restzeit, anstehend je Art},
                             notwerte_in_gebrauch, dauer
+
+    fenster_offengehalten: gesperrte, nicht widerrufene Connections,
+    deren Restore-Fenster zuletzt der Bewerter neu begonnen hat
+    (BASE-080_020 Schritt E4) - ihre Zahl, darunter die mit mehr als
+    einem Neubeginn in Folge, und der aelteste Neubeginn. Ein Wert
+    ueber null bei "wiederholt" ist ein andauernder Zustand, der einen
+    Eingriff braucht (Abschnitt 9).
 
   Eine Statusdatei, die aelter ist als das Dreifache des Takts ihres
   Laufs, gilt im Panel als "Lauf antwortet nicht".
@@ -655,6 +667,13 @@ ZWECK:
                   haengt, wo sie ist - gemeldet, aber ohne Ende. Die
                   Dauermeldung POLICY_EVAL_SOURCE_OFF steht, solange der
                   Eintrag gilt.
+    Fenster       ein Restore-Fenster, das der Bewerter wegen fehlenden
+    schliessen    Wissens immer wieder neu beginnt (Statusdatei:
+                  fenster_offengehalten, "wiederholt"; BASE-080_020
+                  Schritt E4): die Ursache der unlesbaren Auskunft
+                  beheben; die Quelle ausnehmen (oben - wirkt fuer
+                  alle); oder die Connection widerrufen (Panel, Klasse
+                  C; BASE-010, ANF-PA-01 s)
 
   AUFTRAGSLAUF (vpn-policy-apply --pending) UND AUFSICHT
     anstossen     "Zustand jetzt herstellen" je Connection (Panel)

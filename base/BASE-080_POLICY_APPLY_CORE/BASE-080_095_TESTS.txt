@@ -117,15 +117,30 @@ BEWERTUNG
             restrict_finalize_at: KEINE Finalisierung. (e) T-08 ohne bekannt
             aktiven Grund: abgelehnt, keine Aenderung; die Ablehnung nennt
             restore_until. Endet das Restore-Fenster in weniger als der
-            Nachfrist, solange die Auskunft unbekannt ist: KEIN Widerruf;
-            der Bewerter beginnt das Fenster neu (restore_until = jetzt +
-            Fenster des Grundes; Lifecycle-Ereignis, kein Auftrag),
-            POLICY_EVAL_REVOKE_DEFERRED - auch waehrend eines Halts und
-            bei entzogenem Zeitsignal; der naechste Lauf erneuert nicht
-            wieder. Nach Rueckkehr der Auskunft ist T-08 mindestens die
-            Nachfrist lang moeglich; danach gilt das Fenster wie jedes
-            andere. Mit lesbarer Auskunft wird kein Fenster erneuert (setzt
-            ANF-PA-01 r voraus). T-08 mit bekannt aktivem Grund: RESTRICTED.
+            Nachfrist - oder ist es schon abgelaufen -, solange die
+            Auskunft unbekannt ist: KEIN Widerruf; der Bewerter beginnt
+            das Fenster neu (restore_until = jetzt + Fenster des Grundes,
+            nie frueher als der bisherige Wert; Lifecycle-Ereignis, kein
+            Auftrag), POLICY_EVAL_REVOKE_DEFERRED - auch waehrend eines
+            Halts, in der Ruhezeit, bei entzogenem Zeitsignal und bei
+            ueberschrittener Mengengrenze (die das Fenster nicht zaehlt);
+            der naechste Lauf erneuert nicht wieder und schreibt nichts.
+            Nach Rueckkehr der Auskunft ist T-08 mindestens die Nachfrist
+            abzueglich eines Bewertungstakts lang moeglich; danach gilt
+            das Fenster wie jedes andere. NACHFRIST: bei Ruhezeit 3600 s
+            und Fenster 30 Tage 3600 s; bei Fenster 1 h das halbe Fenster
+            (1800 s). GEGENFAELLE: Mit lesbarer Auskunft wird kein Fenster
+            erneuert; mit bekannt aktivem Grund auch nicht (T-08 ergibt
+            dann RESTRICTED); ein Grund mit Fenster der Laenge 0: kein
+            Offenhalten. STILLSTAND: Der Bewerter steht ueber das
+            Fensterende, die Auskunft ist bei seinem Wiederanlauf lesbar:
+            kein Widerruf - das Fenster beginnt neu (E4 a2); nach dessen
+            Ablauf bei regelmaessigen Laeufen Widerruf. DAUERZUSTAND:
+            Bleibt die Auskunft fuer eine Connection unbekannt, fuehrt die
+            Statusdatei sie nach dem zweiten Neubeginn in Folge unter
+            "wiederholt". KONSISTENZ: Takt 600 s mit Ruhezeit 300 s lehnt
+            der Schreibweg der Settings ab (KP-i). (Setzt ANF-PA-01 r
+            voraus.)
             (f)
             Jeweils POLICY_EVAL_INPUT_UNKNOWN; faellt die Auskunft fuer alle
             Connections aus: ALERT. Die uebrigen Connections werden normal
@@ -143,7 +158,7 @@ BEWERTUNG
             lesbar machen: Eine VIP- bzw. MODERATOR-Connection (ihr Customer
             traegt keinen Plan) wird normal bewertet - das Plan-Limit gilt fuer
             sie als bekannt nicht aktiv; eine USER-Connection ist "unbekannt".
-            [PA-07, PA-10, PA-15]
+            [PA-07, PA-10, PA-15, PA-06]
 
   T-PA-08  [L] Reihenfolge je Connection: (a) Customer SUSPENDED und
             zugleich ein neuer Grund: Sperrung mit
@@ -234,7 +249,8 @@ BEWERTUNG
             Connection eine Transaktion mit Auftrag; die gesperrten behalten
             Status und Grund. Traegt eine der gesperrten ein ABGELAUFENES
             Restore-Fenster, wird sie im selben Lauf widerrufen (Schritt E4,
-            unter dem Schutz) - unabhaengig vom Status des Customers. VOLLZUG
+            unter dem Schutz, bei lesbarer Auskunft; sonst T-PA-07 e) - auch
+            bei gesperrtem Customer. VOLLZUG
             der Loeschung (Aufruf mit --actor, --operator und --cascade):
             Tombstone fuer ALLE fuenf (Widerruf, Auth-Zeile geloescht) - sofort,
             auch bei entzogenem Zeitsignal, mit mehr Connections als der Grenze
@@ -252,9 +268,13 @@ BEWERTUNG
             Connections sind nach diesem Lauf DISABLED mit
             DISABLE_CUSTOMER_SUSPENDED, ihre Laufzeit ist beendet (setzt
             ANF-PA-01 o voraus); nach der Betreiber-Freigabe folgt der
-            Tombstone. Waehrend eines Halts: aus dem Netz weder Tombstone noch
-            Sperrung. SUSPENDED aus dem Netz: laeuft ungebremst, ruht aber
-            waehrend eines Halts. TATSACHEN: Eine Connection mit
+            Tombstone. Eine schon aus ANDEREM Grund gesperrte Connection
+            dieses Customers mit abgelaufenem Restore-Fenster wird nicht
+            nach E4 widerrufen und nicht offengehalten: Auf sie wartet der
+            Tombstone. Waehrend eines Halts: aus dem Netz (Lauf) weder
+            Tombstone noch Sperrung; "Bewertung jetzt" sperrt ersatzweise
+            (T-PA-80 c). SUSPENDED aus dem Netz: laeuft ungebremst, ruht
+            aber waehrend eines Halts. TATSACHEN: Eine Connection mit
             Verwaltungs-Einschraenkung durch die Kaskade sperren und
             wiederherstellen (T-08): Sie ist - ohne anderen Grund - ACTIVE, die
             Einschraenkung besteht nicht mehr. Sperrung des Customers aufheben:
@@ -262,10 +282,15 @@ BEWERTUNG
             PA-72, PA-15]
 
   T-PA-15  [L] Widerruf: DISABLED mit einem Grund AFTER_RESTORE_WINDOW und
-            abgelaufenem restore_until: Widerruf (revoked_at,
-            quarantine_until, restore_until NULL) mit Auftrag. Grund
+            abgelaufenem restore_until, bei LESBAREN Auskuenften und
+            regelmaessigen Laeufen: Widerruf (revoked_at,
+            quarantine_until, restore_until NULL) mit Auftrag. Bei
+            unbekannter Auskunft oder nach einem Stillstand des Bewerters
+            ueber das Fensterende: kein Widerruf (T-PA-07 e). Grund
             MANUAL_ONLY mit beliebig alter Sperrung: nie. restore_until
-            NULL: nie. Bereits widerrufen: kein zweites Mal. [PA-15]
+            NULL: nie. Bereits widerrufen: kein zweites Mal. Die
+            Connection eines als geloescht gefuehrten Customers: nicht
+            ueber E4, sondern ueber den Tombstone (T-PA-14). [PA-15]
 
   T-PA-16  [L, E] Kontingent: Eine Connection schoepft ihr Kontingent aus
             (je Tunnel): Die Zeit vom Ueberschreiten laut Buchung bis zur
@@ -981,12 +1006,20 @@ UMBAUTEN
             Quarantaene. (c) Laufzeit auf den alten Adressen ist beendet;
             Freigabe, Sperr-Set und conntrack der alten Adressen sind
             geraeumt - auch wenn der Umbau nach dem Commit abbricht. (d)
-            DISABLED: neue Adresse, kein Schnitt. (e) quota_used und
-            Periode bleiben. Status und Grund folgen dem Bewertungskern in
-            der Transaktion: Was weiter gilt, bleibt; nach einem Wechsel in
-            eine Rolle ohne Plan ist ein Grund aus dem Plan mit dem Commit
-            entfallen; nach einem Wechsel WEG von ADMIN bei erschoepftem
-            Kontingent ist die Connection mit dem Commit RESTRICTED. (f)
+            DISABLED: neue Adresse, kein Schnitt; Status, Grund und
+            Fristen einer gesperrten Connection bleiben. (e) quota_used und
+            Periode bleiben. Status, Grund und Frist folgen bei JEDEM
+            Wechsel dem Bewertungskern in der Transaktion: Was weiter gilt,
+            bleibt (Verwaltungs-Einschraenkung, Pause, abgelaufene Laufzeit
+            - samt restrict_finalize_at); nach einem Wechsel in eine Rolle
+            ohne Plan ist ein Grund aus dem Plan mit dem Commit entfallen;
+            nach einem Wechsel WEG von ADMIN bei erschoepftem Kontingent
+            ist eine ACTIVE-Connection mit dem Commit RESTRICTED; wechselt
+            der Grund, beginnt restrict_finalize_at neu. GEGENFALL: Wechsel
+            in eine Rolle ohne Plan bei NICHT LESBARER Kontingent-Auskunft:
+            Die Connection bleibt RESTRICTED mit dem gespeicherten Grund
+            aus dem Plan (Regel Z-1 c), gemeldet; der naechste Durchgang
+            mit lesbarer Auskunft berichtigt. (f)
             Zielrolle ADMIN: Die eingeschraenkte Connection ist mit dem
             Commit ACTIVE; ihre Tatsachen (Pause,
             Verwaltungs-Einschraenkung) sind geloescht, mit
@@ -1092,7 +1125,7 @@ HELFER, BETRIEB, BEOBACHTBARKEIT, GRENZEN
   T-PA-74  [L] Settings: (a) Einen Key loeschen bzw. ungueltig setzen: Es
             gilt der Notwert des Katalogs, POLICY_SETTING_FALLBACK; der
             Programmtext enthaelt keinen eigenen Rueckfallwert. (b) Jede
-            Regel KP-a bis KP-h verletzen (am Schreibweg vorbei; der
+            Regel KP-a bis KP-i verletzen (am Schreibweg vorbei; der
             Schreibweg selbst lehnt ab): Je beteiligtem Key dieses Moduls
             gilt der strengere von eigenem Wert und Notwert. Beispiel
             vpn_reconcile_interval_seconds = 60 und
@@ -1344,7 +1377,10 @@ GESAMTPRUEFUNG UND ANNAHMEN
             in einem Lauf bei vpn_policy_eval_restrict_alert_per_run =
             100: Alle sind ausgefuehrt, POLICY_EVAL_MASS_RESTRICT ist
             gemeldet; bei 100: keine Meldung. Sperrungen aus der Kaskade
-            "Customer gesperrt" aus dem Netz zaehlen mit. [PA-72]
+            "Customer gesperrt" aus dem Netz zaehlen mit, ebenso die
+            Ersatzsperrungen an Stelle eines zurueckgestellten Tombstones
+            (60 Einschraenkungen und 41 Ersatzsperrungen: gemeldet).
+            [PA-72]
 
   T-PA-94  [K, L] Aufrufarten (BASE-080_020 Abschnitt 6, A1 bis A6): Connection
             mit faelliger claim_deadline bzw. faelliger Finalisierung: (a)

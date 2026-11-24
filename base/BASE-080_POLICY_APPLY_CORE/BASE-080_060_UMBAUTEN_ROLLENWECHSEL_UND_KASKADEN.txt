@@ -119,7 +119,7 @@ ZWECK:
               welche Gruende gelten koennen. Beim Wechsel NACH ADMIN
               loescht die Routine von BASE-010 zuvor die Tatsachen der
               Connection (Pause, Verwaltungs-Einschraenkung) mit
-              Lifecycle-Ereignis (ANF-PA-01)
+              Lifecycle-Ereignis (ANF-PA-01 l)
            g) je Connection ein Auftrag mit prev_ipv4, prev_ipv6 und -
               bei Status ACTIVE oder RESTRICTED - runtime_cut_before =
               jetzt, Grund CONNECTION_ROLE_CHANGE; fuer jede
@@ -144,23 +144,53 @@ ZWECK:
   EIGENSCHAFTEN:
     - ALLES ODER NICHTS (D002 7.4): Keine Connection hat die neue Rolle,
       solange nicht alle umgestellt sind.
-    - STATUS UND GRUND FOLGEN DEM BEWERTUNGSKERN (RC3 f): Was mit der
-      neuen Rolle weiter gilt, bleibt; was nicht mehr gelten kann,
-      entfaellt mit dem Wechsel - bei Zielrolle ADMIN jede Einschraenkung
-      (SZ-10), bei einer Rolle ohne Plan die Gruende, die an einem Plan
-      haengen (BASE-010 INV-41); beim Wechsel WEG von ADMIN gelten die
-      Bedingungen wieder. Ohne den Kern truege die Connection bis zum
-      naechsten Lauf einen Status, der nicht zu ihrer Rolle passt.
+    - STATUS, GRUND UND FRIST FOLGEN DEM BEWERTUNGSKERN (RC3 f) - BEI
+      JEDEM ROLLENWECHSEL: Jede Connection, die nicht gesperrt ist, wird
+      in der Transaktion des Wechsels mit der neuen Rolle neu bewertet,
+      wie ein Lauf des Bewerters es taete. Was weiter gilt, bleibt
+      (Verwaltungs-Einschraenkung, Pause, abgelaufene Laufzeit). Was
+      nicht mehr gilt, entfaellt mit dem Commit; was neu gilt, tritt mit
+      dem Commit ein:
+        Zielrolle ADMIN        jede Einschraenkung entfaellt (SZ-10,
+                               R-08)
+        Zielrolle ohne Plan    Gruende, die an einem Plan haengen,
+        (VIP, MODERATOR)       entfallen: Nur USER traegt einen Plan
+                               (BASE-010 INV-41; BASE-080_020 Regel
+                               AK-1)
+        jeder Wechsel          die Bedingungen werden mit der neuen
+                               Rolle und ihren Werten bewertet: Eine
+                               Einschraenkung kann entfallen ODER
+                               eintreten - eine ACTIVE-Connection kann
+                               mit dem Commit RESTRICTED werden (etwa
+                               WEG von ADMIN bei erschoepftem
+                               Kontingent). Wechselt der Grund, beginnt
+                               restrict_finalize_at neu (BASE-080_020
+                               Schritt E6)
+      Gesperrte Connections beruehrt der Kern nicht.
+      UNBEKANNTE AUSKUNFT: Ist beim Wechsel eine Auskunft nicht lesbar
+      und das Ziel deshalb nicht bestimmt, bleibt der gespeicherte
+      Zustand (BASE-080_020 Regel Z-1 c) - auch ein Grund aus dem Plan
+      nach dem Wechsel in eine Rolle ohne Plan: Die Connection bleibt
+      eingeschraenkt, ihr Grund ist dann ueberholt. Das berichtigt der
+      naechste Durchgang mit lesbarer Auskunft. Fuer die Zielrolle
+      ADMIN braucht es keine Auskunft. Die Ausnahme von INV-22 ist bei
+      BASE-010 angemeldet (ANF-PA-01 j).
+      WARUM: Ohne den Kern truege die Connection bis zum naechsten Lauf
+      einen Status, der nicht zu ihrer Rolle passt - der Lauf stellte
+      dasselbe Ergebnis her, nur spaeter.
       ABWEICHUNG VON D002 7.3 UND SM_CONNECTION 4.10 (ausgewiesen): Dort
       bleiben Status, Grund und Finalisierungsfrist beim Rollenwechsel
       unveraendert ("die Rolle aendert sich, der Enforcement-Status
-      nicht"). Das gilt weiter fuer alles, was nicht an der Rolle haengt.
-      Es KANN nicht gelten, wo eine vorrangige Regel dem widerspricht:
-      R-08 (eine ADMIN-Connection ist nie eingeschraenkt) und INV-41
-      (ein Grund aus einem Plan besteht nicht ohne Plan). D002 ist eine
-      Entscheidung des Betreibers; die Abweichung ist ihm gemeldet
-      (03_CHANGELOG v2.9.19). Die Routine T-09 von BASE-010 ist um den
-      Aufruf des Kerns zu erweitern (ANF-PA-01 b).
+      nicht"; SM_CONNECTION Subpfad A: "op_status bleibt ACTIVE",
+      Subpfad B: "bleibt RESTRICTED"). HIER folgen sie bei JEDEM Wechsel
+      dem Kern - nicht nur dort, wo R-08 (eine ADMIN-Connection ist nie
+      eingeschraenkt) und INV-41 es erzwingen. Unveraendert bleibt, was
+      auch der naechste Lauf unveraendert liesse. D002 ist eine
+      Entscheidung des Betreibers. Die Abweichung ist ihm gemeldet
+      (03_CHANGELOG v2.9.19) und am 2026-11-24 in dieser Reichweite auf
+      seine Frage erlaeutert (BM-0027); eine Entscheidung dazu hat er
+      nicht getroffen - sie steht ihm offen. Die Routine T-09 von
+      BASE-010 ist um den Aufruf des Kerns zu erweitern (ANF-PA-01 b).
     - DIE PRUEFUNG IN RC1 BINDET NICHT: Budget, Freimenge und Menge der
       Connections gelten erst, wie die Transaktion sie vorfindet (RC3 b
       und c).

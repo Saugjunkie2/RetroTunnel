@@ -212,16 +212,35 @@ ZWECK:
                                Loeschung (Aufrufart A5, Abschnitt 6). In
                                jedem anderen Aufruf steht er unter dem
                                Schutz aus Abschnitt 7 und ruht im Halt.
-                               ZURUECKGESTELLTER TOMBSTONE: Laesst der
-                               Schutz ihn nicht zu, wird die Connection
-                               - soweit ACTIVE oder RESTRICTED - im
-                               selben Schritt GESPERRT wie bei SUSPENDED
-                               (T-04 bzw. T-07 mit
+                               ZURUECKGESTELLT heisst: Der Schutz aus
+                               Abschnitt 7 laesst ihn nicht zu. RUHEND
+                               heisst: Er unterbleibt wegen eines Halts
+                               (Abschnitt 11).
+                               ERSATZSPERRUNG: Ist der Tombstone
+                               zurueckgestellt - oder ruht er in einem
+                               Aufruf, der im Halt umkehrbare
+                               Uebergaenge ausfuehrt ("Bewertung
+                               jetzt", Aufrufart A4) -, wird die
+                               Connection, soweit ACTIVE oder
+                               RESTRICTED, im selben Schritt GESPERRT
+                               wie bei SUSPENDED (T-04 bzw. T-07 mit
                                DISABLE_CUSTOMER_SUSPENDED; ANF-PA-01 o).
-                               Der Tombstone folgt, sobald der Schutz
-                               ihn zulaesst. Ein als geloescht gefuehrter
-                               Customer hat so nie mehr Zugang als ein
-                               gesperrter.
+                               Der Tombstone folgt, sobald Schutz und
+                               Halt ihn zulassen. Ein als geloescht
+                               gefuehrter Customer hat so nie mehr
+                               Zugang als ein gesperrter. Der LAUF im
+                               Halt (A1, A2) fuehrt keinen Uebergang
+                               aus, auch diese Sperrung nicht (HL-3).
+                               FUER DIESE CONNECTION ENDET DIE BEWERTUNG
+                               MIT E2 - auch nach einer Ersatzsperrung:
+                               Ihr Restore-Fenster wird weder geprueft
+                               noch offengehalten (E4); auf sie wartet
+                               der Tombstone. Der Ersatzgrund ist
+                               wiederherstellbar: Stellt die Verwaltung
+                               sie wieder her (T-08), sperrt der
+                               naechste Lauf sie erneut - ein
+                               Datenfehler am Status des Customers
+                               bleibt so umkehrbar.
         Customer SUSPENDED  -> ist die Connection ACTIVE oder RESTRICTED:
                                T-04 bzw. T-07 mit
                                DISABLE_CUSTOMER_SUSPENDED (INV-65). Ende.
@@ -247,7 +266,20 @@ ZWECK:
          restore_until. Ende.
          NACHFRIST ist vpn_policy_eval_quiet_seconds, hoechstens aber
          die halbe Laenge des Restore-Fensters des Grundes - so erneuert
-         nicht jeder Lauf.
+         nicht jeder Lauf. Die Ruhezeit umfasst mindestens zwei
+         Bewertungstakte (BASE-080_070 Regel KP-i). Ist auch das halbe
+         Fenster so lang, beginnt im ungestoerten Betrieb mindestens ein
+         Lauf in der Nachfrist.
+         KEIN OFFENHALTEN OHNE FENSTER: Hat der Grund ein Restore-Fenster
+         der Laenge 0, gibt es nichts offenzuhalten; a) entfaellt.
+      a2) KEIN WIDERRUF NACH EINEM STILLSTAND: Ist das Fenster abgelaufen
+         und hat in der Nachfrist vor seinem Ende KEIN Lauf begonnen
+         (policy_eval_last_run_at, wie dieser Lauf es vorfindet, liegt
+         vor restore_until - NACHFRIST), beginnt der Bewerter das Fenster
+         neu wie in a): Er stand, und niemand hat in der Nachfrist
+         geprueft, ob Wissen fehlte. Das gilt nur, wenn die NACHFRIST
+         mindestens zwei Bewertungstakte umfasst - sonst beweist ein
+         fehlender Lauf keinen Stillstand. Ende.
       b) WIDERRUF: sonst, wenn jetzt >= restore_until
          -> Widerruf nach LR-02 (revoked_at, quarantine_until;
             restore_until NULL). UNUMKEHRBAR (Abschnitt 7).
@@ -260,6 +292,21 @@ ZWECK:
       Auskunft nicht mehr wiederherstellen. Mit a) bleibt nach der
       Rueckkehr der Auskunft mindestens die Nachfrist, abzueglich eines
       Bewertungstakts; danach gilt das Fenster wie jedes andere.
+      GRENZEN (offen ausgewiesen): Die Zusage gilt, solange der Bewerter
+      laeuft. Fehlte das Wissen nur im letzten Bewertungstakt vor dem
+      Fensterende und ist es beim naechsten Lauf wieder da, folgt der
+      Widerruf - verloren ist dann hoechstens dieser eine Takt. Steht
+      der Bewerter ueber das Fensterende, greift a2).
+      DAUERZUSTAND: Bleibt eine Auskunft fuer EINE Connection dauerhaft
+      unbekannt (etwa widerspruechliche Daten), wird ihr Fenster immer
+      wieder neu begonnen. Das endet nicht von selbst. Die Statusdatei
+      fuehrt deshalb als ANDAUERNDEN ZUSTAND die Zahl der Connections,
+      deren Fenster zuletzt der Bewerter neu begonnen hat, und darunter
+      die, bei denen das mehr als einmal in Folge geschah (BASE-080_070
+      Abschnitt 5). EINGRIFF (BASE-080_070 Abschnitt 9): die Ursache
+      der unlesbaren Auskunft beheben, die Quelle als nicht eingerichtet
+      festlegen (AK-5; wirkt fuer alle) oder die Connection durch die
+      Verwaltung widerrufen (ANF-PA-01 s).
       Das Offenhalten schliesst nichts, oeffnet nichts und macht nichts
       endgueltig. Es unterliegt deshalb nicht dem Schutz aus Abschnitt 7
       und laeuft auch waehrend eines Halts (Abschnitt 11, HL-3 d).
@@ -425,7 +472,9 @@ ZWECK:
                                   E4 b, E7 UND der Tombstone (E2). Die
                                   Kaskade "Customer gesperrt" laeuft
         im Halt                   umkehrbare Uebergaenge laufen;
-                                  Unumkehrbares ruht
+                                  Unumkehrbares ruht; an die Stelle des
+                                  ruhenden Tombstones tritt die
+                                  Ersatzsperrung (E2)
     A5  VOLLZUG EINER LOESCHUNG   --customer-id mit --actor, --operator
         ODER SPERRUNG             und --cascade; Klasse C (BASE-080_060
                                   Schritt KA1)
@@ -466,6 +515,10 @@ ZWECK:
          Die Indizes auf den Fristfeldern (BASE-010_020) tragen a) und b);
          c) ist ein Verbund ueber die sechs Quellen.
     BL5  MENGENBREMSE nach Abschnitt 7 auf die unumkehrbaren Kandidaten.
+         NICHT gezaehlt wird ein abgelaufenes Restore-Fenster, das der
+         Lauf nach E4 a oder a2 neu beginnen wird: Dort ist kein
+         Widerruf faellig. Fehlt eine Auskunft fuer viele Connections,
+         haelt die Mengengrenze (U-3) deshalb nichts an.
     BL6  Je Kandidat der Ablauf E1 bis E8 in EIGENER Transaktion. Ein
          Fehler bei einer Connection beendet den Lauf nicht; er wird
          gezaehlt und die Connection im naechsten Lauf erneut bearbeitet.
@@ -516,8 +569,8 @@ ZWECK:
   Lifecycle-Ereignis nennt, was geloescht wurde (ANF-PA-01 p). Aus dem
   Netz des Laufs zaehlt die Kaskade zur Meldeschwelle der
   Masseneinschraenkungen (unten) und ruht bei einem Halt (Abschnitt
-  11). Dasselbe gilt fuer die Sperrung an Stelle eines zurueckgestellten
-  Tombstones (Schritt E2).
+  11). Dasselbe gilt fuer die Ersatzsperrung an Stelle eines
+  zurueckgestellten Tombstones (Schritt E2).
 
   Ein Lauf fuehrt unumkehrbare Uebergaenge nur aus, wenn ALLE Bedingungen
   gelten:
@@ -744,10 +797,12 @@ ZWECK:
              nur den Bewertungskern aus und nie einen unumkehrbaren
              Uebergang (Aufrufart A3). "Bewertung jetzt" des Betreibers
              (Aufrufart A4) laeuft fuer UMKEHRBARE Uebergaenge; seine
-             unumkehrbaren - auch der Tombstone - ruhen im Halt.
+             unumkehrbaren - auch der Tombstone - ruhen im Halt. An die
+             Stelle des ruhenden Tombstones tritt in diesem Aufruf die
+             Ersatzsperrung (Schritt E2): Sie ist umkehrbar.
           c) Die Herstellung (BASE-080_030 bis _050): Der gespeicherte
              Zustand wird durchgesetzt wie sonst.
-          d) Das Offenhalten eines Restore-Fensters (Schritt E4 a): Es
+          d) Das Offenhalten eines Restore-Fensters (Schritt E4 a, a2): Es
              aendert keinen Status und macht nichts endgueltig. Ohne es
              koennte ein Fenster waehrend des Halts ablaufen, waehrend
              die Wiederherstellung am fehlenden Wissen scheitert.
