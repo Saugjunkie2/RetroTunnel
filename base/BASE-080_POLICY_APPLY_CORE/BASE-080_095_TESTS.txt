@@ -116,10 +116,17 @@ BEWERTUNG
             Aufhebung und kein Grundwechsel. (d) RESTRICTED mit abgelaufener
             restrict_finalize_at: KEINE Finalisierung. (e) T-08 ohne bekannt
             aktiven Grund: abgelehnt, keine Aenderung; die Ablehnung nennt
-            restore_until. Verstreicht restore_until, solange die Auskunft
-            unbekannt ist: KEIN Widerruf, POLICY_EVAL_REVOKE_DEFERRED mit der
-            Frist; mit dem ersten Lauf nach Rueckkehr der Auskunft gilt die
-            Frist wieder. T-08 mit bekannt aktivem Grund: RESTRICTED. (f)
+            restore_until. Endet das Restore-Fenster in weniger als der
+            Nachfrist, solange die Auskunft unbekannt ist: KEIN Widerruf;
+            der Bewerter beginnt das Fenster neu (restore_until = jetzt +
+            Fenster des Grundes; Lifecycle-Ereignis, kein Auftrag),
+            POLICY_EVAL_REVOKE_DEFERRED - auch waehrend eines Halts und
+            bei entzogenem Zeitsignal; der naechste Lauf erneuert nicht
+            wieder. Nach Rueckkehr der Auskunft ist T-08 mindestens die
+            Nachfrist lang moeglich; danach gilt das Fenster wie jedes
+            andere. Mit lesbarer Auskunft wird kein Fenster erneuert (setzt
+            ANF-PA-01 r voraus). T-08 mit bekannt aktivem Grund: RESTRICTED.
+            (f)
             Jeweils POLICY_EVAL_INPUT_UNKNOWN; faellt die Auskunft fuer alle
             Connections aus: ALERT. Die uebrigen Connections werden normal
             bewertet. (g) Auskunft wieder lesbar: Der naechste Lauf holt
@@ -512,20 +519,24 @@ HERSTELLUNG
   T-PA-37  [L] Sitzungsende und Reihenfolge der Hooks: (a) Den Hook des Endes
             der alten Sitzung NACH dem Hook des Beginns der neuen Sitzung
             derselben Connection ausfuehren (neue Schnittstelle): Die Freigabe
-            der neuen bleibt; entfernt wird nur das Element der beendeten
-            Schnittstelle. (b) Sitzungsende ohne --addr: Ergebnis 0; entfernt
-            werden nur Elemente, deren Schnittstelle nicht mehr besteht; den
-            Rest raeumt der Abgleich. (c) Sitzungsende doppelt: ohne Folgen. (d)
-            Sitzungsende, waehrend die Schnittstelle am Kernel noch besteht: Ihr
-            Element mit der Adresse der beendeten Sitzung ist trotzdem entfernt.
-            (e) Fuer die neue Sitzung DERSELBEN Connection dieselbe
-            Schnittstelle erzwingen (Annahme E-PA-09 verletzt) und (a)
-            wiederholen: Die neue Sitzung verliert ihre Freigabe, ist gesperrt
-            und wird von der Aufsicht im naechsten Durchgang neu freigegeben -
-            zu keinem Zeitpunkt offener. (f) NAME NEU VERGEBEN: Die Sitzung
-            einer ANDEREN Connection erhaelt den Namen pppN der beendeten
-            Sitzung; danach laeuft deren verspaeteter Hook des Endes (mit der
-            alten Adresse): Die Freigabe der neuen Sitzung bleibt; ihr Spiegel
+            der neuen bleibt; entfernt wird nur das Element der beendeten,
+            nicht mehr bestehenden Schnittstelle. (b) Sitzungsende ohne --addr:
+            Ergebnis 0; entfernt werden die Elemente ohne Schnittstelle;
+            Sperr-Set und Formung der Connection raeumt die Aufsicht bzw. der
+            Abgleich. (c) Sitzungsende doppelt: ohne Folgen. (d) HOOK VOR DEM
+            ENDE DER SCHNITTSTELLE: Das Sitzungsende laeuft, waehrend die
+            Schnittstelle der beendeten Sitzung am Kernel noch besteht: Ihr
+            Element und ihr Policy-Zustand bleiben stehen (kein Entfernen mit
+            sofortigem Wiedereintrag). Nach ihrem Verschwinden entfernt die
+            Aufsicht beides im naechsten Durchgang des Auftragslaufs - ebenso
+            bei unterdruecktem Hook. In der Zwischenzeit wird kein Paket ueber
+            das Element freigegeben. (e) Fuer die neue Sitzung DERSELBEN
+            Connection dieselbe Schnittstelle erzwingen (Annahme E-PA-09
+            verletzt) und (a) wiederholen: Die Freigabe der neuen Sitzung
+            bleibt. (f) NAME NEU VERGEBEN: Die Sitzung einer ANDEREN Connection
+            bzw. die naechste Sitzung DERSELBEN Connection erhaelt den Namen
+            pppN der beendeten Sitzung; danach laeuft deren verspaeteter Hook
+            des Endes: Die Freigabe der neuen Sitzung bleibt; ihr Spiegel
             bleibt (der Hook entfernt ihn nur fuer die eigene Sitzung; setzt
             ANF-PA-04 a voraus). [PA-31]
 
@@ -650,11 +661,14 @@ ABGLEICH UND SIEGEL
             erst am Zeitlimit: Der Kernel-Lock ist waehrend des Wartens
             NICHT gehalten - ein Einzelauftrag und der Hook --l2tp-down
             laufen in dieser Zeit; die laengste Haltedauer bleibt unter
-            vpn_reconcile_section_seconds. Vier Sitzungen, der Adapter
-            antwortet je erst am Zeitlimit: Sie werden gemeinsam beendet;
-            der Lauf endet regulaer. Ein Ziel, das ein Einzelauftrag in
-            dieser Pause wieder zugelassen hat, wird nicht beendet.
-            [PA-38, PA-51, PA-71]
+            vpn_reconcile_section_seconds. Vier Sitzungen in einem
+            Abschnitt, der Adapter antwortet je erst am Zeitlimit: Sie
+            werden gemeinsam beendet - EIN Warten von hoechstens
+            vpn_hardcut_kill_timeout_seconds, nicht vier (setzt ANF-PA-14 g
+            voraus); der Lauf endet regulaer. Eine Sitzung, die am Ende der
+            Frist noch besteht: nicht beendet, gesperrt, Ergebnis 1. Ein
+            Ziel, das ein Einzelauftrag in dieser Pause wieder zugelassen
+            hat, wird nicht beendet. [PA-38, PA-51, PA-71]
 
   T-PA-48  [L] Sperr-Set exakt: (a) Die Adresse einer eingeschraenkten
             Connection mit Laufzeit fehlt (IPv4, IPv6 oder beide): im
@@ -1197,13 +1211,15 @@ GESAMTPRUEFUNG UND ANNAHMEN
             lesbar. 1.000 Sitzungen auf- und abbauen und festhalten, ob
             ein Index wiederverwendet wird. Unabhaengig davon gibt ein
             liegengebliebenes Element nie die Sitzung einer ANDEREN
-            Connection frei (anderer Index bzw. andere Adresse) und eine
-            neue Sitzung derselben Connection hoechstens bis zu ihrem
-            eigenen Sitzungsbeginn (T-PA-91). Den Hook des Beginns
-            zusaetzlich unterdruecken: Das Element gilt weiter, bis die
-            Connection das naechste Mal hergestellt wird (Annahme E-PA-09,
-            Ausweichweg 2) - mit ihrem zuletzt hergestellten
-            Policy-Zustand. [PA-29, PA-40, PA-70]
+            Connection frei (anderer Index bzw. andere Adresse). Eine
+            neue Sitzung derselben Connection gibt es nur bei GLEICHEM
+            Index frei (Schnittstelle wiederverwendet, Annahme E-PA-09
+            verletzt) - dann hoechstens bis zu ihrem eigenen
+            Sitzungsbeginn (T-PA-91). Den Hook des Beginns zusaetzlich
+            unterdruecken: Das Element gilt weiter, bis die Connection das
+            naechste Mal hergestellt wird (Annahme E-PA-09, Ausweichweg) -
+            mit ihrem zuletzt hergestellten Policy-Zustand.
+            [PA-29, PA-40, PA-70]
 
   T-PA-86  [E] Annahmen E-PA-05, E-PA-09 und E-PA-10: Ob accel-ppp je
             Sitzung eine neue Schnittstelle anlegt (ohne Wiederverwendung)

@@ -376,6 +376,15 @@ ZWECK:
        UPDATE), bevor er ihm eine Connection zuordnet - dieselbe Sperre,
        die der Rollenwechsel haelt (_060 Schritt RC3 a). Gilt ebenso
        fuer MOD-001, soweit es den Claim ausfuehrt.
+    r) RESTORE-FENSTER NEU BEGINNEN: eine Routine, mit der der Bewerter
+       das Fenster einer gesperrten, nicht widerrufenen Connection mit
+       einem Grund AFTER_RESTORE_WINDOW neu beginnt (restore_until =
+       jetzt + Restore-Fenster des Grundes; nie frueher als der
+       bisherige Wert) - mit Lifecycle-Ereignis, Akteur SYSTEM und dem
+       Anlass "Auskunft nicht lesbar", ohne Auftrag. Der Bewerter ruft
+       sie nur nach _020 Schritt E4 a. T-08 und LR-02 bleiben, wie sie
+       sind: Das Fenster bestimmt weiter, bis wann wiederhergestellt
+       werden kann und wann widerrufen wird.
 
   ANF-PA-02 (BASE-100, MOD-010)
     Auskuenfte AK-1 (Plan-Limit je Connection, deterministisch) und AK-2
@@ -422,10 +431,16 @@ ZWECK:
        vpn_connection_id in den Spiegel ein und stoesst den L2TP-Abgleich
        an. ip-down schreibt als Erstes den Ende-Vermerk (BASE-070_040
        G-8), ruft --l2tp-down - IMMER mit --addr und --login der
-       beendeten Sitzung -, entfernt den Spiegel NUR, wenn er zu dieser
-       Sitzung gehoert (gleiche Adresse und gleicher Anmeldename; der
-       Name der Schnittstelle kann schon einer neuen Sitzung gehoeren),
-       und stoesst den Abgleich an (_030 Schritte SE2, SE3).
+       beendeten Sitzung - und stoesst den Abgleich an (_030 Schritte
+       SE2 bis SE4). Den Spiegel entfernt er NUR, wenn er zu der
+       beendeten Sitzung gehoert und nicht zu einer spaeteren: Der Name
+       der Schnittstelle kann schon neu vergeben sein - an die Sitzung
+       einer anderen Connection (andere Adresse, anderer Anmeldename)
+       oder an die naechste Sitzung DERSELBEN Connection (gleiche
+       Adresse, gleicher Anmeldename). Woran der Hook die eigene
+       Sitzung erkennt, legt BASE-030 fest; kann er es nicht sicher,
+       bleibt der Spiegel stehen. Verwaiste Spiegel raeumt die
+       Bereinigung von BASE-070 (BASE-070_040 Schritt J3).
     b) Kein Hook liest SQL, schreibt ein Set, loescht conntrack oder
        beendet eine Sitzung selbst.
     c) Der Hook wartet auf das Ergebnis; ein Ergebnis ungleich 0
@@ -436,8 +451,9 @@ ZWECK:
     e) BASE-030 stellt einen Helfer bereit, mit dem vpn-policy-apply die
        vpn_connection_id nachtraegt, wenn es eine Sitzung freigibt, deren
        Spiegel sie noch nicht traegt (_030 Schritt SB5). Den INDEX der
-       Schnittstelle braucht dieses Modul im Spiegel nicht mehr: Das
-       Sitzungsende arbeitet ueber die Adresse (_030 Schritt SE3).
+       Schnittstelle braucht dieses Modul im Spiegel nicht: Das
+       Sitzungsende arbeitet ueber den Bestand am Kernel (_030 Schritte
+       SE3, SE4).
     f) JE SITZUNG EINE NEUE SCHNITTSTELLE: accel-ppp wird so
        konfiguriert, dass es Schnittstellen nicht wiederverwendet
        (unit-cache aus; gleichlautend BASE-050 ANF-FW-02 a). Verbindlich
@@ -606,6 +622,12 @@ ZWECK:
        Abschnitt 3). Der Hard-Cut-Kern ist ohne Kernel-Lock des Aufrufers
        benutzbar; dieses Modul ruft ihn nie unter dem Lock (_050 Regel
        NB-8).
+       MEHRERE SITZUNGEN IN EINEM AUFRUF: Der Kern nimmt eine MENGE von
+       Sitzungen an (je Connection bzw. je Sitzungskennung), schreibt
+       fuer jede den Ende-Vermerk und beendet sie, wartet danach EINMAL
+       gemeinsam - hoechstens vpn_hardcut_kill_timeout_seconds - und
+       meldet das Ergebnis je Sitzung (_030 Schritt TB4). Heute wartet
+       kill() je Aufruf einzeln (BASE-070_040 Regel AD-4).
     h) ADRESS-DRIFT BEENDET KEINE LAUFENDE SITZUNG (DEC-PA-25):
        BASE-070_020 Regel S-3 verlangt bei einer Laufzeitadresse ungleich
        fixed_ip "kein Beginn, RT_ADDRESS_MISMATCH, Hard-Cut der Sitzung";
@@ -721,15 +743,26 @@ ZWECK:
             dieses Moduls faende sie: Ihre Adresse passt zur Rolle ihrer
             eigenen Zeile. vpn-role-change geht deshalb erst mit dem
             Nachzug in Betrieb (wie bei b und m).
-  ANF-PA-04 a  ip-down nennt Adresse und Anmeldename               Art R
+  ANF-PA-01 r  Restore-Fenster neu beginnen                        Art R
+    HEUTE:  BASE-010 kennt keine solche Routine; T-08 ist nur bis
+            restore_until zulaessig.
+    FOLGE:  Der Bewerter haelt kein Fenster offen. Wird eine
+            Wiederherstellung wegen einer unbekannten Auskunft
+            abgelehnt und laeuft das Fenster in dieser Zeit ab, folgt
+            der Widerruf - die Connection ist dann endgueltig verloren.
+            Die Ablehnung nennt restore_until und den Eingriff AK-5
+            (_020 Abschnitt 5). PA-15 Satz 3 und T-PA-07 (e) gelten
+            erst mit dem Nachzug.
+  ANF-PA-04 a  ip-down nennt Adresse und Anmeldename; Spiegel      Art R
     HEUTE:  BASE-030_040 beschreibt den Hook nach dem alten Stand
             (ANF-PA-04 g).
-    FOLGE:  Fehlt --addr, entfernt SE3 nur Elemente, deren Schnittstelle
-            nicht mehr besteht; den Rest raeumt der Abgleich (_040
-            Schritt V1 e3). Entfernt der Hook den Spiegel nach dem Namen
-            der Schnittstelle, kann er den Spiegel einer neuen Sitzung
-            treffen; fuer sie ist dann ein Hard-Cut ohne Datenbank nicht
-            moeglich (BASE-070_040 Schritt K2). Nie offener.
+    FOLGE:  Fehlt --addr, entfaellt SE4: Sperr-Set und Formung der
+            Connection raeumen dann die Aufsicht (_030 Abschnitt 6.5)
+            bzw. der Abgleich. SE3 haengt nicht an --addr. Entfernt der
+            Hook den Spiegel nach dem Namen der Schnittstelle, kann er
+            den Spiegel einer neuen Sitzung treffen; fuer sie ist dann
+            ein Hard-Cut ohne Datenbank nicht moeglich (BASE-070_040
+            Schritt K2). Nie offener.
   ANF-PA-04 e  Helfer zum Nachtragen der Kennung im Spiegel        Art R
     HEUTE:  BASE-030 kennt den Helfer nicht.
     FOLGE:  Eine Sitzung, die erst die Aufsicht oder der Abgleich
@@ -775,6 +808,22 @@ ZWECK:
             Die Schwellen sind dieselben (Regel MB-2 b und d). PA-18
             (letzter Absatz) und PA-43 gelten fuer L2TP erst mit dem
             Nachzug; fuer WireGuard gelten sie heute.
+  ANF-PA-14 g  Hard-Cut-Kern fuer mehrere Sitzungen                Art R
+    HEUTE:  kill(c [, sid]) beendet die Sitzungen EINER Connection bzw.
+            eine Sitzung und wartet je Aufruf einzeln (BASE-070_040
+            Regel AD-4).
+    FOLGE:  Die Teilabfolge ruft den Kern je Connection bzw. je Sitzung
+            NACHEINANDER, jedes Ziel einmal, je mit seinem Zeitlimit. Im
+            Abgleich und in der Aufsicht dauert ein Durchlauf mit
+            mehreren Zielen entsprechend laenger - hoechstens bis zum
+            Zeitlimit des Laufs; was nicht mehr an die Reihe kommt,
+            bleibt gesperrt und faellt dem naechsten Lauf zu. Ein
+            Einzelauftrag beendet nur sein erstes Ziel (alle Sitzungen
+            EINER Connection zaehlen als eines); die uebrigen bleiben
+            gesperrt und fallen der Wiederholung bzw. der Aufsicht zu -
+            so gelten seine Zeitgrenzen unveraendert (_070 Regel UP-5).
+            Nie offener. PA-71 (letzter Satz) und T-PA-47 gelten in der
+            Form "gemeinsam" erst mit dem Nachzug.
   ANF-PA-14 h  Adress-Drift beendet keine laufende Sitzung         Art R
     HEUTE:  BASE-070_020 Regel S-3 beendet die Sitzung, wenn ihr Beginn
             erst nach der Aenderung der Adresse gemeldet wird.
@@ -819,9 +868,10 @@ ZWECK:
            AUSWEICHWEG: Zuordnung ueber list() des Adapters und den
            Laufzeit-Spiegel. Die Schutzwirkung haengt nicht an der
            zweiten Haelfte der Annahme: Jeder Sitzungsbeginn entfernt
-           zuerst alle Elemente zu Adresse und Index (_030 Schritt SB3),
-           jedes Sitzungsende die Elemente zur Adresse der beendeten
-           Sitzung (Schritt SE3). Was bleibt, nennt E-PA-09.
+           zuerst alle Elemente zu Adresse und Index (_030 Schritt SB3);
+           Sitzungsende und Aufsicht entfernen jedes Element, dessen
+           Schnittstelle fehlt oder die Adresse nicht traegt (Schritt
+           SE3, Abschnitt 6.5). Was bleibt, nennt E-PA-09.
   E-PA-04  Der Kernel-Lock laesst sich an einen Kindprozess uebergeben
            (vererbter Dateideskriptor); er endet erst mit dem letzten
            Halter.
@@ -863,30 +913,34 @@ ZWECK:
            Abgleichs.
   E-PA-09  accel-ppp legt je Sitzung eine NEUE Schnittstelle an (keine
            Wiederverwendung; ANF-PA-04 f).
-           AUSWEICHWEG: Der Schutz bleibt. (1) Ueberholen sich die Hooks
-           DERSELBEN Connection auf derselben Schnittstelle, kann das
-           Sitzungsende die frische Freigabe der naechsten Sitzung
-           entfernen; sie ist dann gesperrt, bis die Aufsicht sie neu
-           freigibt - nie offener. (2) Lief der Hook des Endes nicht und
-           entsteht eine Sitzung mit gleichem Index und gleicher Adresse,
-           gibt das liegengebliebene Element sie frei, bis ihr eigener
-           Sitzungsbeginn es entfernt (SB3). Laeuft auch dieser Hook
-           nicht, bleibt es dabei, bis die Connection das naechste Mal
-           hergestellt wird: Die Aufsicht sieht nur Sitzungen OHNE
-           Element, und der Abgleich haelt ein passendes Element nicht
-           fuer einen Rest. Die Folge ist auf DIESELBE Connection
-           begrenzt (das Element traegt Index UND Adresse) und auf ihren
-           Policy-Zustand, wie er zuletzt hergestellt wurde: Jeder
-           Statuswechsel dazwischen haette das Element entfernt oder die
-           Adresse in das Sperr-Set gestellt.
+           AUSWEICHWEG: Der Schutz bleibt. Ein verspaetetes Sitzungsende
+           trifft die naechste Sitzung auch dann nicht: Es fasst kein
+           Element einer bestehenden Schnittstelle an (_030 Schritt
+           SE3). Was bleibt: Wird das Element der beendeten Sitzung
+           nicht geraeumt, bevor auf DERSELBEN Schnittstelle (gleicher
+           Index) eine Sitzung mit gleicher Adresse entsteht, gibt es
+           sie frei, bis ihr eigener Sitzungsbeginn es entfernt (SB3).
+           Laeuft auch dieser Hook nicht, bleibt es dabei, bis die
+           Connection das naechste Mal hergestellt wird: Aufsicht und
+           Abgleich halten ein Element mit passender Schnittstelle und
+           Adresse nicht fuer einen Rest. Die Folge ist auf DIESELBE
+           Connection begrenzt (das Element traegt Index UND Adresse)
+           und auf ihren Policy-Zustand, wie er zuletzt hergestellt
+           wurde: Jeder Statuswechsel dazwischen haette das Element
+           entfernt oder die Adresse in das Sperr-Set gestellt.
   E-PA-10  Ob accel-ppp den ip-down-Hook vor oder nach dem Entfernen der
            Schnittstelle ruft, ist nicht festgelegt.
-           AUSWEICHWEG: nicht noetig. _030 Schritt SE3 arbeitet ueber die
-           ADRESSE der beendeten Sitzung, die der Hook nennt, und laesst
-           stehen, was einer anderen Sitzung gehoert - gleich, ob die
-           Schnittstelle noch besteht und ob ihr Name schon neu vergeben
-           ist. Voraussetzung ist, dass der Hook die Adresse nennt
-           (ANF-PA-04 a; sonst Abschnitt 6a).
+           AUSWEICHWEG: eingebaut. Laeuft der Hook DANACH, raeumt er
+           selbst (_030 Schritte SE3, SE4). Laeuft er DAVOR, findet er
+           die Schnittstelle noch vor und laesst ihr Element stehen; den
+           Rest raeumt die Aufsicht im naechsten Durchgang des
+           Auftragslaufs - hoechstens ein Raster spaeter (_030 Abschnitt
+           6.5). Bis dahin gibt das Element nichts Neues frei: Solange
+           die Schnittstelle besteht, gehoert es zu der endenden
+           Sitzung; danach passt es auf keine Schnittstelle mehr
+           (E-PA-03). "Entfernen beim Sitzungsende" (BASE-030 LT-20;
+           BASE-050_030 Abschnitt 4) ist in diesem Fall um hoechstens
+           ein Raster verzoegert erfuellt.
   E-PA-11  Ein Schreibzugriff auf ein Set, der Erfolg meldet, hat gewirkt.
            AUSWEICHWEG: eingebaut. Die Herstellung liest nach: Nachweis
            vor der Freigabe (_030 Schritt B4), Pruefung danach (B6),

@@ -27,6 +27,8 @@ ZWECK:
       Widerruf nach LR-02)
     - ob der Status des Customers eine Kaskade verlangt (SUSPENDED,
       DELETED)
+    - ob ein Restore-Fenster offenzuhalten ist, weil das Wissen fuer
+      eine Wiederherstellung fehlt (Schritt E4 a)
 
   ER ENTSCHEIDET NICHT:
     - Verwaltungshandlungen (Sperren, Wiederherstellen, Rollenwechsel,
@@ -230,20 +232,37 @@ ZWECK:
       claim_deadline UND Status ACTIVE oder RESTRICTED
         -> T-04 (aus ACTIVE) bzw. T-06 Trigger B (aus RESTRICTED) mit
            DISABLE_UNCLAIMED_TIMEOUT. UNUMKEHRBAR (Abschnitt 7). Ende.
-  E4  STATUS DISABLED: Es wird nur die Widerrufsfrist geprueft.
-        revocation_mode des Grundes = AFTER_RESTORE_WINDOW UND
-        restore_until IS NOT NULL UND jetzt >= restore_until UND
-        revoked_at IS NULL
-        -> Widerruf nach LR-02 (revoked_at, quarantine_until;
-           restore_until NULL). UNUMKEHRBAR (Abschnitt 7).
-      DER WIDERRUF RUHT, solange eine Wiederherstellung dieser
-      Connection an einer UNBEKANNTEN Auskunft scheitern wuerde (kein
-      Grund bekannt aktiv, eine Bedingung unbekannt; Abschnitt 5, T-08):
-      Was der Betreiber wegen fehlenden Wissens nicht wiederherstellen
-      kann, wird nicht wegen Fristablaufs endgueltig (SZ-7). Ereignis
-      POLICY_EVAL_REVOKE_DEFERRED mit restore_until. Mit dem ersten
-      Lauf, in dem das Ergebnis wieder feststeht, gilt die Frist wie
-      zuvor - wer wiederherstellen will, tut es vorher.
+  E4  STATUS DISABLED: Es wird nur das Restore-Fenster geprueft - fuer
+      eine Connection, deren Grund revocation_mode = AFTER_RESTORE_WINDOW
+      traegt, mit restore_until IS NOT NULL und revoked_at IS NULL.
+      a) FENSTER OFFENHALTEN: Wuerde eine Wiederherstellung dieser
+         Connection an einer UNBEKANNTEN Auskunft scheitern (kein Grund
+         bekannt aktiv, eine Bedingung unbekannt; Abschnitt 5, T-08) UND
+         endet ihr Fenster in weniger als der NACHFRIST - oder ist es
+         schon abgelaufen -, beginnt der Bewerter das Fenster neu:
+         restore_until = jetzt + Restore-Fenster des Grundes, ueber die
+         Routine von BASE-010 mit Lifecycle-Ereignis (ANF-PA-01 r). Kein
+         Auftrag: Der herzustellende Zustand aendert sich nicht.
+         Ereignis POLICY_EVAL_REVOKE_DEFERRED mit dem neuen
+         restore_until. Ende.
+         NACHFRIST ist vpn_policy_eval_quiet_seconds, hoechstens aber
+         die halbe Laenge des Restore-Fensters des Grundes - so erneuert
+         nicht jeder Lauf.
+      b) WIDERRUF: sonst, wenn jetzt >= restore_until
+         -> Widerruf nach LR-02 (revoked_at, quarantine_until;
+            restore_until NULL). UNUMKEHRBAR (Abschnitt 7).
+      WARUM a): T-08 ist nur innerhalb des Fensters zulaessig (BASE-010)
+      und wird bei unbekannter Auskunft abgelehnt (Abschnitt 5). Liefe
+      das Fenster in dieser Zeit ab, waere die Connection endgueltig
+      verloren, obwohl ihre Wiederherstellung allein am fehlenden Wissen
+      scheiterte (SZ-7). Den Widerruf nur aufzuschieben hilft nicht:
+      Nach Ablauf des Fensters liesse sich auch mit wieder lesbarer
+      Auskunft nicht mehr wiederherstellen. Mit a) bleibt nach der
+      Rueckkehr der Auskunft mindestens die Nachfrist, abzueglich eines
+      Bewertungstakts; danach gilt das Fenster wie jedes andere.
+      Das Offenhalten schliesst nichts, oeffnet nichts und macht nichts
+      endgueltig. Es unterliegt deshalb nicht dem Schutz aus Abschnitt 7
+      und laeuft auch waehrend eines Halts (Abschnitt 11, HL-3 d).
       MANUAL_ONLY wird nie vom Bewerter widerrufen (LR-03). Ende.
   E5  GRUENDE BESTIMMEN: R(c) und Zielzustand nach Abschnitt 3.
   E6  VERGLEICHEN UND UEBERGEHEN:
@@ -304,6 +323,11 @@ ZWECK:
   T-01 Claim (BASE-010, MOD-001)           PFLICHT, in der Transaktion:
                                            nur ACTIVE, wenn KEIN Grund
                                            mehr aktiv ist (INV-23)
+  T-09 Rollenwechsel (vpn-role-change)     PFLICHT, in der Transaktion,
+                                           je Connection: Mit der Rolle
+                                           aendert sich, welche Gruende
+                                           gelten koennen (BASE-080_060
+                                           Schritt RC3 f)
   Pause / Reaktivieren (Kunde)             PFLICHT, in der Transaktion
   Verwaltungs-Einschraenkung setzen /      PFLICHT, in der Transaktion
   aufheben
@@ -316,7 +340,7 @@ ZWECK:
                                            Wechsel (ANF-SC-07 a)
 
   Unterbleibt ein solcher Aufruf, holt der Lauf im Bewertungstakt die
-  Bewertung nach. Fuer T-08 und T-01 ist der Aufruf Teil der
+  Bewertung nach. Fuer T-08, T-01 und T-09 ist der Aufruf Teil der
   Korrektheit, nicht nur der Schnelligkeit.
 
   ABGRENZUNG: Der Kern prueft keine Fristen (E3, E4, E7) und loest keine
@@ -337,8 +361,8 @@ ZWECK:
   (keine Aenderung; Meldung an den Aufrufer): Ob die Connection frei
   sein duerfte, ist nicht feststellbar - fehlendes Wissen oeffnet nichts
   (SZ-7). Die Meldung nennt restore_until und den Eingriff AK-5; solange
-  die Auskunft unbekannt bleibt, ruht der Widerruf nach Ablauf des
-  Restore-Fensters (Schritt E4).
+  die Auskunft unbekannt bleibt, haelt der Bewerter das Restore-Fenster
+  offen (Schritt E4 a).
 
 ================================================================================
 6) DER LAUF (vpn-policy-eval)
@@ -398,7 +422,7 @@ ZWECK:
         "Bewertung jetzt"         --actor und --operator; keine Klasse C
         fuehrt aus                E1 bis E8 fuer das Ziel
         Unumkehrbares             nur unter dem Schutz (Abschnitt 7): E3,
-                                  E4, E7 UND der Tombstone (E2). Die
+                                  E4 b, E7 UND der Tombstone (E2). Die
                                   Kaskade "Customer gesperrt" laeuft
         im Halt                   umkehrbare Uebergaenge laufen;
                                   Unumkehrbares ruht
@@ -409,9 +433,9 @@ ZWECK:
                                   Customers
         Unumkehrbares             der Tombstone (E2) SOFORT und
                                   ungebremst: Er ist die Handlung. E3,
-                                  E4, E7 nur unter dem Schutz
+                                  E4 b, E7 nur unter dem Schutz
         im Halt                   die Kaskade (E2) und umkehrbare
-                                  Uebergaenge laufen; E3, E4, E7 ruhen
+                                  Uebergaenge laufen; E3, E4 b, E7 ruhen
     A6  BETREIBER-FREIGABE        --release-held; Klasse C (Abschnitt 7)
         ein Lauf A1 mit ausgesetzter Mengengrenze; im Halt abgelehnt
 
@@ -429,12 +453,14 @@ ZWECK:
     BL3  ZEITPRUEFUNG nach Abschnitt 7: bestimmt, ob unumkehrbare
          Uebergaenge in diesem Lauf erlaubt sind. HALT nach Abschnitt
          11: Besteht er, fuehrt der Lauf KEINEN Uebergang aus und zaehlt
-         die Kandidaten nach Art.
+         die Kandidaten nach Art; allein das Offenhalten eines
+         Restore-Fensters laeuft weiter (Schritt E4 a).
     BL4  KANDIDATEN mengenweise bestimmen (Abschnitt 2, AK-3):
            a) Connections von Customern mit Status SUSPENDED oder DELETED,
               die noch nicht entsprechend gesperrt sind
            b) faellige Fristen (claim_deadline, restrict_finalize_at,
-              restore_until)
+              restore_until) und Restore-Fenster, die in weniger als
+              der Nachfrist enden (Schritt E4 a)
            c) nicht gesperrte Connections, deren berechneter Zielzustand
               vom gespeicherten abweicht
          Die Indizes auf den Fristfeldern (BASE-010_020) tragen a) und b);
@@ -464,7 +490,7 @@ ZWECK:
 ================================================================================
 
   UNUMKEHRBAR sind: Sperrung nach claim_deadline (E3), Finalisierung
-  (E7), Widerruf (E4) und die Kaskade "Customer geloescht" (E2,
+  (E7), Widerruf (E4 b) und die Kaskade "Customer geloescht" (E2,
   Tombstone) - im Lauf aus seinem Netz (BL4 a), in jedem Aufruf ohne
   Akteur und in "Bewertung jetzt" (Aufrufarten A1, A2, A4). Ihre
   Zielgruende sind nicht wiederherstellbar
@@ -626,10 +652,12 @@ ZWECK:
                                   feststeht, gilt; Eintritt aus einem
                                   bekannt aktiven Grund; sonst keine
                                   Aufhebung, kein Grundwechsel, keine
-                                  Finalisierung; Meldung. Dauert es an,
-                                  bleibt der Zustand; der Betreiber kann
-                                  die Quelle als nicht eingerichtet
-                                  festlegen (AK-5)
+                                  Finalisierung; eine Wiederherstellung
+                                  wird abgelehnt, ihr Restore-Fenster
+                                  bleibt offen (E4 a); Meldung. Dauert
+                                  es an, bleibt der Zustand; der
+                                  Betreiber kann die Quelle als nicht
+                                  eingerichtet festlegen (AK-5)
   Uebergangsroutine scheitert     Transaktion verworfen; kein Teilzustand;
                                   naechster Lauf wiederholt
   Lauf bricht ab                  bereits abgeschlossene Connections sind
@@ -656,8 +684,7 @@ ZWECK:
   (Abschnitt 11)                  Lauf und aus Automatismen; Handlungen
                                   mit Akteur wirken (Unumkehrbares nur
                                   im Vollzug einer Loeschung, Aufrufart
-                                  A5); der
-                                  gespeicherte Zustand wird
+                                  A5); der gespeicherte Zustand wird
                                   durchgesetzt; nach dem Ende laeuft die
                                   Ruhezeit
 
@@ -720,6 +747,10 @@ ZWECK:
              unumkehrbaren - auch der Tombstone - ruhen im Halt.
           c) Die Herstellung (BASE-080_030 bis _050): Der gespeicherte
              Zustand wird durchgesetzt wie sonst.
+          d) Das Offenhalten eines Restore-Fensters (Schritt E4 a): Es
+             aendert keinen Status und macht nichts endgueltig. Ohne es
+             koennte ein Fenster waehrend des Halts ablaufen, waehrend
+             die Wiederherstellung am fehlenden Wissen scheitert.
     HL-4  DER HALT IST BEFRISTET: Er endet durch --resume oder von selbst
           nach vpn_policy_eval_hold_max_seconds; das Ende stellt der
           naechste Lauf --all fest (Ereignis POLICY_EVAL_HOLD_EXPIRED).

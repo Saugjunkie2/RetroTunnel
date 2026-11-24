@@ -125,7 +125,8 @@ ZWECK:
           Prozess.
             Einzelauftrag (Hook,   vpn_policy_apply_timeout_seconds fuer
             direkter Aufruf)       die Arbeit; dazu einmal das Warten auf
-                                   Sitzungsenden
+                                   Sitzungsenden - gemeinsam fuer alle
+                                   Sitzungen des Aufrufs
                                    (vpn_hardcut_kill_timeout_seconds) und
                                    der Neuerwerb des Locks
                                    (vpn_policy_lock_wait_seconds) -
@@ -261,7 +262,10 @@ ZWECK:
     (vpn_policy_eval_gap_hold_seconds) ist strenger, je kleiner sie ist;
     die Ruhezeit (vpn_policy_eval_quiet_seconds), je laenger. Ein
     gemeinsamer Key haette als Notwert nur eine der beiden Seiten streng
-    gemacht (BASE-080_020 Regel U-2).
+    gemacht (BASE-080_020 Regel U-2). vpn_policy_eval_quiet_seconds
+    misst ausserdem die Nachfrist, in der ein Restore-Fenster
+    offengehalten wird (BASE-080_020 Schritt E4 a); auch dafuer ist der
+    laengere Wert der strengere.
     vpn_policy_eval_sources_off: Ohne gueltigen Wert gilt die leere
     Liste - jede Quelle ist eingerichtet, und eine nicht lesbare Auskunft
     bleibt UNBEKANNT. Kein Fehler der Settings nimmt eine Quelle aus.
@@ -385,6 +389,7 @@ ZWECK:
     status-eval.json        generated_at, letzter_lauf_at,
                             letzter_lauf_ok_at, kandidaten je Art,
                             uebergaenge je Art, eingaben_unbekannt,
+                            fenster_offengehalten,
                             zurueckgestellt: {anzahl, bedingung},
                             halt: {seit, restzeit, anstehend je Art},
                             notwerte_in_gebrauch, dauer
@@ -512,11 +517,13 @@ ZWECK:
                                              Connections, die deswegen
                                              nicht mehr eingeschraenkt
                                              sind
-  POLICY_EVAL_REVOKE_DEFERRED      ALERT     Widerruf nach Ablauf des
-                                             Restore-Fensters ruht, weil
-                                             eine Auskunft nicht lesbar
-                                             ist; mit restore_until
-                                             (BASE-080_020 Schritt E4)
+  POLICY_EVAL_REVOKE_DEFERRED      ALERT     Restore-Fenster neu begonnen
+                                             statt Widerruf, weil eine
+                                             Wiederherstellung an einer
+                                             nicht lesbaren Auskunft
+                                             scheitern wuerde; mit dem
+                                             neuen restore_until
+                                             (BASE-080_020 Schritt E4 a)
   POLICY_EVAL_HOLD_CLOCK           ALERT     Marke eines Halts lag in der
                                              Zukunft und wurde auf jetzt
                                              gesetzt

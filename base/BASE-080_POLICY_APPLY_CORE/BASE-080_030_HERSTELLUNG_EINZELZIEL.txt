@@ -209,7 +209,7 @@ ZWECK:
        eingeschraenkt(c), sonst entfernen - eine Transaktion.
     b) Formungs-Haken fuer die Adressen der Connection (DEC-PA-20).
     c) Erst wenn a) und b) gelungen sind, faehrt der Treiber mit dem
-       Peer-Eintrag fort ("Policy vor Admission", DEC-PA-05).
+       Peer-Eintrag fort ("Policy vor Zulassung", DEC-PA-05).
 
   PEER BEREITS EINGETRAGEN (kein Add noetig):
     Der Treiber meldet OK_UNCHANGED fuer den Peer. Die Herstellung
@@ -451,6 +451,11 @@ ZWECK:
                                          die Aufsicht (6.5) fuer den
                                          erneuten Versuch im Takt des
                                          Auftragslaufs
+    Regelwerk VERSIEGELT                 keine Freigabe (Schritt B5); der
+                                         Policy-Zustand wird hergestellt,
+                                         Ergebnis 0. Die Frist ruht; der
+                                         Abgleich gibt nach dem Loesen
+                                         des Siegels frei (6.5)
     nach vpn_connect_gate_ttl_seconds    Sitzung wird beendet (6.5)
     immer noch ohne Freigabe
 
@@ -475,46 +480,71 @@ ZWECK:
   SE1  Rahmen H1 bis H3.
   SE2  Connection bestimmen: ueber --addr, die Adresse der BEENDETEN
        Sitzung (der Hook nennt sie und den Anmeldenamen immer,
-       ANF-PA-04 a). Nicht bestimmbar: Es folgt nur SE3, dann Ergebnis
-       0; uebrige Reste raeumt der Abgleich (BASE-080_040).
-  SE3  DER HOOK IST DAS ENDE - FUER DIE ADRESSE DER BEENDETEN SITZUNG:
-       Entfernt werden die Elemente in allowed_l2tp_v4, die die Adresse
-       aus --addr tragen UND deren Schnittstelle am Kernel fehlt oder
-       die genannte Schnittstelle <ifname> ist - auch wenn diese noch
-       besteht (der Hook kann laufen, bevor der Daemon sie entfernt).
-       NICHT angefasst wird, was einer anderen Sitzung gehoert:
-         - Traegt die Schnittstelle <ifname> am Kernel eine ANDERE
-           Gegenstellen-Adresse, ist der Name schon von einer neuen
-           Sitzung belegt (ein Name pppN kann sofort wiederverwendet
-           werden, BASE-050_030 Abschnitt 4). Ihr Element bleibt.
-         - Ein Element mit der Adresse aus --addr an einer ANDEREN
-           bestehenden Schnittstelle gehoert der naechsten Sitzung
-           derselben Connection und bleibt.
-       Fehlt --addr, werden nur Elemente entfernt, deren Schnittstelle
-       nicht mehr besteht. Der Laufzeit-Spiegel wird fuer SE3 nicht
-       gebraucht.
-  SE4  l2tp_ensure(c) - in aller Regel Fall L-A.
+       ANF-PA-04 a). Nicht bestimmbar: Es folgt nur SE3. Ergebnis 0,
+       wenn --addr fehlt oder die Adresse keiner Connection gehoert;
+       Ergebnis 2, wenn die Datenbank nicht lesbar ist. Den uebrigen
+       Zustand raeumt dann die Aufsicht (6.5) bzw. der Abgleich
+       (BASE-080_040).
+  SE3  RESTE OHNE SCHNITTSTELLE ENTFERNEN: Jedes Element in
+       allowed_l2tp_v4, dessen Schnittstelle (Index) am Kernel nicht
+       mehr besteht, wird entfernt. Das braucht weder SQL noch den
+       Laufzeit-Spiegel und oeffnet nichts.
+       DAS ELEMENT EINER BESTEHENDEN SCHNITTSTELLE FASST DAS SITZUNGSENDE
+       NIE AN - auch nicht das der genannten Schnittstelle <ifname>:
+       Der Hook kann laufen, waehrend die Schnittstelle der beendeten
+       Sitzung noch besteht, und ein Name pppN kann sofort neu vergeben
+       sein (BASE-050_030 Abschnitt 4) - an die Sitzung einer anderen
+       Connection oder an die naechste Sitzung DERSELBEN Connection, die
+       dieselbe Adresse traegt. An Name und Adresse ist die beendete
+       Sitzung dann nicht von einer lebenden zu unterscheiden. Ueber
+       das, was noch besteht, entscheidet allein SE4.
+  SE4  l2tp_ensure(c) nach dem Bestand am Kernel:
+         keine Schnittstelle traegt die    Fall L-A: ALLE Elemente der
+         Adresse mehr                      Adresse, Sperr-Set und Formung
+                                           werden geraeumt
+         eine Schnittstelle traegt sie     Fall L-B bzw. L-C wie bei
+         (noch oder schon wieder)          jedem anderen Aufruf: Was
+                                           besteht, bleibt hergestellt
 
-  Der Hook nennt, WAS geendet hat; die Routine prueft, was am Kernel
-  sonst besteht. Laeuft der ip-down-Hook einer alten Sitzung erst NACH
-  dem ip-up-Hook der naechsten Sitzung (beide Hooks laufen asynchron),
-  findet SE3 die neue Schnittstelle vor und laesst deren Freigabe
-  stehen: Die Sitzung einer ANDEREN Connection traegt eine andere
-  Adresse, die naechste Sitzung DERSELBEN Connection eine andere
-  Schnittstelle (Annahme E-PA-09: je Sitzung eine neue Schnittstelle).
-  Traefe die Annahme nicht zu - dieselbe Connection auf derselben
-  Schnittstelle -, entfernte SE3 die Freigabe der neuen Sitzung; sie
-  waere gesperrt, bis die Aufsicht (6.5) sie neu freigibt - nie offener,
-  und nie zulasten einer anderen Connection.
+  DER HOOK NENNT, WAS GEENDET HAT; DIE ROUTINE PRUEFT, WAS BESTEHT
+  (DEC-PA-02). Zwei Lagen, in denen beim Hook noch eine Schnittstelle
+  die Adresse traegt:
+    - DIE NAECHSTE SITZUNG DERSELBEN CONNECTION besteht schon: Der
+      ip-down-Hook der alten laeuft nach dem ip-up-Hook der neuen (beide
+      Hooks laufen asynchron). SE4 findet sie vor und laesst ihre
+      Freigabe stehen. Ein verspaetetes Sitzungsende trifft so keine
+      andere Sitzung - weder die einer anderen Connection noch die
+      naechste derselben, gleich ob der Name neu vergeben ist und ob
+      jede Sitzung eine neue Schnittstelle erhaelt (Annahme E-PA-09).
+    - DIE SCHNITTSTELLE DER BEENDETEN SITZUNG besteht noch: Der Hook
+      laeuft, bevor der Daemon sie entfernt (Annahme E-PA-10). SE4
+      laesst dann ihr Element und ihren Policy-Zustand stehen. Sobald
+      sie verschwunden ist, sind beides Reste: Das Element gibt nichts
+      mehr frei, und die Aufsicht raeumt es im naechsten Durchgang des
+      Auftragslaufs (6.5) - hoechstens ein Raster spaeter.
+  WARUM NICHT "DIE GENANNTE SCHNITTSTELLE RAEUMEN": Fruehere Fassungen
+  entfernten das Element der genannten Schnittstelle, auch wenn sie
+  noch bestand. Bei neu vergebenem Namen traf das die Freigabe einer
+  anderen Sitzung; und fuer die noch bestehende Schnittstelle der
+  beendeten Sitzung trug der folgende Schritt (Fall L-B) das Element
+  sofort wieder ein. Zustandsbasiert gibt es beide Fehler nicht.
 
-  Ist die Datenbank nicht lesbar, werden beim Sitzungsende trotzdem die
-  Elemente entfernt, deren Schnittstelle nicht mehr existiert: Das
-  Raeumen eines Restes oeffnet nichts und braucht kein SQL.
+  Ist die Datenbank nicht lesbar, bleibt es bei SE3: Das Raeumen eines
+  Restes oeffnet nichts und braucht kein SQL.
 
 6.5) Nicht freigegebene Sitzungen (Aufsicht ohne Datenbank)
 
   Auftragslauf und Abgleich pruefen bei jedem Durchgang den
-  Laufzeit-Bestand: Eine ppp-Schnittstelle OHNE Element in
+  Laufzeit-Bestand in beiden Richtungen.
+  RESTE BEENDETER SITZUNGEN: Ein Element in allowed_l2tp_v4, dessen
+  Schnittstelle nicht mehr besteht oder die Adresse des Elements nicht
+  traegt, ist ein Rest und wird entfernt - ohne SQL. Ist die Datenbank
+  lesbar, folgt fuer die Connection dieser Adresse l2tp_ensure (in
+  aller Regel Fall L-A: Sperr-Set und Formung raeumen). So ist der
+  Zustand einer beendeten Sitzung spaetestens ein Raster des
+  Auftragslaufs nach ihrem Ende geraeumt - auch wenn ihr Hook nie lief
+  oder die Schnittstelle bei seinem Lauf noch bestand (6.4).
+  NICHT FREIGEGEBENE SITZUNGEN: Eine ppp-Schnittstelle OHNE Element in
   allowed_l2tp_v4 ist eine nicht freigegebene Sitzung.
     - Datenbank lesbar und Zustand BETRIEB: l2tp_ensure fuer die
       zugeordnete Connection (gibt frei, wenn alles stimmt).
@@ -555,11 +585,17 @@ ZWECK:
                                                     B5)
   Beginn gescheitert       Auftragslauf, Aufsicht   keines; nach der Frist
                            (6.5)                    wird die Sitzung beendet
-  Sitzungsende             --l2tp-down (6.4)        Elemente mit der
-                                                    Adresse der beendeten
-                                                    Sitzung entfernt (SE3)
-  Hook lief nicht          Abgleich, Auftragslauf   Elemente ohne
-                           (BASE-080_040, _050)     Schnittstelle entfernt
+  Sitzungsende             --l2tp-down (6.4)        Elemente ohne
+                                                    Schnittstelle entfernt
+                                                    (SE3); traegt keine
+                                                    Schnittstelle die
+                                                    Adresse mehr: alle
+                                                    Elemente der Adresse
+                                                    (Fall L-A)
+  Hook lief nicht oder     Aufsicht im              Elemente ohne passende
+  vor dem Ende der         Auftragslauf (6.5);      Schnittstelle entfernt
+  Schnittstelle            Abgleich                 - hoechstens ein Raster
+                                                    nach dem Ende
   Sperrung, Widerruf       Auftrag, Fall L-C        zuerst entfernt
   Adresswechsel im Umbau   Auftrag, Fall L-E,       Elemente der alten
                            Merkmal MK1              Adressen entfernt
@@ -689,8 +725,10 @@ ZWECK:
   TEILABFOLGE "BEENDEN AUSSERHALB DES LOCKS" (verbindlich fuer JEDES
   Beenden einer L2TP-Sitzung durch dieses Werkzeug: Faelle L-C, L-D,
   L-E, Rueckfall des Fluss-Schnitts F4, Merkmal MK2, Aufsicht 6.5,
-  Abgleich). Je Aufruf laeuft sie hoechstens EINMAL: Alle Sitzungen, die
-  der Aufruf beenden muss, werden gesammelt und gemeinsam beendet.
+  Abgleich). Sie laeuft je Einzelauftrag hoechstens EINMAL, im Abgleich
+  einmal je Abschnitt, in der Aufsicht einmal je Durchgang: Alle
+  Sitzungen, die dieser Durchlauf beenden muss, werden gesammelt und
+  GEMEINSAM beendet.
     TB1  UNTER DEM LOCK: Freigabe-Elemente der betroffenen Sitzungen
          entfernen (soweit vorhanden) und die uebrigen schliessenden
          Schritte des Falls ausfuehren. Ab hier sind die Sitzungen
@@ -701,9 +739,14 @@ ZWECK:
          sie zugelassen (zum Beispiel eine Wiederherstellung) - sie wird
          NICHT beendet. Besteht ihre Schnittstelle nicht mehr, entfaellt
          das Beenden.
-    TB4  HARD-CUT-KERN von BASE-070 fuer die verbliebenen Sitzungen
-         (Ende-Vermerk vor dem kill(); Zeitlimit
-         vpn_hardcut_kill_timeout_seconds fuer den Schritt als Ganzes).
+    TB4  HARD-CUT-KERN von BASE-070 fuer die verbliebenen Sitzungen -
+         in EINEM Aufruf: fuer jede der Ende-Vermerk und das Beenden,
+         danach EIN gemeinsames Warten auf ihr Verschwinden, hoechstens
+         vpn_hardcut_kill_timeout_seconds fuer den Schritt als Ganzes.
+         Das Ergebnis gilt je Sitzung; was am Ende der Frist noch
+         besteht, ist NICHT beendet (FAILED). Die Form des Kerns fuer
+         mehrere Sitzungen ist bei BASE-070 angefordert (ANF-PA-14 g);
+         was bis dahin gilt, steht in BASE-080_080 Abschnitt 6a.
     TB5  KERNEL-LOCK NEU ERWERBEN (Wartezeit wie H2). Nicht erhalten:
          Ergebnis 4 mit dem Vermerk "Abschluss offen" (Stufe WARN, nicht
          CRITICAL): Die schliessende Wirkung ist eingetreten, die Sitzung

@@ -55,9 +55,10 @@ BEWERTUNG
          ADMIN-Connection werden gemeldet (Z-2, S-2, RC3; Uebergang:
          BASE-080_080 Abschnitt 6a).
 
-  PA-06  Geschrieben wird nur bei einer Aenderung von Status oder Grund.
-         Ein Lauf ohne geaenderte Eingaben schreibt nichts: keinen
-         Status, kein Lifecycle-Ereignis, keinen Auftrag (Z-4).
+  PA-06  Geschrieben wird nur bei einer Aenderung von Status oder Grund
+         - und wenn ein Restore-Fenster offengehalten wird (PA-15). Ein
+         Lauf ohne geaenderte Eingaben schreibt nichts: keinen Status,
+         kein Lifecycle-Ereignis, keinen Auftrag (Z-4).
 
   PA-07  Ist eine Auskunft (Plan-Limit, Kontingent) nicht lesbar oder
          widerspruechlich, gilt ihre Bedingung als UNBEKANNT - nie als
@@ -191,10 +192,16 @@ BEWERTUNG
 
   PA-15  Der Bewerter widerruft nur Connections, deren Grund
          AFTER_RESTORE_WINDOW traegt und deren Restore-Fenster abgelaufen
-         ist. MANUAL_ONLY wird nie vom Bewerter widerrufen. Der Widerruf
-         RUHT, solange eine Wiederherstellung der Connection an einer
-         unbekannten Auskunft scheitern wuerde; das wird mit der Frist
-         gemeldet (E4, SZ-7).
+         ist. MANUAL_ONLY wird nie vom Bewerter widerrufen. FEHLENDES
+         WISSEN LAESST KEIN FENSTER ABLAUFEN: Wuerde die
+         Wiederherstellung einer Connection an einer unbekannten Auskunft
+         scheitern und endet ihr Fenster in weniger als der Nachfrist,
+         beginnt der Bewerter es ueber die Routine von BASE-010 neu -
+         auch waehrend eines Halts - und meldet das. Nach der Rueckkehr
+         der Auskunft bleibt so mindestens die Nachfrist, abzueglich
+         eines Bewertungstakts, fuer die Wiederherstellung; danach gilt
+         das Fenster wie jedes andere (E4, HL-3, SZ-7; Uebergang:
+         BASE-080_080 Abschnitt 6a).
 
   PA-16  Ein ausgeschoepftes Kontingent wirkt im Kernel nach hoechstens:
          Messlatenz des Tunnels, Bewertungstakt, Raster des Auftragslaufs
@@ -334,28 +341,33 @@ HERSTELLUNG
 
   PA-31  Das Ende einer Sitzung und die Reihenfolge der Hooks aendern
          nichts am Ergebnis: Die Routine prueft den Bestand am Kernel.
-         Das Sitzungsende entfernt die Elemente mit der ADRESSE der
-         beendeten Sitzung, deren Schnittstelle fehlt oder die genannte
-         ist - auch wenn diese am Kernel noch besteht. Was einer anderen
-         Sitzung gehoert, bleibt: Traegt die genannte Schnittstelle
-         inzwischen eine andere Adresse, ist ihr Name neu vergeben, und
-         ihr Element bleibt. Ein verspaetetes Sitzungsende trifft so nie
-         die Freigabe der Sitzung einer ANDEREN Connection. Die naechste
-         Sitzung DERSELBEN Connection trifft es nicht, wenn jede Sitzung
-         eine neue Schnittstelle traegt (Annahme E-PA-09); andernfalls
-         ist sie gesperrt, bis die Aufsicht sie freigibt - nie offener.
-         Reste beendeter Sitzungen werden auch ohne Datenbank geraeumt
-         (BASE-080_030 Abschnitt 6.4, SE2, SE3; Uebergang: BASE-080_080
-         Abschnitt 6a).
+         Das Sitzungsende entfernt allein Elemente, deren Schnittstelle
+         am Kernel nicht mehr besteht, und raeumt den Zustand der
+         Connection, wenn keine Schnittstelle ihre Adresse mehr traegt.
+         Das Element einer BESTEHENDEN Schnittstelle fasst es nie an -
+         gleich, wem sie gehoert und ob ihr Name neu vergeben ist. Ein
+         verspaetetes Sitzungsende trifft so nie die Freigabe einer
+         anderen Sitzung: weder die einer ANDEREN Connection noch die
+         naechste DERSELBEN. Besteht die Schnittstelle der beendeten
+         Sitzung beim Hook noch oder lief er nie, raeumt die Aufsicht
+         den Rest im naechsten Durchgang des Auftragslaufs. Reste
+         beendeter Sitzungen werden auch ohne Datenbank geraeumt
+         (BASE-080_030 Abschnitte 6.4, 6.5, SE2 bis SE4; Uebergang:
+         BASE-080_080 Abschnitt 6a).
 
   PA-70  DIE FREIGABE LEBT EINE SITZUNG: Jeder Sitzungsbeginn entfernt
          zuerst alle Elemente in allowed_l2tp_v4 zu Adresse und Index der
          Sitzung - ohne Datenbank und auch, wenn die folgenden Schritte
          scheitern. Ein liegengebliebenes Element gibt nie die Sitzung
-         einer ANDEREN Connection frei (es traegt Index und Adresse) und
-         eine neue Sitzung derselben Connection nie ueber deren eigenen
-         Sitzungsbeginn hinaus (SB3, SE3, BASE-080_030 Abschnitt 6.6,
-         DEC-PA-07; Annahme E-PA-09).
+         einer ANDEREN Connection frei (es traegt Index und Adresse).
+         Eine neue Sitzung DERSELBEN Connection gibt es nur frei, wenn
+         sie denselben Index traegt - also nicht, solange jede Sitzung
+         eine neue Schnittstelle erhaelt (Annahmen E-PA-03, E-PA-09).
+         Sonst gilt es hoechstens bis zu ihrem eigenen Sitzungsbeginn
+         und - laeuft auch dessen Hook nicht - bis zur naechsten
+         Herstellung der Connection, mit ihrem zuletzt hergestellten
+         Policy-Zustand (SB3, SE3, BASE-080_030 Abschnitt 6.6,
+         DEC-PA-07).
 
   PA-32  FLUSS-SCHNITT: Wird eine Adresse in restricted_* eingefuegt, in
          dem sie zuvor nicht stand, werden nach dem Schreiben des Sets
@@ -571,7 +583,9 @@ AUFTRAGSBUCH UND NEBENLAEUFIGKEIT
          freigegebene Sitzung wird nicht beendet), beenden, Lock neu
          erwerben, SQL und Kernel frisch lesen und danach abschliessen;
          nach einem Rueckfall des Fluss-Schnitts erteilt derselbe Aufruf
-         keine Freigabe mehr (NB-8, DEC-PA-27, TB1 bis TB6).
+         keine Freigabe mehr. Mehrere Sitzungen beendet ein Durchlauf
+         gemeinsam, mit EINEM Warten bis zum Zeitlimit des Kerns (NB-8,
+         DEC-PA-27, TB1 bis TB6; Uebergang: BASE-080_080 Abschnitt 6a).
 
   PA-52  Das Auftragsbuch schreibt nur der DB-User system. Der DB-User
          radius hat keinen Zugriff; das Panel liest nur ueber eine Sicht

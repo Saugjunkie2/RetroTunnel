@@ -104,14 +104,18 @@ ZWECK:
   NB-8): Wo der Abgleich eine L2TP-Sitzung beendet, entzieht er unter dem
   Lock die Freigabe und raeumt die Sets - das wirkt sofort. Das Beenden
   selbst folgt NACH dem Loesen des Locks nach der Teilabfolge TB
-  (BASE-080_030 Abschnitt 8): fuer alle Ziele des Abschnitts
-  nacheinander, je mit dem Zeitlimit des Kerns und je erst nach der
-  frischen Pruefung TB3 - traegt eine Sitzung inzwischen wieder eine
-  Freigabe, hat ein Einzelauftrag sie zugelassen, und sie bleibt.
-  Scheitert ein Beenden, bleibt die Sitzung gesperrt; der Lauf endet mit
-  Ergebnis 1, und der naechste Lauf findet sie wieder vor. Reicht die
-  Zeit bis zum Zeitlimit des Laufs nicht fuer alle Ziele, bleiben die
-  uebrigen gesperrt und fallen dem naechsten Lauf zu.
+  (BASE-080_030 Abschnitt 8) - je Abschnitt EIN Durchlauf: Alle Ziele
+  des Abschnitts werden GEMEINSAM beendet, mit EINEM Warten von
+  hoechstens vpn_hardcut_kill_timeout_seconds (Schritt TB4), und erst
+  nach der frischen Pruefung TB3 - traegt eine Sitzung inzwischen wieder
+  eine Freigabe, hat ein Einzelauftrag sie zugelassen, und sie bleibt.
+  Was am Ende der Frist noch besteht, ist nicht beendet: Die Sitzung
+  bleibt gesperrt; der Lauf endet mit Ergebnis 1, und der naechste Lauf
+  findet sie wieder vor. Erreicht der Lauf sein Zeitlimit, bleiben die
+  uebrigen Ziele gesperrt und fallen dem naechsten Lauf zu. Das
+  gemeinsame Beenden setzt die Form des Hard-Cut-Kerns fuer mehrere
+  Sitzungen voraus (ANF-PA-14 g); bis dahin gilt BASE-080_080 Abschnitt
+  6a.
 
   GRUNDSATZ DER REIHENFOLGE: ERST SCHLIESSEN, DANN OEFFNEN. Alle
   Handlungen, die Zugang entziehen oder einschraenken, kommen vor allen
@@ -127,9 +131,9 @@ ZWECK:
       2 ohne Wirkung - hoechstens bis T plus
       vpn_policy_eval_interval_seconds; danach laeuft er auch ohne
       Bewerterlauf. Das gilt fuer JEDEN Anlass, auch fuer Takt und
-      Siegel (Abschnitt 8). Eine Statusdatei, die aelter ist als das
-      Dreifache des Rasters des Auftragslaufs, zaehlt dabei nicht: Ein
-      stehender Auftragslauf haelt den Abgleich nicht auf.
+      Siegel (Abschnitt 8). Fehlt die Statusdatei oder ist sie aelter
+      als das Dreifache des Rasters des Auftragslaufs, zaehlt sie dabei
+      nicht: Ein stehender Auftragslauf haelt den Abgleich nicht auf.
       Zustand der Firewall BETRIEB oder VERSIEGELT, sonst Ende mit Code
       8 ohne Wirkung.
       LADESTAND des Regelwerks merken (L0): das Paar aus
@@ -633,7 +637,9 @@ ZWECK:
   ausgenommen den Siegel-Abschnitt nach einem Neuladen (Abschnitt 6).
   Auf das Ende einer Sitzung wird nie unter dem Lock gewartet.
   Die Erwartung "Erstabgleich nach dem Start unter 60 s" ist eine zu
-  messende Annahme (T-WT-22), keine Zusage.
+  messende Annahme (T-WT-22), keine Zusage. Ebenso die Dauer eines
+  ganzen Laufs: Hoechstens 60 s sind die Voraussetzung der Frist aus
+  Abschnitt 1 (Annahme E-PA-06; gemessen in T-PA-87).
 
 ================================================================================
 11) FEHLERBILDER

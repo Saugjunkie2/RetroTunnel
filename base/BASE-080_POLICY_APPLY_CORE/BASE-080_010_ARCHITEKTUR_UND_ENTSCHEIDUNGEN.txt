@@ -49,7 +49,9 @@ ZWECK:
         geschrieben wird nur bei einer Aenderung.
   SZ-7  FEHLENDES WISSEN OEFFNET NICHTS UND ZERSTOERT NICHTS. Ohne
         Datenbank oder ohne Regelwerk wird nichts geoeffnet und keine
-        Entscheidung getroffen; bestehende Zustaende bleiben stehen.
+        Entscheidung getroffen; bestehende Zustaende bleiben stehen. Was
+        der Betreiber wegen fehlenden Wissens nicht wiederherstellen
+        kann, wird nicht wegen Fristablaufs endgueltig.
   SZ-8  KEINE UNUMKEHRBARE MASSENFOLGE AUS EINEM EINZELFEHLER. Eine
         falsche Uhr, ein Datenfehler oder ein Programmfehler darf nicht
         in einem Lauf viele Connections endgueltig sperren - auch nicht
@@ -109,7 +111,14 @@ ZWECK:
                        ebenso (DEC-PA-08).
   Ladestand            Paar aus Generation des Regelwerks und Kennung
                        seines letzten Ladens; aendert sich bei JEDEM
-                       Laden (BASE-080_040 Abschnitt 3).
+                       Laden (BASE-080_040 Abschnitt 3). Das ist der
+                       Zielzustand: Die Kennung ist bei BASE-050
+                       angefordert (BASE-080_080 ANF-PA-08 c und
+                       Abschnitt 6a).
+  Nachfrist            Zeit vor dem Ende eines Restore-Fensters, in der
+                       der Bewerter das Fenster neu beginnt, solange das
+                       Wissen fuer eine Wiederherstellung fehlt
+                       (BASE-080_020 Schritt E4 a).
   Policy-Zustand       Mitgliedschaften einer Tunneladresse in den
                        Sperr-Sets (restricted, connect_pending) und die
                        Zuordnung der Verkehrsformung.
@@ -256,12 +265,19 @@ DEC-PA-07  L2TP: FREIGABE ALS LETZTER SCHRITT; KEIN STUMMER DAUERZUSTAND
   BASE-080_040 Abschnitt 6).
   DIE FREIGABE LEBT EINE SITZUNG: Sie wird bei jedem Sitzungsbeginn neu
   aufgebaut - vorhandene Elemente zu Adresse und Index werden zuerst
-  entfernt - und mit dem Sitzungsende entfernt. Ein liegengebliebenes
-  Element gibt nie die Sitzung einer ANDEREN Connection frei: Es traegt
-  Index UND Adresse. Eine neue Sitzung DERSELBEN Connection gibt es
-  nicht ueber deren eigenen Sitzungsbeginn hinaus frei - sofern jede
-  Sitzung eine neue Schnittstelle erhaelt (BASE-080_030 Abschnitte 6.3,
-  6.4, 6.6; Annahmen E-PA-09 und E-PA-10).
+  entfernt - und nach dem Sitzungsende entfernt, sobald ihre
+  Schnittstelle am Kernel nicht mehr besteht: vom Hook des Endes, sonst
+  von der Aufsicht im naechsten Durchgang des Auftragslaufs. Das Element
+  einer BESTEHENDEN Schnittstelle fasst das Sitzungsende nie an; ein
+  verspaeteter Hook trifft so keine andere Sitzung.
+  Ein liegengebliebenes Element gibt nie die Sitzung einer ANDEREN
+  Connection frei: Es traegt Index UND Adresse. Eine neue Sitzung
+  DERSELBEN Connection gibt es nur frei, wenn sie denselben Index
+  traegt - also nicht, solange jede Sitzung eine neue Schnittstelle
+  erhaelt (Annahmen E-PA-03, E-PA-09). Traefe das nicht zu, gaelte es
+  hoechstens bis zu ihrem eigenen Sitzungsbeginn und - laeuft auch
+  dessen Hook nicht - bis zur naechsten Herstellung der Connection
+  (BASE-080_030 Abschnitte 6.3 bis 6.6; Annahme E-PA-10).
   HERKUNFT: D009-Alt (Connect Gating D1a) und B052 (Datenbankausfall)
   verlangen "kein Verkehr vor hergestellter Policy", "kein Ersatzzustand
   eingeschraenkt" und das Beenden der Sitzung bei jedem Fehler der
@@ -347,8 +363,9 @@ DEC-PA-12  DER BEWERTER SAMMELT ALLE SECHS QUELLEN
 
 DEC-PA-13  REIHENFOLGE DER BEWERTUNG JE CONNECTION
   (1) Kaskade aus dem Customer-Status, (2) harte Frist ohne Claim,
-  (3) bei einer gesperrten Connection allein der Widerruf nach Ablauf
-  des Restore-Fensters, (4) Gruende neu bestimmen, (5)
+  (3) bei einer gesperrten Connection allein das Restore-Fenster - der
+  Widerruf nach seinem Ablauf bzw. sein Offenhalten, solange das Wissen
+  fuer eine Wiederherstellung fehlt -, (4) Gruende neu bestimmen, (5)
   Finalisierungsfrist des danach noch geltenden Grundes (Schritte E2 bis
   E7 in BASE-080_020). Begruendung zu (4) vor (5): Eine Connection, deren
   Grund inzwischen entfallen ist, darf nicht wegen einer abgelaufenen
@@ -621,7 +638,9 @@ DEC-PA-27  KEIN WARTEN AUF EIN SITZUNGSENDE UNTER DEM KERNEL-LOCK
   DER RUECKWEG UNTER DEN LOCK ist als Teilabfolge festgelegt
   (BASE-080_030 Abschnitt 8, TB1 bis TB6): frische Pruefung vor dem
   Beenden, frische Lesung danach; gelingt der Neuerwerb nicht, ist das
-  Ergebnis 4 "Abschluss offen", nicht 5.
+  Ergebnis 4 "Abschluss offen", nicht 5. Mehrere Sitzungen beendet ein
+  Durchlauf GEMEINSAM, mit EINEM Warten bis zum Zeitlimit des Kerns
+  (angefordert bei BASE-070: ANF-PA-14 g).
   REGELN DAZU: KP-g (Wartezeit plus Zeitlimit unter der Frist der
   Aufsicht), KP-h (Wartezeit auf ein Sitzungsende kuerzer als die
   Arbeit des Werkzeugs); Zeitlimits der Laeufe: BASE-080_070 Regel UP-5.
@@ -662,7 +681,7 @@ DEC-PA-28  MENGENBREMSE DES ABGLEICHS: EIN WEG, EINE BREMSE
   OPEN-POL-05  Units, Lock, Hooks               -> BASE-080_050, _070
   Heimat des Policy-Evaluators (SM_CONNECTION   -> BASE-080_020
   4.6, 4.9, 5.4, 5.5)
-  Schnitt bei Freigabe und Grundwechsel         -> BASE-080_030 Abschnitt
+  Schnitt bei Aufhebung und Grundwechsel        -> BASE-080_030 Abschnitt
   (SM_CONNECTION 4.6 gegen SM_POLICY_RESTRICT      7: nur der Eintritt
   5.1)                                             schneidet
   Geaenderte Formungsvorgabe als Ausloeser      -> BASE-080_050 Abschnitt
