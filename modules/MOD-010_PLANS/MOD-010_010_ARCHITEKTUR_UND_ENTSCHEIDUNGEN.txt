@@ -29,9 +29,10 @@ ZWECK:
   erreicht (BASE-050), wie bewertet und hergestellt wird (BASE-080), wie
   Status, Gruende und Fristen einer Connection gefuehrt werden (BASE-010),
   wie schnell eine Connection ist (MOD-003), wie eine E-Mail versandt
-  wird (BASE-110), wie die Oberflaeche aussieht (MOD-006) - und nicht, wie
-  bezahlt wird: Die Zahlung liegt ausserhalb des Systems
-  (02_ASSUMPTIONS_AND_RULES NA-03).
+  wird (BASE-110), wie die Oberflaeche aussieht (MOD-006) - und es
+  wickelt keine Zahlung ab: Das System loest keine Karte ein und fragt
+  keinen Zahlungsdienst (02_ASSUMPTIONS_AND_RULES NA-03); es nimmt den
+  Code einer Paysafecard nur entgegen (DEC-PL-07).
 
 ================================================================================
 2) SCHUTZZIELE
@@ -51,10 +52,12 @@ ZWECK:
         kommt - auf einem Weg, den er eingeschraenkt erreicht.
   SZ-4  NICHTS VERLAENGERT SICH VON SELBST. Ein Plan endet zu seinem
         gespeicherten Ende. Weiter geht es nur, wenn der Kunde bestellt
-        und die Verwaltung bestaetigt.
-  SZ-5  KEINE BUCHUNG OHNE DIE VERWALTUNG. Eine Buchung entsteht nur durch
-        eine Handlung der Verwaltung oder aus etwas, das sie vorher
-        ausdruecklich gewaehrt hat. Ein Kunde schreibt sich keinen Plan zu.
+        und bezahlt.
+  SZ-5  KEINE BUCHUNG AM BETREIBER VORBEI. Eine Buchung entsteht durch
+        eine Handlung der Verwaltung, aus einer Gutschrift, die sie
+        gewaehrt hat - oder VORLAEUFIG aus einer Paysafecard-Zahlung des
+        Kunden, die die Verwaltung nachprueft und zuruecknehmen kann.
+        Endgueltig wird nichts ohne sie.
   SZ-6  EINE BUCHUNG IST EINE TATSACHE MIT URHEBER. Jede Buchung und jede
         Aenderung an ihr ist protokolliert: wer, wann, was, warum.
         Buchungen eines Kunden ueberlappen nie.
@@ -68,10 +71,12 @@ ZWECK:
   SZ-9  PLAENE SIND DATEN DES BETREIBERS. Kein Plan, kein Preis und keine
         Laufzeit steht im Programm. Der Betreiber legt Plaene an, aendert
         sie und nimmt sie aus dem Angebot.
-  SZ-10 SICHERHEIT IST KEIN PLANMERKMAL, ZAHLUNGSDATEN SIND KEIN INHALT.
-        Kein Plan schaltet eine Schutzfunktion (R-07; BASE-100 SZ-10).
-        Das System speichert keine Zahlungsmittel und keine
-        Guthaben-Codes.
+  SZ-10 SICHERHEIT IST KEIN PLANMERKMAL; ZAHLUNGSDATEN NUR SO LANGE WIE
+        NOETIG. Kein Plan schaltet eine Schutzfunktion (R-07; BASE-100
+        SZ-10). Der Code einer Paysafecard ist Bargeld: Er steht nur der
+        Rolle ADMIN offen, nie in einem Protokoll, einer E-Mail oder
+        einer Statusdatei, und wird geloescht, sobald die Verwaltung
+        ueber ihn entschieden hat.
 
 ================================================================================
 3) BEGRIFFE
@@ -99,9 +104,19 @@ ZWECK:
                    VIP, MODERATOR und ADMIN gibt es keinen Plan-Stand.
   BESTELLUNG       Der Wunsch eines Kunden nach einem Plan mit einer
                    Laufzeitstufe. Eine Bestellung ist noch keine Buchung.
-  BESTAETIGUNG     Die Handlung der Verwaltung, die aus einer Bestellung
-                   eine Buchung macht - nachdem die Zahlung ausserhalb
-                   des Systems eingegangen ist.
+  BESTAETIGUNG     Die Handlung der Verwaltung, die eine Zahlung
+                   anerkennt: Sie macht aus einer Bestellung mit Zahlweg
+                   BAR eine Buchung und eine vorlaeufige Buchung
+                   endgueltig.
+  VORLAEUFIGE      Eine Buchung, die aus einer Paysafecard-Zahlung
+  BUCHUNG          sofort entstanden ist und deren Code die Verwaltung
+                   noch nicht geprueft hat. Sie gilt wie jede andere,
+                   kann aber zurueckgenommen werden (DEC-PL-07).
+  NACHZAHLFRIST    Die Zeit, die ein Kunde nach einem fuer ungueltig
+                   erklaerten Code hat, erneut zu bezahlen (Vorschlag
+                   des Betreibers: 3 Tage).
+  ZUSATZVOLUMEN    Nachgekauftes Datenvolumen fuer die laufende
+                   Quota-Periode (DEC-PL-18).
   PLAN-GUTSCHRIFT  Ein bezahlter Plan, den die Verwaltung an eine
                    VORBEREITETE Connection haengt, deren Kunde sich erst
                    noch registriert. Mit dem Claim wird daraus die
@@ -351,36 +366,79 @@ DEC-PL-06  VERLAENGERN SCHLIESST AN; EIN ANDERER PLAN GILT AB DEM ENDE
     neue Aktiv-Budget kleiner als die Zahl seiner Connections, greift
     das Plan-Limit (DEC-PL-15).
 
-DEC-PL-07  BESTELLEN, AUSSERHALB BEZAHLEN, BESTAETIGEN
-  Quelle: BM-0029 ("er muss selbstaendig einen plan buchen");
-    02_ASSUMPTIONS_AND_RULES NA-03 (kein Abrechnungssystem, Zahlung
-    extern); BASE-010_070 Abschnitt 4, Weg A (manueller Bestellprozess,
-    Entscheidung des Betreibers vom 2026-04-17); B345 (ein Nutzer
-    schreibt nie selbst in SQL).
+DEC-PL-07  BESTELLEN UND BEZAHLEN: PAYSAFECARD WIRKT SOFORT UND
+           VORLAEUFIG, BARGELD NACH BESTAETIGUNG
+  Quelle: Entscheidung des Betreibers vom 2026-11-24 (BM-0030: Zahlung
+    per Paysafecard durch Eingabe der Nummer oder in bar; "halb
+    automatisches System" - das Abo wird schon verlaengert, der
+    Betreiber prueft nach; einen nicht einloesbaren Code erklaert er im
+    Panel fuer ungueltig, der Kunde hat drei Tage Zeit, erneut zu
+    bezahlen, sonst wird die Verlaengerung zurueckgenommen; bestaetigen
+    darf nur der Admin). BM-0029 ("er muss selbstaendig einen plan
+    buchen"); 02_ASSUMPTIONS_AND_RULES NA-03 (kein Abrechnungssystem,
+    keine Zahlungsdienste); BASE-010_070 Abschnitt 4, Weg A (manueller
+    Bestellprozess vom 2026-04-17: Guthabenkarten, Pruefung von Hand).
   Entscheidung:
-    a) DER KUNDE BESTELLT im Panel: Plan und Laufzeitstufe. Das Panel
-       ist ein interner Dienst; er erreicht es auch eingeschraenkt
-       (BASE-010_070 Abschnitt 2: Panel, DNS, NTP).
-    b) Die Bestellung ist OFFEN, bis die Verwaltung sie BESTAETIGT oder
-       ABLEHNT, der Kunde sie ZURUECKZIEHT oder sie nach einer Frist
-       VERFAELLT. Ein Kunde hat hoechstens eine offene Bestellung.
-    c) BEZAHLT wird ausserhalb des Systems, auf dem Weg, den der
-       Betreiber dem Kunden nennt. Die Bestellung traegt keine
-       Zahlungsdaten und kein Freitextfeld, in das ein Guthaben-Code
-       geraten koennte (SZ-10).
-    d) DIE VERWALTUNG BESTAETIGT, wenn die Zahlung eingegangen ist. Erst
-       die Bestaetigung erzeugt die Buchung (DEC-PL-06 a oder b). Die
-       Verwaltung kann auch ohne Bestellung buchen.
-    e) Der Betreiber erfaehrt von jeder neuen Bestellung (Liste im
-       Panel und Nachricht); der Kunde erfaehrt Bestaetigung und
-       Ablehnung (DEC-PL-11).
-    f) Bestaetigen, ablehnen und buchen kann nur die Rolle ADMIN.
-       MODERATOR sieht Plaene, Buchungen und Bestellungen.
-  Begruendung: So wird der Kunde selbst taetig, ohne dass das System
-    eine Zahlung beurteilen muss. Der Betreiber prueft jede Zahlung von
-    Hand; daran aendert dieses Modul nichts. Kommt spaeter ein
-    Zahlungsweg hinzu, tritt er an die Stelle der Handlung in d) - die
-    Buchung und alles danach bleiben gleich.
+    a) DER KUNDE BESTELLT im Panel: Plan, Laufzeitstufe und Zahlweg
+       PAYSAFECARD oder BAR. Das Panel ist ein interner Dienst; er
+       erreicht es auch eingeschraenkt (BASE-010_070 Abschnitt 2:
+       Panel, DNS, NTP). Ein Kunde hat hoechstens eine offene
+       Bestellung.
+    b) PAYSAFECARD: Der Kunde gibt den Code der Karte ein. Das System
+       prueft NUR DIE FORM des Codes und dass derselbe Code hier noch
+       nicht eingereicht wurde. Es fragt keinen Zahlungsdienst (NA-03).
+       Besteht der Code diese Pruefung, entsteht die Buchung SOFORT -
+       als VORLAEUFIG -, und der Code steht der Verwaltung zur Pruefung
+       bereit.
+    c) DIE VERWALTUNG PRUEFT den Code ausserhalb des Systems (sie loest
+       ihn ein) und haelt das Ergebnis fest:
+         BESTAETIGT  die Buchung ist endgueltig
+         UNGUELTIG   der Code war nicht einloesbar
+       In beiden Faellen wird der Code geloescht (g).
+    d) NACH "UNGUELTIG" erfaehrt es der Kunde (E-Mail und Panel) und hat
+       die NACHZAHLFRIST, erneut zu bezahlen - mit einem neuen Code oder
+       in bar. Die vorlaeufige Buchung laeuft in dieser Zeit weiter.
+       Reicht er rechtzeitig einen neuen Code ein, wird dieser geprueft
+       wie der erste (c). ZURUECKGENOMMEN wird die Buchung - sie endet
+       sofort (DEC-PL-06 f) -, wenn die Frist ohne neue Zahlung ablaeuft
+       ODER auch die zweite Zahlung UNGUELTIG ist. Die Frist beginnt mit
+       der ersten Ungueltig-Erklaerung und beginnt nicht neu.
+    e) BAR: Die Bestellung bleibt OFFEN, bis die Verwaltung den Eingang
+       des Geldes bestaetigt; erst dann entsteht die Buchung (DEC-PL-06
+       a oder b). Die Verwaltung kann auch ohne Bestellung buchen. Eine
+       offene Bestellung VERFAELLT nach einer Frist, wird vom Kunden
+       ZURUECKGEZOGEN oder von der Verwaltung ABGELEHNT.
+    f) VERTRAUEN HAT EINE GRENZE:
+       - Je Kunde ist hoechstens EINE Zahlung ungeprueft.
+       - Wurde einem Kunden eine Buchung nach d) zurueckgenommen, wirkt
+         seine naechste Paysafecard-Zahlung nicht mehr sofort: Seine
+         Bestellungen bleiben OFFEN, bis die Verwaltung bestaetigt - so
+         lange, bis sie ihm das Vertrauen ausdruecklich wiedergibt.
+       - Die Zahl der Code-Eingaben je Kunde und Tag ist begrenzt.
+    g) DER CODE IST BARGELD (SZ-10): Er steht nur der Rolle ADMIN offen
+       - nicht MODERATOR, in keinem Protokoll, keiner E-Mail und keiner
+       Statusdatei. Mit dem Ergebnis nach c) wird er geloescht; es
+       bleiben ein Pruefwert, an dem eine zweite Einreichung desselben
+       Codes erkannt wird, und die letzten vier Stellen fuer
+       Rueckfragen.
+    h) Bestaetigen, fuer ungueltig erklaeren, ablehnen und buchen kann
+       NUR die Rolle ADMIN (Entscheidung des Betreibers, BM-0030).
+       MODERATOR sieht Plaene, Buchungen und Bestellungen - keine Codes.
+    i) Der Betreiber erfaehrt von jeder Bestellung und jeder
+       eingereichten Zahlung (Liste im Panel und Nachricht); der Kunde
+       erfaehrt jedes Ergebnis (DEC-PL-11).
+  Begruendung: b) ist die Entscheidung des Betreibers: Der Kunde soll
+    nicht warten, bis jemand einen Code geprueft hat. DER PREIS DAFUER
+    (offen ausgewiesen): Bis zur Pruefung und in der Nachzahlfrist nutzt
+    ein Kunde das Internet auch mit einem wertlosen Code. f) begrenzt
+    das auf EINMAL je Kunde. Die Formpruefung haelt Tippfehler ab,
+    keinen Betrug. Fuer Bargeld gibt es nichts zu pruefen, bevor es da
+    ist.
+  Folgen: Eine vorlaeufige Buchung gilt fuer Plan-Stand, Werte und
+    Bewertung wie jede andere (DEC-PL-04); "vorlaeufig" ist eine
+    Eigenschaft allein fuer die Verwaltung. Der ERSTE Kauf eines Kunden,
+    der noch keinen Zugang hat, laeuft weiter ausserhalb des Systems
+    (DEC-PL-08).
 
 DEC-PL-08  DER ERSTE PLAN REIST MIT DER VORBEREITETEN CONNECTION
   Quelle: BASE-010_070 Abschnitt 4, Weg A (die Verwaltung legt eine
@@ -488,8 +546,15 @@ DEC-PL-11  ERINNERN: VOR DEM ABLAUF, BEIM ABLAUF, VOR DER FREIGABE
          E-2  der Plan ist abgelaufen - mit dem Weg zur Bestellung
          E-3  die Connections werden bald freigegeben - Vorschlag:
               7 Tage vor dem Ende des Fensters
-         E-4  eine Buchung ist entstanden (Plan, Beginn, Ende)
-         E-5  eine Bestellung ist eingegangen, abgelehnt oder verfallen
+         E-4  eine Buchung oder ein Zusatzvolumen ist entstanden (bei
+              einer Buchung: Plan, Beginn, Ende, ob vorlaeufig)
+         E-5  eine Bestellung oder Zahlung ist eingegangen, bestaetigt,
+              fuer ungueltig erklaert (mit dem Ende der Nachzahlfrist),
+              abgelehnt oder verfallen; eine Buchung wurde
+              zurueckgenommen
+         E-6  die Verwaltung hat den Verbrauch des laufenden Monats
+              zurueckgesetzt (DEC-PL-19)
+       Keine E-Mail nennt den Code einer Paysafecard (DEC-PL-07 g).
     b) E-1 entfaellt, wenn der Kunde schon eine Anschlussbuchung hat.
     c) JEDE ERINNERUNG GENAU EINMAL: Der Erinnerungslauf vermerkt je
        Buchung und Anlass, dass er ausgeloest hat. Ein versaeumter Lauf
@@ -563,6 +628,8 @@ DEC-PL-14  WAS DIESES MODUL DEN ANDEREN LIEFERT
     PA-3  GELTUNG DES KONTINGENTS des laufenden Plans (SHARED oder
           DEDICATED) fuer die Auskunft AK-2.
     PA-4  REGEL DES PLAN-LIMITS fuer die Auskunft AK-1 (DEC-PL-15).
+    PA-5  ZUSATZVOLUMEN der Quota-Periode je Kunde bzw. Connection fuer
+          die Auskunft AK-2 (DEC-PL-18).
     Jede Antwort traegt einen Zustand; "nicht lesbar" und "nicht
     bestimmbar" sind von "keiner" unterscheidbar. Kein Verbraucher liest
     die Tabellen dieses Moduls selbst.
@@ -604,9 +671,10 @@ DEC-PL-16  WER WAS SIEHT (R-17)
                dort, warum er eingeschraenkt ist und wie er bestellt.
     ADMIN      alles: Plaene und Stufen; je Kunde Plan-Stand und
                Geschichte; Listen "laeuft in N Tagen ab", "abgelaufen",
-               "ohne Plan", "offene Bestellungen", "nicht eingeloeste
-               Gutschriften"; das Protokoll.
-    MODERATOR  dasselbe lesend.
+               "ohne Plan", "offene Bestellungen", "zu pruefende
+               Zahlungen" (mit dem Code), "in der Nachzahlfrist",
+               "nicht eingeloeste Gutschriften"; das Protokoll.
+    MODERATOR  dasselbe lesend - ohne die Codes.
   Nichts davon wird im Panel berechnet; es zeigt, was die Plan-Auskunft
   liefert.
 
@@ -618,6 +686,103 @@ DEC-PL-17  BIS DIESES MODUL IN BETRIEB IST
     AK-5). BEVOR er die Aussetzung beendet, bucht er den Bestandskunden
     ihre Plaene; die Liste "ohne Plan" (DEC-PL-16) zeigt, wen das Ende
     der Aussetzung traefe.
+
+DEC-PL-18  ZUSATZVOLUMEN: NACHKAUFEN FUER DEN LAUFENDEN MONAT
+  Quelle: Entscheidung des Betreibers (BM-0030: "kunden koennen
+    datenvolumen nach kaufen"); BASE-100 OPEN-PO-05; BASE-100_050
+    (Auskunft AK-2); D004-E08 (die Quota-Periode ist der Kalendermonat).
+  Entscheidung:
+    a) Ein Kunde mit laufendem Plan kann ZUSATZVOLUMEN bestellen: eine
+       Menge aus dem Angebot des Betreibers (Stufen mit Preis). Bestellt
+       und bezahlt wird wie ein Plan (DEC-PL-07): Paysafecard sofort und
+       vorlaeufig, bar nach Bestaetigung.
+    b) Zusatzvolumen ist ein EIGENER GEGENSTAND - je Kunde und
+       Quota-Periode -, keine Ausnahme im Sinn von BASE-100 und kein
+       Wert des Plans.
+    c) Es gilt fuer die LAUFENDE Quota-Periode und verfaellt mit ihr. Es
+       erhoeht das Kontingent dieser Periode: bei geteiltem Kontingent
+       das des Kunden, bei einem Kontingent je Connection das der
+       Connection, fuer die es bestellt wurde.
+    d) Es setzt keinen Verbrauch zurueck und aendert keinen anderen
+       Wert. Eine erschoepfte Connection ist mit der naechsten Bewertung
+       wieder frei, soweit das erhoehte Kontingent reicht.
+    e) Wird die Zahlung zurueckgenommen (DEC-PL-07 d), entfaellt das
+       Zusatzvolumen; was schon verbraucht ist, bleibt verbraucht.
+  Begruendung: Als Ausnahme (BASE-100) muesste das Volumen von Hand
+    wieder entfernt werden und ueberdauerte den Monat. Als eigener
+    Gegenstand endet es von selbst mit der Periode und bleibt in der
+    Geschichte des Kunden sichtbar.
+  Folgen: Die Auskunft AK-2 von BASE-100 rechnet das Zusatzvolumen der
+    Periode zum Limit; dieses Modul liefert es als feste Eingabe
+    (DEC-PL-14, PA-5). Ohne laufenden Plan gibt es kein Zusatzvolumen.
+
+DEC-PL-19  DIE VERWALTUNG KANN DEN VERBRAUCH EINES KUNDEN FUER DEN
+           LAUFENDEN MONAT ZURUECKSETZEN
+  Quelle: Entscheidung des Betreibers (BM-0030: "ich kann das auch
+    zurueck setzen im panel, dann bekommt der betreffende kunde eine
+    email"); D004-E08 ("Planwechsel setzt quota_used NICHT zurueck
+    (Missbrauchsschutz)"); BASE-100_050 NP-7 und KQ-3; BASE-070_050
+    (Buchung des Verbrauchs, Periode).
+  Entscheidung:
+    a) Die Rolle ADMIN kann den Verbrauch EINES Kunden fuer die laufende
+       Quota-Periode zuruecksetzen - fuer alle seine Connections, mit
+       Grund. Der Kunde erhaelt eine E-Mail (DEC-PL-11, E-6).
+    b) Zurueckgesetzt wird, was GEGEN DAS KONTINGENT ZAEHLT - nicht die
+       Aufzeichnung: Was bis dahin verbraucht wurde, bleibt als
+       abgeschlossener Abschnitt der Periode nachweisbar; ab dem
+       Zuruecksetzen zaehlt der Verbrauch von null.
+    c) Das Zuruecksetzen ist eine ausdrueckliche Handlung (im Panel mit
+       erneuter Anmeldung) und steht im Protokoll. Nichts sonst setzt
+       einen Verbrauch zurueck: kein Planwechsel, keine Buchung, kein
+       Zusatzvolumen, keine neue Connection (D004-E08).
+    d) Danach wird die Bewertung der Connections des Kunden aufgerufen.
+  AUSGEWIESENE ANPASSUNG: BASE-100_050 sagt "Nichts setzt den Verbrauch
+    zurueck" (NP-7) und "Der Kundenverbrauch vergisst nichts" (KQ-3).
+    Beides gilt weiter fuer alles, was von selbst oder durch den Kunden
+    geschieht; die Handlung der Verwaltung ist die EINE Ausnahme. Der
+    Kundendeckel rechnet ab dem Zuruecksetzen.
+  Folgen: Ausfuehren muss es BASE-070 als Eigentuemer von Buchung und
+    Periode (Anforderung dieses Moduls): ein Abschluss INNERHALB der
+    Periode, der den Stand festhaelt und die Zaehlung neu beginnt.
+
+DEC-PL-20  DIE ERSTEN PLAENE: EIN VORSCHLAG, DEN DER BETREIBER JEDERZEIT
+           AENDERT
+  Quelle: Entscheidung des Betreibers (BM-0030: Namen, Laufzeiten und
+    Preise recherchieren und festlegen, die Preise dann um 50 % senken);
+    Entwurf "Plans" der Nachlieferung, Abschnitt 1 (Rahmen des Servers
+    nach Angabe des Betreibers, nicht an der Konfiguration geprueft:
+    1 Gbit/s, 40 TB im Monat, danach gedrosselt); BASE-100_070
+    Abschnitt 1 (Standards der Rolle USER).
+  MARKT (Recherche vom 2026-11-24 in oeffentlichen Preisvergleichen,
+    gerundet): Ein Monatstarif kostet im Mittel rund 10 Euro, ein
+    Jahrestarif rund 55 bis 60 Euro, ein bekannter Festpreis liegt bei
+    5 Euro im Monat; Tarife mit begrenztem Volumen beginnen bei rund
+    3 Euro im Monat. Die Vorgabe des Betreibers ist DAVON DIE HAELFTE.
+  Entscheidung (Erstausstattung - Daten, keine Regel):
+    Plan     Connections  Volumen im Monat   1 Mon.  3 Mon.  12 Mon.
+    -------  -----------  -----------------  ------  ------  -------
+    Solo     1            50 GB              3 EUR   -       15 EUR
+    Duo      2            150 GB, geteilt    4 EUR   10 EUR  20 EUR
+    Familie  5            400 GB, geteilt    6 EUR   15 EUR  30 EUR
+    Solo zusaetzlich: 6 Monate fuer 10 EUR.
+    Zusatzvolumen: 50 GB fuer 3 EUR, 200 GB fuer 10 EUR.
+  Begruendung:
+    NAMEN: Sie sagen, worin sich die Plaene vor allem unterscheiden -
+      fuer wie viele Geraete sie reichen. Geschwindigkeit ist kein
+      Merkmal (sie kaeme erst mit MOD-003).
+    PREISE: "Familie" entspricht dem ueblichen Tarif fuer mehrere
+      Geraete: Markt rund 12 / 30 / 60 Euro fuer 1 / 3 / 12 Monate,
+      davon die Haelfte. "Duo" und "Solo" liegen darunter, weil sie
+      weniger Geraete und weniger Volumen enthalten. Jeder Betrag ab
+      10 Euro ist ein gaengiger Wert einer Guthabenkarte (zu pruefen,
+      OPEN-PL-06); die kleineren Betraege sind fuer Barzahlung gedacht.
+    MENGEN: 40 TB im Monat reichen, wenn jeder sein Volumen voll
+      ausschoepft, fuer 100 Plaene "Familie" oder 800 Plaene "Solo".
+      Ausgeschoepft wird ein Volumen selten; wie stark der Betreiber
+      ueberbucht, entscheidet er an den beobachteten Zahlen.
+  Folgen: Der Vorschlag wird bei der Einrichtung als Daten eingetragen
+    (Plaene, Stufen, Werte in policy_plan_values). Kein Programm kennt
+    einen dieser Namen oder Betraege (SZ-9).
 
 ================================================================================
 6) WAS SICH DAMIT AN ANDEREN STELLEN AENDERT (UEBERSICHT)
@@ -643,9 +808,15 @@ DEC-PL-17  BIS DIESES MODUL IN BETRIEB IST
              (BASE-100_080 ANF-PO-04 g).
   BASE-050   Das Panel gehoert zu dem, was eine eingeschraenkte
              Connection erreicht (heute so; hier Voraussetzung, SZ-3).
-  BASE-110,  E-Mail-Versand fuer die Anlaesse E-1 bis E-5; Anzeige nach
-  MOD-006    DEC-PL-16; Bestellung, Bestaetigung und Buchung als
-             Handlungen im Panel.
+  BASE-110,  E-Mail-Versand fuer die Anlaesse E-1 bis E-6; Anzeige nach
+  MOD-006    DEC-PL-16; Bestellung, Code-Eingabe, Bestaetigung, Buchung
+             und Zuruecksetzen des Verbrauchs als Handlungen im Panel;
+             der Code einer Paysafecard nur fuer ADMIN (DEC-PL-07 g).
+  BASE-070   Zuruecksetzen des Verbrauchs eines Kunden innerhalb der
+             Quota-Periode (DEC-PL-19).
+  BASE-100   AK-2 rechnet das Zusatzvolumen zum Limit (DEC-PL-18);
+  (weiter)   NP-7 und KQ-3 nennen die Handlung der Verwaltung als
+             Ausnahme (DEC-PL-19).
   MOD-001    Der Claim einer Connection mit Gutschrift (DEC-PL-08).
   BASE-000   Tabellen dieses Moduls in die Registry.
   BASE-090   Einstellungen dieses Moduls (Tage der Erinnerung, Frist
@@ -681,21 +852,26 @@ DEC-PL-17  BIS DIESES MODUL IN BETRIEB IST
   Einstellungen; Invarianten und Tests; ein Vorschlag fuer die ersten
   Plaene.
 
+  VOM BETREIBER AM 2026-11-24 ENTSCHIEDEN (BM-0030):
+  OPEN-PL-01  ERLEDIGT: Namen, Laufzeiten und Preise der Plaene hat er
+              diesem Modul ueberlassen (Marktpreise, davon die Haelfte)
+              -> DEC-PL-20.
+  OPEN-PL-02  ERLEDIGT: Bezahlt wird per Paysafecard (Code im Panel)
+              oder bar -> DEC-PL-07.
+  OPEN-PL-03  ERLEDIGT: Zusatzvolumen kann nachgekauft werden; die
+              Verwaltung kann den Verbrauch zuruecksetzen -> DEC-PL-18,
+              DEC-PL-19.
+  OPEN-PL-04  ERLEDIGT: Nur ADMIN bestaetigt -> DEC-PL-07 h.
+
   OFFEN BEIM BETREIBER (keine dieser Fragen haelt die Ausarbeitung auf):
-  OPEN-PL-01  DIE PLAENE SELBST: Namen, Zahl, Werte, Laufzeitstufen und
-              Preise sind seine Daten. Dieses Modul liefert einen
-              Vorschlag fuer den Anfang; die fruehere Ausarbeitung ist
-              nach der Nachlieferung verloren.
-  OPEN-PL-02  WEG DER ZAHLUNG BEI EINER VERLAENGERUNG: Wie der Kunde dem
-              Betreiber die Zahlung zukommen laesst, steht ausserhalb
-              des Systems (heute per E-Mail). Das Panel nennt dem Kunden
-              diesen Weg als Text des Betreibers.
-  OPEN-PL-03  ZUSATZVOLUMEN (BASE-100 OPEN-PO-05): Soll ein Kunde fuer
-              den laufenden Monat Volumen nachkaufen koennen? Wenn ja,
-              als eigener Gegenstand je Kunde und Periode, nicht als
-              Ausnahme.
-  OPEN-PL-04  Ob MODERATOR Bestellungen bestaetigen darf (heute: nein,
-              DEC-PL-07 f).
+  OPEN-PL-05  RESTWERT EINER KARTE: Ist eine Paysafecard mehr wert als
+              der Preis, bleibt der Rest beim Betreiber. Ob er ihn dem
+              Kunden gutschreibt (etwa als Kulanztage, DEC-PL-13), ist
+              seine Entscheidung im Einzelfall.
+  OPEN-PL-06  FORM UND WERTE DER KARTEN: Laenge und Aufbau des Codes und
+              die gaengigen Kartenwerte sind vor der Umsetzung am
+              aktuellen Stand des Kartenanbieters zu pruefen; dieses
+              Modul setzt nur voraus, dass sich die Form pruefen laesst.
 
 ================================================================================
 CHANGELOG

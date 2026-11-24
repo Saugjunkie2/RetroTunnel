@@ -4,7 +4,7 @@ MOD-010 — INVARIANTEN (Plaene)
 DATEI: MOD-010_090_INVARIANTEN.txt
 STATUS: IN ARBEIT (AP-M010; Modul noch unvollstaendig)
 
-Harter Vertrag. Jede Verletzung ist ein Fehler. Kennungen PL-01..PL-28.
+Harter Vertrag. Jede Verletzung ist ein Fehler. Kennungen PL-01..PL-34.
 Die Kennungen in Klammern verweisen auf die Entscheidungen und
 Schutzziele in MOD-010_010 (DEC-PL-, SZ-). Mit den folgenden Dateien
 dieses Moduls kommen Regelkennungen und weitere Invarianten hinzu.
@@ -96,15 +96,17 @@ VERLAENGERN UND WECHSELN
 BESTELLUNG UND BUCHUNGSKERN
 ================================================================================
 
-  PL-15  Eine Buchung entsteht nur durch eine Handlung der Rolle ADMIN
-         ueber den Buchungskern oder durch das Einloesen einer
-         Gutschrift, die die Rolle ADMIN angelegt hat. Eine Bestellung
-         allein aendert weder den Plan noch den Plan-Stand (DEC-PL-07 d,
-         f; SZ-5).
+  PL-15  Eine ENDGUELTIGE Buchung entsteht nur durch eine Handlung der
+         Rolle ADMIN (buchen, eine Bestellung oder Zahlung bestaetigen)
+         oder durch das Einloesen einer Gutschrift, die die Rolle ADMIN
+         angelegt hat. Ohne sie entsteht allein eine VORLAEUFIGE Buchung
+         aus einer Paysafecard-Zahlung, deren Code die Formpruefung
+         besteht (DEC-PL-07 b, c, h; SZ-5).
 
-  PL-16  Ein Kunde hat hoechstens eine offene Bestellung. Eine Bestellung
-         traegt keine Zahlungsdaten und kein Freitextfeld; das System
-         speichert kein Zahlungsmittel (DEC-PL-07 b, c; SZ-10).
+  PL-16  Ein Kunde hat hoechstens eine offene Bestellung und hoechstens
+         eine ungepruefte Zahlung. Eine Bestellung mit dem Zahlweg BAR
+         aendert weder Plan noch Plan-Stand, bis die Verwaltung
+         bestaetigt (DEC-PL-07 a, e, f).
 
   PL-17  Buchungen, Bestellungen und Gutschriften schreibt allein der
          Buchungskern - unter der Sperre der Zeile des Kunden und mit
@@ -178,11 +180,48 @@ AUSKUNFT, PLAN-LIMIT UND SICHT
          Daten ergeben dieselbe Auswahl, auch nachdem sie vollzogen ist
          (DEC-PL-15).
 
-  PL-28  Buchen, bestaetigen, ablehnen, beenden und Kulanz gewaehren
+  PL-28  Buchen, bestaetigen, fuer ungueltig erklaeren, ablehnen,
+         beenden, Kulanz gewaehren und den Verbrauch zuruecksetzen
          kann nur die Rolle ADMIN. MODERATOR liest. Ein Kunde sieht nur
          seinen eigenen Plan-Stand, seine Buchungen und seine Bestellung;
-         er kann nur bestellen und die eigene Bestellung zurueckziehen
-         (DEC-PL-07 f, DEC-PL-13, DEC-PL-16).
+         er kann nur bestellen, bezahlen und die eigene Bestellung
+         zurueckziehen (DEC-PL-07 h, DEC-PL-13, DEC-PL-16).
+
+================================================================================
+ZAHLUNG, ZUSATZVOLUMEN, ZURUECKSETZEN
+================================================================================
+
+  PL-29  Nach "UNGUELTIG" laeuft die vorlaeufige Buchung bis zum Ende
+         der Nachzahlfrist weiter. Sie wird zurueckgenommen, wenn die
+         Frist ohne neue Zahlung ablaeuft oder auch die zweite Zahlung
+         ungueltig ist; die Frist beginnt nicht neu. Eine bestaetigte
+         Buchung wird nie zurueckgenommen (DEC-PL-07 c, d).
+
+  PL-30  Nach einer zurueckgenommenen Buchung wirkt keine
+         Paysafecard-Zahlung dieses Kunden mehr sofort, bis die Rolle
+         ADMIN es ausdruecklich wieder erlaubt (DEC-PL-07 f).
+
+  PL-31  Der Code einer Paysafecard steht nur der Rolle ADMIN offen, in
+         keinem Protokoll, keiner E-Mail und keiner Statusdatei, und ist
+         geloescht, sobald die Verwaltung ueber ihn entschieden hat.
+         Derselbe Code wird in diesem System kein zweites Mal
+         angenommen. Das System fragt keinen Zahlungsdienst (DEC-PL-07
+         b, g; SZ-10).
+
+  PL-32  Zusatzvolumen gilt fuer genau eine Quota-Periode, erhoeht nur
+         das Kontingent dieser Periode und setzt keinen Verbrauch
+         zurueck. Ohne laufenden Plan gibt es keines (DEC-PL-18).
+
+  PL-33  Den Verbrauch eines Kunden setzt allein die Rolle ADMIN zurueck
+         - mit Grund, Protokolleintrag und E-Mail an den Kunden; der bis
+         dahin gebuchte Verbrauch bleibt nachweisbar. Kein anderer
+         Vorgang dieses Moduls setzt einen Verbrauch zurueck
+         (DEC-PL-19).
+
+  PL-34  Plaene, Laufzeitstufen, Preise und die Stufen des
+         Zusatzvolumens sind Daten des Betreibers: Kein Programm
+         enthaelt einen Plan, einen Namen oder einen Preis (SZ-9,
+         DEC-PL-20).
 
 ================================================================================
 CHANGELOG
