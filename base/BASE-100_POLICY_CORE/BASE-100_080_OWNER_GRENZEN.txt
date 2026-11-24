@@ -27,8 +27,7 @@ ZWECK:
                 Kundenverbrauch und Deckel, Vorschau der Folgen
   Werkzeuge     vpn-rights-get, -set, -seed, -check; Status des Prueflaufs
   Settings      vpn_disabled_connection_buffer,
-                policy_check_interval_seconds, policy_plan_required
-                (gefuehrt in BASE-090)
+                policy_check_interval_seconds (gefuehrt in BASE-090)
 
 ================================================================================
 2) WAS DIESES MODUL NICHT BESITZT
@@ -213,10 +212,11 @@ ZWECK:
     g) PLAN-PFLICHT (DEC-PO-18): neue Zeile in den Bedingungsquellen
        (BASE-080_020 Abschnitt 2) - Grund RESTRICT_PLAN_MISSING, aktiv,
        wenn die Auskunft AK-6 "ja" meldet; AK-6 in den Vertrag der
-       Auskuenfte aufnehmen (unbekannt nach AK-4). Ein Eintrag in
-       vpn_policy_eval_sources_off ist dafuer nicht noetig: Der Schalter
-       der Plan-Pflicht leistet dasselbe. Beim Rollenwechsel zeigt RC1,
-       ob der Kunde nach dem Wechsel auf USER ohne gueltigen Plan
+       Auskuenfte aufnehmen (unbekannt nach AK-4). AUSSETZEN: die
+       Quelle PLAN_MISSING in den Wertevorrat von
+       vpn_policy_eval_sources_off aufnehmen (AK-5) - fuer die Zeit,
+       bevor MOD-010 in Betrieb ist. Beim Rollenwechsel zeigt RC1, ob
+       der Kunde nach dem Wechsel auf USER ohne gueltigen Plan
        eingeschraenkt waere; RC3 f bewertet es mit.
 
   ANF-PO-05 (BASE-090)
@@ -228,11 +228,8 @@ ZWECK:
     b) vpn_disabled_connection_buffer: Eigentuemer BASE-100.
     c) Neuer Key policy_check_interval_seconds mit den Angaben aus
        BASE-100_070 Abschnitt 3.
-    d) Neuer Key policy_plan_required mit den Angaben aus BASE-100_070
-       Abschnitt 3 (BOOL, Fehlerklasse FAIL_CLOSED). Das Schreiben
-       verlangt die ausdrueckliche Bestaetigung mit Urheber und Grund
-       (wie bei vpn_policy_eval_sources_off): "true" kann viele Kunden
-       zugleich einschraenken.
+    d) vpn_policy_eval_sources_off: den Wertevorrat um PLAN_MISSING
+       erweitern (mit BASE-080, ANF-PO-04 g; DEC-PO-18).
 
   ANF-PO-06 (BASE-110, MOD-006)
     a) Anzeige nach BASE-100_070 Abschnitt 6; nichts wird im Panel
@@ -248,9 +245,9 @@ ZWECK:
     e) MODERATOR: nur lesend.
     f) PLAN-PFLICHT (DEC-PO-18): Dem Kunden ohne gueltigen Plan zeigt
        das Panel, dass und warum er eingeschraenkt ist, und den Weg zu
-       einem Plan. Der Verwaltung zeigt es vor dem Einschalten die Zahl
-       der betroffenen Kunden und Connections (vpn-rights-get
-       --assume-plan-required).
+       einem Plan. Der Verwaltung zeigt es die Zahl der Kunden ohne
+       gueltigen Plan (Auskunft AK-6) - auch bevor eine Aussetzung
+       endet.
 
   ANF-PO-07 (MOD-010)
     Die Nahtstelle aus BASE-100_050 Abschnitt 6: Tabelle der Plaene;
@@ -261,8 +258,8 @@ ZWECK:
     PLAN-PFLICHT (DEC-PO-18): je Kunde die Antwort "gueltig oder
     abgelaufen" (NP-10); Zuweisung, Entzug und Ende eines Plans rufen
     die Bewertung; der Weg zu einem Plan ist fuer einen eingeschraenkten
-    Kunden erreichbar (Panel als interner Dienst); der Uebergang der
-    Bestandskunden, bevor die Pflicht eingeschaltet wird.
+    Kunden erreichbar (Panel als interner Dienst); die Zuweisung der
+    Plaene an Bestandskunden, bevor eine Aussetzung der Pflicht endet.
 
   ANF-PO-08 (MOD-007)
     Aufbewahrung von log_policy_audit (nur der Aufbewahrungslauf
@@ -342,10 +339,10 @@ ZWECK:
               BASE-090 (dort OPEN-ST-03).
   OPEN-PO-07  PLAN-PFLICHT (DEC-PO-18): Der Grund RESTRICT_PLAN_MISSING
               (BASE-010, ANF-PO-02 f), die Zeile der Bedingungsquellen
-              (BASE-080, ANF-PO-04 g), das Setting (BASE-090, ANF-PO-05
-              d) und die Gueltigkeit eines Plans (MOD-010, NP-10) stehen
-              aus. Bis dahin ist die Pflicht nicht durchsetzbar; der
-              Schalter bleibt auf "false".
+              und die Quelle PLAN_MISSING (BASE-080, ANF-PO-04 g;
+              BASE-090, ANF-PO-05 d) und die Gueltigkeit eines Plans
+              (MOD-010, NP-10) stehen aus. Bis dahin setzt kein Programm
+              die Pflicht durch.
 
 ================================================================================
 9) VERBLEIB VON DOMAIN_MODEL ABSCHNITT 6 UND VON D003
@@ -386,9 +383,9 @@ ZWECK:
   6.7 Interim-Regelung                 DEC-PO-15
   6.8 Plaene                           BASE-100_050 Abschnitt 6; MOD-010
   6.8 "NULL = kein Plan, nur           ANGEPASST durch Entscheidung des
-  Rollen-Defaults"                     Betreibers (BM-0027): gilt, bis
-                                       die Plan-Pflicht eingeschaltet
-                                       ist; danach DEC-PO-18
+  Rollen-Defaults"                     Betreibers (BM-0027, BM-0028):
+                                       gilt fuer die Werte; Internet nur
+                                       mit gueltigem Plan (DEC-PO-18)
   D003-E01                             DEC-PO-01
   D003-E02                             BASE-010; hier DEC-PO-14 (Ausnahme
                                        beim Rollenwechsel)

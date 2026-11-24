@@ -86,8 +86,9 @@ ZWECK:
        Betreiber hat die Wahl diesem Modul ueberlassen.
        USER: 100 GB je Connection und Periode (10 hoch 11 Bytes) - mit
        dem Aktiv-Budget 2 zusammen hoechstens 200 GB je Kunde. Der Wert
-       gilt, bis die Plan-Pflicht eingeschaltet ist, und danach fuer
-       einen Plan, der den Key auslaesst (DEC-PO-18).
+       gilt fuer einen Plan, der den Key auslaesst - und fuer Kunden
+       ohne Plan, solange der Betreiber die Plan-Pflicht ausgesetzt hat
+       (DEC-PO-18).
        VIP und MODERATOR: unbegrenzt. 00_MANIFEST 4.2 nennt fuer beide
        ausser der Zahl der Connections keine Grenze ("Kein
        Speed/BW-Limit").
@@ -145,10 +146,7 @@ ZWECK:
                     --all: alle Keys), BA fuer einen Kunden, AK-2, AK-1
                     und AK-6 fuer Connections. Mit --explain zeigt es je
                     Key die Zeilen aller drei Ebenen und welche
-                    entschieden hat. Mit --assume-plan-required liefert
-                    es AK-6 so, als gaelte die Plan-Pflicht, und zaehlt
-                    die betroffenen Kunden und Connections (Vorschau vor
-                    dem Einschalten; DEC-PO-18). Nur lesend.
+                    entschieden hat. Nur lesend.
   vpn-rights-set    SCHREIBKERN. Ein Vorgang mit einer oder mehreren
                     Aenderungen (BASE-100_060 Abschnitt 2). Mit
                     --preview: nur die Vorschau der Folgen.
@@ -200,12 +198,6 @@ ZWECK:
                                      Notwert 300 | ohne Richtung (der
                                      Takt aendert nur, wie schnell ein
                                      Mangel gemeldet wird) | wirkt sofort
-    policy_plan_required             BOOL | Vorschlag false | kein
-                                     Notwert (Fehlerklasse FAIL_CLOSED:
-                                     ohne gelesenen Wert ist AK-6 fuer
-                                     jeden USER unbekannt) | true ist
-                                     strenger | wirkt mit der naechsten
-                                     Bewertung (DEC-PO-18)
 
   RECHTE IN DER DATENBANK
   Tabelle                    radius  webpanel                system
@@ -259,9 +251,7 @@ ZWECK:
         Protokolleintrag vergleichen (BASE-100_060 UW-2).
   PL-7  WIDERSPRUECHE: Kunden mit plan_id, die nicht die Rolle USER
         tragen; Kunden mit plan_id, solange die Ebene PLAN nicht
-        eingerichtet ist; eine eingeschaltete Plan-Pflicht, solange
-        kein Kunde der Rolle USER einen gueltigen Plan traegt
-        (DEC-PO-18).
+        eingerichtet ist.
   PL-8  UEBERBELEGUNG: die Auskunft BA (als Auskunft, ohne Sperre) fuer
         alle Kunden, abschnittsweise; die ueberbelegten zaehlen.
   PL-9  Status schreiben, Ereignisse melden (Abschnitt 5).
@@ -270,9 +260,8 @@ ZWECK:
     und Zustand des Katalogs, Zustand der Datenbank, je Key und Rolle der
     Zustand des Standards, je Key die Zahl der Ausnahmen, die Liste der
     ungueltigen Zeilen, die Liste der Zeilen ohne Protokoll, die Zahl der
-    ueberbelegten Kunden, die Zahl der Kunden im Zustand PLAN_UNKNOWN,
-    der Stand des Schalters der Plan-Pflicht und - wenn sie gilt - die
-    Zahl der Kunden der Rolle USER ohne gueltigen Plan.
+    ueberbelegten Kunden, die Zahl der Kunden im Zustand PLAN_UNKNOWN
+    und die Zahl der Kunden der Rolle USER ohne gueltigen Plan.
   PZ-1  Der Prueflauf aendert keinen Wert und keine Zeile.
   PZ-2  Er laeuft auch ohne Datenbank: Dann prueft er den Katalog (PL-1)
         und meldet die Datenbank als nicht lesbar.
@@ -308,8 +297,6 @@ ZWECK:
                                       lesbare Werte
     RIGHTS_ROLE_PLAN_MISMATCH  ALERT  ein Kunde, der nicht USER ist,
                                       traegt einen Plan
-    RIGHTS_PLAN_REQUIRED_EMPTY ALERT  die Plan-Pflicht gilt, und kein
-                                      USER traegt einen gueltigen Plan
     RIGHTS_UNKNOWN_ROW         ALERT  Zeile zu einem Namen, den der
                                       Katalog nicht kennt
     RIGHTS_UNAUDITED_CHANGE    ALERT  Zeile ohne passenden
@@ -404,9 +391,12 @@ ZWECK:
         Moduls voraus.
   EB-4  KEIN PLAN OHNE MOD-010: Vor dem Betrieb traegt kein Kunde ein
         plan_id (Prueflauf, PL-7).
-  EB-5  PLAN-PFLICHT AUS: Bis MOD-010 in Betrieb ist und die
-        Bestandskunden ihren Plan haben, steht policy_plan_required auf
-        "false" (DEC-PO-18; Prueflauf, PL-7).
+
+  HINWEIS ZUR PLAN-PFLICHT (DEC-PO-18): Solange MOD-010 nicht in Betrieb
+  ist, kommt kein Kunde der Rolle USER ins Internet - ausser der
+  Betreiber hat die Bedingung beim Bewerter ausdruecklich ausgesetzt
+  (BASE-080 AK-5). Das ist keine Pruefung dieser Einrichtung, sondern
+  die Folge der Regel.
 
 ================================================================================
 8) VERHALTEN BEI STOERUNGEN (UEBERBLICK)
@@ -428,9 +418,9 @@ ZWECK:
                                Ausweichen auf den Standard
   Plan gesetzt, Werte nicht    PLAN_UNKNOWN fuer diesen Kunden, ausser wo
   lesbar                       eine Ausnahme entscheidet
-  Schalter der Plan-Pflicht    AK-6 ist fuer jeden USER unbekannt: Der
+  Gueltigkeit eines Plans      PLAN_UNKNOWN fuer diesen Kunden: Der
   nicht lesbar                 Bewerter oeffnet nichts und schraenkt
-                               deshalb nichts ein; gemeldet (BASE-090)
+                               deshalb nichts ein
   Katalog-Kopie weicht ab      es gilt die Definition; die Einspielung
                                stellt her
   Katalog-Definition           nichts wird aufgeloest oder geschrieben;

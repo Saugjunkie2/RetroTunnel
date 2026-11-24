@@ -164,39 +164,35 @@ ZWECK:
 4a) DIE AUSKUNFT AK-6 (PLAN FEHLT)
 ================================================================================
 
-  Grundlage ist DEC-PO-18 (Entscheidung des Betreibers, BM-0027): Ein
-  Kunde der Rolle USER ohne gueltigen Plan erreicht nur die internen
-  Dienste.
+  Grundlage ist DEC-PO-18 (Entscheidung des Betreibers, BM-0027 und
+  BM-0028): Ein Kunde der Rolle USER ohne gueltigen Plan erreicht nur
+  die internen Dienste.
 
   AUFRUF: eine Menge von Connections.
   ERGEBNIS je Connection: state und plan_missing (ja | nein).
 
   PF-1  WEN ES TRIFFT: plan_missing ist "ja" genau dann, wenn
-          a) die Plan-Pflicht gilt (PF-3),
-          b) die Connection einen Kunden der Rolle USER hat und
-          c) dieser Kunde keinen GUELTIGEN Plan traegt (PF-2).
+          a) die Connection einen Kunden der Rolle USER hat und
+          b) dieser Kunde keinen GUELTIGEN Plan traegt (PF-2).
   PF-2  GUELTIG ist ein Plan, wenn der Kunde ein plan_id traegt und
         MOD-010 den Plan dieses Kunden nicht als abgelaufen meldet
         (Abschnitt 6, NP-10). Kein plan_id und ein abgelaufener Plan
         gelten gleich: kein gueltiger Plan.
-  PF-3  DIE PLAN-PFLICHT GILT, wenn das Setting policy_plan_required
-        "true" ist (BASE-100_070 Abschnitt 3). Ist es "false", ist
-        plan_missing fuer jede Connection "nein" - ohne dass ein Plan
-        gelesen wird.
+  PF-3  KEIN SCHALTER: Die Auskunft haengt an keinem Setting und an
+        keinem Policy-Wert. Sie nennt eine Tatsache; was daraus folgt,
+        bestimmt der Bewerter (BASE-080_020).
   PF-4  WEN ES NIE TRIFFT: Fuer eine Connection ohne Kunden und fuer die
         Connection eines Kunden der Rollen VIP, MODERATOR oder ADMIN ist
-        das Ergebnis OK und "nein" - gleich wie der Schalter steht und
-        in welchem Zustand die Daten der Plaene sind. Diese Rollen
-        tragen keinen Plan (BASE-010 INV-41).
-  PF-5  UNBEKANNT BLEIBT UNBEKANNT: Liefert die Auskunft der Settings
-        den Schalter nicht als gelesenen Wert (er hat die Fehlerklasse
-        FAIL_CLOSED: kein Notwert), ist state fuer die Connections ALLER
-        Kunden der Rolle USER PLAN_UNKNOWN. Gilt die Pflicht und ist
-        fuer einen Kunden mit plan_id nicht lesbar, ob sein Plan gueltig
-        ist, ist state fuer seine Connections PLAN_UNKNOWN. Ist die
-        Datenbank nicht lesbar: DB_UNKNOWN. Der Bewerter behandelt die
-        Bedingung dann als UNBEKANNT (BASE-080 AK-4): Er oeffnet nichts
-        und schraenkt deshalb nichts ein.
+        das Ergebnis OK und "nein" - gleich in welchem Zustand die Daten
+        der Plaene sind. Diese Rollen tragen keinen Plan (BASE-010
+        INV-41).
+  PF-5  UNBEKANNT BLEIBT UNBEKANNT: Ist fuer einen Kunden mit plan_id
+        nicht lesbar, ob sein Plan gueltig ist, ist state fuer seine
+        Connections PLAN_UNKNOWN - auch solange MOD-010 fehlt (NP-9).
+        Ist die Datenbank nicht lesbar: DB_UNKNOWN. Der Bewerter
+        behandelt die Bedingung dann als UNBEKANNT (BASE-080 AK-4): Er
+        oeffnet nichts und schraenkt deshalb nichts ein. Ein Kunde OHNE
+        plan_id ist nie unbekannt: Er hat keinen Plan.
   PF-6  AK-6 schreibt nichts, sperrt nichts und liest nur
         festgeschriebene Daten; ein Aufruf braucht eine feste Zahl von
         Abfragen (SZ-9).
@@ -217,16 +213,17 @@ ZWECK:
   Ende meldet AK-6. Ob MOD-010 daneben expiry_date benutzt, entscheidet
   MOD-010 - AK-6 haengt nicht davon ab.
 
-  VOR DEM EINSCHALTEN zeigt vpn-rights-get mit --assume-plan-required,
-  wie viele Kunden und Connections die Pflicht jetzt traefe (BASE-100_070
-  Abschnitt 2). Das Einschalten selbst ist ein Schreibvorgang der
-  Settings (BASE-090; ANF-PO-05 d).
+  BIS ES PLAENE GIBT: Solange MOD-010 nicht in Betrieb ist, traegt kein
+  Kunde einen Plan, und AK-6 meldet fuer JEDEN Kunden der Rolle USER
+  "ja". Das ist die Regel, kein Fehler: ohne Plan kein Internet. Will
+  der Betreiber in dieser Zeit Kunden der Rolle USER ins Internet
+  lassen, setzt er die Bedingung beim Bewerter aus (BASE-080 AK-5 mit
+  der Quelle PLAN_MISSING; ANF-PO-04 g). AK-6 antwortet weiter gleich:
+  Wer wissen will, wen das Ende der Aussetzung traefe, fragt AK-6.
 
-  STAND HEUTE: Der Schalter steht auf "false"; AK-6 liefert fuer jede
-  Connection "nein". Eingeschaltet wird, wenn MOD-010 in Betrieb ist
-  und die Bestandskunden ihren Plan haben - vorher traefe die Pflicht
-  JEDEN Kunden der Rolle USER. Durchsetzbar ist sie erst mit den
-  Nachzuegen bei BASE-010 und BASE-080 (BASE-100_080 OPEN-PO-07).
+  STAND HEUTE: Der Grund und die Bedingung sind bei BASE-010 und
+  BASE-080 angefordert; bis zu diesen Nachzuegen setzt kein Programm
+  die Plan-Pflicht durch (BASE-100_080 OPEN-PO-07).
 
 ================================================================================
 5) ANTWORTEN AUF DIE ANFORDERUNGEN DER NACHBARN
@@ -324,10 +321,10 @@ ZWECK:
   unveraenderlichem Schluessel (TRUTH_MODEL GV-02), Laufzeit und Preis;
   Zuweisung und Wechsel eines Plans; die Eingaben nach NP-5, NP-6 und
   NP-10; das Auffuellen eines Kontingents; weitere Keys
-  (Geschwindigkeit mit MOD-003); den Uebergang der Bestandskunden,
-  bevor die Plan-Pflicht eingeschaltet wird. Zuweisung, Wechsel, Entzug
-  und Ende eines Plans und ein Auffuellen rufen die Bewertung
-  (BASE-080_020 Abschnitt 5).
+  (Geschwindigkeit mit MOD-003); die Zuweisung der Plaene an
+  Bestandskunden, bevor eine Aussetzung der Plan-Pflicht endet.
+  Zuweisung, Wechsel, Entzug und Ende eines Plans und ein Auffuellen
+  rufen die Bewertung (BASE-080_020 Abschnitt 5).
 
   VERBLEIB DER SIEBEN OFFENEN FRAGEN DES ENTWURFS "PLANS"
   (nachlieferung/entwuerfe/Plans, Abschnitt 7):
@@ -377,9 +374,10 @@ ZWECK:
   DOMAIN_MODEL 6.8 Plaene                NP-1 bis NP-10; Einzelheiten
                                          MOD-010
   DOMAIN_MODEL 6.8 "NULL = kein Plan,    ANGEPASST (Entscheidung des
-  nur Rollen-Defaults"                   Betreibers, BM-0027): gilt, bis
-                                         die Plan-Pflicht eingeschaltet
-                                         ist; danach Abschnitt 4a
+  nur Rollen-Defaults"                   Betreibers, BM-0027, BM-0028):
+                                         gilt fuer die Werte; Internet
+                                         nur mit gueltigem Plan
+                                         (Abschnitt 4a)
   Entwurf "Plans": "Laufzeit abgelaufen  Abschnitt 4a: Ein abgelaufener
   -> Walled Garden"                      Plan gilt als keiner (PF-2)
   BASE-080_020 AK-1 bis AK-4             Abschnitte 3 und 4
