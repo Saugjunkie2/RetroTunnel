@@ -515,7 +515,12 @@ ZWECK:
        Der Controller meldet in diesem Fall keinen Beginn. BASE-040_050
        beschreibt das Ergebnis 6 bisher nur fuer die zurueckgehaltene
        Massenkorrektur (und nennt die Regel "M-7"); der Wortlaut dort ist
-       anzugleichen.
+       anzugleichen. NACH ERGEBNIS 6 ruft der Controller fuer diesen
+       Peer nicht in jedem Zyklus erneut, sondern mit wachsendem Abstand
+       - zuletzt im Takt des Abgleichs; ein neuer Auftrag fuer die
+       Connection hebt den Abstand auf. Sonst belegen die
+       Wiederholungen bei gehaltener Mengenbremse den Kernel-Lock
+       (Abschnitt 6a).
        NEU ANGEFORDERT (v1.5): Nach Ergebnis 6 wiederholt der Controller
        den Aufruf fuer diesen Peer nicht in jedem Zyklus, sondern mit
        wachsendem Abstand, hoechstens im Takt des Abgleichs. Schliessen
@@ -724,13 +729,24 @@ ZWECK:
     R  RUECKFALL: Bis zum Nachzug gilt ein benanntes, schwaecheres
        Verhalten. Es ist nie offener als der Zielzustand; die genannte
        Zusage gilt aber noch nicht.
-    L  LUECKE: Bis zum Nachzug FEHLT eine schliessende Wirkung, oder sie
-       tritt verspaetet ein - die Lage ist OFFENER als der Zielzustand.
-       Dieses Modul kann das nicht abfangen, weil der Nachbar den
-       betroffenen Schritt selbst ausfuehrt. Ein Eintrag der Art L ist
-       eine VORAUSSETZUNG DER INBETRIEBNAHME: Der genannte Schritt des
-       Nachbarn geht nicht in Betrieb, solange er offen ist
-       (BASE-080_INDEX Abschnitt 9).
+    L  LUECKE: Bis zum Nachzug FEHLTE eine schliessende Wirkung, oder
+       sie traete verspaetet ein - die Lage waere OFFENER als der
+       Zielzustand. Dieses Modul kann das nicht abfangen, weil der
+       Nachbar den betroffenen Schritt selbst ausfuehrt. Ein Eintrag
+       der Art L ist deshalb eine VORAUSSETZUNG DER INBETRIEBNAHME: Das
+       System geht mit der betroffenen FUNKTION nicht in Betrieb,
+       solange er offen ist. Welche Funktion das ist, steht unten (WAS
+       DIE ART L SPERRT). Die FOLGE eines solchen Eintrags beschreibt,
+       was fehlte, ginge die Funktion dennoch in Betrieb.
+  WAS DIE ART L SPERRT (Teil der Abnahme vor dem Betrieb; dieselbe Liste
+  fuehrt BASE-080_INDEX Abschnitt 9):
+    ANF-PA-01 a, b (zweiter      den Betrieb mit Kunden: Statuswechsel,
+    Eintrag), d, i, o            Bewertung und Kaskaden haengen an den
+                                 Routinen von BASE-010
+    ANF-PA-01 n                  den Kennwortwechsel
+    ANF-PA-04 a, b, g, c         den L2TP-Tunnel (Hooks von BASE-030)
+    ANF-PA-07 d                  den Admission-Waechter von BASE-040 mit
+                                 Wiederholung in jedem Zyklus
   Fuer jede offene Anforderung aus Abschnitt 6, die hier NICHT steht,
   gilt Art V fuer den Teil DIESES Moduls, der an ihr haengt. Fuer eine
   Anforderung an einen Schritt, den ein Nachbar selbst in Betrieb nimmt
@@ -813,7 +829,7 @@ ZWECK:
             Sitzung, die schon mit dem neuen Kennwort begann, wird
             einmal zu viel getrennt - nie eine zu wenig. PA-56 gilt in
             seiner Reihenfolge erst mit der spaeteren Faelligkeit.
-  ANF-PA-01 o  Sperren an Stelle des zurueckgestellten Tombstones  Art R
+  ANF-PA-01 o  Sperren an Stelle des zurueckgestellten Tombstones  Art L
     HEUTE:  Ob T-04 und T-07 mit DISABLE_CUSTOMER_SUSPENDED fuer einen
             Customer im Status DELETED zulaessig sind, legt BASE-010
             nicht fest.
@@ -821,7 +837,9 @@ ZWECK:
             geloescht gefuehrten Customers bis zum Tombstone zugelassen
             - hoechstens fuer die Dauer des Schutzes (Ruhezeit,
             Betreiber-Freigabe); der Lauf meldet jede solche Connection
-            (POLICY_EVAL_HELD). PA-14 Satz 3 gilt erst mit dem Nachzug.
+            (POLICY_EVAL_HELD). Das ist offener als der Zielzustand, und
+            die Mengengrenze endet nur mit der Freigabe - deshalb Art L.
+            PA-14 Satz 3 gilt erst mit dem Nachzug.
   ANF-PA-01 p  Lifecycle-Ereignis nennt geloeschte Tatsachen       Art R
     HEUTE:  Das Ereignis nennt sie nicht.
     FOLGE:  Nach einer irrtuemlichen Sperrung ist aus dem Protokoll
@@ -863,28 +881,31 @@ ZWECK:
             keinen Eingriff je Connection. Es bleiben das Beheben der
             Ursache und AK-5 (wirkt fuer alle). Die Connection bleibt
             gesperrt - nie offener.
-  ANF-PA-04 a, b, g  Duenne Hooks, kein zweiter Schreiber          Art V
+  ANF-PA-04 a, b, g  Duenne Hooks, kein zweiter Schreiber          Art L
     HEUTE:  BASE-030_040 laesst die Hooks die Sets SELBST schreiben: Der
             Hook des Beginns traegt die Freigabe ein, der des Endes
             entfernt die Adresse aus Freigabe- UND Sperr-Set.
     FOLGE:  Solange das gilt, gibt es einen zweiten Schreiber der Sets
             (gegen SZ-5 und PA-18), und das Ende einer alten Sitzung
             koennte der naechsten derselben Connection Freigabe und
-            Einschraenkung nehmen. Der L2TP-Pfad dieses Moduls - und
-            damit der L2TP-Tunnel - geht deshalb erst mit dem Nachzug
-            von BASE-030 in Betrieb. Die Einzelheiten aus ANF-PA-04 a
+            Einschraenkung nehmen. Die Hooks nimmt BASE-030 selbst in
+            Betrieb; dieses Modul kann das nicht abfangen. Der
+            L2TP-Tunnel geht deshalb erst mit dem Nachzug von BASE-030
+            in Betrieb (Art L). Die Einzelheiten aus ANF-PA-04 a
             (--addr und --login beim Ende; Spiegel nur der eigenen
             Sitzung entfernen) setzen diesen Nachzug voraus und haben
             keinen eigenen Rueckfall.
-  ANF-PA-04 c  Aeussere Zeitgrenze der Hook-Aufrufe                Art R
+  ANF-PA-04 c  Aeussere Zeitgrenze der Hook-Aufrufe                Art L
     HEUTE:  BASE-030 nennt keine Grenze fuer den Aufruf.
     FOLGE:  Gegen einen haengenden Aufruf aus einem Hook wirkt allein
             die Selbstueberwachung des Werkzeugs. Versagt sie, haelt
             der Prozess den Kernel-Lock, bis er von Hand beendet wird;
             solange enden alle Herstellungen mit Ergebnis 5 - nichts
             wird geoeffnet, aber auch keine Sperrung erreicht den
-            Kernel. Die Alarme des Auftragslaufs zeigen es
-            (BASE-080_050 Abschnitt 9).
+            Kernel - eine schliessende Wirkung bliebe aus (Art L). Die
+            Alarme des Auftragslaufs zeigen es (BASE-080_050 Abschnitt
+            9). Dasselbe gilt fuer jedes Werkzeug eines anderen Moduls,
+            das dieses Werkzeug ohne aeussere Grenze ruft.
   ANF-PA-04 e  Helfer zum Nachtragen der Kennung im Spiegel        Art R
     HEUTE:  BASE-030 kennt den Helfer nicht.
     FOLGE:  Eine Sitzung, die erst die Aufsicht oder der Abgleich
@@ -895,14 +916,22 @@ ZWECK:
   ANF-PA-04 f  Je Sitzung eine neue Schnittstelle                  Art R
     HEUTE:  nicht verbindlich festgelegt.
     FOLGE:  Annahme E-PA-09 mit ihrem Ausweichweg.
-  ANF-PA-07 d  Wiederholung des Waechters nach Ergebnis 6          Art R
+  ANF-PA-07 d  Wiederholung des Waechters nach Ergebnis 6          Art L
     HEUTE:  Der Controller ruft fuer einen solchen Peer in jedem Zyklus
             erneut (BASE-040_050 Schritt B2; Takt 5 s).
-    FOLGE:  Je Zyklus und Peer ein Aufruf mit Ergebnis 6, der kurz den
+    FOLGE:  Je Zyklus und Peer ein Aufruf mit Ergebnis 6, der den
             Kernel-Lock nimmt. Anforderungen und Laeufe wachsen dadurch
-            nicht (_040 Abschnitt 2 und MB-7; _050 Schritt AL7). Nie
-            offener; die Last traegt die Wartezeit der uebrigen Aufrufe
-            am Lock.
+            nicht (_040 Abschnitt 2 und MB-7; _050 Schritt AL7). Haelt
+            aber die Mengenbremse viele Ziele zurueck (bei 5.000 Peers
+            sind es ueber 500), ergibt das bis zu rund 100 Aufrufe je
+            Sekunde unter dem Kernel-Lock - fuer die Dauer der Bremse,
+            die auf den Betreiber wartet. Ordentliche Auftraege, Hooks,
+            der Abgleich und der Lauf mit der Betreiber-Freigabe warten
+            dann am Lock oder enden mit Ergebnis 5: Geoeffnet wird
+            nichts, aber eine Sperrung kann sich verzoegern (gegen
+            SZ-3). Die Dauer je Aufruf ist nicht gemessen. Deshalb
+            Art L: Der Waechter geht erst in Betrieb, wenn er nach
+            Ergebnis 6 mit Abstand wiederholt (ANF-PA-07 d).
   ANF-PA-07 i  Vermerk "Profil faellig" bleibt bei Sperrung        Art R
     HEUTE:  BASE-040_040 Abschnitt 6 stellt zu, sobald fuer die
             Connection kein Auftrag mehr offen ist - auch fuer eine
