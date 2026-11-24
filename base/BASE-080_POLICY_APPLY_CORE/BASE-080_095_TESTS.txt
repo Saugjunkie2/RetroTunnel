@@ -370,7 +370,10 @@ HERSTELLUNG
             halten (der Neuerwerb scheitert): Ergebnis 4 mit dem Vermerk
             "Abschluss offen", Stufe WARN - nicht 5; Protokoll und
             Statusdatei nennen die eingetretene Wirkung; der Auftrag
-            bleibt, die Wiederholung schliesst ab. OHNE AUFTRAG: Einzelziel
+            bleibt, die Wiederholung schliesst ab. Ebenso, wenn waehrend
+            des Beendens die Datenbank gestoppt bzw. die Firewall in den
+            Zustand RIEGEL versetzt wird: Ergebnis 4 "Abschluss offen" -
+            nicht 2 und nicht 8. OHNE AUFTRAG: Einzelziel
             ohne Auftrag der Herkunft CHANGE, dessen bestehende Zulassung
             zu entziehen waere: Ergebnis 6, Art NO_ORDER (T-PA-53). [PA-21]
 
@@ -458,7 +461,10 @@ HERSTELLUNG
             Connection mit eingetragenem Peer einschraenken und das
             Schreiben des Sperr-Sets Erfolg melden lassen, ohne dass es
             wirkt: Ihre Adressen stehen in connect_pending_* (Gate),
-            Ergebnis 4; kein Paket des Peers wird weitergeleitet.
+            Ergebnis 4; kein Paket des Peers wird weitergeleitet. RUECKWEG:
+            Die Wiederholung weist den Zustand nach und erledigt den
+            Auftrag; das Gate-Element loest erst der naechste Abgleich -
+            bis dahin bleibt der Peer geschlossen.
             vpn-policy-apply enthaelt kein
             eigenes Gate-Verfahren; die Sequenz ist die des Treibers
             (BASE-040 T-WT-12 bis T-WT-14). [PA-26, PA-28]
@@ -814,7 +820,12 @@ ABGLEICH UND SIEGEL
             angeforderte Abgleich zaehlt 30 und haelt. Dasselbe mit
             EINEM Ziel: Der Abgleich schliesst es. (q) L2TP ueber die Stunde:
             mehr betroffene Sitzungen ZUSAMMEN mit den in 3600 s ohne
-            Auftrag beendeten als vpn_l2tp_kill_hold_per_hour: Bremse. (r)
+            Auftrag beendeten als vpn_l2tp_kill_hold_per_hour: Bremse.
+            GEMISCHTE LAGE bei Schwelle 10: Der L2TP-Abgleich von BASE-070
+            hat eben 8 haengende Sitzungen beendet, der Abgleich findet 8
+            ohne Berechtigung: 16 im gemeinsamen Fenster von 300 s - die
+            Bremse haelt; nach Ablauf der 300 s gilt die Stundengrenze
+            (setzt ANF-PA-14 f voraus). (r)
             NICHT ERFASST: Die Sitzung OHNE Freigabe einer am Buch vorbei
             gesperrten Connection beendet das Einzelziel selbst. (s)
             DIE BREMSE HAELT 60 MINUTEN, 100 Peers betroffen, der Waechter
@@ -917,7 +928,9 @@ AUFTRAGSBUCH UND NEBENLAEUFIGKEIT
             trifft nicht; das Merkmal ist nachgetragen; die Herstellung
             hakt nichts ab und loescht den Auftrag NICHT, auch wenn ihre
             Schlusspruefung besteht; die Folgeherstellung stellt die
-            Sperrung her. Ebenso beim Sitzungsbeginn einer
+            Sperrung her. Im nicht treffenden Fall erteilt der Durchlauf
+            keine Freigabe und loest kein Gate; das holt die
+            Folgeherstellung nach. Ebenso beim Sitzungsbeginn einer
             eingeschraenkten Connection ohne Auftrag. [PA-47]
 
   T-PA-58  [L] Kein Zielzustand im Auftrag: Einschraenken und vor der
@@ -1118,7 +1131,14 @@ HELFER, BETRIEB, BEOBACHTBARKEIT, GRENZEN
             ersten Erwerb des Locks die Wartezeit, beim Beenden das
             Zeitlimit des Adapters und beim Neuerwerb wieder die Wartezeit
             ausschoepft: Er endet regulaer mit seinem Ergebnis - nicht
-            durch die Dienstverwaltung. vpn-policy-apply laeuft
+            durch die Dienstverwaltung. Auftragslauf mit vollem
+            Zeitbudget, einem letzten Auftrag bis zu dessen Zeitlimit und
+            einer in der Aufsicht zu beendenden Sitzung: Er endet
+            regulaer, die Aufsicht (AL6) und die folgenden Schritte
+            laufen. Hook-Aufruf mit haengendem Kernel-Schritt und
+            ausgeschalteter Selbstueberwachung: Der Hook beendet den
+            Prozess an seiner aeusseren Grenze, der Lock ist frei (setzt
+            ANF-PA-04 c voraus). vpn-policy-apply laeuft
             als root, vpn-policy-eval unter seinem eigenen Benutzer.
             [PA-61, PA-01]
 

@@ -60,8 +60,8 @@ ZWECK:
                               erreichte Zustand ist nie offener als vorher
                               (Abschnitt 10). Auch: Nach dem Beenden einer
                               Sitzung kam der Abschluss nicht zustande
-                              (Abschnitt 8, Schritt TB5) - die schliessende
-                              Wirkung ist dann eingetreten.
+                              (Abschnitt 8, Schritte TB5 und TB6) - die
+                              schliessende Wirkung ist dann eingetreten.
   5     TEMPFAIL_LOCKED       Kernel-Lock beim ERSTEN Erwerb (H2) in der
                               Wartezeit nicht erhalten. Keine Wirkung.
   6     STATE_MAPPING_ERROR   die Zeile ist nicht auswertbar oder Laufzeit
@@ -116,11 +116,16 @@ ZWECK:
 
   ZEITLIMIT: Die Arbeit des Einzelauftrags - vom ersten Erwerb des Locks
   bis zum Abschluss - endet nach vpn_policy_apply_timeout_seconds. NICHT
-  eingerechnet sind das Warten auf das Ende von Sitzungen (je Aufruf
-  einmal, hoechstens vpn_hardcut_kill_timeout_seconds) und der Neuerwerb
-  des Locks danach (hoechstens vpn_policy_lock_wait_seconds): Die
-  Dienstverwaltung beendet den Prozess erst nach der Summe der drei
-  Werte (BASE-080_070 Regel UP-5). Ein Abbruch durch das Zeitlimit ist
+  eingerechnet sind die Wartezeit auf den ersten Erwerb des Locks
+  (hoechstens vpn_policy_lock_wait_seconds), das Warten auf das Ende von
+  Sitzungen (je Aufruf einmal, hoechstens
+  vpn_hardcut_kill_timeout_seconds) und der Neuerwerb des Locks danach
+  (wieder hoechstens vpn_policy_lock_wait_seconds). Das Werkzeug
+  ueberwacht diese Zeiten selbst. Die AEUSSERE GRENZE - nach ihr wird
+  der Prozess hart beendet - ist die Summe der vier Zeiten mit dem
+  groessten Wert, den die Grenzen der Keys zulassen (BASE-080_070 Regel
+  UP-5). Sie setzt, wer den Prozess startet: die Unit oder der
+  aufrufende Hook (ANF-PA-04 c). Ein Abbruch durch das Zeitlimit ist
   ein Abbruch wie jeder andere (Abschnitt 10).
 
   KEIN ZWEITER WEG: Kein anderes Programm schreibt die dynamischen Sets,
@@ -227,8 +232,12 @@ ZWECK:
     nachgelesen. Entspricht sie nicht dem SOLL (ein Schreibzugriff kann
     Erfolg melden und doch nicht wirken), werden die Adressen der
     Connection in connect_pending_* eingetragen: Der Peer ist damit
-    geschlossen, bis eine Wiederholung den Zustand nachweist (BASE-080_040
-    Regel P-2). Ergebnis 4, der Auftrag bleibt. Das ist kein Schliessen
+    geschlossen. Ergebnis 4, der Auftrag bleibt. RUECKWEG: Weist die
+    Wiederholung den Zustand nach, erledigt sie den Auftrag; das
+    Gate-Element loest sie NICHT selbst (es hat kein Soll aus SQL) - das
+    tut der naechste Abgleich (BASE-080_040 Regel P-2). Bis dahin,
+    hoechstens Takt plus 60 s, bleibt der Peer geschlossen: der Preis
+    des eigenen Fehlschlags, nie offener. Das ist kein Schliessen
     ohne Auftrag im Sinn von Abschnitt 8, sondern die Folge eines eigenen
     Fehlschlags.
     Danach der Formungs-Haken (Operation "set", wiederholbar): So wirkt
@@ -644,10 +653,13 @@ ZWECK:
         Herstellung. TRIFFT SIE NICHT, hat ein Schreibweg den Auftrag
         inzwischen angelegt oder fortgeschrieben: Dann wird das Merkmal
         ohne Bedingung nachgetragen, und die Herstellung hat KEINEN
-        gueltigen Lesestand mehr - sie fuehrt ihre Abfolge samt Schnitt
-        aus, hakt nichts ab und erledigt nicht (H8). Der Auftrag bleibt
-        und wird mit frischer Lesung bearbeitet; ein Statuswechsel aus
-        der Zwischenzeit geht so nie verloren.
+        gueltigen Lesestand mehr - sie fuehrt die SCHLIESSENDEN Schritte
+        ihrer Abfolge samt Schnitt aus, hakt nichts ab und erledigt
+        nicht (H8). OEFFNENDE Schritte (eine Freigabe erteilen, ein Gate
+        loesen) unterbleiben in diesem Durchlauf: Sie stuenden auf einem
+        Stand, der bekannt ueberholt ist. Der Auftrag bleibt und wird
+        mit frischer Lesung bearbeitet - sie holt das Oeffnen nach; ein
+        Statuswechsel aus der Zwischenzeit geht so nie verloren.
         Gelingt der Eintrag nicht, laeuft die Abfolge trotzdem: Das
         Einschraenken haengt nie am Auftragsbuch.
     F2  Sets schreiben (eine Transaktion fuer beide Familien). Ab dem
@@ -762,6 +774,12 @@ ZWECK:
     TB6  FRISCH LESEN UND ABSCHLIESSEN: SQL und Kernel werden neu
          gelesen (DEC-PA-04), und der Aufruf schliesst nach dem Fall ab,
          der JETZT gilt - in aller Regel L-A (Reste raeumen) mit H8.
+         Ist die Datenbank dabei nicht lesbar oder der Zustand der
+         Firewall inzwischen RIEGEL oder KEIN_REGELWERK: Ergebnis 4 mit
+         dem Vermerk "Abschluss offen" (WARN) wie in TB5 - NICHT 2 oder
+         8. Nach diesen Codes gilt ein Auftrag als nie versucht
+         (BASE-080_050 Schritt AL3); hier ist die schliessende Wirkung
+         schon eingetreten.
          Meldete der Kern FAILED: Ergebnis 4, CRITICAL; die Freigabe
          bleibt entzogen. Nach einem Rueckfall des Fluss-Schnitts (F4)
          erteilt der Aufruf KEINE Freigabe mehr, auch wenn die Sitzung
@@ -955,6 +973,10 @@ ZWECK:
                       Sitzung beendet,        Sitzung fort; Reste in den
                       Lock nicht wieder       Sets ohne Wirkung; Ergebnis
                       erhalten (TB5)          4 "Abschluss offen"
+                      Sitzung beendet,        wie zuvor: Ergebnis 4
+                      danach Datenbank oder   "Abschluss offen", nicht 2
+                      Firewall nicht          und nicht 8
+                      verfuegbar (TB6)
                       Sitzung beendet         -
   Fluss-Schnitt mit   Freigabe entzogen,      Sitzung gesperrt und
   Rueckfall (L2TP)    Lock geloest            eingeschraenkt; Merkmal

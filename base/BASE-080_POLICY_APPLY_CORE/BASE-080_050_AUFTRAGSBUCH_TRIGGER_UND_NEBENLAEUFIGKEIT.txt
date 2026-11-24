@@ -99,10 +99,11 @@ ZWECK:
            attempts := 0; next_try_at := jetzt
          EINZIGE AUSNAHME beim next_try_at: Der Kennwortwechsel traegt
          beim EINFUEGEN einen spaeteren Zeitpunkt ein (BASE-080_060
-         Schritt KW2). Besteht schon ein Auftrag, bleibt dessen
-         Faelligkeit, wenn sie frueher liegt: Eine Fortschreibung
-         verschiebt einen faelligen Auftrag - etwa eine noch nicht
-         hergestellte Sperrung - nie nach hinten.
+         Schritt KW2). Besteht schon ein Auftrag, gilt die FRUEHERE von
+         seiner Faelligkeit und der neuen - auch fuer einen Auftrag im
+         Wiederholungsabstand: Eine Fortschreibung verschiebt einen
+         Auftrag - etwa eine noch nicht hergestellte Sperrung - nie
+         nach hinten.
     AB-4 ERLEDIGEN darf nur vpn-policy-apply, und nur nach der
          Schlusspruefung am Kernel (BASE-080_030 Schritt H8):
            DELETE ... WHERE scope = :s AND ref_id = :r
@@ -342,7 +343,10 @@ ZWECK:
          folgt je geraeumter Adresse l2tp_ensure fuer ihre Connection
          (Sperr-Set und Formung raeumen). Beendet wird ueber den
          Hard-Cut-Kern, ohne Kernel-Lock (NB-8; Teilabfolge TB, je
-         Durchgang einmal).
+         Durchgang einmal). Die Aufsicht hat das Zeitlimit eines
+         Einzelauftrags; die Grenze des Laufs schliesst es ein
+         (BASE-080_070 Regel UP-5), damit dieser Schritt und die
+         folgenden auch nach einem langen letzten Auftrag laufen.
     AL7  ABGLEICH STARTEN, falls keiner laeuft:
          SOFORT, wenn eine NEUE Anforderung eines der Anlaesse recover,
          db-return, wg-restart oder total liegt (BASE-080_040 Abschnitt
@@ -501,7 +505,10 @@ ZWECK:
           haengenden Halter wirkt das Zeitlimit jeder Operation
           (vpn_policy_apply_timeout_seconds fuer die Arbeit unter dem
           Lock; die Zeitlimits der Laeufe: BASE-080_070 Regel UP-5); die
-          Dienstverwaltung beendet den Prozess danach hart.
+          Dienstverwaltung beendet den Prozess danach hart. Ein Aufruf
+          aus einem Hook oder aus einem Werkzeug eines anderen Moduls
+          laeuft in keiner Unit dieses Moduls: Dort setzt der Aufrufer
+          die aeussere Grenze (ANF-PA-04 c).
     NB-5  DER ABGLEICH HAELT DEN KERNEL-LOCK NUR ABSCHNITTSWEISE
           (vpn_reconcile_section_seconds) und liest SQL in jedem
           Abschnitt frisch (BASE-080_040 Abschnitt 3). Ein
@@ -676,7 +683,7 @@ ZWECK:
                                Ergebnis 4 mit dem Vermerk "Abschluss
                                offen" ist nur WARN: Die schliessende
                                Wirkung ist eingetreten (BASE-080_030
-                               Schritt TB5)
+                               Schritte TB5 und TB6)
     POLICY_PENDING_OVERDUE     der Auftragslauf selbst laeuft nicht
                                (Statusdatei aelter als das Dreifache des
                                Rasters; erkannt von der Ueberwachung,

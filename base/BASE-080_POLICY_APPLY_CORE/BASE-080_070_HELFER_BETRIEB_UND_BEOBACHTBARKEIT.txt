@@ -124,16 +124,25 @@ ZWECK:
           beendet den Prozess danach hart. Der Kernel-Lock endet mit dem
           Prozess.
             Einzelauftrag (Hook,   vpn_policy_apply_timeout_seconds fuer
-            direkter Aufruf)       die Arbeit; dazu einmal das Warten auf
-                                   Sitzungsenden - gemeinsam fuer alle
-                                   Sitzungen des Aufrufs
-                                   (vpn_hardcut_kill_timeout_seconds) und
-                                   der Neuerwerb des Locks
-                                   (vpn_policy_lock_wait_seconds) -
-                                   BASE-080_030 Abschnitt 3
+            direkter Aufruf)       die Arbeit; dazu die Wartezeit auf den
+                                   ersten Erwerb des Locks
+                                   (vpn_policy_lock_wait_seconds), einmal
+                                   das Warten auf Sitzungsenden -
+                                   gemeinsam fuer alle Sitzungen des
+                                   Aufrufs
+                                   (vpn_hardcut_kill_timeout_seconds) -
+                                   und der Neuerwerb des Locks (wieder
+                                   vpn_policy_lock_wait_seconds);
+                                   BASE-080_030 Abschnitt 3. Hooks und
+                                   Aufrufe anderer Werkzeuge laufen in
+                                   keiner Unit: Die aeussere Grenze
+                                   setzt dort der Aufrufer (ANF-PA-04 c)
             Auftragslauf           ein Raster (Zeitbudget, BASE-080_050
                                    Schritt AL3) zuzueglich des Zeitlimits
-                                   eines Einzelauftrags
+                                   eines Einzelauftrags (der letzte
+                                   Auftrag darf es ausschoepfen) UND noch
+                                   einmal dieses Zeitlimits fuer die
+                                   Aufsicht (Schritt AL6)
             Abgleich               vpn_reconcile_interval_seconds; der
                                    Siegel-Abschnitt hat darin seine
                                    eigene Obergrenze (BASE-080_040
@@ -182,7 +191,12 @@ ZWECK:
       close-window                        Zeitpunkte schliessender
                                           Korrekturen ohne Auftrag
                                           (root 0600; BASE-080_040
-                                          Regel MB-2 c)
+                                          Regel MB-2 c). Beendete
+                                          L2TP-Sitzungen zaehlt das
+                                          gemeinsame Fenster des
+                                          Hard-Cut-Kerns (BASE-070;
+                                          MB-2 b, d) - bis zum Nachzug
+                                          diese Ablage
     /usr/local/lib/retrotunnel/           Verzeichnis und Programme der
       policy-helpers/                     Helfer (root, nicht
                                           beschreibbar fuer Dienste)
@@ -469,8 +483,8 @@ ZWECK:
   POLICY_APPLY_FAILED              ALERT     Ergebnis 4, 6 oder 7 fuer ein
                                    (WARN)    Einzelziel; WARN bei Ergebnis
                                              4 mit dem Vermerk "Abschluss
-                                             offen" (BASE-080_030 Schritt
-                                             TB5)
+                                             offen" (BASE-080_030 Schritte
+                                             TB5 und TB6)
   POLICY_STATE_UNDETERMINED        ALERT     Lage nicht auswertbar;
                                              nichts geoeffnet, nichts
                                              umgeschaltet. Mit der Art

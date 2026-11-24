@@ -362,7 +362,8 @@ ZWECK:
        des Rollenwechsels aufrufbar (_060 Schritt RC3 c).
     n) Der Kennwortwechsel traegt seinen Auftrag mit spaeterer
        Faelligkeit ein (_060 Schritt KW2; _050 Regel AB-3). Besteht
-       schon ein Auftrag, bleibt dessen fruehere Faelligkeit.
+       schon ein Auftrag, gilt die FRUEHERE von seiner Faelligkeit und
+       der neuen.
     o) ZURUECKGESTELLTER TOMBSTONE: T-04 und T-07 mit dem Grund
        DISABLE_CUSTOMER_SUSPENDED sind auch fuer die Connection eines
        Customers im Status DELETED zulaessig (_020 Schritt E2). Der
@@ -375,10 +376,12 @@ ZWECK:
        Verwaltungs-Einschraenkung verloren ging (_020 Abschnitt 7). Ob
        eine Wiederherstellung (T-08) sie zurueckgibt, entscheidet
        BASE-010; dieses Modul setzt es nicht voraus.
-    q) Der Claim (T-01) sperrt die Zeile des Customers (SELECT ... FOR
-       UPDATE), bevor er ihm eine Connection zuordnet - dieselbe Sperre,
-       die der Rollenwechsel haelt (_060 Schritt RC3 a). Gilt ebenso
-       fuer MOD-001, soweit es den Claim ausfuehrt.
+    q) JEDER WEG, der einem Customer eine Connection zuordnet oder fuer
+       ihn anlegt - der Claim (T-01) und die Anlage mit Kunden
+       (BASE-010_070 Weg B) -, sperrt zuvor die Zeile des Customers
+       (SELECT ... FOR UPDATE): dieselbe Sperre, die der Rollenwechsel
+       haelt (_060 Schritt RC3 a). Gilt ebenso fuer MOD-001, soweit es
+       den Claim ausfuehrt.
     r) RESTORE-FENSTER NEU BEGINNEN: eine Routine, mit der der Bewerter
        das Fenster einer gesperrten, nicht widerrufenen Connection mit
        einem Grund AFTER_RESTORE_WINDOW neu beginnt (restore_until =
@@ -456,7 +459,13 @@ ZWECK:
        beendet eine Sitzung selbst.
     c) Der Hook wartet auf das Ergebnis; ein Ergebnis ungleich 0
        aendert an seinem weiteren Ablauf nichts (die Folgen regelt
-       dieses Werkzeug, _030 Abschnitt 6.3).
+       dieses Werkzeug, _030 Abschnitt 6.3). AEUSSERE ZEITGRENZE: Der
+       Hook ruft das Werkzeug mit einer Grenze AUSSERHALB des Prozesses
+       (der groesste Wert nach _070 Regel UP-5 fuer einen
+       Einzelauftrag) und beendet es danach hart. Der Aufruf laeuft in
+       keiner Unit dieses Moduls; ohne diese Grenze hielte ein
+       haengender Prozess den Kernel-Lock ohne Ende. Dasselbe gilt fuer
+       jeden direkten Aufruf aus einem Werkzeug eines anderen Moduls.
     d) BASE-030_040 ("die Sitzung laeuft ohne Freigabe weiter") durch
        DEC-PA-07 ersetzen.
     e) BASE-030 stellt einen Helfer bereit, mit dem vpn-policy-apply die
@@ -634,11 +643,18 @@ ZWECK:
        Regeln MB-1, MB-2, MB-7). L7a zaehlt und beendet nur noch
        HAENGEND, UNABGERECHNET und MEHRFACH. Der Satz aus d) gilt dann
        fuer diese Klasse nicht mehr dort, sondern hier.
-       NICHT SCHWAECHER ALS HEUTE: Die Bremse des Abgleichs haelt auch,
-       wenn allein die L2TP-Sitzungen die Schwellen von L7a uebersteigen
-       (vpn_l2tp_kill_hold_threshold; vpn_l2tp_kill_hold_per_hour
-       zusammen mit den in 3600 s ohne Auftrag beendeten - _040 Regel
-       MB-2 b und d). BASE-070 fuehrt beide Keys; dieses Modul liest sie.
+       GEMEINSAME GRENZEN: Die Bremse des Abgleichs haelt auch, wenn
+       allein die L2TP-Sitzungen die Schwellen von L7a uebersteigen
+       (vpn_l2tp_kill_hold_threshold; vpn_l2tp_kill_hold_per_hour - _040
+       Regel MB-2 b und d). BASE-070 fuehrt beide Keys; dieses Modul
+       liest sie. EIN GEMEINSAMES FENSTER: Der Hard-Cut-Kern haelt die
+       Zeitpunkte ALLER ohne Auftrag beendeten L2TP-Sitzungen fest -
+       gleich welcher Aufrufer (Kennzeichen "ohne Auftrag" am Aufruf) -
+       und nennt ihre Zahl fuer die letzten 300 s und die letzten
+       3600 s. L7a und der Abgleich dieses Moduls rechnen beide mit
+       dieser Zahl. Ohne das zaehlten zwei Wege getrennt, und in einer
+       gemischten Lage hielte keine Bremse (_040 Regel MB-2, "WAS SICH
+       GEGENUEBER HEUTE AENDERT").
     g) vpn_hardcut_kill_timeout_seconds ist Bezug der Regel KP-h (_070
        Abschnitt 3). Der Hard-Cut-Kern ist ohne Kernel-Lock des Aufrufers
        benutzbar; dieses Modul ruft ihn nie unter dem Lock (_050 Regel
@@ -852,6 +868,15 @@ ZWECK:
             (--addr und --login beim Ende; Spiegel nur der eigenen
             Sitzung entfernen) setzen diesen Nachzug voraus und haben
             keinen eigenen Rueckfall.
+  ANF-PA-04 c  Aeussere Zeitgrenze der Hook-Aufrufe                Art R
+    HEUTE:  BASE-030 nennt keine Grenze fuer den Aufruf.
+    FOLGE:  Gegen einen haengenden Aufruf aus einem Hook wirkt allein
+            die Selbstueberwachung des Werkzeugs. Versagt sie, haelt
+            der Prozess den Kernel-Lock, bis er von Hand beendet wird;
+            solange enden alle Herstellungen mit Ergebnis 5 - nichts
+            wird geoeffnet, aber auch keine Sperrung erreicht den
+            Kernel. Die Alarme des Auftragslaufs zeigen es
+            (BASE-080_050 Abschnitt 9).
   ANF-PA-04 e  Helfer zum Nachtragen der Kennung im Spiegel        Art R
     HEUTE:  BASE-030 kennt den Helfer nicht.
     FOLGE:  Eine Sitzung, die erst die Aufsicht oder der Abgleich
@@ -902,7 +927,10 @@ ZWECK:
     FOLGE:  Bis zum Nachzug gibt es fuer L2TP ZWEI Wege und zwei
             Bremsen, die getrennt zaehlen; der L2TP-Abgleich kann
             beenden, was der Abgleich dieses Moduls zurueckgestellt hat.
-            Die Schwellen sind dieselben (Regel MB-2 b und d). PA-18
+            Die Schwellen sind dieselben (Regel MB-2 b und d); ein
+            gemeinsames Fenster gibt es erst mit dem Nachzug - bis dahin
+            zaehlt dieses Modul nur seine eigenen Beendigungen (Ablage
+            close-window). PA-18
             (letzter Absatz) und PA-43 gelten fuer L2TP erst mit dem
             Nachzug; fuer WireGuard gelten sie heute.
   ANF-PA-14 g  Hard-Cut-Kern fuer mehrere Sitzungen                Art R

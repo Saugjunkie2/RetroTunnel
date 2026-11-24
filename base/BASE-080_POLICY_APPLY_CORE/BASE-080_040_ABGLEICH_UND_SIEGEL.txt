@@ -22,7 +22,10 @@ ZWECK:
   liegen hoechstens vpn_reconcile_interval_seconds, also nie mehr als
   fuenf Minuten (DEC-PA-24; PF-18).
   DIE ZUSAGE GILT IM UNGESTOERTEN BETRIEB: Datenbank lesbar, Zeitgeber
-  aktiv, Dauer eines Laufs hoechstens 60 s (Annahme E-PA-06).
+  aktiv, Dauer eines Laufs hoechstens 60 s (Annahme E-PA-06). GRENZFALL:
+  Laeuft ein Lauf noch, wenn der naechste faellig wird (moeglich nur bei
+  einem Takt nahe dem Minimum von 60 s), beginnt der Folgelauf am ersten
+  Rasterpunkt nach seinem Ende - bis zu ein Raster spaeter als der Takt.
   Behoben ist eine Abweichung dann spaetestens nach Takt plus 60 s - das
   ist die Frist der Plattform (BASE-005 PF-18) und der Nachbarn
   (BASE-040_030 Abschnitt 6, BASE-050_070). Ist eine der Voraussetzungen
@@ -436,10 +439,11 @@ ZWECK:
               (Vorschlag 20) UND zugleich groesser als
               vpn_reconcile_mass_close_percent (Vorschlag 10) Prozent der
               bestehenden Laufzeit-Repraesentationen, ODER
-           b) allein die Zahl der betroffenen L2TP-Sitzungen groesser ist
-              als vpn_l2tp_kill_hold_threshold (Key von BASE-070; dieselbe
-              Schwelle gilt dort fuer das Beenden durch den
-              L2TP-Abgleich), ODER
+           b) allein die Zahl der betroffenen L2TP-Sitzungen ZUSAMMEN mit
+              den in den letzten 300 s (fester Wert) ohne Auftrag
+              beendeten groesser ist als vpn_l2tp_kill_hold_threshold
+              (Key von BASE-070; dieselbe Schwelle gilt dort fuer das
+              Beenden durch den L2TP-Abgleich), ODER
            c) die Zahl ZUSAMMEN mit den schliessenden Korrekturen ohne
               Auftrag, die dieses Werkzeug in den letzten 3600 s
               ausgefuehrt hat, groesser ist als
@@ -451,9 +455,26 @@ ZWECK:
               Uhr), ODER
            d) allein die betroffenen L2TP-Sitzungen ZUSAMMEN mit den in
               den letzten 3600 s ohne Auftrag beendeten mehr sind als
-              vpn_l2tp_kill_hold_per_hour (Key von BASE-070). Mit b) und
-              d) gelten fuer Sitzungen ohne Berechtigung dieselben
-              Schwellen wie bisher im L2TP-Abgleich von BASE-070.
+              vpn_l2tp_kill_hold_per_hour (Key von BASE-070).
+              EIN GEMEINSAMES FENSTER FUER b) UND d): Gezaehlt wird jede
+              L2TP-Sitzung, die OHNE AUFTRAG beendet wurde - durch den
+              Abgleich und die Aufsicht dieses Moduls ebenso wie durch
+              den L2TP-Abgleich von BASE-070 (dort die Klassen HAENGEND,
+              UNABGERECHNET, MEHRFACH). Das Fenster fuehrt der
+              Hard-Cut-Kern von BASE-070, durch den jedes Beenden
+              laeuft; beide Abgleiche rechnen mit derselben Zahl
+              (ANF-PA-14 f). So halten die Schwellen auch in einer
+              GEMISCHTEN Lage - etwa wenn ein Lesefehler des Adapters
+              mehrere Klassen zugleich erzeugt.
+              WAS SICH GEGENUEBER HEUTE AENDERT (offen ausgewiesen):
+              Heute zaehlt L7a alle Kandidaten EINES Laufs zusammen und
+              haelt bei 16 von ihnen (Schwelle 10) ALLE zurueck. Kuenftig
+              beendet der Weg, der zuerst laeuft, seine 8; der zweite
+              haelt - fuer 300 s. Danach begrenzt allein d). In jedem
+              Zeitraum von 300 s und in jeder Stunde beenden beide Wege
+              zusammen nie mehr, als die Schwellen erlauben; eine
+              gemischte Lage wird aber in Teilen abgearbeitet statt ganz
+              zurueckgestellt.
          Dann fuehrt der Lauf fuer KEINES der gezaehlten Ziele eine
          schliessende Handlung an bestehender Laufzeit aus: kein
          Entfernen eines Peers, kein Entzug einer Freigabe, kein Beenden
