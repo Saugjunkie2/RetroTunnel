@@ -1,0 +1,704 @@
+================================================================================
+MOD-010 — ARCHITEKTUR UND ENTSCHEIDUNGEN
+================================================================================
+DATEI: MOD-010_010_ARCHITEKTUR_UND_ENTSCHEIDUNGEN.txt
+STATUS: IN ARBEIT (AP-M010; Modul noch unvollstaendig)
+
+ZWECK:
+  Schutzziele, Begriffe, Komponenten und die tragenden Entscheidungen des
+  Plan-Moduls: was ein Plan ist, wie ein Kunde zu ihm kommt, wie lange er
+  gilt, woran das System erkennt, wo ein Kunde steht, und was mit dem
+  Ablauf geschieht. Anlass ist der Auftrag des Betreibers vom 2026-11-24
+  (Betreibermitteilung BM-0029): Die Ausarbeitung der Plaene liegt beim
+  Hauptarchitekten. Rechte und Limits selbst stehen in BASE-100; was eine
+  Einschraenkung bewirkt, in BASE-050 und BASE-080.
+
+================================================================================
+1) AUFGABE IN EINEM SATZ
+================================================================================
+
+  MOD-010 legt fest, WAS ein Plan ist (das Leistungspaket eines zahlenden
+  Kunden), WIE ein Kunde zu einem Plan kommt (Bestellung, Bestaetigung,
+  Buchung), WIE LANGE er gilt (Laufzeit mit festem Ende), WO EIN KUNDE
+  STEHT (Plan-Stand: kein Plan gebucht, Plan laeuft, Plan abgelaufen), WAS
+  mit dem Ablauf geschieht (eingeschraenkt, erinnert, nach langer Zeit
+  freigegeben) und WAS die anderen Module dazu erfragen koennen.
+
+  MOD-010 legt NICHT fest, welche Rechte und Limits es gibt und wie ihr
+  wirksamer Wert entsteht (BASE-100), was eine eingeschraenkte Connection
+  erreicht (BASE-050), wie bewertet und hergestellt wird (BASE-080), wie
+  Status, Gruende und Fristen einer Connection gefuehrt werden (BASE-010),
+  wie schnell eine Connection ist (MOD-003), wie eine E-Mail versandt
+  wird (BASE-110), wie die Oberflaeche aussieht (MOD-006) - und nicht, wie
+  bezahlt wird: Die Zahlung liegt ausserhalb des Systems
+  (02_ASSUMPTIONS_AND_RULES NA-03).
+
+================================================================================
+2) SCHUTZZIELE
+================================================================================
+
+  SZ-1  KEIN INTERNET OHNE LAUFENDEN PLAN. Ein Kunde der Rolle USER
+        erreicht das Internet nur, solange fuer ihn ein Plan laeuft
+        (Entscheidung des Betreibers, BM-0027 und BM-0028; BASE-100
+        DEC-PO-18). VIP, MODERATOR und ADMIN brauchen keinen Plan.
+  SZ-2  EIN BEZAHLTER PLAN FAELLT NICHT AUS. Ob ein Plan laeuft, folgt
+        allein aus gespeicherten Buchungen und der Uhr. Kein Lauf, kein
+        Dienst und keine E-Mail muss arbeiten, damit ein bezahlter Kunde
+        im Internet bleibt oder ein Anschlussplan beginnt.
+  SZ-3  DER KUNDE WEISS, WO ER STEHT. Sein Plan-Stand ist jederzeit
+        sichtbar; vor dem Ablauf wird er erinnert, nach dem Ablauf sieht
+        er, warum er eingeschraenkt ist und wie er wieder zu einem Plan
+        kommt - auf einem Weg, den er eingeschraenkt erreicht.
+  SZ-4  NICHTS VERLAENGERT SICH VON SELBST. Ein Plan endet zu seinem
+        gespeicherten Ende. Weiter geht es nur, wenn der Kunde bestellt
+        und die Verwaltung bestaetigt.
+  SZ-5  KEINE BUCHUNG OHNE DIE VERWALTUNG. Eine Buchung entsteht nur durch
+        eine Handlung der Verwaltung oder aus etwas, das sie vorher
+        ausdruecklich gewaehrt hat. Ein Kunde schreibt sich keinen Plan zu.
+  SZ-6  EINE BUCHUNG IST EINE TATSACHE MIT URHEBER. Jede Buchung und jede
+        Aenderung an ihr ist protokolliert: wer, wann, was, warum.
+        Buchungen eines Kunden ueberlappen nie.
+  SZ-7  KEIN BEZAHLTER TAG GEHT DURCH VERLAENGERN VERLOREN. Wer vor dem
+        Ende verlaengert, schliesst nahtlos an.
+  SZ-8  DER ABLAUF IST UMKEHRBAR, DIE FREIGABE ANGEKUENDIGT. Mit dem
+        Ablauf wird nur eingeschraenkt; eine neue Buchung hebt das sofort
+        auf. Unumkehrbar (Freigabe der Connections) wird erst nach einer
+        langen Frist gehandelt - nach einer Warnung und unter dem Schutz
+        vor Massenfolgen von BASE-080.
+  SZ-9  PLAENE SIND DATEN DES BETREIBERS. Kein Plan, kein Preis und keine
+        Laufzeit steht im Programm. Der Betreiber legt Plaene an, aendert
+        sie und nimmt sie aus dem Angebot.
+  SZ-10 SICHERHEIT IST KEIN PLANMERKMAL, ZAHLUNGSDATEN SIND KEIN INHALT.
+        Kein Plan schaltet eine Schutzfunktion (R-07; BASE-100 SZ-10).
+        Das System speichert keine Zahlungsmittel und keine
+        Guthaben-Codes.
+
+================================================================================
+3) BEGRIFFE
+================================================================================
+
+  PLAN             Ein Leistungspaket fuer Kunden der Rolle USER: ein Name
+                   und die Werte, die fuer seine Kunden gelten (Zahl der
+                   Connections, Datenvolumen, spaeter Geschwindigkeit),
+                   dazu die Geltung des Kontingents (geteilt oder je
+                   Connection). Kurz auch: Tarif (01_GLOSSARY "Plan").
+  LAUFZEITSTUFE    Ein Angebot zu einem Plan: eine Dauer in Monaten und
+                   ein Preis. Ein Plan hat mindestens eine.
+  BUCHUNG          Die Tatsache "Kunde K hat Plan P von BEGINN bis ENDE".
+                   Jede Buchung hat ein Ende.
+  LAUFENDE         Die Buchung eines Kunden, in deren Zeitraum "jetzt"
+  BUCHUNG          liegt. Es gibt hoechstens eine.
+  ANSCHLUSS-       Eine Buchung, die erst beginnt, wenn die vorige endet -
+  BUCHUNG          mit demselben oder einem anderen Plan.
+  PLAN-STAND       Wo ein Kunde der Rolle USER steht:
+                     OHNE PLAN   er hat noch nie eine Buchung gehabt
+                     LAUFEND     er hat eine laufende Buchung
+                     ABGELAUFEN  er hatte Buchungen, keine laeuft
+                   Der Plan-Stand wird aus den Buchungen und der Uhr
+                   abgeleitet und nirgends gespeichert (DEC-PL-04). Fuer
+                   VIP, MODERATOR und ADMIN gibt es keinen Plan-Stand.
+  BESTELLUNG       Der Wunsch eines Kunden nach einem Plan mit einer
+                   Laufzeitstufe. Eine Bestellung ist noch keine Buchung.
+  BESTAETIGUNG     Die Handlung der Verwaltung, die aus einer Bestellung
+                   eine Buchung macht - nachdem die Zahlung ausserhalb
+                   des Systems eingegangen ist.
+  PLAN-GUTSCHRIFT  Ein bezahlter Plan, den die Verwaltung an eine
+                   VORBEREITETE Connection haengt, deren Kunde sich erst
+                   noch registriert. Mit dem Claim wird daraus die
+                   Buchung des Kunden (DEC-PL-08).
+  ERINNERUNG       Eine E-Mail an den Kunden zu einem festen Anlass
+                   seines Plans (DEC-PL-11).
+  FREIGABE         Die Finalisierung der Connections eines Kunden, der
+                   lange keinen laufenden Plan hat: gesperrt, widerrufen,
+                   Adressen zurueck in den Pool (DEC-PL-10).
+  KULANZ           Eine Verlaengerung ohne Buchung: Die Verwaltung schiebt
+                   das Ende einer Buchung hinaus (DEC-PL-13).
+  GESCHAEFTSTAG    Der Kalendertag der Geschaeftszeitzone (das Setting
+                   vpn_quota_timezone, in dem auch die Quota-Periode
+                   rechnet; BASE-070_050 Abschnitt 5).
+
+  ZUR WORTWAHL: "gueltiger Plan" (BASE-100 DEC-PO-18) heisst hier
+  "laufende Buchung". "Kein gueltiger Plan" ist der Plan-Stand OHNE PLAN
+  oder ABGELAUFEN.
+
+================================================================================
+4) KOMPONENTEN
+================================================================================
+
+  TABELLE DER PLAENE       je Plan eine Zeile: unveraenderlicher
+                           Schluessel, Name, Beschreibung, Geltung des
+                           Kontingents, buchbar oder nicht.
+  LAUFZEITSTUFEN           je Plan und Dauer eine Zeile mit dem Preis.
+  policy_plan_values       die Werte eines Plans je Policy-Key. Die
+                           Tabelle gehoert BASE-100 (BASE-100_020
+                           Abschnitt 5); geschrieben wird sie ueber den
+                           Schreibkern von BASE-100.
+  TABELLE DER BUCHUNGEN    je Buchung eine Zeile: Kunde, Plan, Beginn,
+                           Ende, Urheber, Herkunft.
+  TABELLE DER              je Bestellung eine Zeile mit ihrem Stand.
+  BESTELLUNGEN
+  PLAN-GUTSCHRIFTEN        je vorbereiteter Connection hoechstens eine.
+  PROTOKOLL                jede Buchung, Aenderung, Bestaetigung,
+                           Ablehnung und jede versandte Erinnerung (nur
+                           anfuegend).
+  BUCHUNGSKERN             die eine Implementierung, die Buchungen,
+                           Bestellungen und Gutschriften schreibt.
+  PLAN-AUSKUNFT            die eine Implementierung, die Plan-Stand,
+                           laufenden Plan und die Regel des Plan-Limits
+                           liefert; BASE-100 ruft sie fuer seine
+                           Auskuenfte (DEC-PL-14).
+  ERINNERUNGSLAUF          der regelmaessige Lauf, der Erinnerungen
+                           ausloest und verfallene Bestellungen schliesst.
+
+  Namen, Zonen-Prefixe (BASE-000_010 Abschnitt 3), Felder, Werkzeuge,
+  Pfade und Rechte legen die folgenden Dateien dieses Moduls fest.
+
+================================================================================
+5) ENTSCHEIDUNGEN
+================================================================================
+
+DEC-PL-01  RANG UND PLAN SIND ZWEI DINGE: NUR DER KUNDE BRAUCHT EINEN PLAN
+  Quelle: 00_MANIFEST 4.2 (Rollen-Modell); D003-E02 (die Rolle gehoert zum
+    Kunden); BASE-010 INV-41; BM-0029 ("die Raenge sind ja fuer
+    mitarbeiter beispielsweise Moderatoren und vips ... meine kinder").
+  Entscheidung:
+    USER       der zahlende Kunde. Internet nur mit laufendem Plan; seine
+               Limits kommen aus dem Plan, sonst aus dem Standard der
+               Rolle (BASE-100 DEC-PO-03).
+    VIP        ein Rang, den der Betreiber persoenlich vergibt (Familie,
+               Freunde, besondere Faelle). Kein Plan, keine Laufzeit;
+               Limits aus dem Standard der Rolle, je Person ueber eine
+               Ausnahme.
+    MODERATOR  ein Rang fuer Mitarbeiter. Kein Plan, keine Laufzeit.
+    ADMIN      der Betreiber. Kein Plan; nie eingeschraenkt (R-08).
+    Einen Rang vergibt und entzieht nur die Rolle ADMIN (BASE-010_010
+    CI-07). Ein Plan ist kein Rang und macht niemanden zum VIP.
+  Begruendung: Wer dauerhaft und ohne Laufzeit Zugang haben soll, bekommt
+    einen Rang - dafuer gibt es keinen "Plan ohne Ende" (DEC-PL-05). So
+    bleibt "Plan" eindeutig das, was ein Kunde bucht und was ablaeuft.
+  Folgen: 00_MANIFEST 4.2 nennt VIP "Bezahlt (eigene Rolle, kein Plan)".
+    Ob ein VIP zahlt, weiss das System nicht; richtig bleibt "eigene
+    Rolle, kein Plan". Der Satz ist dort nachzuziehen.
+
+DEC-PL-02  KEIN ERSATZ-PLAN: WER KEINEN LAUFENDEN PLAN HAT, HAT EINEN
+           STAND
+  Quelle: BM-0029 ("ein Kunde ohne plan Zuweisung sollte nicht moeglich
+    sein er muss zumindest nach seiner Laufzeit irgendwo zugeordnet
+    werden?" - "muesste er dann nicht den status abgelaufen bekommen?").
+  Lage: Dass ein Kunde gerade keinen laufenden Plan hat, laesst sich
+    nicht verbieten. Zwei Augenblicke gibt es immer: Er hat sich
+    registriert und noch nichts gebucht - oder seine Laufzeit ist vorbei
+    und er hat nicht verlaengert. Niemand kann ihn zur Zahlung zwingen.
+  Optionen: (A) Jeder Kunde wird selbsttaetig einem Grundplan "ohne
+    Internet" zugeordnet. (B) Der Kunde hat einen PLAN-STAND; nach dem
+    Ablauf bleibt er seinem letzten Plan zugeordnet - als abgelaufen.
+  Entscheidung: B.
+  Begruendung: A machte "kein Internet" zum Merkmal eines Plans. Was ein
+    eingeschraenkter Kunde erreicht, ist aber fuer alle gleich und feste
+    Struktur des Regelwerks (BASE-050; BASE-100 DEC-PO-01). Ein
+    Schein-Tarif stuende ausserdem in der Buchungsgeschichte, ohne dass
+    ihn jemand gebucht hat. Mit B weiss das System zu jedem Kunden, was
+    er zuletzt hatte, seit wann es vorbei ist und was er als Naechstes
+    tun kann - das ist die Zuordnung, die der Betreiber verlangt.
+
+DEC-PL-03  EIN PLAN SAGT, WAS; EINE LAUFZEITSTUFE SAGT, WIE LANGE UND
+           ZU WELCHEM PREIS
+  Quelle: 01_GLOSSARY "Plan (Tarif)"; DOMAIN_MODEL 6.8; R-07; Entwurf
+    "Plans" der Nachlieferung, Abschnitt 2 (worin Plaene sich
+    unterscheiden duerfen: Geschwindigkeit, Gleichzeitigkeit, Kontingent,
+    Laufzeit, Preis) und Frage 5 (Laufzeit-Modell); TRUTH_MODEL GV-02 und
+    B057 13.9 (plan_key ist unveraenderlich; die interne Kennung bleibt
+    intern; "Soft-Delete statt delete"); BASE-100 DEC-PO-16.
+  Entscheidung:
+    a) Ein PLAN traegt einen unveraenderlichen Schluessel (plan_key;
+       mit ihm arbeiten Oberflaeche und Werkzeuge), einen Namen, die
+       Geltung des Kontingents (SHARED oder DEDICATED; BASE-100_050
+       NP-5) und seine Werte in policy_plan_values. Was er auslaesst,
+       kommt vom Standard der Rolle USER (BASE-100_050 NP-3).
+    b) Zu jedem Plan gibt es LAUFZEITSTUFEN: je Stufe eine Dauer in
+       ganzen Monaten und ein Preis. Gebucht wird immer ein Plan MIT
+       einer Stufe ("Pro, 3 Monate").
+    c) Der PREIS ist eine Angabe fuer Anzeige und Bestellung. Das System
+       rechnet nicht ab, stellt keine Rechnung und verrechnet nichts
+       (NA-03).
+    d) Ein Plan ist BUCHBAR oder nicht. Ein Plan, zu dem es Buchungen
+       gibt, wird nie geloescht; er wird aus dem Angebot genommen.
+       Laufende Buchungen laufen dann bis zu ihrem Ende; verlaengern
+       kann man ihn nicht mehr.
+    e) Die Werte eines Plans aendert die Verwaltung ueber den
+       Schreibkern von BASE-100 - mit der Vorschau, wen eine
+       Verschaerfung trifft (BASE-100 DEC-PO-13). Die Aenderung gilt
+       sofort fuer alle Kunden des Plans. Wer laufende Kunden nicht
+       schlechter stellen will, legt einen NEUEN Plan an und nimmt den
+       alten aus dem Angebot. Fassungen eines Plans gibt es nicht.
+  Begruendung: Die Trennung haelt einen Plan an EINER Stelle: "Pro"
+    bleibt ein Plan mit einem Satz von Werten, gleich ob jemand ihn
+    fuer einen oder zwoelf Monate bucht. Ohne sie gaebe es je Dauer
+    einen eigenen Plan, dessen Werte gleich gehalten werden muessten.
+
+DEC-PL-04  DIE BUCHUNG IST DIE EINZIGE TATSACHE; DER PLAN-STAND WIRD
+           ABGELEITET
+  Quelle: DOMAIN_MODEL 6.8 ("plan_id gehoert zum CUSTOMER ... Ein
+    Customer hat maximal EINEN aktiven Plan"); BASE-010_010 (Feld
+    plan_id); BASE-100_050 NP-10; BASE-080_020 Abschnitt 2 (berechnete
+    Bedingungen aus gespeicherten Zeitpunkten, etwa expiry_date); SZ-2.
+  Optionen:
+    (A) Am Kunden stehen plan_id und ein Enddatum; die Geschichte ist
+        ein Protokoll daneben.
+    (B) Am Kunden steht ein Status (laeuft / abgelaufen), den ein Lauf
+        zum Ende umschaltet.
+    (C) Es gibt nur Buchungen mit Beginn und Ende. Welcher Plan fuer
+        einen Kunden jetzt gilt und wo er steht, wird bei jeder Auskunft
+        aus den Buchungen und der Datenbankzeit bestimmt.
+  Entscheidung: C.
+    a) Die laufende Buchung eines Kunden ist die, fuer die gilt:
+       Beginn <= jetzt < Ende. "jetzt" ist die Datenbankzeit
+       (BASE-080_070 Regel UP-7).
+    b) Buchungen eines Kunden UEBERLAPPEN NIE. Der Buchungskern schreibt
+       sie unter der Sperre der Zeile des Kunden (dieselbe Sperre wie
+       die Budgetpruefung, BASE-100 SZ-7).
+    c) Der PLAN-STAND folgt daraus: LAUFEND, wenn es eine laufende
+       Buchung gibt; ABGELAUFEN, wenn es Buchungen gibt und keine
+       laeuft; OHNE PLAN, wenn es keine gibt.
+    d) Eine Buchung, die erst in der Zukunft beginnt, gibt es nur als
+       Anschlussbuchung: Sie beginnt genau am Ende der vorigen
+       (DEC-PL-06). Einen Kunden, der nur eine kuenftige Buchung hat,
+       gibt es nicht.
+    e) Nichts speichert den Plan-Stand, und kein Lauf schaltet ihn um.
+  Begruendung: B braucht einen Lauf, der zum richtigen Zeitpunkt
+    arbeitet - faellt er aus, bleibt ein abgelaufener Plan offen oder
+    ein bezahlter Anschlussplan beginnt nicht (SZ-2). A kennt nur EINEN
+    Plan je Kunde und kann nicht ausdruecken, dass nach dem Ende von
+    "Pro" bereits "Basis" gebucht ist; der Wechsel zum Ende der Laufzeit
+    (DEC-PL-06) brauchte wieder einen Lauf. Mit C ist die Geschichte
+    nicht ein Protokoll NEBEN der Wahrheit, sondern die Wahrheit selbst.
+  AUSGEWIESENE ANPASSUNG: Das Feld web_customers.plan_id (BASE-010_010;
+    DOMAIN_MODEL 6.8 "CUSTOMER-SCHEMA") ENTFAELLT. Was die Entscheidung
+    des Betreibers dort traegt, bleibt: Der Plan gehoert zum Kunden,
+    nicht zur Connection (die Buchung nennt den Kunden); ein Kunde hat
+    hoechstens EINEN laufenden Plan (b); die Connections erben. Ein
+    zweites Feld am Kunden waere eine zweite Quelle, die zum Ende einer
+    Laufzeit falsch wird, ohne dass jemand schreibt.
+  Folgen: BASE-010 INV-41 und CI-08 ("plan_id nur bei USER") heissen
+    kuenftig: Buchungen gibt es nur fuer Kunden der Rolle USER
+    (DEC-PL-12). BASE-100 liest den Plan eines Kunden ueber die
+    Plan-Auskunft dieses Moduls (DEC-PL-14). UEBERLAPPEN zwei Buchungen
+    doch (Schreiben am Buchungskern vorbei), ist der Plan dieses Kunden
+    NICHT BESTIMMBAR: Seine Werte und sein Plan-Stand sind unbekannt
+    (BASE-100 Zustand PLAN_UNKNOWN), bis die Verwaltung es bereinigt;
+    der Fall wird gemeldet.
+
+DEC-PL-05  JEDE LAUFZEIT HAT EIN ENDE, UND NICHTS VERLAENGERT SICH VON
+           SELBST
+  Quelle: BM-0029 ("er hatte 3 monate den plan pro gebucht und hat ihn
+    nicht verlaengert. Damit gilt sein plan als abgelaufen und der Kunde
+    muss taetig werden"); Entwurf "Plans", Frage 5; BASE-100 DEC-PO-04
+    (kein Recht aus einem leeren Feld).
+  Entscheidung:
+    a) Eine Buchung hat IMMER ein Ende. Eine Buchung "bis auf Weiteres"
+       gibt es nicht; ein fehlendes Ende ist ungueltig, nie "unbegrenzt".
+    b) Das Ende wird bei der Buchung EINMAL berechnet und gespeichert:
+       Beginnt die Buchung am Geschaeftstag T, endet sie mit dem Ablauf
+       des Geschaeftstags, der n Monate nach T liegt (gibt es diesen Tag
+       im Zielmonat nicht, mit dem Ablauf seines letzten Tages). Der
+       Kunde liest "gueltig bis einschliesslich ...".
+    c) Es gibt KEINE selbsttaetige Verlaengerung und keine
+       Kuendigung: Wer nichts tut, dessen Plan endet.
+    d) Die Laufzeit laeuft nach der Uhr - auch waehrend eine Connection
+       gesperrt, pausiert oder nicht benutzt ist und waehrend der Kunde
+       gesperrt ist. Ein Anhalten gibt es nicht; was die Verwaltung
+       ausgleichen will, gleicht sie als Kulanz aus (DEC-PL-13).
+  Begruendung: Das Geschaeft ist Vorkasse fuer eine feste Zeit; die
+    Zahlung prueft der Betreiber von Hand (BASE-010_070 Abschnitt 4,
+    Weg A: manueller Bestellprozess). Ein Plan, der sich selbst
+    verlaengert, setzte eine Zahlung voraus, die das System nicht kennt.
+    b) rundet zugunsten des Kunden auf volle Tage und macht das Ende
+    unabhaengig davon, ob spaeter die Zeitzone geaendert wird.
+
+DEC-PL-06  VERLAENGERN SCHLIESST AN; EIN ANDERER PLAN GILT AB DEM ENDE
+           DER LAUFZEIT
+  Quelle: BM-0029; Entwurf "Plans", Frage 6 (Planwechsel waehrend der
+    Laufzeit); D004-E08 (ein Planwechsel setzt den Verbrauch nicht
+    zurueck; ein niedrigeres Limit gilt sofort); SZ-7.
+  Entscheidung:
+    a) VERLAENGERN: Wird fuer einen Kunden mit laufender Buchung eine
+       weitere gebucht, beginnt sie am ENDE der letzten Buchung des
+       Kunden - als Anschlussbuchung, nahtlos. Kein bezahlter Tag geht
+       verloren, keiner zaehlt doppelt.
+    b) NACH DEM ABLAUF beginnt eine neue Buchung mit ihrer Bestaetigung.
+       Die Zeit ohne Plan wird nicht nachberechnet.
+    c) EIN ANDERER PLAN wird wie eine Verlaengerung gebucht: Er gilt ab
+       dem Ende der laufenden Buchung. Bis dahin gilt der bisherige
+       Plan.
+    d) SOFORT WECHSELN kann nur die Verwaltung: Sie beendet die
+       laufende Buchung zum Zeitpunkt des Wechsels und bucht die neue
+       ab jetzt; was mit der nicht verbrauchten Zeit geschieht,
+       entscheidet sie im selben Vorgang ueber das Ende der neuen
+       Buchung. Das System rechnet keine Preise um.
+    e) Ein Kunde kann EINE Anschlussbuchung bestellen; die Verwaltung
+       kann mehrere aneinanderreihen.
+    f) Endet eine laufende Buchung vorzeitig (d; DEC-PL-12; DEC-PL-13),
+       entscheidet derselbe Vorgang, ob Anschlussbuchungen entfallen
+       oder sofort beginnen. Ein Abstand entsteht nie (DEC-PL-04 d).
+  Begruendung: c) braucht keine Rechnung und nimmt niemandem etwas: Der
+    Kunde nutzt, was er bezahlt hat, und bekommt danach, was er bestellt
+    hat. Ein Wechsel mitten in der Laufzeit verlangt eine Verrechnung
+    der Restzeit - eine Geschaeftsentscheidung im Einzelfall, die beim
+    Betreiber liegt (d).
+  Folgen: Mit dem Beginn einer Anschlussbuchung mit ANDEREM Plan aendern
+    sich die wirksamen Werte des Kunden, ohne dass jemand schreibt. Der
+    Verbrauch wird nicht zurueckgesetzt (BASE-100_050 NP-7). Ist das
+    neue Aktiv-Budget kleiner als die Zahl seiner Connections, greift
+    das Plan-Limit (DEC-PL-15).
+
+DEC-PL-07  BESTELLEN, AUSSERHALB BEZAHLEN, BESTAETIGEN
+  Quelle: BM-0029 ("er muss selbstaendig einen plan buchen");
+    02_ASSUMPTIONS_AND_RULES NA-03 (kein Abrechnungssystem, Zahlung
+    extern); BASE-010_070 Abschnitt 4, Weg A (manueller Bestellprozess,
+    Entscheidung des Betreibers vom 2026-04-17); B345 (ein Nutzer
+    schreibt nie selbst in SQL).
+  Entscheidung:
+    a) DER KUNDE BESTELLT im Panel: Plan und Laufzeitstufe. Das Panel
+       ist ein interner Dienst; er erreicht es auch eingeschraenkt
+       (BASE-010_070 Abschnitt 2: Panel, DNS, NTP).
+    b) Die Bestellung ist OFFEN, bis die Verwaltung sie BESTAETIGT oder
+       ABLEHNT, der Kunde sie ZURUECKZIEHT oder sie nach einer Frist
+       VERFAELLT. Ein Kunde hat hoechstens eine offene Bestellung.
+    c) BEZAHLT wird ausserhalb des Systems, auf dem Weg, den der
+       Betreiber dem Kunden nennt. Die Bestellung traegt keine
+       Zahlungsdaten und kein Freitextfeld, in das ein Guthaben-Code
+       geraten koennte (SZ-10).
+    d) DIE VERWALTUNG BESTAETIGT, wenn die Zahlung eingegangen ist. Erst
+       die Bestaetigung erzeugt die Buchung (DEC-PL-06 a oder b). Die
+       Verwaltung kann auch ohne Bestellung buchen.
+    e) Der Betreiber erfaehrt von jeder neuen Bestellung (Liste im
+       Panel und Nachricht); der Kunde erfaehrt Bestaetigung und
+       Ablehnung (DEC-PL-11).
+    f) Bestaetigen, ablehnen und buchen kann nur die Rolle ADMIN.
+       MODERATOR sieht Plaene, Buchungen und Bestellungen.
+  Begruendung: So wird der Kunde selbst taetig, ohne dass das System
+    eine Zahlung beurteilen muss. Der Betreiber prueft jede Zahlung von
+    Hand; daran aendert dieses Modul nichts. Kommt spaeter ein
+    Zahlungsweg hinzu, tritt er an die Stelle der Handlung in d) - die
+    Buchung und alles danach bleiben gleich.
+
+DEC-PL-08  DER ERSTE PLAN REIST MIT DER VORBEREITETEN CONNECTION
+  Quelle: BASE-010_070 Abschnitt 4, Weg A (die Verwaltung legt eine
+    Connection ohne Kunden an und schickt die Zugangsdaten; der Kunde
+    registriert sich danach und uebernimmt sie mit dem Claim, T-01);
+    BASE-100 DEC-PO-18 (ein USER ohne laufenden Plan ist
+    eingeschraenkt).
+  Lage: Beim ersten Kauf gibt es den Kunden im System noch nicht. Nach
+    dem Claim waere er ein USER ohne Plan und sofort eingeschraenkt -
+    obwohl er bezahlt hat -, bis die Verwaltung ihm den Plan von Hand
+    bucht.
+  Entscheidung:
+    a) Die Verwaltung kann an eine vorbereitete Connection eine
+       PLAN-GUTSCHRIFT haengen: Plan und Laufzeitstufe.
+    b) Mit dem CLAIM wird aus der Gutschrift die Buchung des Kunden -
+       in der Transaktion des Claims und VOR der Budgetpruefung, damit
+       diese schon mit den Werten des Plans rechnet (BASE-100_040).
+    c) Die Laufzeit beginnt mit dem Claim. Hat der Kunde schon eine
+       laufende Buchung, schliesst die Gutschrift an (DEC-PL-06 a).
+    d) Eine Gutschrift wird genau einmal eingeloest. Wird die
+       Connection nie uebernommen, verfaellt die Gutschrift mit ihr.
+    e) Uebernimmt ein Kunde, der nicht die Rolle USER hat, eine
+       Connection mit Gutschrift, wird der Claim abgelehnt, bis die
+       Verwaltung die Gutschrift entfernt hat: Eine Buchung fuer ihn
+       gibt es nicht (DEC-PL-12).
+  Begruendung: Die Zeit vor dem Claim deckt die Frist ohne Kunden, die
+    es schon gibt (voller Zugang bis unclaimed_grace_until; MOD-001).
+    Mit c) beginnt die bezahlte Laufzeit, wenn der Kunde seinen Zugang
+    uebernimmt; wie viele Tage davor frei sind, bestimmt der Betreiber
+    mit dieser Frist.
+
+DEC-PL-09  OHNE LAUFENDEN PLAN: EINGESCHRAENKT - MIT ZWEI GRUENDEN
+  Quelle: BM-0027, BM-0028, BM-0029 ("muesste er dann nicht den status
+    abgelaufen bekommen?"); BASE-100 DEC-PO-18 und BASE-100_050
+    Abschnitt 4a (Auskunft AK-6); BASE-010_050 (Verzeichnis der
+    Gruende); BASE-080_020 Abschnitt 2.
+  Entscheidung:
+    a) Jede Connection eines Kunden der Rolle USER ohne laufende Buchung
+       ist eingeschraenkt (RESTRICTED): verbunden, interne Dienste ja,
+       Internet nein.
+    b) Der GRUND nennt den Plan-Stand:
+         RESTRICT_PLAN_MISSING   Plan-Stand OHNE PLAN
+         RESTRICT_PLAN_EXPIRED   Plan-Stand ABGELAUFEN
+       Beide schliessen einander aus. Die Wirkung ist dieselbe; der
+       Grund sagt dem Kunden und der Verwaltung, WARUM.
+    c) Bewertet wird wie jede berechnete Bedingung: bei jedem Lauf des
+       Bewerters aus der Plan-Auskunft (DEC-PL-14) - und unmittelbar,
+       wenn eine Buchung entsteht, endet oder geaendert wird: Der
+       Vorgang ruft die Bewertung fuer die Connections des Kunden
+       (BASE-080_020 Abschnitt 5: "Planwechsel", in der Transaktion
+       oder unmittelbar danach). Mit einer neuen Buchung endet die
+       Einschraenkung also sofort; unterbleibt der Aufruf, holt der
+       Lauf ihn im Bewertungstakt nach. Das Ende einer Laufzeit selbst
+       schreibt niemand - es faellt dem naechsten Lauf auf.
+    d) Ist der Plan-Stand nicht bestimmbar, ist die Bedingung UNBEKANNT
+       (BASE-080 AK-4): Nichts wird geoeffnet, nichts neu
+       eingeschraenkt.
+    e) Die Werte des Kunden aendern sich mit dem Ablauf nur insofern,
+       als die Ebene PLAN leer wird: Es gelten seine Ausnahmen, sonst
+       die Standards der Rolle USER (BASE-100 DEC-PO-18 f).
+  Begruendung: Der Betreiber will den abgelaufenen Plan als eigenen
+    Status sehen. Der Plan-Stand am Kunden ist dieser Status; der Grund
+    an der Connection traegt ihn dorthin, wo Verlauf, Anzeige und
+    Fristen einer Connection ohnehin gefuehrt werden. Zwei Gruende
+    erlauben zwei Fristen (DEC-PL-10).
+  Verhaeltnis zu RESTRICT_EXPIRY_PASSED: expiry_date bleibt die Laufzeit
+    EINER Connection, die die Verwaltung setzt (etwa ein Zugang auf
+    Zeit). Dieses Modul schreibt expiry_date nie; die Laufzeit eines
+    Plans steht allein in der Buchung.
+
+DEC-PL-10  NACH LANGER ZEIT OHNE PLAN WERDEN DIE CONNECTIONS FREIGEGEBEN
+  Quelle: BASE-010_050 (die Fristgruende finalisieren nach einem
+    Fenster zu einem DISABLE-Grund; das Fenster je Grund steht im
+    Verzeichnis); BASE-080_020 (Finalisierung, Schutz vor unumkehrbaren
+    Massenfolgen); 00_MANIFEST 4.3 (Adress-Pools je Rolle sind endlich).
+  Entscheidung:
+    a) Bleibt ein Kunde ohne laufenden Plan, finalisiert der Bewerter
+       seine Connections nach dem Fenster des Grundes:
+         RESTRICT_PLAN_EXPIRED -> DISABLE_PLAN_EXPIRED_TIMEOUT
+         RESTRICT_PLAN_MISSING -> DISABLE_PLAN_MISSING_TIMEOUT
+       beide nicht wiederherstellbar, mit sofortigem Widerruf - wie die
+       uebrigen Fristgruende. Vorschlag fuer die Fenster: 90 Tage nach
+       dem Ablauf, 30 Tage ohne je gebuchten Plan.
+    b) Das KUNDENKONTO bleibt. Bucht der Kunde spaeter wieder, erhaelt
+       er neue Connections.
+    c) Vor der Freigabe wird der Kunde gewarnt (DEC-PL-11).
+    d) Die Freigabe ist unumkehrbar und unterliegt dem Schutz vor
+       Massenfolgen von BASE-080.
+  Begruendung: Adressen sind endlich. Ein Kunde, der nicht wiederkommt,
+    soll sie nicht fuer immer halten. Das lange Fenster laesst dem
+    Kunden Zeit; eingeschraenkt bleibt er bis dahin verbunden und kann
+    jederzeit bestellen.
+  Rang, Fenster und Art des Widerrufs legt BASE-010 als Eigentuemer des
+  Verzeichnisses fest; dies ist die Anforderung dieses Moduls.
+
+DEC-PL-11  ERINNERN: VOR DEM ABLAUF, BEIM ABLAUF, VOR DER FREIGABE
+  Quelle: BM-0029 ("natuerlich muss er per email daran erinnert werden.
+    Das sein abo auslaeuft"); PRIORITAETENLISTE M2-110 (E-Mail-System:
+    "Benachrichtigungen ... Restrict-Hinweise"); R-15 (Owner und
+    Runner).
+  Entscheidung:
+    a) ANLAESSE fuer eine E-Mail an den Kunden:
+         E-1  die Laufzeit endet bald - Vorschlag: 7 Tage und 1 Tag
+              vorher (eine einstellbare Liste von Tagen)
+         E-2  der Plan ist abgelaufen - mit dem Weg zur Bestellung
+         E-3  die Connections werden bald freigegeben - Vorschlag:
+              7 Tage vor dem Ende des Fensters
+         E-4  eine Buchung ist entstanden (Plan, Beginn, Ende)
+         E-5  eine Bestellung ist eingegangen, abgelehnt oder verfallen
+    b) E-1 entfaellt, wenn der Kunde schon eine Anschlussbuchung hat.
+    c) JEDE ERINNERUNG GENAU EINMAL: Der Erinnerungslauf vermerkt je
+       Buchung und Anlass, dass er ausgeloest hat. Ein versaeumter Lauf
+       holt nach, was noch sinnvoll ist (E-1 nur, solange die Buchung
+       laeuft).
+    d) E-MAILS SIND EINE HILFE, KEINE VORAUSSETZUNG: Nichts in diesem
+       Modul haengt davon ab, dass eine E-Mail ausgeloest, versandt oder
+       gelesen wurde. Dasselbe steht im Panel (DEC-PL-16).
+    e) Dieses Modul bestimmt Anlass, Empfaenger und Inhalt; den Versand
+       leistet das E-Mail-System von BASE-110.
+  Begruendung: Der Kunde muss selbst taetig werden (SZ-4); dann muss er
+    rechtzeitig wissen, wann. d) haelt den Plan-Stand frei von der
+    Zustellbarkeit einer Nachricht (SZ-2).
+
+DEC-PL-12  ROLLENWECHSEL, SPERRUNG UND LOESCHUNG EINES KUNDEN
+  Quelle: BASE-010 INV-41; D002 Abschnitt 7 (Rollenwechsel); BASE-100
+    DEC-PO-14; BASE-100_080 ANF-PO-02 d; BASE-010_010 Abschnitt 5.
+  Entscheidung:
+    a) BUCHUNGEN GIBT ES NUR FUER DIE ROLLE USER. Wechselt ein Kunde in
+       eine andere Rolle, enden seine laufende Buchung und alle
+       Anschlussbuchungen in der Transaktion des Wechsels; offene
+       Bestellungen werden geschlossen. Die Vorpruefung des Wechsels
+       zeigt, was endet.
+    b) Wechselt ein Kunde IN die Rolle USER, hat er keine laufende
+       Buchung und ist eingeschraenkt, bis eine entsteht. Die
+       Verwaltung kann im selben Vorgang eine Buchung anlegen; dann
+       entsteht keine Luecke.
+    c) Wird ein Kunde GESPERRT (SUSPENDED), laufen seine Buchungen nach
+       der Uhr weiter (DEC-PL-05 d).
+    d) Wird ein Kunde GELOESCHT, enden seine Buchungen; Bestellungen
+       und nicht eingeloeste Gutschriften werden geschlossen. Die
+       Geschichte bleibt, solange das Protokoll sie aufbewahrt.
+  Begruendung: a) haelt DEC-PL-01 durch: Ein Rang traegt keinen Plan.
+    Dass die Restzeit dabei endet, ist eine Handlung des Betreibers
+    selbst; er sieht es vorher.
+
+DEC-PL-13  KULANZ UND KORREKTUR: NUR DIE VERWALTUNG, IMMER MIT GRUND
+  Quelle: BASE-100 DEC-PO-13 (ein Schreibweg, nur die Verwaltung, immer
+    mit Grund); Entwurf "was chatgpt noch weiss" der Nachlieferung,
+    Punkt 10 (jeder selbsttaetige Zustand muss von der Verwaltung
+    gesetzt, aufgehoben und berichtigt werden koennen).
+  Entscheidung: Die Rolle ADMIN kann ueber den Buchungskern
+    a) das Ende einer laufenden oder kuenftigen Buchung HINAUSSCHIEBEN
+       (Kulanz),
+    b) eine Buchung VORZEITIG BEENDEN oder eine Anschlussbuchung
+       STREICHEN,
+    c) SOFORT WECHSELN (DEC-PL-06 d),
+    d) eine Gutschrift entfernen oder ersetzen, solange sie nicht
+       eingeloest ist.
+    Jeder Vorgang traegt einen Grund und steht im Protokoll mit dem
+    Stand vorher und nachher. Eine BEENDETE Buchung wird nie geaendert
+    und nie geloescht: Was war, bleibt lesbar.
+  Begruendung: Ohne a) muesste der Betreiber fuer jeden Ausgleich eine
+    Schein-Buchung anlegen. Die Unveraenderlichkeit des Vergangenen
+    haelt die Buchungen als Beleg brauchbar.
+
+DEC-PL-14  WAS DIESES MODUL DEN ANDEREN LIEFERT
+  Quelle: BASE-100 DEC-PO-12 (fuenf Auskuenfte, jede genau einmal);
+    BASE-100_050 Abschnitt 6 (NP-1 bis NP-10) und ANF-PO-07;
+    BASE-080_020 Regeln AK-1 bis AK-4.
+  Entscheidung: Die Plan-Auskunft liefert BASE-100 - mengenweise, aus
+    festgeschriebenen Daten, ohne Nebenwirkung, mit einer festen Zahl
+    von Abfragen je Aufruf:
+    PA-1  LAUFENDER PLAN je Kunde: der Plan der laufenden Buchung oder
+          "keiner". Daraus liest BASE-100 die Ebene PLAN seiner
+          Aufloesung (Auskunft AW).
+    PA-2  PLAN-STAND je Kunde: OHNE PLAN, LAUFEND, ABGELAUFEN - mit
+          Plan, Ende und dem Ende der letzten Buchung. Daraus bildet
+          BASE-100 die Auskunft AK-6; sie nennt kuenftig, WELCHER der
+          beiden Staende vorliegt (DEC-PL-09 b).
+    PA-3  GELTUNG DES KONTINGENTS des laufenden Plans (SHARED oder
+          DEDICATED) fuer die Auskunft AK-2.
+    PA-4  REGEL DES PLAN-LIMITS fuer die Auskunft AK-1 (DEC-PL-15).
+    Jede Antwort traegt einen Zustand; "nicht lesbar" und "nicht
+    bestimmbar" sind von "keiner" unterscheidbar. Kein Verbraucher liest
+    die Tabellen dieses Moduls selbst.
+  Folgen: BASE-100 fragt nicht mehr nach plan_id und einer Gueltigkeit
+    daneben (BASE-100_050 NP-4, NP-9, NP-10, PF-2), sondern nach PA-1
+    und PA-2. BEVOR DIESES MODUL IN BETRIEB IST, gibt es keine Buchung:
+    Der Plan-Stand jedes Kunden der Rolle USER ist dann OHNE PLAN - das
+    ist bekannt, nicht unbekannt.
+
+DEC-PL-15  PLAN-LIMIT NACH EINEM KLEINEREN PLAN: DIE JUENGSTEN
+           CONNECTIONS SIND UEBERZAEHLIG
+  Quelle: BASE-100_050 NP-6 (Rahmen der Regel: nur bei A > MA, genau
+    A - MA Connections, deterministisch und bestaendig, ohne
+    Nebenwirkung); SM_CONNECTION 5.3 (RESTRICT_PLAN_LIMIT_EXCEEDED:
+    "Plan-Downgrade"); BASE-100 DEC-PO-10.
+  Entscheidung: Hat ein Kunde mit laufendem Plan mehr aktiv zaehlende
+    Connections (A), als sein Aktiv-Budget (MA) erlaubt, gelten die
+    A - MA ZULETZT ANGELEGTEN als ueberzaehlig (Reihenfolge: Zeitpunkt
+    der Anlage, bei Gleichstand die Kennung). Die Auswahl aendert sich
+    nur, wenn sich aendert, was aktiv zaehlt - wenn eine Connection
+    gesperrt oder widerrufen wird. Das tut heute die Verwaltung; das
+    eigene Loeschen durch den Kunden ist in BASE-010 noch offen
+    (BASE-100 OPEN-PO-04).
+  Begruendung: Die Reihenfolge der Anlage aendert sich nie; die Auswahl
+    ist damit bestaendig, auch nachdem sie vollzogen ist. Die aeltesten
+    Connections sind die, die der Kunde am laengsten eingerichtet hat.
+  Abgrenzung: Die Regel gilt nur fuer Kunden mit laufendem Plan. Ohne
+    laufenden Plan sind ALLE Connections eingeschraenkt (DEC-PL-09); ein
+    gesenkter Standard einer Rolle nimmt nichts weg (BASE-100
+    DEC-PO-10).
+
+DEC-PL-16  WER WAS SIEHT (R-17)
+  Quelle: R-17 (Panel-Consumability); BASE-100 DEC-PO-17; D003-E07.
+  Entscheidung:
+    KUNDE      seinen Plan-Stand; Plan, Ende und verbleibende Tage; eine
+               Anschlussbuchung; seine offene Bestellung; seine
+               Buchungen; das Angebot der buchbaren Plaene mit
+               Laufzeitstufen und Preisen. Ohne laufenden Plan steht
+               dort, warum er eingeschraenkt ist und wie er bestellt.
+    ADMIN      alles: Plaene und Stufen; je Kunde Plan-Stand und
+               Geschichte; Listen "laeuft in N Tagen ab", "abgelaufen",
+               "ohne Plan", "offene Bestellungen", "nicht eingeloeste
+               Gutschriften"; das Protokoll.
+    MODERATOR  dasselbe lesend.
+  Nichts davon wird im Panel berechnet; es zeigt, was die Plan-Auskunft
+  liefert.
+
+DEC-PL-17  BIS DIESES MODUL IN BETRIEB IST
+  Quelle: BASE-100 DEC-PO-18 (Folgen); BASE-080_020 Regel AK-5.
+  Entscheidung: Bis dahin gibt es keine Buchung; jeder Kunde der Rolle
+    USER ist OHNE PLAN. Will der Betreiber in dieser Zeit Kunden ins
+    Internet lassen, setzt er die Bedingung beim Bewerter aus (BASE-080
+    AK-5). BEVOR er die Aussetzung beendet, bucht er den Bestandskunden
+    ihre Plaene; die Liste "ohne Plan" (DEC-PL-16) zeigt, wen das Ende
+    der Aussetzung traefe.
+
+================================================================================
+6) WAS SICH DAMIT AN ANDEREN STELLEN AENDERT (UEBERSICHT)
+================================================================================
+
+  Die Anforderungen im Wortlaut folgen mit der Datei der Owner-Grenzen
+  dieses Moduls. Hier, was die Entscheidungen oben verlangen:
+
+  BASE-010   Feld web_customers.plan_id entfaellt; INV-41 und CI-08 neu
+             gefasst (DEC-PL-04, DEC-PL-12). Verzeichnis der Gruende:
+             RESTRICT_PLAN_MISSING, RESTRICT_PLAN_EXPIRED und ihre
+             Finalisierung (DEC-PL-09, DEC-PL-10). Der Claim (T-01) loest
+             eine Gutschrift ein (DEC-PL-08); der Rollenwechsel (T-09)
+             beendet Buchungen (DEC-PL-12). expiry_date schreibt nur die
+             Verwaltung (BASE-010_080 nennt heute "Policy/Plan-Engine").
+  BASE-100   Nahtstelle zu Plaenen (BASE-100_050 Abschnitte 4a und 6):
+             laufender Plan und Plan-Stand aus der Plan-Auskunft statt
+             plan_id; AK-6 unterscheidet OHNE PLAN und ABGELAUFEN
+             (DEC-PL-14). DEC-PO-16 und DEC-PO-18 bleiben in der Sache.
+             NACHGEZOGEN mit BASE-100 v1.5 (2026-11-24).
+  BASE-080   Bedingungsquellen: zwei Gruende aus EINER Quelle (dem
+             Plan-Stand); Aussetzen wie fuer BASE-100 angefordert
+             (BASE-100_080 ANF-PO-04 g).
+  BASE-050   Das Panel gehoert zu dem, was eine eingeschraenkte
+             Connection erreicht (heute so; hier Voraussetzung, SZ-3).
+  BASE-110,  E-Mail-Versand fuer die Anlaesse E-1 bis E-5; Anzeige nach
+  MOD-006    DEC-PL-16; Bestellung, Bestaetigung und Buchung als
+             Handlungen im Panel.
+  MOD-001    Der Claim einer Connection mit Gutschrift (DEC-PL-08).
+  BASE-000   Tabellen dieses Moduls in die Registry.
+  BASE-090   Einstellungen dieses Moduls (Tage der Erinnerung, Frist
+             einer offenen Bestellung, Takt des Erinnerungslaufs).
+  00_MANIFEST 4.2  Satz zur Rolle VIP (DEC-PL-01).
+  01_GLOSSARY "Plan (Tarif)": "Haengt am Customer (web_customers.
+             plan_id)" -> ueber die Buchung (DEC-PL-04).
+
+================================================================================
+7) DAMIT ENTSCHIEDENE UND OFFENE PUNKTE
+================================================================================
+
+  ENTSCHIEDEN:
+  Entwurf "Plans", Frage 5     Laufzeit-Modell          -> DEC-PL-05
+  Entwurf "Plans", Frage 6     Planwechsel waehrend     -> DEC-PL-06
+                               der Laufzeit
+  Entwurf "Plans", Frage 7     plan_id am Kunden oder   -> am Kunden,
+                               an der Connection           ueber die
+                                                           Buchung
+                                                           (DEC-PL-04)
+  BASE-100 OPEN-PO-03          Eingaben der Nahtstelle  -> DEC-PL-14,
+                                                           DEC-PL-15
+  BASE-100_050 NP-10           Gueltigkeit eines Plans  -> DEC-PL-04
+  DOMAIN_MODEL 6.8             "Detailschema ...        -> dieses Modul
+                               Laufzeitmodell in M3"
+  BM-0029                      Plan-Stand "abgelaufen", -> DEC-PL-02,
+                               eigenes Buchen,             DEC-PL-07,
+                               Erinnerung                  DEC-PL-09,
+                                                           DEC-PL-11
+
+  OFFEN IN DIESEM MODUL (folgende Dateien): Tabellen, Felder und Rechte;
+  Ablauf des Buchungskerns; Bestellung im Einzelnen; Erinnerungslauf;
+  Einstellungen; Invarianten und Tests; ein Vorschlag fuer die ersten
+  Plaene.
+
+  OFFEN BEIM BETREIBER (keine dieser Fragen haelt die Ausarbeitung auf):
+  OPEN-PL-01  DIE PLAENE SELBST: Namen, Zahl, Werte, Laufzeitstufen und
+              Preise sind seine Daten. Dieses Modul liefert einen
+              Vorschlag fuer den Anfang; die fruehere Ausarbeitung ist
+              nach der Nachlieferung verloren.
+  OPEN-PL-02  WEG DER ZAHLUNG BEI EINER VERLAENGERUNG: Wie der Kunde dem
+              Betreiber die Zahlung zukommen laesst, steht ausserhalb
+              des Systems (heute per E-Mail). Das Panel nennt dem Kunden
+              diesen Weg als Text des Betreibers.
+  OPEN-PL-03  ZUSATZVOLUMEN (BASE-100 OPEN-PO-05): Soll ein Kunde fuer
+              den laufenden Monat Volumen nachkaufen koennen? Wenn ja,
+              als eigener Gegenstand je Kunde und Periode, nicht als
+              Ausnahme.
+  OPEN-PL-04  Ob MODERATOR Bestellungen bestaetigen darf (heute: nein,
+              DEC-PL-07 f).
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

@@ -92,8 +92,8 @@ ZWECK:
                    gibt.
   ZUSTAND          OK, MISSING (die Zeile der Rolle fehlt), INVALID (die
                    entscheidende Zeile ist ungueltig), PLAN_UNKNOWN (der
-                   Kunde traegt einen Plan, dessen Werte oder dessen
-                   Gueltigkeit nicht lesbar sind), DB_UNKNOWN (Datenbank
+                   laufende Plan des Kunden ist nicht bestimmbar, oder
+                   seine Werte sind nicht lesbar), DB_UNKNOWN (Datenbank
                    nicht lesbar).
   UNBEGRENZT       Der Wert "kein Limit". Ihn kann nur eine VORHANDENE
                    Zeile tragen, und nur bei einem Key, dessen
@@ -127,6 +127,9 @@ ZWECK:
                    (DEC-PO-11).
   PLAN-PFLICHT     Ein Kunde der Rolle USER ohne gueltigen Plan erreicht
                    nur die internen Dienste (DEC-PO-18).
+  GUELTIGER PLAN   Der Plan der LAUFENDEN BUCHUNG eines Kunden (MOD-010
+                   DEC-PL-04). Ohne laufende Buchung ist sein Plan-Stand
+                   OHNE PLAN (nie gebucht) oder ABGELAUFEN.
   AUSKUNFT         Eine der fuenf Antworten dieses Moduls: AW (wirksamer
                    Wert), BA (Budget), AK-2 (Kontingent), AK-1
                    (Plan-Limit), AK-6 (Plan fehlt). AK-1 und AK-2 heissen
@@ -233,8 +236,8 @@ DEC-PO-03  DREI EBENEN: AUSNAHME VOR PLAN VOR ROLLE - DIE ERSTE
   Entscheidung: Fuer einen Kunden und einen Key gilt die Zeile der
     ERSTEN Ebene, auf der eine Zeile vorhanden ist:
       1. AUSNAHME des Kunden,
-      2. PLAN - nur wenn der Kunde die Rolle USER und einen Plan traegt
-         und der Plan den Key definiert,
+      2. PLAN - nur wenn der Kunde die Rolle USER und einen LAUFENDEN
+         Plan hat (MOD-010) und der Plan den Key definiert,
       3. STANDARD seiner Rolle.
     Ist die entscheidende Zeile ungueltig, ist der Zustand INVALID. Es
     wird NICHT auf die naechste Ebene ausgewichen.
@@ -522,11 +525,11 @@ DEC-PO-14  EINE AUSNAHME GEHOERT ZUM KUNDEN UND UEBERDAUERT EINEN
     Verwaltung kann eine Ausnahme vor dem Wechsel loeschen.
   Folgen: "Neu evaluiert" (T-D003-09) heisst: Die wirksamen Werte
     ergeben sich mit dem Wechsel aus der neuen Rolle; gespeichert wird
-    dabei nichts. Der Plan eines Kunden endet, wenn die Zielrolle nicht
-    USER ist (BASE-010 INV-41). Wechselt ein Kunde IN die Rolle USER,
-    traegt er zunaechst keinen Plan: Nach DEC-PO-18 ist er dann
-    eingeschraenkt, bis ihm ein Plan zugewiesen ist. Die Vorpruefung
-    des Rollenwechsels zeigt das (ANF-PO-04 g).
+    dabei nichts. Die Buchungen eines Kunden enden, wenn die Zielrolle
+    nicht USER ist (MOD-010 DEC-PL-12). Wechselt ein Kunde IN die Rolle
+    USER, hat er zunaechst keinen laufenden Plan: Nach DEC-PO-18 ist er
+    dann eingeschraenkt, bis fuer ihn ein Plan gebucht ist. Die
+    Vorpruefung des Rollenwechsels zeigt das (ANF-PO-04 g).
 
 DEC-PO-15  DIE ZWEI VERBINDUNGSLIMITS DER SETTINGS GEHEN IN DIESES MODUL
            UEBER
@@ -564,13 +567,19 @@ DEC-PO-16  PLAENE: DIESES MODUL LEGT DIE NAHTSTELLE FEST, NICHT DEN PLAN
     e) dass die Regel, welche Connections bei einem ueberschrittenen
        Plan-Limit ueberzaehlig sind, von MOD-010 kommt und in die
        Auskunft AK-1 eingesetzt wird;
-    f) dass nichts in diesem Modul einen Verbrauch zuruecksetzt.
+    f) dass nichts in diesem Modul einen Verbrauch zuruecksetzt;
+    g) dass dieses Modul den Plan eines Kunden nicht selbst bestimmt:
+       WELCHER Plan fuer ihn jetzt gilt und wo er steht, liefert die
+       Plan-Auskunft von MOD-010 (dort DEC-PL-14).
     Alles andere - die Tabelle der Plaene, ihre Namen, Laufzeit, Preis,
-    Zuweisung, Wechsel, Auffuellen - gehoert MOD-010.
-  Folgen: Solange MOD-010 nicht geschrieben ist, traegt kein Kunde einen
-    Plan. Ein dennoch gesetztes plan_id ist ein Widerspruch: Der Zustand
-    ist PLAN_UNKNOWN, es gibt keinen Wert (DEC-PO-05). Einzelheiten und
-    der Verbleib der sieben Fragen: BASE-100_050 Abschnitt 6.
+    Buchung, Wechsel, Auffuellen - gehoert MOD-010.
+  STAND (2026-11-24): MOD-010 ist begonnen. Nach seinem Planmodell ist
+    der Plan eines Kunden der Plan seiner LAUFENDEN BUCHUNG; das Feld
+    plan_id am Kunden entfaellt (MOD-010 DEC-PL-04).
+  Folgen: Solange MOD-010 nicht in Betrieb ist, gibt es keine Buchung:
+    Kein Kunde hat einen laufenden Plan - das ist bekannt, nicht
+    unbekannt. Einzelheiten und der Verbleib der sieben Fragen:
+    BASE-100_050 Abschnitt 6.
 
 DEC-PO-17  WER WELCHEN WERT SIEHT
   Quelle: D003-E07 und R-03 (wirksamer Wert MIT Quelle, sonst
@@ -603,10 +612,10 @@ DEC-PO-18  PLAN-PFLICHT: EIN USER OHNE GUELTIGEN PLAN ERREICHT NUR DIE
     Nachlieferung ("Laufzeit abgelaufen -> Walled Garden").
   Entscheidung:
     a) Jede Connection eines Kunden der Rolle USER, der KEINEN GUELTIGEN
-       PLAN traegt, ist eingeschraenkt (Status RESTRICTED): Sie
-       verbindet sich und erreicht die internen Dienste, nicht das
-       Internet. Kein gueltiger Plan heisst: keiner zugewiesen ODER
-       abgelaufen - beides gilt gleich.
+       PLAN hat, ist eingeschraenkt (Status RESTRICTED): Sie verbindet
+       sich und erreicht die internen Dienste, nicht das Internet. Kein
+       gueltiger Plan heisst: nie einer gebucht ODER abgelaufen. Die
+       Wirkung ist dieselbe; der Grund nennt, was von beidem vorliegt.
     b) VIP, MODERATOR und ADMIN tragen nie einen Plan (BASE-010 INV-41);
        die Plan-Pflicht trifft sie nie. Eine Connection ohne Kunden
        trifft sie auch nicht. Das ist keine Verzweigung nach der Rolle
@@ -614,19 +623,23 @@ DEC-PO-18  PLAN-PFLICHT: EIN USER OHNE GUELTIGEN PLAN ERREICHT NUR DIE
        tragen kann, und ist kein Wert des Katalogs.
     c) DIE REGEL GILT OHNE SCHALTER, vom ersten Tag an. Dieses Modul
        kennt keinen Weg, sie abzustellen.
-    d) Dieses Modul sagt dem Bewerter, WEN die Pflicht trifft (Auskunft
-       AK-6); es schraenkt nichts selbst ein (PO-45). Der Grund heisst
-       RESTRICT_PLAN_MISSING; er ist bei BASE-010 und BASE-080
-       angefordert (ANF-PO-02 f, ANF-PO-04 g).
-    e) Ob ein Plan gueltig ist, sagt MOD-010 (Laufzeit); dieses Modul
-       erhaelt die Antwort als feste Eingabe (BASE-100_050 NP-10).
+    d) Dieses Modul sagt dem Bewerter, WEN die Pflicht trifft und mit
+       welchem Plan-Stand (Auskunft AK-6); es schraenkt nichts selbst
+       ein (PO-45). Die Gruende heissen RESTRICT_PLAN_MISSING (nie
+       gebucht) und RESTRICT_PLAN_EXPIRED (abgelaufen; MOD-010
+       DEC-PL-09); sie sind bei BASE-010 und BASE-080 angefordert
+       (ANF-PO-02 f, ANF-PO-04 g).
+    e) Wo ein Kunde steht, sagt MOD-010 (Plan-Stand aus den Buchungen);
+       dieses Modul erhaelt die Antwort als feste Eingabe (BASE-100_050
+       NP-10).
     f) Die Plan-Pflicht aendert keinen Wert der Aufloesung: Ein USER
        ohne gueltigen Plan behaelt, was fuer ihn gilt (Ausnahme, sonst
        Standard der Rolle USER).
   ANPASSUNG GEGENUEBER DEM BESTAND (ausgewiesen): DOMAIN_MODEL 6.8 und
     BASE-010_010 sagen "NULL = kein Plan, nur Rollen-Defaults". Fuer die
-    WERTE gilt das weiter (f). Internet hat ein USER ohne gueltigen Plan
-    damit nicht. Die Standards der Rolle USER sagen, was ein Plan
+    WERTE gilt das weiter (f) - auch nach dem Ablauf: Die Ebene PLAN
+    traegt nur der LAUFENDE Plan. Internet hat ein USER ohne gueltigen
+    Plan damit nicht. Die Standards der Rolle USER sagen, was ein Plan
     auslaesst (DEC-PO-16 b) und was ein eingeschraenkter USER behaelt -
     etwa die Zahl seiner Connections.
   Folgen: Plaene gibt es erst mit MOD-010. BIS DAHIN traegt kein Kunde
@@ -636,7 +649,7 @@ DEC-PO-18  PLAN-PFLICHT: EIN USER OHNE GUELTIGEN PLAN ERREICHT NUR DIE
     Bedingung beim Bewerter ausdruecklich aus - mit dem Eingriff "Quelle
     nicht eingerichtet" von BASE-080 (dort AK-5: Bestaetigung, Urheber,
     Grund und eine Dauermeldung, solange er gilt). Die Quelle
-    PLAN_MISSING ist dort angefordert (ANF-PO-04 g). Endet die
+    PLAN_REQUIRED ist dort angefordert (ANF-PO-04 g). Endet die
     Aussetzung, trifft die Regel alle USER ohne gueltigen Plan zugleich:
     AK-6 nennt sie vorher, und der Bewerter meldet eine grosse Zahl von
     Einschraenkungen in einem Lauf (BASE-080_020;
@@ -685,6 +698,10 @@ DEC-PO-18  PLAN-PFLICHT: EIN USER OHNE GUELTIGEN PLAN ERREICHT NUR DIE
     USER ohne gueltigen Plan                           -> DEC-PO-18
     Datenvolumen der Rollen (bisher offen)             -> BASE-100_070
                                                           Abschnitt 1
+  Dem Hauptarchitekten uebertragen (BM-0029), in MOD-010 entschieden:
+    Planmodell (Buchung, Laufzeit, Plan-Stand)         -> MOD-010_010;
+                                                          hier DEC-PO-16
+                                                          g, DEC-PO-18 d
 
 ================================================================================
 CHANGELOG

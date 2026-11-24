@@ -1,0 +1,271 @@
+================================================================================
+MOD-010 — TESTS UND VALIDIERUNG (Plaene)
+================================================================================
+DATEI: MOD-010_095_TESTS.txt
+STATUS: IN ARBEIT (AP-M010; Modul noch unvollstaendig)
+
+BELEGSTAND ALLER TESTS: GEPLANT. Keiner dieser Tests wurde ausgefuehrt; es
+existiert keine Implementierung. Die Tests sind Abnahmekriterien fuer die
+spaetere Umsetzung (Definition of Done von MOD-010).
+
+TESTARTEN:
+  [K]  Konzept-/Konfigurationspruefung (Review, statische Pruefung)
+  [L]  Labortest an einer Implementierung (isolierte Testumgebung)
+
+PROOF-ANKER (04_PHASE_PLAN):
+  RT-PH8-PROOF-06 (ADMIN wird nie eingeschraenkt; "Plan-Engine respektiert
+                   Rolle")                       -> T-PL-01, T-PL-21 d
+  RT-PH8-PROOF-04 (Kontingent erschoepft -> eingeschraenkt; "Plan-Engine
+                   Quota"): Limit und Verbrauch liefert BASE-100 (dort
+                   T-PO-32); der Anteil dieses Moduls ist die Geltung
+                   des Kontingents             -> T-PL-26 c
+
+KENNUNG: T-PL gehoert diesem Modul (Praefix der Invarianten: PL).
+
+"jetzt" in den Tests ist die Datenbankzeit; Tests ueber ein Ende stellen
+die Zeit der Testumgebung, nicht die Daten.
+
+================================================================================
+RANG UND PLAN
+================================================================================
+
+  T-PL-01  [L] Buchungen nur fuer USER. (a) Buchen, Bestellen und
+           Bestaetigen fuer einen Kunden der Rolle VIP, MODERATOR oder
+           ADMIN: abgelehnt, nichts geschrieben. (b) Nach einem Wechsel
+           aus der Rolle USER hat der Kunde keine laufende und keine
+           kuenftige Buchung. (c) Die Connection eines ADMIN bleibt
+           ACTIVE, gleich was in den Tabellen dieses Moduls steht.
+           [PL-01]
+
+  T-PL-02  [K] Rang und Schutz. Kein Vorgang dieses Moduls schreibt
+           access_role. Die Werte eines Plans sind Keys des Katalogs von
+           BASE-100; keiner schaltet DNS-Zwang, Filter, Sperren gegen
+           Missbrauch oder die Trennung der Clients. [PL-02]
+
+================================================================================
+PLAN UND LAUFZEITSTUFE
+================================================================================
+
+  T-PL-03  [L] Plan und Stufe. (a) Ein Plan ohne Laufzeitstufe ist nicht
+           buchbar. (b) Stufe mit 0 Monaten, mit einer gebrochenen Zahl
+           oder ohne Preis: abgelehnt. (c) Buchung oder Bestellung eines
+           nicht buchbaren Plans oder einer Stufe eines anderen Plans:
+           abgelehnt. (d) Der Schluessel eines Plans laesst sich nicht
+           aendern. [PL-03]
+
+  T-PL-04  [L] Kein Loeschen. Ein Plan mit einer Buchung (auch einer
+           beendeten), einer Bestellung oder einer Gutschrift laesst
+           sich nicht loeschen, nur aus dem Angebot nehmen; laufende
+           Buchungen laufen danach unveraendert bis zu ihrem Ende.
+           [PL-04]
+
+  T-PL-05  [L] Der Preis wirkt nicht. Zwei Plaene mit gleichen Werten
+           und verschiedenen Preisen liefern dieselben Auskuenfte; eine
+           Aenderung des Preises aendert keine Buchung und keine
+           Bewertung. [PL-05]
+
+================================================================================
+BUCHUNG UND PLAN-STAND
+================================================================================
+
+  T-PL-06  [L] Form einer Buchung. Ohne Ende, mit Ende vor oder gleich
+           dem Beginn, ohne Plan oder ohne Kunden: abgelehnt. [PL-06]
+
+  T-PL-07  [L] Keine Ueberlappung. (a) Zwei gleichzeitige Buchungen fuer
+           denselben Kunden ueber zwei Sitzungen der Verwaltung: Beide
+           gelingen, die zweite schliesst an die erste an; kein
+           Zeitpunkt liegt in zwei Buchungen. (b) Gleichzeitig eine
+           Bestaetigung und das Einloesen einer Gutschrift: ebenso.
+           [PL-07]
+
+  T-PL-08  [L] Kein Abstand. (a) Eine Buchung mit Beginn in der Zukunft
+           fuer einen Kunden ohne laufende Buchung laesst sich nicht
+           anlegen. (b) Wird die laufende Buchung vorzeitig beendet,
+           entfallen die Anschlussbuchungen oder beginnen sofort - je
+           nach Wahl im Vorgang; danach gibt es keine Buchung, die
+           spaeter als jetzt beginnt, ohne dass eine laeuft. [PL-08]
+
+  T-PL-09  [L] Abgeleitet, nicht gespeichert. (a) Die Zeit laeuft ueber
+           das Ende einer Buchung, waehrend KEIN Lauf dieses Moduls und
+           keine Verwaltung arbeitet: Die naechste Auskunft meldet
+           ABGELAUFEN und keinen Plan; der naechste Lauf des Bewerters
+           schraenkt ein. (b) Ebenso ueber den Beginn einer
+           Anschlussbuchung mit anderem Plan: Die naechste Auskunft
+           nennt den neuen Plan, der Plan-Stand bleibt LAUFEND, die
+           Connections bleiben ACTIVE. (c) Keine Tabelle fuehrt ein Feld
+           "laufender Plan" oder "Plan-Stand". [PL-09]
+
+  T-PL-10  [L] Ueberlappung von aussen. Zwei ueberlappende Buchungen
+           werden an der Datenbank am Buchungskern vorbei eingetragen:
+           Die Auskunft nennt fuer diesen Kunden "nicht bestimmbar",
+           der Bewerter behandelt die Bedingung als unbekannt und
+           aendert nichts, der Fall wird gemeldet; ein anderer Kunde
+           erhaelt seine Auskunft unveraendert. [PL-10]
+
+  T-PL-11  [L] Ende einer Laufzeit. (a) Beginn am 24.11. um 15:00 Uhr,
+           3 Monate: Ende mit Ablauf des 24.02. der Geschaeftszeitzone.
+           (b) Beginn am 31.01., 1 Monat: Ende mit Ablauf des letzten
+           Tages im Februar. (c) Beginn am 29.02., 12 Monate: Ende mit
+           Ablauf des 28.02. (d) Nach einer Aenderung von
+           vpn_quota_timezone ist das gespeicherte Ende jeder
+           bestehenden Buchung unveraendert. (e) Eine Anschlussbuchung
+           rechnet ab dem Geschaeftstag, mit dessen Ablauf die vorige
+           endet. [PL-11]
+
+  T-PL-12  [L] Kein Verlaengern, kein Anhalten. (a) Nach dem Ende einer
+           Buchung ohne Anschlussbuchung entsteht keine neue, gleich
+           wie lange gewartet wird. (b) Sperren, Pausieren und
+           Nichtbenutzen der Connections und das Sperren des Kunden
+           aendern das Ende nicht. [PL-12]
+
+================================================================================
+VERLAENGERN UND WECHSELN
+================================================================================
+
+  T-PL-13  [L] Anschluss. (a) Verlaengerung zehn Tage vor dem Ende: Die
+           neue Buchung beginnt am Ende der laufenden; die Summe der
+           Laufzeiten ist die Summe der gebuchten Stufen. (b)
+           Verlaengerung fuenf Tage NACH dem Ende: Sie beginnt mit der
+           Bestaetigung; die fuenf Tage werden nicht nachberechnet. (c)
+           Anderer Plan waehrend der Laufzeit: Bis zum Ende gelten die
+           Werte des bisherigen Plans, danach die des neuen; der
+           Verbrauch der laufenden Quota-Periode bleibt stehen. [PL-13]
+
+  T-PL-14  [L] Sofort wechseln. (a) Ein Kunde kann einen Wechsel vor
+           dem Ende weder bestellen noch ausloesen. (b) Die Verwaltung
+           wechselt sofort: Die laufende Buchung endet jetzt, die neue
+           beginnt jetzt, ihr Ende nennt der Vorgang; kein Zeitpunkt
+           ohne Buchung, keiner in zweien. [PL-14]
+
+================================================================================
+BESTELLUNG UND BUCHUNGSKERN
+================================================================================
+
+  T-PL-15  [L] Bestellung ist keine Buchung. (a) Nach einer Bestellung
+           sind Plan und Plan-Stand unveraendert. (b) Erst die
+           Bestaetigung durch ADMIN erzeugt die Buchung. (c) Abgelehnt,
+           zurueckgezogen oder verfallen: keine Buchung. (d) Ein Kunde
+           findet keinen Weg, eine Buchung ohne Handlung der Verwaltung
+           zu erzeugen - ausser dem Einloesen einer Gutschrift, die die
+           Verwaltung angelegt hat. [PL-15]
+
+  T-PL-16  [L] Bestellung. (a) Zweite Bestellung bei offener erster:
+           abgelehnt. (b) Die Bestellung hat keine Felder fuer
+           Zahlungsdaten und keinen freien Text; die Tabellen dieses
+           Moduls enthalten kein Zahlungsmittel. [PL-16]
+
+  T-PL-17  [L] Ein Schreibweg. (a) Jeder Vorgang (buchen, bestaetigen,
+           ablehnen, beenden, Kulanz, Gutschrift anlegen, entfernen und
+           einloesen) steht im Protokoll mit Urheber, Zeitpunkt, Grund,
+           Stand vorher und nachher. (b) Ist das Protokoll nicht
+           schreibbar, findet der Vorgang nicht statt. (c) Der Vorgang
+           haelt die Sperre der Zeile des Kunden; eine gleichzeitige
+           Zulassung fuer denselben Kunden wartet. [PL-17]
+
+  T-PL-18  [L] Vergangenes bleibt. Das Aendern oder Loeschen einer
+           beendeten Buchung ist ueber kein Werkzeug moeglich; Kulanz
+           wirkt nur auf laufende und kuenftige Buchungen. [PL-18]
+
+================================================================================
+PLAN-GUTSCHRIFT
+================================================================================
+
+  T-PL-19  [L] Gutschrift. (a) Claim einer Connection mit Gutschrift
+           durch einen neuen Kunden der Rolle USER: In derselben
+           Transaktion entsteht die Buchung; die Budgetpruefung rechnet
+           mit den Werten des Plans; die Connection ist danach ACTIVE.
+           (b) Scheitert der Claim, ist die Gutschrift unveraendert und
+           keine Buchung entstanden. (c) Der Kunde hat schon eine
+           laufende Buchung: Die Gutschrift schliesst an. (d) Ein
+           zweites Einloesen ist nicht moeglich. (e) An eine Connection
+           MIT Kunden laesst sich keine Gutschrift haengen. (f) Wird die
+           Connection widerrufen, ohne uebernommen zu sein, ist die
+           Gutschrift verfallen. [PL-19]
+
+  T-PL-20  [L] Gutschrift und Rang. Ein Kunde der Rolle VIP uebernimmt
+           eine Connection mit Gutschrift: Der Claim wird abgelehnt,
+           Connection und Gutschrift sind unveraendert; nach dem
+           Entfernen der Gutschrift durch die Verwaltung gelingt er.
+           [PL-20]
+
+================================================================================
+ABLAUF UND FOLGEN
+================================================================================
+
+  T-PL-21  [L] Plan-Stand. (a) USER ohne jede Buchung: OHNE PLAN. (b)
+           Mit laufender Buchung: LAUFEND, mit Plan und Ende. (c) Nach
+           dem Ende ohne Anschluss: ABGELAUFEN, mit dem letzten Plan und
+           seinem Ende. (d) VIP, MODERATOR, ADMIN und Connections ohne
+           Kunden: kein Plan-Stand; die Auskunft AK-6 von BASE-100
+           meldet fuer sie "nein". (e) Solange die Tabellen dieses
+           Moduls nicht eingerichtet sind: jeder USER OHNE PLAN, nicht
+           "unbekannt". [PL-21]
+
+  T-PL-22  [L] Keine eigene Wirkung. (a) Kein Vorgang dieses Moduls
+           schreibt op_status, op_reason_code, eine Frist oder
+           expiry_date. (b) Nach der Bestaetigung einer Bestellung fuer
+           einen eingeschraenkten Kunden sind seine Connections ohne
+           Warten auf den naechsten Lauf wieder ACTIVE, sofern kein
+           anderer Grund gilt. (c) Wird der Aufruf der Bewertung
+           unterdrueckt, stellt der naechste Lauf denselben Zustand her.
+           [PL-22]
+
+  T-PL-23  [L] Rollenwechsel, Loeschung, Sperrung. (a) USER nach VIP:
+           Die Vorpruefung nennt die laufende Buchung, die
+           Anschlussbuchungen und die offene Bestellung; mit dem Wechsel
+           sind die Buchungen beendet und die Bestellung geschlossen;
+           scheitert der Wechsel, ist nichts davon geschehen. (b) VIP
+           nach USER ohne Buchung im selben Vorgang: Plan-Stand OHNE
+           PLAN bzw. ABGELAUFEN, die Connections eingeschraenkt. (c) Mit
+           Buchung im selben Vorgang: LAUFEND, keine Einschraenkung. (d)
+           Kunde geloescht: Buchungen beendet. (e) Kunde gesperrt: Das
+           Ende seiner Buchung ist unveraendert. [PL-23]
+
+================================================================================
+ERINNERUNG
+================================================================================
+
+  T-PL-24  [L] Genau einmal. (a) Der Erinnerungslauf laeuft mehrfach am
+           selben Tag: je Buchung und Anlass eine E-Mail. (b) Der Lauf
+           faellt drei Tage aus: Die Erinnerung "7 Tage vorher" wird
+           nachgeholt, solange die Buchung laeuft; nach dem Ende wird
+           nur noch der Ablauf gemeldet. (c) Mit Anschlussbuchung: keine
+           Erinnerung vor dem Ablauf. [PL-24]
+
+  T-PL-25  [L] Unabhaengig von E-Mails. Der Versand ist gestoert: Plan,
+           Plan-Stand, Buchen und Bewertung arbeiten unveraendert; die
+           Stoerung wird gemeldet. [PL-25]
+
+================================================================================
+AUSKUNFT, PLAN-LIMIT UND SICHT
+================================================================================
+
+  T-PL-26  [L] Plan-Auskunft. (a) Fuer 5.000 Kunden in einem Aufruf: die
+           Zahl der Abfragen ist dieselbe wie fuer einen. (b) Die
+           Tabelle der Buchungen ist nicht lesbar: "nicht lesbar" fuer
+           die Kunden der Rolle USER - nicht "kein Plan"; nichts wird
+           geschrieben. (c) Die Geltung des Kontingents des laufenden
+           Plans (SHARED oder DEDICATED) erreicht die Auskunft AK-2 von
+           BASE-100 unveraendert. [PL-26]
+
+  T-PL-27  [L] Plan-Limit. Ein Kunde mit fuenf aktiv zaehlenden
+           Connections erhaelt als Anschluss einen Plan mit Aktiv-Budget
+           zwei. (a) Mit dem Beginn nennt die Regel die drei zuletzt
+           angelegten. (b) Wiederholte Aufrufe und Aufrufe nach der
+           Einschraenkung nennen dieselben drei. (c) Wird eine der zwei
+           aelteren gesperrt, sind noch zwei ueberzaehlig. (d) Ohne
+           laufenden Plan nennt die Regel keine Connection. [PL-27]
+
+  T-PL-28  [L] Wer was darf. (a) MODERATOR: jeder schreibende Vorgang
+           abgelehnt. (b) Kunde: sieht nur die eigenen Daten; kann
+           bestellen und die eigene Bestellung zurueckziehen, sonst
+           nichts. (c) Ohne laufenden Plan zeigt ihm das Panel den
+           Plan-Stand, den Grund der Einschraenkung und den Weg zur
+           Bestellung - erreichbar aus dem eingeschraenkten Zustand.
+           [PL-28]
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

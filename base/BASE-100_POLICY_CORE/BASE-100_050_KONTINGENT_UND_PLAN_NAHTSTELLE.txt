@@ -147,18 +147,21 @@ ZWECK:
   AUFRUF: eine Menge von Connections.
   ERGEBNIS je Connection: state und over_plan_limit (ja | nein).
 
-  PL-1  OHNE PLAN IMMER "NEIN": Fuer eine Connection ohne Kunden und fuer
-        die Connection eines Kunden, der keinen Plan traegt oder nicht
-        die Rolle USER hat, ist das Ergebnis OK und "nein" - gleich in
-        welchem Zustand die Werte der Plaene sind (BASE-080_020 Regel
-        AK-1; BASE-080 ANF-PA-02).
-  PL-2  MIT PLAN entscheidet die Regel von MOD-010 (Abschnitt 6, NP-6).
-        Solange MOD-010 nicht geschrieben ist, gibt es sie nicht: Das
-        Ergebnis ist PLAN_UNKNOWN.
-  PL-3  AK-1 schreibt nichts und liest nur festgeschriebene Daten.
+  LM-1  WEN ES NIE TRIFFT: Fuer eine Connection ohne Kunden und fuer die
+        Connection eines Kunden, der nicht die Rolle USER traegt, ist
+        das Ergebnis OK und "nein" - gleich in welchem Zustand die
+        Daten der Plaene sind (BASE-080_020 Regel AK-1; BASE-080
+        ANF-PA-02). Fuer einen Kunden der Rolle USER OHNE laufenden
+        Plan ist es ebenfalls "nein".
+  LM-2  MIT LAUFENDEM PLAN entscheidet die Regel von MOD-010 (Abschnitt
+        6, NP-6; MOD-010 DEC-PL-15: Die zuletzt angelegten Connections
+        sind ueberzaehlig). Ist fuer einen Kunden der Rolle USER nicht
+        lesbar oder nicht bestimmbar, ob und welchen Plan er hat, ist
+        das Ergebnis PLAN_UNKNOWN.
+  LM-3  AK-1 schreibt nichts und liest nur festgeschriebene Daten.
 
-  STAND HEUTE: Kein Kunde traegt einen Plan (DEC-PO-16). AK-1 liefert
-  fuer jede Connection "nein".
+  STAND HEUTE: MOD-010 ist nicht in Betrieb; kein Kunde hat einen
+  laufenden Plan (DEC-PO-16). AK-1 liefert fuer jede Connection "nein".
 
 ================================================================================
 4a) DIE AUSKUNFT AK-6 (PLAN FEHLT)
@@ -169,15 +172,17 @@ ZWECK:
   die internen Dienste.
 
   AUFRUF: eine Menge von Connections.
-  ERGEBNIS je Connection: state und plan_missing (ja | nein).
+  ERGEBNIS je Connection: state, plan_missing (ja | nein) und - bei
+    "ja" - plan_state: NONE (nie ein Plan gebucht) oder EXPIRED
+    (abgelaufen; dann mit dem Ende der letzten Buchung).
 
   PF-1  WEN ES TRIFFT: plan_missing ist "ja" genau dann, wenn
           a) die Connection einen Kunden der Rolle USER hat und
-          b) dieser Kunde keinen GUELTIGEN Plan traegt (PF-2).
-  PF-2  GUELTIG ist ein Plan, wenn der Kunde ein plan_id traegt und
-        MOD-010 den Plan dieses Kunden nicht als abgelaufen meldet
-        (Abschnitt 6, NP-10). Kein plan_id und ein abgelaufener Plan
-        gelten gleich: kein gueltiger Plan.
+          b) dieser Kunde keinen GUELTIGEN Plan hat (PF-2).
+  PF-2  GUELTIG ist der Plan der LAUFENDEN BUCHUNG des Kunden. Den
+        Plan-Stand liefert MOD-010 (Abschnitt 6, NP-10): LAUFEND, OHNE
+        PLAN oder ABGELAUFEN. OHNE PLAN ergibt plan_state NONE,
+        ABGELAUFEN ergibt EXPIRED; beides ist "kein gueltiger Plan".
   PF-3  KEIN SCHALTER: Die Auskunft haengt an keinem Setting und an
         keinem Policy-Wert. Sie nennt eine Tatsache; was daraus folgt,
         bestimmt der Bewerter (BASE-080_020).
@@ -186,13 +191,14 @@ ZWECK:
         das Ergebnis OK und "nein" - gleich in welchem Zustand die Daten
         der Plaene sind. Diese Rollen tragen keinen Plan (BASE-010
         INV-41).
-  PF-5  UNBEKANNT BLEIBT UNBEKANNT: Ist fuer einen Kunden mit plan_id
-        nicht lesbar, ob sein Plan gueltig ist, ist state fuer seine
-        Connections PLAN_UNKNOWN - auch solange MOD-010 fehlt (NP-9).
-        Ist die Datenbank nicht lesbar: DB_UNKNOWN. Der Bewerter
-        behandelt die Bedingung dann als UNBEKANNT (BASE-080 AK-4): Er
-        oeffnet nichts und schraenkt deshalb nichts ein. Ein Kunde OHNE
-        plan_id ist nie unbekannt: Er hat keinen Plan.
+  PF-5  UNBEKANNT BLEIBT UNBEKANNT: Ist der Plan-Stand eines Kunden der
+        Rolle USER nicht lesbar oder nicht bestimmbar, ist state fuer
+        seine Connections PLAN_UNKNOWN. Ist die Datenbank nicht lesbar:
+        DB_UNKNOWN. Der Bewerter behandelt die Bedingung dann als
+        UNBEKANNT (BASE-080 AK-4): Er oeffnet nichts und schraenkt
+        deshalb nichts ein. Solange MOD-010 nicht in Betrieb ist, gibt
+        es keine Buchung; der Plan-Stand jedes Kunden der Rolle USER
+        ist dann OHNE PLAN - bekannt, nicht unbekannt (NP-9).
   PF-6  AK-6 schreibt nichts, sperrt nichts und liest nur
         festgeschriebene Daten; ein Aufruf braucht eine feste Zahl von
         Abfragen (SZ-9).
@@ -201,6 +207,11 @@ ZWECK:
         fuer ihn gelten (Ausnahme, sonst Standard der Rolle USER) - etwa
         die Zahl seiner Connections. Im Internet nuetzen sie ihm nichts,
         solange er eingeschraenkt ist.
+  PF-8  ZWEI GRUENDE, EINE WIRKUNG: plan_state sagt dem Bewerter, welcher
+        Grund gilt - RESTRICT_PLAN_MISSING bei NONE,
+        RESTRICT_PLAN_EXPIRED bei EXPIRED (MOD-010 DEC-PL-09). Ein Kunde
+        hat nie beide zugleich, und nach der ersten Buchung nie wieder
+        NONE.
 
   WAS DER KUNDE DAVON HAT: Er bleibt verbunden und erreicht die internen
   Dienste. Welche das sind, legt BASE-050 fest; der Weg zu einem Plan
@@ -210,18 +221,17 @@ ZWECK:
   VERHAELTNIS ZUR LAUFZEIT EINER CONNECTION: expiry_date (BASE-010_020
   VC-07; Grund RESTRICT_EXPIRY_PASSED) bleibt die Laufzeit einer
   EINZELNEN Connection. Die Laufzeit eines Plans gehoert dem Kunden; ihr
-  Ende meldet AK-6. Ob MOD-010 daneben expiry_date benutzt, entscheidet
-  MOD-010 - AK-6 haengt nicht davon ab.
+  Ende meldet AK-6. MOD-010 schreibt expiry_date nie (dort DEC-PL-09).
 
   BIS ES PLAENE GIBT: Solange MOD-010 nicht in Betrieb ist, traegt kein
   Kunde einen Plan, und AK-6 meldet fuer JEDEN Kunden der Rolle USER
   "ja". Das ist die Regel, kein Fehler: ohne Plan kein Internet. Will
   der Betreiber in dieser Zeit Kunden der Rolle USER ins Internet
   lassen, setzt er die Bedingung beim Bewerter aus (BASE-080 AK-5 mit
-  der Quelle PLAN_MISSING; ANF-PO-04 g). AK-6 antwortet weiter gleich:
+  der Quelle PLAN_REQUIRED; ANF-PO-04 g). AK-6 antwortet weiter gleich:
   Wer wissen will, wen das Ende der Aussetzung traefe, fragt AK-6.
 
-  STAND HEUTE: Der Grund und die Bedingung sind bei BASE-010 und
+  STAND HEUTE: Die Gruende und die Bedingung sind bei BASE-010 und
   BASE-080 angefordert; bis zu diesen Nachzuegen setzt kein Programm
   die Plan-Pflicht durch (BASE-100_080 OPEN-PO-07).
 
@@ -235,7 +245,7 @@ ZWECK:
     Nebenwirkung"
     "'nicht lesbar' ist von 'nicht        das Feld state (KQ-7)
     aktiv' unterscheidbar"
-    "OHNE PLAN ... liefert AK-1 'nein'"   PL-1
+    "OHNE PLAN ... liefert AK-1 'nein'"   LM-1
     "ZEITBEZUG: Solange ein Owner seine   Mit diesem Modul sind BEIDE
     Auskunft noch nicht liefert, ist die  Quellen eingerichtet: AK-2 fuer
     Quelle als NICHT EINGERICHTET         jede Connection, AK-1 fuer jeden
@@ -282,8 +292,9 @@ ZWECK:
     NP-3  EIN PLAN DEFINIERT, WAS ER WILL: Jeden Key des Katalogs kann ein
           Plan festlegen oder auslassen. Was er auslaesst, kommt vom
           Standard der Rolle USER (DEC-PO-03).
-    NP-4  NUR USER: Die Ebene PLAN wird nur fuer einen Kunden der Rolle
-          USER mit gesetztem plan_id befragt (BASE-010 INV-41).
+    NP-4  NUR USER, NUR LAUFEND: Die Ebene PLAN wird nur fuer einen
+          Kunden der Rolle USER befragt, und nur mit dem Plan seiner
+          laufenden Buchung (MOD-010 DEC-PL-04, DEC-PL-12).
     NP-5  GELTUNG DES KONTINGENTS ist eine Eigenschaft des Plans
           (DOMAIN_MODEL 6.8: SHARED oder DEDICATED). AK-2 erhaelt sie als
           Eingabe je Plan:
@@ -307,25 +318,28 @@ ZWECK:
           zuruecksetzt").
     NP-8  SICHERHEIT IST KEIN PLANMERKMAL (SZ-10, R-07): Kein Plan-Wert
           kann etwas schalten, was der Katalog nicht als Key fuehrt.
-    NP-9  OHNE MOD-010 KEIN PLAN: Ein gesetztes plan_id ist bis dahin ein
-          Widerspruch (PLAN_UNKNOWN; gemeldet).
-    NP-10 GUELTIGKEIT EINES PLANS (DEC-PO-18): MOD-010 liefert je Kunde
-          mit plan_id, ob sein Plan GUELTIG oder ABGELAUFEN ist - als
-          feste Eingabe der Auskunft AK-6: mengenweise, aus
-          festgeschriebenen Daten, ohne Nebenwirkung. Wie die Laufzeit
-          gefuehrt wird und ob ein abgelaufener Plan am Kunden stehen
-          bleibt, bestimmt MOD-010; fuer AK-6 ist beides "kein gueltiger
-          Plan". Die Aufloesung (AW) fragt nicht nach der Gueltigkeit:
-          Solange plan_id gesetzt ist, liefert die Ebene PLAN ihre Werte.
+    NP-9  OHNE MOD-010 KEINE BUCHUNG: Bis MOD-010 in Betrieb ist, hat
+          kein Kunde einen laufenden Plan. Das ist bekannt, nicht
+          unbekannt: Die Ebene PLAN ist leer, AK-1 ist "nein", und AK-6
+          meldet fuer jeden Kunden der Rolle USER "ja" mit NONE.
+    NP-10 LAUFENDER PLAN UND PLAN-STAND (DEC-PO-18): Die Plan-Auskunft
+          von MOD-010 liefert je Kunde der Rolle USER den Plan seiner
+          laufenden Buchung (dort PA-1) und seinen Plan-Stand - LAUFEND,
+          OHNE PLAN, ABGELAUFEN - oder dass er nicht bestimmbar ist
+          (dort PA-2): mengenweise, aus festgeschriebenen Daten, ohne
+          Nebenwirkung. Beides folgt aus den Buchungen und der
+          Datenbankzeit; nichts speichert es. Die Aufloesung (AW)
+          benutzt den LAUFENDEN Plan, AK-6 den Plan-Stand.
 
-  Was MOD-010 ZU LEISTEN HAT (ANF-PO-07): die Tabelle der Plaene mit
-  unveraenderlichem Schluessel (TRUTH_MODEL GV-02), Laufzeit und Preis;
-  Zuweisung und Wechsel eines Plans; die Eingaben nach NP-5, NP-6 und
-  NP-10; das Auffuellen eines Kontingents; weitere Keys
-  (Geschwindigkeit mit MOD-003); die Zuweisung der Plaene an
-  Bestandskunden, bevor eine Aussetzung der Plan-Pflicht endet.
-  Zuweisung, Wechsel, Entzug und Ende eines Plans und ein Auffuellen
-  rufen die Bewertung (BASE-080_020 Abschnitt 5).
+  Was MOD-010 LEISTET (ANF-PO-07; dort DEC-PL-03 bis DEC-PL-15): die
+  Tabelle der Plaene mit unveraenderlichem Schluessel (TRUTH_MODEL
+  GV-02), Laufzeitstufen und Preis; Buchung, Verlaengerung und Wechsel;
+  die Eingaben nach NP-5, NP-6 und NP-10; die Buchung der Plaene fuer
+  Bestandskunden, bevor eine Aussetzung der Plan-Pflicht endet. Jeder
+  Vorgang, der den laufenden Plan oder den Plan-Stand aendert, ruft die
+  Bewertung (BASE-080_020 Abschnitt 5). OFFEN dort: das Auffuellen eines
+  Kontingents (MOD-010 OPEN-PL-03); weitere Keys (Geschwindigkeit mit
+  MOD-003).
 
   VERBLEIB DER SIEBEN OFFENEN FRAGEN DES ENTWURFS "PLANS"
   (nachlieferung/entwuerfe/Plans, Abschnitt 7):
@@ -343,16 +357,19 @@ ZWECK:
     4  Kontingent in Echtzeit oder        periodisch, mit begrenzter
        periodisch?                        Ueberziehung (BASE-080_020
                                           Abschnitt 8; BASE-070_050 Q-1)
-    5  Laufzeit-Modell                    MOD-010 (offen). Fest steht die
-                                          Folge: Ein abgelaufener Plan
-                                          gilt als keiner (DEC-PO-18;
-                                          NP-10)
+    5  Laufzeit-Modell                    MOD-010 DEC-PL-05: Vorkasse fuer
+                                          eine feste Zeit, kein
+                                          selbsttaetiges Verlaengern.
+                                          Folge hier: ohne laufenden
+                                          Plan kein Internet (DEC-PO-18)
     6  Planwechsel waehrend der Laufzeit  kein Zuruecksetzen; ein
                                           niedrigeres Limit gilt sofort
-                                          (D004-E08; NP-7); alles Weitere
-                                          MOD-010
-    7  plan_id am Kunden oder an der      am Kunden (DOMAIN_MODEL 6.8;
-       Connection?                        BASE-010_010)
+                                          (D004-E08; NP-7); der Wechsel
+                                          gilt ab dem Ende der Laufzeit
+                                          (MOD-010 DEC-PL-06)
+    7  plan_id am Kunden oder an der      am Kunden (DOMAIN_MODEL 6.8) -
+       Connection?                        ueber die Buchung statt ueber
+                                          ein Feld (MOD-010 DEC-PL-04)
   Die Regeln des Entwurfs dazu, worin sich Plaene unterscheiden duerfen
   (dort Abschnitt 2), sind R-07 und hier SZ-10.
 
@@ -378,11 +395,13 @@ ZWECK:
   nur Rollen-Defaults"                   Betreibers, BM-0027, BM-0028):
                                          gilt fuer die Werte; Internet
                                          nur mit gueltigem Plan
-                                         (Abschnitt 4a)
-  Entwurf "Plans": "Laufzeit abgelaufen  Abschnitt 4a: Ein abgelaufener
-  -> Walled Garden"                      Plan gilt als keiner (PF-2)
+                                         (Abschnitt 4a). Das Feld
+                                         plan_id entfaellt (MOD-010
+                                         DEC-PL-04)
+  Entwurf "Plans": "Laufzeit abgelaufen  Abschnitt 4a: eingeschraenkt,
+  -> Walled Garden"                      mit eigenem Grund (PF-2, PF-8)
   BASE-080_020 AK-1 bis AK-4             Abschnitte 3 und 4
-  SM_CONNECTION 5.4 "PLAN_LIMIT_         PL-2, NP-6
+  SM_CONNECTION 5.4 "PLAN_LIMIT_         LM-2, NP-6
   EXCEEDED: Plan-Engine Ergebnis"
 
   NEU BEGRUENDET (keine Quelle nennt es): der Deckel je Kunde (DEC-PO-11

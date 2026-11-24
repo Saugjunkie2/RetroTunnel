@@ -1,0 +1,191 @@
+================================================================================
+MOD-010 — INVARIANTEN (Plaene)
+================================================================================
+DATEI: MOD-010_090_INVARIANTEN.txt
+STATUS: IN ARBEIT (AP-M010; Modul noch unvollstaendig)
+
+Harter Vertrag. Jede Verletzung ist ein Fehler. Kennungen PL-01..PL-28.
+Die Kennungen in Klammern verweisen auf die Entscheidungen und
+Schutzziele in MOD-010_010 (DEC-PL-, SZ-). Mit den folgenden Dateien
+dieses Moduls kommen Regelkennungen und weitere Invarianten hinzu.
+Herkunft je Invariante: Rueckverfolgungs-Records unter
+governance/register/trace/ bzw. NEU_BEGRUENDET.yaml - noch offen.
+
+================================================================================
+RANG UND PLAN
+================================================================================
+
+  PL-01  Eine Buchung, eine Bestellung und das Einloesen einer Gutschrift
+         gibt es nur fuer einen Kunden der Rolle USER. Kein Kunde der
+         Rollen VIP, MODERATOR oder ADMIN hat eine laufende oder
+         kuenftige Buchung (DEC-PL-01, DEC-PL-12 a).
+
+  PL-02  Kein Plan und keine Buchung aendert die Rolle eines Kunden, und
+         kein Wert eines Plans schaltet eine Schutzfunktion (DEC-PL-01,
+         SZ-10).
+
+================================================================================
+PLAN UND LAUFZEITSTUFE
+================================================================================
+
+  PL-03  Jeder Plan hat einen unveraenderlichen Schluessel und mindestens
+         eine Laufzeitstufe; jede Stufe nennt eine Dauer in ganzen
+         Monaten (mindestens einen) und einen Preis. Gebucht und bestellt
+         wird nur ein buchbarer Plan mit einer seiner Stufen (DEC-PL-03
+         a, b, d).
+
+  PL-04  Ein Plan, zu dem es eine Buchung, eine Bestellung oder eine
+         Gutschrift gibt, wird nie geloescht (DEC-PL-03 d).
+
+  PL-05  Der Preis wirkt auf nichts: Keine Auskunft, keine Bewertung und
+         keine Buchung haengt von ihm ab; das System rechnet nicht ab
+         (DEC-PL-03 c).
+
+================================================================================
+BUCHUNG UND PLAN-STAND
+================================================================================
+
+  PL-06  Jede Buchung nennt Kunde, Plan, Beginn und Ende, und ihr Beginn
+         liegt vor ihrem Ende. Eine Buchung ohne Ende gibt es nicht
+         (DEC-PL-05 a).
+
+  PL-07  Zwei Buchungen desselben Kunden ueberlappen nie (DEC-PL-04 b,
+         SZ-6).
+
+  PL-08  Eine kuenftige Buchung beginnt genau am Ende der vorigen Buchung
+         desselben Kunden. Ein Kunde ohne laufende Buchung hat keine
+         kuenftige (DEC-PL-04 d, DEC-PL-06 f).
+
+  PL-09  Laufender Plan und Plan-Stand eines Kunden werden bei jeder
+         Auskunft aus den Buchungen und der Datenbankzeit bestimmt. Kein
+         Feld speichert sie, und kein Lauf schaltet sie um: Das Ende
+         einer Laufzeit und der Beginn einer Anschlussbuchung wirken,
+         ohne dass jemand schreibt (DEC-PL-04 a, c, e; SZ-2).
+
+  PL-10  Ueberlappen zwei Buchungen eines Kunden doch, ist sein Plan
+         nicht bestimmbar: Die Plan-Auskunft nennt fuer ihn weder einen
+         Plan noch einen Plan-Stand, und der Fall wird gemeldet. Andere
+         Kunden beruehrt das nicht (DEC-PL-04, Folgen).
+
+  PL-11  Das Ende einer Buchung wird bei ihrer Entstehung einmal
+         berechnet - Ablauf des Geschaeftstags, der n Monate nach dem Tag
+         des Beginns liegt, sonst des letzten Tages jenes Monats - und
+         gespeichert. Eine spaetere Aenderung der Zeitzone aendert kein
+         gespeichertes Ende (DEC-PL-05 b).
+
+  PL-12  Nichts verlaengert eine Buchung selbsttaetig, und nichts haelt
+         eine Laufzeit an - auch nicht eine gesperrte, pausierte oder
+         unbenutzte Connection oder ein gesperrter Kunde (DEC-PL-05 c,
+         d; SZ-4).
+
+================================================================================
+VERLAENGERN UND WECHSELN
+================================================================================
+
+  PL-13  Eine weitere Buchung fuer einen Kunden mit laufender Buchung
+         beginnt am Ende seiner letzten Buchung - auch mit einem anderen
+         Plan. Fuer einen Kunden ohne laufende Buchung beginnt sie mit
+         ihrer Entstehung (DEC-PL-06 a, b, c; SZ-7).
+
+  PL-14  Einen anderen Plan VOR dem Ende der laufenden Buchung wirksam
+         machen kann nur die Rolle ADMIN; dabei endet die laufende
+         Buchung im selben Vorgang, und es entsteht kein Abstand
+         (DEC-PL-06 d, f).
+
+================================================================================
+BESTELLUNG UND BUCHUNGSKERN
+================================================================================
+
+  PL-15  Eine Buchung entsteht nur durch eine Handlung der Rolle ADMIN
+         ueber den Buchungskern oder durch das Einloesen einer
+         Gutschrift, die die Rolle ADMIN angelegt hat. Eine Bestellung
+         allein aendert weder den Plan noch den Plan-Stand (DEC-PL-07 d,
+         f; SZ-5).
+
+  PL-16  Ein Kunde hat hoechstens eine offene Bestellung. Eine Bestellung
+         traegt keine Zahlungsdaten und kein Freitextfeld; das System
+         speichert kein Zahlungsmittel (DEC-PL-07 b, c; SZ-10).
+
+  PL-17  Buchungen, Bestellungen und Gutschriften schreibt allein der
+         Buchungskern - unter der Sperre der Zeile des Kunden und mit
+         einem Protokolleintrag in derselben Transaktion: Urheber,
+         Zeitpunkt, Grund, Stand vorher und nachher (DEC-PL-04 b,
+         DEC-PL-13, SZ-6).
+
+  PL-18  Eine beendete Buchung wird nie geaendert und nie geloescht
+         (DEC-PL-13).
+
+================================================================================
+PLAN-GUTSCHRIFT
+================================================================================
+
+  PL-19  Eine Gutschrift haengt an genau einer vorbereiteten Connection
+         ohne Kunden und wird hoechstens einmal eingeloest: mit dem
+         Claim, in dessen Transaktion und vor der Budgetpruefung. Die
+         Laufzeit beginnt mit dem Claim oder schliesst an (DEC-PL-08 a
+         bis d).
+
+  PL-20  Der Claim einer Connection mit Gutschrift durch einen Kunden,
+         der nicht die Rolle USER hat, wird abgelehnt und aendert nichts
+         (DEC-PL-08 e).
+
+================================================================================
+ABLAUF UND FOLGEN
+================================================================================
+
+  PL-21  Die Plan-Auskunft meldet fuer jeden Kunden der Rolle USER genau
+         einen Plan-Stand - LAUFEND, ABGELAUFEN oder OHNE PLAN - oder
+         dass er nicht bestimmbar ist. Bevor dieses Modul in Betrieb
+         ist, ist der Plan-Stand jedes Kunden OHNE PLAN (DEC-PL-02,
+         DEC-PL-04 c, DEC-PL-14, DEC-PL-17).
+
+  PL-22  Dieses Modul schreibt keinen Status, keinen Grund und keine
+         Frist einer Connection und nie expiry_date. Nach einem Vorgang,
+         der den laufenden Plan oder den Plan-Stand eines Kunden aendert,
+         wird die Bewertung seiner Connections aufgerufen; unterbleibt
+         der Aufruf, kommt der naechste Lauf des Bewerters zum selben
+         Ergebnis (DEC-PL-09 c).
+
+  PL-23  Wechselt ein Kunde aus der Rolle USER oder wird er geloescht,
+         enden seine laufende Buchung und alle kuenftigen im selben
+         Vorgang, und seine offene Bestellung wird geschlossen. Wird er
+         gesperrt, laufen seine Buchungen weiter (DEC-PL-12).
+
+================================================================================
+ERINNERUNG
+================================================================================
+
+  PL-24  Je Buchung und Anlass wird hoechstens eine Erinnerung
+         ausgeloest. Die Erinnerung vor dem Ablauf entfaellt, wenn der
+         Kunde eine Anschlussbuchung hat (DEC-PL-11 b, c).
+
+  PL-25  Kein Plan, kein Plan-Stand, keine Buchung und keine Auskunft
+         haengt davon ab, dass eine E-Mail ausgeloest, versandt oder
+         gelesen wurde (DEC-PL-11 d, SZ-2).
+
+================================================================================
+AUSKUNFT, PLAN-LIMIT UND SICHT
+================================================================================
+
+  PL-26  Die Plan-Auskunft liest nur festgeschriebene Daten, schreibt
+         nichts und braucht je Aufruf eine feste Zahl von Abfragen,
+         gleich fuer wie viele Kunden. "Nicht lesbar" und "nicht
+         bestimmbar" sind von "kein Plan" unterscheidbar (DEC-PL-14).
+
+  PL-27  Die Regel des Plan-Limits nennt fuer einen Kunden mit laufendem
+         Plan, dessen aktiv zaehlende Connections (A) sein Aktiv-Budget
+         (MA) uebersteigen, genau die A - MA zuletzt angelegten. Dieselben
+         Daten ergeben dieselbe Auswahl, auch nachdem sie vollzogen ist
+         (DEC-PL-15).
+
+  PL-28  Buchen, bestaetigen, ablehnen, beenden und Kulanz gewaehren
+         kann nur die Rolle ADMIN. MODERATOR liest. Ein Kunde sieht nur
+         seinen eigenen Plan-Stand, seine Buchungen und seine Bestellung;
+         er kann nur bestellen und die eigene Bestellung zurueckziehen
+         (DEC-PL-07 f, DEC-PL-13, DEC-PL-16).
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

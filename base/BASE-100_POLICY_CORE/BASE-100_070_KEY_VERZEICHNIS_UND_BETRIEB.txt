@@ -249,9 +249,9 @@ ZWECK:
   PC-5  Zeilen zu Namen, die der Katalog nicht kennt, melden.
   PC-6  Je Zeile der drei Ebenen Wert und Zeitpunkt mit dem juengsten
         Protokolleintrag vergleichen (BASE-100_060 UW-2).
-  PC-7  WIDERSPRUECHE: Kunden mit plan_id, die nicht die Rolle USER
-        tragen; Kunden mit plan_id, solange die Ebene PLAN nicht
-        eingerichtet ist.
+  PC-7  WIDERSPRUECHE (ueber die Plan-Auskunft von MOD-010): Kunden mit
+        einer laufenden oder kuenftigen Buchung, die nicht die Rolle
+        USER tragen; Kunden, deren laufender Plan nicht bestimmbar ist.
   PC-8  UEBERBELEGUNG: die Auskunft BA (als Auskunft, ohne Sperre) fuer
         alle Kunden, abschnittsweise; die ueberbelegten zaehlen.
   PC-9  Status schreiben, Ereignisse melden (Abschnitt 5).
@@ -261,7 +261,8 @@ ZWECK:
     Zustand des Standards, je Key die Zahl der Ausnahmen, die Liste der
     ungueltigen Zeilen, die Liste der Zeilen ohne Protokoll, die Zahl der
     ueberbelegten Kunden, die Zahl der Kunden im Zustand PLAN_UNKNOWN
-    und die Zahl der Kunden der Rolle USER ohne gueltigen Plan.
+    und die Zahl der Kunden der Rolle USER ohne gueltigen Plan -
+    getrennt nach "nie gebucht" und "abgelaufen".
   PZ-1  Der Prueflauf aendert keinen Wert und keine Zeile.
   PZ-2  Er laeuft auch ohne Datenbank: Dann prueft er den Katalog (PC-1)
         und meldet die Datenbank als nicht lesbar.
@@ -282,7 +283,8 @@ ZWECK:
     RIGHTS_INVALID_RANGE          Wert ausserhalb der Grenzen
     RIGHTS_UNLIMITED_NOT_ALLOWED  NULL bei einem Key, der "unbegrenzt"
                                   nicht erlaubt
-    RIGHTS_PLAN_UNKNOWN           Werte des Plans nicht lesbar
+    RIGHTS_PLAN_UNKNOWN           laufender Plan nicht bestimmbar oder
+                                  seine Werte nicht lesbar
     RIGHTS_DB_UNREADABLE          Datenbank nicht lesbar
   GRUENDE EINES GESCHEITERTEN AUFRUFS:
     RIGHTS_UNKNOWN_KEY, RIGHTS_CATALOG_UNREADABLE
@@ -293,10 +295,11 @@ ZWECK:
     RIGHTS_VALUE_MISSING       ALERT  der Standard einer Rolle fehlt
     RIGHTS_VALUE_INVALID       ALERT  eine Zeile ist ungueltig (mit dem
                                       vorgefundenen Wert)
-    RIGHTS_PLAN_UNKNOWN        ALERT  ein Kunde traegt einen Plan ohne
-                                      lesbare Werte
-    RIGHTS_ROLE_PLAN_MISMATCH  ALERT  ein Kunde, der nicht USER ist,
-                                      traegt einen Plan
+    RIGHTS_PLAN_UNKNOWN        ALERT  der laufende Plan eines Kunden ist
+                                      nicht bestimmbar, oder seine Werte
+                                      sind nicht lesbar
+    RIGHTS_ROLE_PLAN_MISMATCH  ALERT  fuer einen Kunden, der nicht USER
+                                      ist, gibt es eine Buchung
     RIGHTS_UNKNOWN_ROW         ALERT  Zeile zu einem Namen, den der
                                       Katalog nicht kennt
     RIGHTS_UNAUDITED_CHANGE    ALERT  Zeile ohne passenden
@@ -349,7 +352,9 @@ ZWECK:
     - je Key die Standards der vier Rollen
     - alle Ausnahmen, nach Key und Kunde
     - die ueberbelegten Kunden mit ihren Zahlen
-    - die Kunden der Rolle USER ohne gueltigen Plan (Auskunft AK-6)
+    - die Kunden der Rolle USER ohne gueltigen Plan (Auskunft AK-6),
+      getrennt nach "nie gebucht" und "abgelaufen"; Plan, Laufzeit und
+      Buchungen eines Kunden zeigt MOD-010 (dort DEC-PL-16)
     - je Kunde das Budget (aktiv, gesamt, Aktiv-Budget, Gesamt-Budget)
       und je Connection das Kontingent (Limit, Verbrauch, worauf es sich
       bezieht)
@@ -361,8 +366,9 @@ ZWECK:
     - seine wirksamen Werte der Keys, die der Katalog fuer ihn sichtbar
       macht, und der Verbrauch dagegen
     - bei einer Ueberbelegung ein Hinweis mit seinen Zahlen
-    - ohne gueltigen Plan: dass und warum er eingeschraenkt ist, und
-      der Weg zu einem Plan (DEC-PO-18)
+    - ohne gueltigen Plan: dass und warum er eingeschraenkt ist - nie
+      gebucht oder abgelaufen -, und der Weg zu einem Plan (DEC-PO-18;
+      Bestellung: MOD-010 DEC-PL-07)
     - bei einer abgelehnten Zulassung die Meldung mit den Zahlen aus BA
       (BASE-100_040 Abschnitt 4)
 
@@ -392,8 +398,9 @@ ZWECK:
   EB-3  SETTINGS ZUERST: Die Auskunft BA braucht den Puffer. Die
         Einspielung der Settings (BASE-090) geht der Einrichtung dieses
         Moduls voraus.
-  EB-4  KEIN PLAN OHNE MOD-010: Vor dem Betrieb traegt kein Kunde ein
-        plan_id (Prueflauf, PC-7).
+  EB-4  KEIN PLAN OHNE MOD-010: Solange MOD-010 nicht in Betrieb ist,
+        gibt es keine Buchung und keinen Wert der Ebene PLAN (Prueflauf,
+        PC-4, PC-7).
 
   HINWEIS ZUR PLAN-PFLICHT (DEC-PO-18): Solange MOD-010 nicht in Betrieb
   ist, kommt kein Kunde der Rolle USER ins Internet - ausser der
@@ -419,11 +426,11 @@ ZWECK:
                                Abschnitt 5)
   Ausnahme ungueltig           kein Wert fuer diesen Kunden - kein
                                Ausweichen auf den Standard
-  Plan gesetzt, Werte nicht    PLAN_UNKNOWN fuer diesen Kunden, ausser wo
-  lesbar                       eine Ausnahme entscheidet
-  Gueltigkeit eines Plans      PLAN_UNKNOWN fuer diesen Kunden: Der
-  nicht lesbar                 Bewerter oeffnet nichts und schraenkt
-                               deshalb nichts ein
+  Werte des laufenden Plans    PLAN_UNKNOWN fuer diesen Kunden, ausser wo
+  nicht lesbar                 eine Ausnahme entscheidet
+  Laufender Plan oder          PLAN_UNKNOWN fuer diesen Kunden: Der
+  Plan-Stand nicht lesbar      Bewerter oeffnet nichts und schraenkt
+  oder nicht bestimmbar        deshalb nichts ein
   Katalog-Kopie weicht ab      es gilt die Definition; die Einspielung
                                stellt her
   Katalog-Definition           nichts wird aufgeloest oder geschrieben;

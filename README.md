@@ -1,7 +1,7 @@
 # RetroTunnel
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
-![Concept version: v2.9.27](https://img.shields.io/badge/Concept-v2.9.27-blue.svg)
+![Concept version: v2.9.28](https://img.shields.io/badge/Concept-v2.9.28-blue.svg)
 ![Status: M2 In Progress](https://img.shields.io/badge/Phase-M2%20In%20Progress-yellow.svg)
 ![Platform: Debian 13](https://img.shields.io/badge/Platform-Debian%2013-informational.svg)
 
@@ -14,7 +14,7 @@ RetroTunnel ist ein in Entwicklung befindliches Architektur- und Implementierung
 
 Geplant ist ein Full-Tunnel-VPN mit deterministischer Server-Side Policy, SQL-first AAA, rollenbasiertem Enforcement, DNS-Zwang, internem Webpanel und einem auf Produktivbetrieb ausgerichteten Betriebsmodell.
 
-> **Projektstand: Konzeptentwicklung (v2.9.27).** Die dokumentierten Module und Entscheidungen beschreiben den vorgesehenen Systemaufbau. Das Repository stellt derzeit **keine fertig implementierte oder als produktionsreif abgenommene VPN-Gesamtlösung** bereit. Fortschrittsangaben beziehen sich auf die Konzeptarbeit, soweit nicht ausdrücklich anders bezeichnet. Die [Prioritätenliste](PRIORITAETENLISTE.txt) dokumentiert die Arbeitsreihenfolge; der [Phasenplan](04_PHASE_PLAN.txt) beschreibt die erforderlichen Reife- und Abnahmekriterien. Einzelne Quelldateien können eigene Versionsstände führen; v2.9.27 bezeichnet den zentral dokumentierten Projektstand im [Changelog](03_CHANGELOG.txt).
+> **Projektstand: Konzeptentwicklung (v2.9.28).** Die dokumentierten Module und Entscheidungen beschreiben den vorgesehenen Systemaufbau. Das Repository stellt derzeit **keine fertig implementierte oder als produktionsreif abgenommene VPN-Gesamtlösung** bereit. Fortschrittsangaben beziehen sich auf die Konzeptarbeit, soweit nicht ausdrücklich anders bezeichnet. Die [Prioritätenliste](PRIORITAETENLISTE.txt) dokumentiert die Arbeitsreihenfolge; der [Phasenplan](04_PHASE_PLAN.txt) beschreibt die erforderlichen Reife- und Abnahmekriterien. Einzelne Quelldateien können eigene Versionsstände führen; v2.9.28 bezeichnet den zentral dokumentierten Projektstand im [Changelog](03_CHANGELOG.txt).
 
 ## Warum existiert dieses Projekt?
 
@@ -142,7 +142,7 @@ RetroTunnel/
 │   ├── MOD-007_LOGGING_MONITORING/ Retention, Alerts
 │   ├── MOD-008_BACKUP_DR/          Backup/Restore
 │   ├── MOD-009_PEAK_MODE/          CPU-Overload Schutz
-│   └── MOD-010_PLANS/              Tarife, Quota, Billing
+│   └── MOD-010_PLANS/              Tarife, Laufzeit, Buchung 🚧 (Entwurf)
 │
 ├── decisions/                      Architecture Decision Records
 ├── proofs/                         Tests, Acceptance, DoD
@@ -237,7 +237,7 @@ Die Statusangaben unten betreffen die **Konzeptausarbeitung** (M0–M4). Insbeso
 | M2-020 | BASE-020_AAA_CORE (Admission, RADIUS, WG-Vertrag) | 🚧 In Arbeit |
 | M2-030 | BASE-030_TUNNEL_L2TP_IPSEC (accel-ppp + strongSwan) | 🚧 In Arbeit |
 | M2-040..110 | Rest der Kern-Module (8 Base-Module) | 🚧 In Arbeit |
-| M3 | Erweiterungs-Module (10 Module) | ⏸ Deferred |
+| M3 | Erweiterungs-Module (10 Module; begonnen: MOD-010 Pläne) | 🚧 In Arbeit |
 | M4 | Decisions, Proofs, Implementation | ⏸ Deferred |
 
 Den Stand der einzelnen Pakete – auch welche der Kern-Module geschrieben, geprüft oder offen sind – führt allein die [Prioritätenliste](PRIORITAETENLISTE.txt); diese Tabelle fasst sie zusammen (die Zeilen sind maschinell an die Liste gekoppelt). M2-000 bis M2-030 waren am im Changelog beschriebenen Stand vom 2026-05-30 abgeschlossen und sind seit 2026-11-15 wieder geöffnet: Die Dateien im Repository liegen hinter diesem Stand und tragen offene Befunde (Überblick: REVIEW_TRACKER.txt, Abschnitte 1 und 1d). Abgeschlossen werden sie nach dem Nachzug und einer unabhängigen Prüfung.

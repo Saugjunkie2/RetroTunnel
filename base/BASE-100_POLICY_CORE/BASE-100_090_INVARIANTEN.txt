@@ -7,7 +7,7 @@ STATUS: IN ARBEIT (AP-K100; Modul noch unvollstaendig)
 Harter Vertrag. Jede Verletzung ist ein Fehler. Kennungen PO-01..PO-50.
 Regelkennungen in Klammern verweisen auf die Detaildateien dieses Moduls
 (DEC-PO-, SZ- in _010; KW-, VS-, TB-, LP- in _020; AZ-, AF-, AB-, VB-, LR-
-in _030; ZR-, BU-, ZL-, BP-, BZ-, RT-, UE- in _040; KQ-, QA-, PL-, PF-,
+in _030; ZR-, BU-, ZL-, BP-, BZ-, RT-, UE- in _040; KQ-, QA-, LM-, PF-,
 NP- in _050; SR-, SK-, ZS-, AG-, FV-, ES-, EV-, NF-, UW- in _060; AM-,
 DR-, PC-, PZ-, ER-, SI-, EB- in _070; GP- in _080).
 Herkunft je Invariante: Rueckverfolgungs-Records unter
@@ -84,9 +84,11 @@ AUFLOESUNG
          die naechste Ebene ausweichen (DEC-PO-03, AF-5, AF-6).
 
   PO-14  Die Ebene PLAN wird nur fuer einen Kunden der Rolle USER mit
-         Plan befragt. Sind die Werte seines Plans nicht lesbar, ist der
-         Zustand PLAN_UNKNOWN - kein Ausweichen auf den Standard der
-         Rolle (DEC-PO-16, AF-5 b, AB-2, NP-4, NP-9).
+         laufendem Plan befragt. Ist sein laufender Plan nicht
+         bestimmbar oder sind dessen Werte nicht lesbar, ist der Zustand
+         PLAN_UNKNOWN - kein Ausweichen auf den Standard der Rolle. Nach
+         dem Ablauf ist die Ebene leer (DEC-PO-16, AF-5 b, AB-2, AB-5,
+         NP-4, NP-9).
 
   PO-15  Ohne gueltigen Wert gibt es keinen Wert: Eine Zulassung, die
          ihn braucht, findet nicht statt; der Bestand bleibt; der
@@ -177,9 +179,11 @@ KONTINGENT UND PLAN-LIMIT
          erreicht, steht das Ergebnis fest, auch wenn der Deckel nicht
          bestimmbar ist (QA-1 bis QA-7, KQ-7, KQ-8).
 
-  PO-33  Die Auskunft AK-1 ist fuer jede Connection ohne Plan "nein" -
-         gleich in welchem Zustand die Werte der Plaene sind
-         (BASE-100_050 PL-1).
+  PO-33  Die Auskunft AK-1 ist fuer jede Connection ohne Kunden und fuer
+         jede Connection eines Kunden, der nicht die Rolle USER traegt,
+         "nein" - gleich in welchem Zustand die Daten der Plaene sind -,
+         und ebenso fuer einen Kunden der Rolle USER ohne laufenden Plan
+         (BASE-100_050 LM-1).
 
   PO-34  Das Produkt aus Aktiv-Budget und Kontingent laeuft nie ueber:
          Die Grenzen der beiden Keys halten es unter 2 hoch 63 (LP-9,
@@ -246,27 +250,30 @@ BEOBACHTBARKEIT UND GRENZEN
   PO-46  Der Datenbank-Benutzer radius hat auf keine Tabelle dieses
          Moduls Zugriff (DR-1).
 
-  PO-47  Vor dem Betrieb ist jeder Standard vorhanden und gueltig, und
-         kein Kunde traegt einen Plan, solange MOD-010 fehlt (EB-1,
-         EB-4).
+  PO-47  Vor dem Betrieb ist jeder Standard vorhanden und gueltig.
+         Solange MOD-010 nicht in Betrieb ist, gibt es keine Buchung und
+         keinen Wert der Ebene PLAN (EB-1, EB-4).
 
 ================================================================================
 PLAN-PFLICHT
 ================================================================================
 
   PO-48  Die Auskunft AK-6 meldet fuer jede Connection eines Kunden
-         der Rolle USER ohne gueltigen Plan - keiner zugewiesen oder
-         abgelaufen - "ja" und fuer jede andere Connection "nein". Sie
-         haengt an keinem Schalter, und die Plan-Pflicht aendert keinen
-         wirksamen Wert (DEC-PO-18; BASE-100_050 PF-1 bis PF-3, PF-7).
+         der Rolle USER ohne gueltigen Plan "ja" - mit dem Plan-Stand:
+         nie gebucht oder abgelaufen - und fuer jede andere Connection
+         "nein". Sie haengt an keinem Schalter, und die Plan-Pflicht
+         aendert keinen wirksamen Wert (DEC-PO-18; BASE-100_050 PF-1
+         bis PF-3, PF-7, PF-8).
 
   PO-49  Fuer Connections ohne Kunden und von Kunden der Rollen VIP,
          MODERATOR und ADMIN ist AK-6 immer OK und "nein" - gleich in
          welchem Zustand die Daten der Plaene sind (PF-4).
 
-  PO-50  Ist die Gueltigkeit eines Plans nicht lesbar, ist AK-6 fuer die
-         Connections dieses Kunden nicht OK - weder "ja" noch "nein".
-         Ein Kunde ohne plan_id ist nie unbekannt (PF-5).
+  PO-50  Ist der Plan-Stand eines Kunden nicht lesbar oder nicht
+         bestimmbar, ist AK-6 fuer seine Connections nicht OK - weder
+         "ja" noch "nein". Solange MOD-010 nicht in Betrieb ist, ist der
+         Plan-Stand jedes Kunden der Rolle USER bekannt: nie gebucht
+         (PF-5; BASE-100_050 NP-9).
 
 ================================================================================
 CHANGELOG

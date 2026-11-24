@@ -142,13 +142,18 @@ AUFLOESUNG
            Ausnahme, fehlender Standard: Die Ausnahme gilt; der Mangel ist
            gemeldet. [PO-13]
 
-  T-PO-14  [L] Ebene PLAN. (a) Kunde der Rolle USER mit plan_id, Ebene PLAN
-           nicht eingerichtet: PLAN_UNKNOWN, ausser fuer Keys mit Ausnahme.
-           (b) Kunde der Rolle VIP mit plan_id: Die Ebene wird nicht befragt;
-           RIGHTS_ROLE_PLAN_MISMATCH ist gemeldet. (c) Setzt MOD-010 voraus:
-           Plan definiert den Key - Herkunft PLAN; Plan laesst ihn aus -
-           Standard der Rolle USER; Planwechsel - der neue Wert gilt mit der
-           naechsten Auskunft. [PO-14]
+  T-PO-14  [L] Ebene PLAN. (a) Kunde der Rolle USER, dessen laufender Plan
+           nicht bestimmbar ist oder dessen Plan-Werte nicht lesbar sind:
+           PLAN_UNKNOWN, ausser fuer Keys mit Ausnahme. (b) Kunde der
+           Rolle VIP, fuer den es eine Buchung gibt: Die Ebene wird nicht
+           befragt; RIGHTS_ROLE_PLAN_MISMATCH ist gemeldet. (c) Setzt
+           MOD-010 voraus: Plan definiert den Key - Herkunft PLAN; Plan
+           laesst ihn aus - Standard der Rolle USER; Beginn einer
+           Anschlussbuchung mit anderem Plan - der neue Wert gilt mit der
+           naechsten Auskunft, ohne dass jemand schreibt. (d) Nach dem
+           Ablauf: Ausnahme, sonst Standard der Rolle USER; die Herkunft
+           ist nie PLAN. (e) MOD-010 nicht in Betrieb: Ebene PLAN leer,
+           Zustand OK. [PO-14]
 
   T-PO-15  [L] Kein Wert. Standard einer Rolle ungueltig machen: (a) Anlage,
            Claim und Wiederherstellung fuer Kunden dieser Rolle werden mit
@@ -276,10 +281,13 @@ KONTINGENT UND PLAN-LIMIT
            schraenkt genau die Faelle "Verbrauch >= Limit" ein und laesst
            die Faelle ohne Wert unveraendert (RT-PH8-PROOF-04). [PO-32]
 
-  T-PO-33  [L] Plan-Limit ohne Plan. Fuer Connections ohne Kunden, von Kunden
-           ohne Plan und von Kunden anderer Rollen liefert die Auskunft AK-1
-           "nein" - auch wenn die Ebene PLAN nicht eingerichtet ist. Fuer
-           einen Kunden mit plan_id ohne MOD-010: PLAN_UNKNOWN. [PO-33]
+  T-PO-33  [L] Plan-Limit ohne Plan. (a) Fuer Connections ohne Kunden und
+           von Kunden anderer Rollen liefert die Auskunft AK-1 "nein" -
+           auch wenn die Daten der Plaene nicht lesbar sind. (b) Kunde der
+           Rolle USER ohne laufenden Plan: "nein". (c) Kunde der Rolle
+           USER, dessen laufender Plan nicht bestimmbar ist: PLAN_UNKNOWN.
+           (d) MOD-010 nicht in Betrieb: fuer jede Connection "nein".
+           [PO-33]
 
   T-PO-34  [K] Kein Ueberlauf. Das Produkt der oberen Grenzen von
            max_active_connections und max_quota_bytes_per_period ist kleiner
@@ -346,7 +354,7 @@ BEOBACHTBARKEIT UND GRENZEN
 
   T-PO-42  [L] Meldungen. Je ein Fall: fehlender Standard, ungueltige
            Ausnahme, Zeile zu einem unbekannten Key, von Hand geaenderte
-           Zeile ohne Protokoll, Kunde der Rolle VIP mit plan_id. Jeder ist
+           Zeile ohne Protokoll, Kunde der Rolle VIP mit Buchung. Jeder ist
            beim Eintritt gemeldet, steht im Status, wird bei Andauern nicht
            bei jeder Auskunft erneut gemeldet und nach der Behebung als
            behoben gemeldet. [PO-42]
@@ -379,35 +387,37 @@ ABNAHME DER EINRICHTUNG
   T-PO-47  [L] Vor dem Betrieb (BASE-100_070 EB-1 bis EB-4). Nach
            Einspielung und Eingabe der Betreiberwerte meldet der Prueflauf
            fuer jeden Key und jede Rolle OK; fehlt ein Betreiberwert, gilt
-           die Einrichtung nicht als abgeschlossen. Kein Kunde traegt ein
-           plan_id. [PO-47, PO-10]
+           die Einrichtung nicht als abgeschlossen. Ohne MOD-010 gibt es
+           keine Buchung und keinen Wert der Ebene PLAN. [PO-47, PO-10]
 
 ================================================================================
 PLAN-PFLICHT (DEC-PO-18)
 ================================================================================
 
-  T-PO-48  [L] Wen die Plan-Pflicht trifft. MOD-010 meldet je Kunde
-           gueltig oder abgelaufen. (a) USER ohne plan_id: AK-6 "ja" fuer
-           jede seiner Connections. (b) USER mit abgelaufenem Plan: "ja".
-           (c) USER mit gueltigem Plan: "nein". (d) Wird dem Kunden aus (a)
-           ein gueltiger Plan zugewiesen, ist die naechste Auskunft "nein";
-           laeuft er ab, wieder "ja". (e) In (a) gelten fuer ihn Ausnahme
-           oder Standard der Rolle USER (Auskunft AW) wie zuvor. (f) Kein
-           Setting und kein Policy-Wert aendert die Antwort - auch nicht
-           ein Eintrag in vpn_policy_eval_sources_off. (g) Wechselt ein
-           Kunde von VIP nach USER, ist AK-6 fuer seine Connections "ja",
-           bis er einen gueltigen Plan traegt. [PO-48]
+  T-PO-48  [L] Wen die Plan-Pflicht trifft. MOD-010 meldet je Kunde den
+           Plan-Stand. (a) USER, der nie gebucht hat: AK-6 "ja" mit NONE
+           fuer jede seiner Connections. (b) USER mit abgelaufenem Plan:
+           "ja" mit EXPIRED und dem Ende der letzten Buchung. (c) USER mit
+           laufendem Plan: "nein". (d) Wird fuer den Kunden aus (a) ein
+           Plan gebucht, ist die naechste Auskunft "nein"; laeuft er ab,
+           "ja" mit EXPIRED - nie wieder NONE. (e) In (a) und (b) gelten
+           fuer ihn Ausnahme oder Standard der Rolle USER (Auskunft AW).
+           (f) Kein Setting und kein Policy-Wert aendert die Antwort -
+           auch nicht ein Eintrag in vpn_policy_eval_sources_off. (g)
+           Wechselt ein Kunde von VIP nach USER, ist AK-6 fuer seine
+           Connections "ja", bis er einen laufenden Plan hat. [PO-48]
 
   T-PO-49  [L] Wen sie nie trifft. "nein" und OK fuer Connections ohne
            Kunden und von Kunden der Rollen VIP, MODERATOR und ADMIN - auch
            wenn die Daten der Plaene nicht lesbar sind. [PO-49]
 
-  T-PO-50  [L] Unbekannt. (a) Gueltigkeit des Plans EINES Kunden nicht
-           lesbar: PLAN_UNKNOWN fuer seine Connections, die anderen Kunden
-           unveraendert. (b) Kunde mit plan_id, solange MOD-010 fehlt:
-           PLAN_UNKNOWN. (c) USER ohne plan_id bei nicht lesbaren Daten der
-           Plaene: OK und "ja". (d) Datenbank nicht lesbar: DB_UNKNOWN.
-           [PO-50]
+  T-PO-50  [L] Unbekannt. (a) Plan-Stand EINES Kunden nicht bestimmbar
+           (zwei ueberlappende Buchungen): PLAN_UNKNOWN fuer seine
+           Connections, die anderen Kunden unveraendert. (b) Buchungen
+           nicht lesbar: PLAN_UNKNOWN fuer die Kunden der Rolle USER; fuer
+           alle anderen OK und "nein". (c) MOD-010 nicht in Betrieb: OK
+           und "ja" mit NONE fuer jeden USER. (d) Datenbank nicht lesbar:
+           DB_UNKNOWN. [PO-50]
 
 ================================================================================
 CHANGELOG

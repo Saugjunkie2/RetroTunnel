@@ -16,7 +16,7 @@ ZWECK:
 
   AUFRUF: eine Liste von Keys und eine Liste von Bezuegen.
     Bezug CUSTOMER   ein Kunde: Ebenen AUSNAHME, PLAN (nur Rolle USER mit
-                     Plan), ROLLE
+                     laufendem Plan), ROLLE
     Bezug ROLE       eine Rolle: nur die Ebene ROLLE. Diesen Bezug hat
                      eine Connection OHNE Kunden; fuer sie gilt der
                      Standard ihrer eigenen Rolle
@@ -35,7 +35,8 @@ ZWECK:
     reason          fester Grund aus der Liste in BASE-100_070
                     Abschnitt 5; bei OK leer
     role            die Rolle, mit der aufgeloest wurde
-    plan_id         der Plan, mit dem aufgeloest wurde - oder leer
+    plan_key        der laufende Plan, mit dem aufgeloest wurde - oder
+                    leer
     role_default    der Standard der Rolle fuer diesen Key (Wert oder
                     "unbegrenzt", mit eigenem Zustand) - auch wenn eine
                     hoehere Ebene entschieden hat: fuer die Anzeige "was
@@ -73,9 +74,10 @@ ZWECK:
         Sonst scheitert der Aufruf als Ganzes (RIGHTS_UNKNOWN_KEY). Das
         ist ein Fehler des Programms, kein Zustand eines Keys.
   AF-3  LESEN. In einem Schnappschuss werden gelesen: je Kunde seine
-        Rolle und sein Plan (web_customers), die Ausnahmen der genannten
-        Kunden, die Standards der betroffenen Rollen und - fuer Kunden
-        der Rolle USER mit Plan - die Werte ihrer Plaene. Scheitert das
+        Rolle (web_customers) und - fuer Kunden der Rolle USER - sein
+        laufender Plan (Plan-Auskunft von MOD-010, dort PA-1), die
+        Ausnahmen der genannten Kunden, die Standards der betroffenen
+        Rollen und die Werte der vorkommenden Plaene. Scheitert das
         Lesen (keine Verbindung, Zeitlimit, Fehler der Datenbank), ist
         die Datenbank NICHT LESBAR: Jedes Ergebnis erhaelt den Zustand
         DB_UNKNOWN.
@@ -84,11 +86,12 @@ ZWECK:
   AF-5  KANDIDAT. Je Key und Kunde gilt die Zeile der ERSTEN Ebene, auf
         der eine Zeile VORHANDEN ist (DEC-PO-03):
           a) AUSNAHME: Gibt es eine Zeile, ist sie der Kandidat.
-          b) PLAN - nur wenn der Kunde die Rolle USER traegt und plan_id
-             gesetzt ist: Sind die Werte des Plans nicht lesbar (die
-             Ebene ist nicht eingerichtet, oder den Plan gibt es nicht),
-             ist der Zustand PLAN_UNKNOWN; Ende. Definiert der Plan den
-             Key, ist seine Zeile der Kandidat. Sonst weiter.
+          b) PLAN - nur fuer einen Kunden der Rolle USER: Ist sein
+             laufender Plan nicht lesbar oder nicht bestimmbar (die
+             Plan-Auskunft meldet es), oder sind die Werte des Plans
+             nicht lesbar, ist der Zustand PLAN_UNKNOWN; Ende. Hat er
+             keinen laufenden Plan: weiter. Definiert der Plan den Key,
+             ist seine Zeile der Kandidat. Sonst weiter.
           c) ROLLE: Gibt es die Zeile fuer die Rolle des Kunden, ist sie
              der Kandidat. Sonst: MISSING.
         Fuer den Bezug ROLE gilt nur c.
@@ -108,15 +111,20 @@ ZWECK:
           der Rolle fehlt oder der Plan nicht lesbar ist: Die erste
           vorhandene Ebene gilt. Der fehlende Standard bleibt ein
           gemeldeter Mangel (Prueflauf).
-    AB-2  PLAN BEI ANDERER ROLLE: Traegt ein Kunde, der nicht USER ist,
-          ein plan_id, wird die Ebene PLAN nicht befragt (DEC-PO-16 c).
-          Der Widerspruch zu BASE-010 INV-41 wird gemeldet
-          (RIGHTS_ROLE_PLAN_MISMATCH).
+    AB-2  PLAN BEI ANDERER ROLLE: Fuer einen Kunden, der nicht USER ist,
+          wird die Ebene PLAN nicht befragt (DEC-PO-16 c) - auch wenn es
+          fuer ihn eine Buchung gaebe. Diesen Widerspruch (MOD-010
+          DEC-PL-12) meldet der Prueflauf (RIGHTS_ROLE_PLAN_MISMATCH).
     AB-3  ZEILE ZU EINEM UNBEKANNTEN KEY: Sie wird nie gelesen (kein
           Aufruf kann sie nennen) und vom Prueflauf gemeldet.
     AB-4  DER STATUS DES KUNDEN SPIELT KEINE ROLLE: Aufgeloest wird auch
           fuer einen gesperrten oder noch nicht bestaetigten Kunden. Ob
           er etwas tun darf, entscheidet der Vorgang, der fragt.
+    AB-5  NACH DEM ABLAUF IST DIE EBENE PLAN LEER: Ein abgelaufener Plan
+          liefert keine Werte mehr. Es gelten die Ausnahmen des Kunden,
+          sonst die Standards der Rolle USER (DEC-PO-18 f). Dasselbe
+          gilt, solange MOD-010 nicht in Betrieb ist: Der Zustand ist
+          OK, nicht PLAN_UNKNOWN.
 
 ================================================================================
 3) WAS DER VERBRAUCHER MIT DEM ERGEBNIS TUT
@@ -191,7 +199,9 @@ ZWECK:
 ================================================================================
 
   Ein Aufruf fuer viele Kunden liest
-    - Rolle und Plan der genannten Kunden in einer Abfrage,
+    - die Rolle der genannten Kunden in einer Abfrage und ihre
+      laufenden Plaene ueber die Plan-Auskunft (feste Zahl von
+      Abfragen; MOD-010),
     - ihre Ausnahmen fuer die genannten Keys in einer Abfrage,
     - die Standards der vier Rollen fuer die genannten Keys in einer
       Abfrage (hoechstens vier Zeilen je Key),

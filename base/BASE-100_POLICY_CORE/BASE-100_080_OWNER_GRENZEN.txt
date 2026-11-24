@@ -39,18 +39,19 @@ ZWECK:
   Was geschieht, wenn ein Limit erreicht ist:         BASE-080 (Bewerter,
   Bewertung, Zielzustand, Herstellung im Kernel       Herstellung)
   Statusuebergaenge, Gruende, Fristen; die Felder     BASE-010
-  einer Connection und eines Kunden; Rolle und
-  plan_id am Kunden
+  einer Connection und eines Kunden; die Rolle am
+  Kunden
   Buchung des Verbrauchs, Quota-Periode,              BASE-070
   log_quota_period, SimUse
   Was eine eingeschraenkte Connection erreicht;       BASE-050 (BASE-060
   DNS-Zwang, Filter, Sperren, Trennung der Clients    fuer DNS)
   Betriebsparameter (Fristen, Takte, Schwellen)       BASE-090 und das
                                                       Modul des Keys
-  Plaene: Tabelle, Laufzeit, Preis, Zuweisung,        MOD-010
-  Wechsel, Auffuellen, Regel des Plan-Limits
+  Plaene: Tabelle, Laufzeit, Preis, Buchung,          MOD-010
+  Plan-Stand, Wechsel, Auffuellen, Regel des
+  Plan-Limits
   Laufzeit einer Connection (expiry_date)             BASE-010 (Feld);
-                                                      MOD-010 (Werte)
+                                                      Verwaltung (Wert)
   Geschwindigkeit, Formung                            MOD-003
   Claim, Fristen ohne Claim, Selbstbedienung          MOD-001
   Oberflaeche, erneute Anmeldung, privilegierter      BASE-110, MOD-006
@@ -165,21 +166,24 @@ ZWECK:
        Kennung des Kunden, wo sie fuer einen Kunden entsteht
        (BASE-010_060 kennt heute kein Ereignis fuer die Anlage). Es
        dient der Rate (BASE-100_040 RT-4) und dem Verlauf.
-    d) Beim Rollenwechsel auf eine andere Rolle als USER endet der Plan
-       des Kunden in derselben Transaktion (INV-41).
+    d) Beim Rollenwechsel auf eine andere Rolle als USER enden die
+       Buchungen des Kunden in derselben Transaktion (MOD-010
+       DEC-PL-12).
     e) BASE-010_070 fuehrt das Loeschen einer Connection durch den
        Kunden nicht als Uebergang, INV-64 setzt es voraus
        (SM_CONNECTION 5.6). Dort zu klaeren; fuer die Zaehlung gilt: Was
        widerrufen ist, zaehlt nicht mehr (BASE-100_040 ZR-4).
-    f) NEUER GRUND RESTRICT_PLAN_MISSING in vpn_reason_registry
-       (BASE-010_050), mit Uebergaengen und Tests wie die anderen
-       berechneten Gruende (DEC-PO-18). Vorschlag: Rang unmittelbar VOR
-       RESTRICT_PLAN_LIMIT_EXCEEDED (ohne gueltigen Plan stellt sich die
-       Frage nach seinem Limit nicht); Finalisierung wie
-       RESTRICT_EXPIRY_PASSED. Rang und Fristen legt der Owner fest.
-    g) BASE-010_010 beschreibt plan_id mit "NULL = kein Plan (nur
-       Rollen-Defaults)": um den Verweis auf die Plan-Pflicht zu
-       ergaenzen (DEC-PO-18).
+    f) ZWEI NEUE GRUENDE in vpn_reason_registry (BASE-010_050), mit
+       Uebergaengen und Tests wie die anderen berechneten Gruende
+       (DEC-PO-18; MOD-010 DEC-PL-09, DEC-PL-10): RESTRICT_PLAN_MISSING
+       (nie ein Plan gebucht) und RESTRICT_PLAN_EXPIRED (abgelaufen).
+       Vorschlag: Rang unmittelbar VOR RESTRICT_PLAN_LIMIT_EXCEEDED
+       (ohne gueltigen Plan stellt sich die Frage nach seinem Limit
+       nicht); Finalisierung zu DISABLE_PLAN_MISSING_TIMEOUT und
+       DISABLE_PLAN_EXPIRED_TIMEOUT wie bei RESTRICT_EXPIRY_PASSED. Rang
+       und Fristen legt der Owner fest.
+    g) Das Feld web_customers.plan_id entfaellt; INV-41 und CI-08 gelten
+       kuenftig fuer Buchungen (MOD-010 DEC-PL-04, DEC-PL-12).
 
   ANF-PO-03 (BASE-070)
     a) Die Auskunft AK-2 liest quota_used, quota_period_start und
@@ -211,13 +215,15 @@ ZWECK:
        Bewertungskern - eine abgelehnte Wiederherstellung aendert nichts.
     f) FOLGEAUFRUF nach einer geaenderten Ausnahme: Aufrufart A3 fuer den
        Kunden, ueber den privilegierten Auftragsweg (BASE-100_060 NF-2).
-    g) PLAN-PFLICHT (DEC-PO-18): neue Zeile in den Bedingungsquellen
-       (BASE-080_020 Abschnitt 2) - Grund RESTRICT_PLAN_MISSING, aktiv,
-       wenn die Auskunft AK-6 "ja" meldet; AK-6 in den Vertrag der
-       Auskuenfte aufnehmen (unbekannt nach AK-4). AUSSETZEN: die
-       Quelle PLAN_MISSING in den Wertevorrat von
-       vpn_policy_eval_sources_off aufnehmen (AK-5) - fuer die Zeit,
-       bevor MOD-010 in Betrieb ist. Beim Rollenwechsel zeigt RC1, ob
+    g) PLAN-PFLICHT (DEC-PO-18): zwei neue Zeilen in den
+       Bedingungsquellen (BASE-080_020 Abschnitt 2) aus EINER Quelle -
+       aktiv, wenn die Auskunft AK-6 "ja" meldet: bei plan_state NONE
+       der Grund RESTRICT_PLAN_MISSING, bei EXPIRED der Grund
+       RESTRICT_PLAN_EXPIRED; AK-6 in den Vertrag der Auskuenfte
+       aufnehmen (unbekannt nach AK-4). AUSSETZEN: die Quelle
+       PLAN_REQUIRED in den Wertevorrat von vpn_policy_eval_sources_off
+       aufnehmen (AK-5) - fuer die Zeit, bevor MOD-010 in Betrieb ist;
+       sie setzt beide Gruende aus. Beim Rollenwechsel zeigt RC1, ob
        der Kunde nach dem Wechsel auf USER ohne gueltigen Plan
        eingeschraenkt waere; RC3 f bewertet es mit.
 
@@ -230,7 +236,7 @@ ZWECK:
     b) vpn_disabled_connection_buffer: Eigentuemer BASE-100.
     c) Neuer Key policy_check_interval_seconds mit den Angaben aus
        BASE-100_070 Abschnitt 3.
-    d) vpn_policy_eval_sources_off: den Wertevorrat um PLAN_MISSING
+    d) vpn_policy_eval_sources_off: den Wertevorrat um PLAN_REQUIRED
        erweitern (mit BASE-080, ANF-PO-04 g; DEC-PO-18).
 
   ANF-PO-06 (BASE-110, MOD-006)
@@ -246,10 +252,10 @@ ZWECK:
        abgelehnten Zulassung die Meldung mit den Zahlen der Auskunft BA.
     e) MODERATOR: nur lesend.
     f) PLAN-PFLICHT (DEC-PO-18): Dem Kunden ohne gueltigen Plan zeigt
-       das Panel, dass und warum er eingeschraenkt ist, und den Weg zu
-       einem Plan. Der Verwaltung zeigt es die Zahl der Kunden ohne
-       gueltigen Plan (Auskunft AK-6) - auch bevor eine Aussetzung
-       endet.
+       das Panel, dass und warum er eingeschraenkt ist - nie gebucht
+       oder abgelaufen -, und den Weg zu einem Plan. Der Verwaltung
+       zeigt es die Zahl der Kunden ohne gueltigen Plan (Auskunft AK-6)
+       - auch bevor eine Aussetzung endet.
 
   ANF-PO-07 (MOD-010)
     Die Nahtstelle aus BASE-100_050 Abschnitt 6: Tabelle der Plaene;
@@ -257,11 +263,14 @@ ZWECK:
     des Kontingents je Plan (NP-5); Regel des Plan-Limits (NP-6);
     Planwechsel und Auffuellen rufen die Bewertung; ob ein Auffuellen
     eine Ausnahme oder ein eigener Gegenstand ist (OPEN-PO-05).
-    PLAN-PFLICHT (DEC-PO-18): je Kunde die Antwort "gueltig oder
-    abgelaufen" (NP-10); Zuweisung, Entzug und Ende eines Plans rufen
-    die Bewertung; der Weg zu einem Plan ist fuer einen eingeschraenkten
-    Kunden erreichbar (Panel als interner Dienst); die Zuweisung der
-    Plaene an Bestandskunden, bevor eine Aussetzung der Pflicht endet.
+    PLAN-PFLICHT (DEC-PO-18): je Kunde der laufende Plan und der
+    Plan-Stand (NP-10); jeder Vorgang, der sie aendert, ruft die
+    Bewertung; der Weg zu einem Plan ist fuer einen eingeschraenkten
+    Kunden erreichbar (Panel als interner Dienst); die Buchung der
+    Plaene fuer Bestandskunden, bevor eine Aussetzung der Pflicht endet.
+    STAND (2026-11-24): MOD-010 ist begonnen und hat dies in seinem
+    Planmodell entschieden (MOD-010_010: DEC-PL-04, -06, -07, -09, -14,
+    -15, -17); die Dateien mit Tabellen und Ablaeufen stehen aus.
 
   ANF-PO-08 (MOD-007)
     Aufbewahrung von log_policy_audit (nur der Aufbewahrungslauf
@@ -325,8 +334,10 @@ ZWECK:
   OPEN-PO-02  NACHZUEGE an den geschriebenen Modulen (ANF-PO-01 bis
               ANF-PO-05) stehen aus. Bis dahin gilt fuer Rechte und
               Limits bei einem Unterschied dieses Modul.
-  OPEN-PO-03  PLAENE: die Eingaben nach BASE-100_050 NP-5, NP-6 und
-              NP-10 (MOD-010). Bis dahin traegt kein Kunde einen Plan.
+  OPEN-PO-03  PLAENE: Die Eingaben nach BASE-100_050 NP-5, NP-6 und
+              NP-10 sind im Planmodell von MOD-010 entschieden (dort
+              DEC-PL-14, DEC-PL-15); geliefert werden sie, wenn MOD-010
+              fertig ist. Bis dahin hat kein Kunde einen laufenden Plan.
   OPEN-PO-04  SELBSTBEDIENUNG UND EIGENES LOESCHEN sind in BASE-010 nicht
               ausgearbeitet (ANF-PO-02 e; BASE-010_070 Weg B). Rate und
               Kundendeckel sind dafuer ausgelegt, wirken aber erst mit
@@ -335,16 +346,17 @@ ZWECK:
               die Verwaltung sie aendert oder loescht; eine Ausnahme mit
               Ablauf gibt es nicht. Ob ein zusaetzliches Volumen fuer
               die laufende Periode eine Ausnahme ist oder ein eigener
-              Gegenstand, entscheidet MOD-010.
+              Gegenstand, entscheidet MOD-010 (dort OPEN-PL-03: als
+              eigener Gegenstand, wenn der Betreiber es anbieten will).
   OPEN-PO-06  FORM DER KATALOG-DEFINITION (Dateiformat, kanonische Form
               fuer die Pruefsumme): Sache der Umsetzung, gemeinsam mit
               BASE-090 (dort OPEN-ST-03).
-  OPEN-PO-07  PLAN-PFLICHT (DEC-PO-18): Der Grund RESTRICT_PLAN_MISSING
-              (BASE-010, ANF-PO-02 f), die Zeile der Bedingungsquellen
-              und die Quelle PLAN_MISSING (BASE-080, ANF-PO-04 g;
-              BASE-090, ANF-PO-05 d) und die Gueltigkeit eines Plans
-              (MOD-010, NP-10) stehen aus. Bis dahin setzt kein Programm
-              die Pflicht durch.
+  OPEN-PO-07  PLAN-PFLICHT (DEC-PO-18): Die Gruende RESTRICT_PLAN_MISSING
+              und RESTRICT_PLAN_EXPIRED (BASE-010, ANF-PO-02 f), die
+              Zeilen der Bedingungsquellen und die Quelle PLAN_REQUIRED
+              (BASE-080, ANF-PO-04 g; BASE-090, ANF-PO-05 d) und die
+              Plan-Auskunft (MOD-010, NP-10) stehen aus. Bis dahin setzt
+              kein Programm die Pflicht durch.
 
 ================================================================================
 9) VERBLEIB VON DOMAIN_MODEL ABSCHNITT 6 UND VON D003
@@ -384,10 +396,14 @@ ZWECK:
   6.6 SimUse                           BASE-070_030
   6.7 Interim-Regelung                 DEC-PO-15
   6.8 Plaene                           BASE-100_050 Abschnitt 6; MOD-010
+                                       (Planmodell: MOD-010_010)
   6.8 "NULL = kein Plan, nur           ANGEPASST durch Entscheidung des
   Rollen-Defaults"                     Betreibers (BM-0027, BM-0028):
                                        gilt fuer die Werte; Internet nur
                                        mit gueltigem Plan (DEC-PO-18)
+  6.8 "customers.plan_id (FK auf       ERSETZT: Der Plan gehoert weiter
+  plans)"                              zum Kunden, steht aber in der
+                                       Buchung (MOD-010 DEC-PL-04)
   D003-E01                             DEC-PO-01
   D003-E02                             BASE-010; hier DEC-PO-14 (Ausnahme
                                        beim Rollenwechsel)
