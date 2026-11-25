@@ -320,7 +320,8 @@ ZWECK:
          erledigt werden darf.
          ANGEFORDERT WIRD JE ANWEISUNG EINMAL: nur solange attempts = 0
          ist. Mit der Anforderung bucht der Lauf attempts := 1 und
-         last_try_at - NUR mit dem Vergleich revision = :gelesen; trifft
+         last_try_at - NUR mit dem Vergleich revision = :gelesen und
+         ohne den Zaehler zu erhoehen; trifft
          die Buchung nicht, fordert der naechste Durchgang erneut an
          (es bleibt bei EINER Anforderung). Jede Fortschreibung setzt
          attempts auf 0 (W-3): Eine neue Anweisung fordert neu an.
@@ -383,7 +384,13 @@ ZWECK:
          Pruefungen von V0; die Zahl in Folge waechst dabei um 1), und
          sein ENDE mit dem Ergebnis (Ergebnis 0: Zahl 0). Ein Lauf, der
          abbricht, ohne sein Ende festzuhalten, zaehlt so als nicht
-         fehlerfrei; der Abstand zaehlt dann von seinem Beginn.
+         fehlerfrei. SEIN ENDE TRAEGT NACH, WER DEN ABBRUCH FESTSTELLT:
+         Findet der Auftragslauf oder ein Start des Abgleichs einen
+         Beginn ohne Ende vor, waehrend kein Lauf den Lauf-Lock haelt,
+         traegt er als Ende den Zeitpunkt dieser Feststellung ein
+         (Ergebnis ABGEBROCHEN). Der Abstand zaehlt von dort, nicht vom
+         Beginn: Sonst folgte auf einen Lauf, der erst an seinem
+         Zeitlimit endet, sofort der naechste.
          NIE ZWEI STARTS OHNE BEGINN: Der Auftragslauf haelt jeden
          Start, den er ausloest, in seiner Statusdatei fest (AL8). Nennt
          die Statusdatei des Abgleichs danach weder einen neueren Beginn
@@ -408,6 +415,11 @@ ZWECK:
          auch einer, der immer wieder in V0 endet oder abbricht -,
          laeuft zuletzt im Takt und nie in jedem Durchgang. Die Zahl der
          Anforderungen ist durch die Zahl der Anlaesse begrenzt.
+         SCHEITERT SCHON DER START der Unit, bevor ein Beginn
+         festgehalten ist, gibt es keinen Lauf: Den Auftragslauf
+         begrenzt dann NIE ZWEI STARTS OHNE BEGINN; der eigene Zeitgeber
+         des Abgleichs stoesst weiter in seinem Raster an, und der
+         ausbleibende Lauf ist gemeldet (POLICY_RECONCILE_OVERDUE).
          DIE REGEL GILT FUER JEDEN START: Der Abgleich prueft Takt,
          SOFORT und ABSTAND bei seinem Beginn selbst (BASE-080_040
          Abschnitt 2 und Schritt V0) - gleich ob ihn der Auftragslauf,

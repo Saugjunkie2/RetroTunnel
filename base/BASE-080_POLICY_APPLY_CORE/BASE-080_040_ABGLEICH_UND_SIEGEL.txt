@@ -79,9 +79,9 @@ ZWECK:
 
   FAELLIGKEIT: Ein Abgleich ist faellig,
     - wenn der TAKT abgelaufen ist. Kam der letzte Lauf nicht zu Ende
-      (Ende in V0, Abbruch), zaehlt der Takt von SEINEM Beginn laut
+      (Ende in V0, Abbruch), zaehlt der Takt von SEINEM ENDE laut
       Statusdatei - sonst liefe ein Abgleich, der immer wieder in V0
-      endet, in jedem Raster seines Zeitgebers;
+      endet oder an seinem Zeitlimit abbricht, Lauf an Lauf;
     - SOFORT, wenn eine neue Anforderung eines einzelnen Ereignisses
       liegt (recover, db-return, wg-restart, total);
     - NACH DEM ABSTAND, wenn eine Anforderung no-order oder eine in
@@ -163,7 +163,10 @@ ZWECK:
       kein Lauf - vermerkt wird nur der Zeitpunkt der Pruefung
       (Abschnitt 9). Ist die Datenbank dabei nicht lesbar,
       rechnet der Abgleich mit dem Notwert des Takts (BASE-080_070
-      Abschnitt 3). Ist er faellig, haelt er seinen BEGINN in der
+      Abschnitt 3). Fehlt die Statusdatei oder ist sie nicht lesbar,
+      kennt er den Abstand nicht und prueft nur den Takt (nach der
+      Marke) und SOFORT; kann er auch den Takt nicht pruefen, gilt er
+      als faellig. Ist er faellig, haelt er seinen BEGINN in der
       Statusdatei fest (Abschnitt 9) und nimmt die Anforderungen an
       sich (Abschnitt 2).
       Datenbank lesbar, sonst Ende mit Code 2 ohne Wirkung.
@@ -511,15 +514,18 @@ ZWECK:
               neu gestartet), bis zu einer Stunde lang jede Korrektur
               an L2TP auf.
               PRUEFEN UND VORMERKEN IN EINEM SCHRITT: Wer als Korrektur
-              ohne Auftrag beenden will, meldet dem Kern die ZAHL
+              ohne Auftrag beenden will, meldet dem Kern die SITZUNGEN
               vorher an (der Abgleich in Schritt V1 d). Der Kern prueft
               unter seinem eigenen Lock, ob sie zusammen mit dem
-              Fenster unter beiden Schwellen bleibt, und traegt sie im
-              selben Schritt ein - oder lehnt ab; dann haelt die
+              Fenster unter beiden Schwellen bleiben, und traegt sie im
+              selben Schritt ein - oder lehnt alle ab; dann haelt die
               Bremse. Eine Vormerkung zaehlt auch, wenn das Beenden
-              danach entfaellt oder scheitert (streng). Ohne das
-              prueften zwei Wege ohne gemeinsamen Lock denselben Stand
-              und beendeten zusammen bis zum Doppelten der Schwellen.
+              danach entfaellt oder scheitert (streng). JEDE SITZUNG
+              ZAEHLT IM FENSTER EINMAL: Wird dieselbe Sitzung erneut
+              angemeldet - etwa weil ihr Beenden gescheitert ist -,
+              waechst die Zahl nicht. Ohne die Vormerkung prueften zwei
+              Wege ohne gemeinsamen Lock denselben Stand und beendeten
+              zusammen bis zum Doppelten der Schwellen.
               WAS SICH GEGENUEBER HEUTE AENDERT (offen ausgewiesen):
               Heute zaehlt L7a alle Kandidaten EINES Laufs zusammen und
               haelt bei 16 von ihnen (Schwelle 10) ALLE zurueck. Kuenftig
@@ -697,7 +703,12 @@ ZWECK:
   Endes (festgehalten in V0), sein ENDE mit dem Ergebniscode und die
   ZAHL der Laeufe in Folge, die nicht mit Ergebnis 0 endeten - sie
   waechst am Beginn um 1 und faellt nur durch ein Ende mit Ergebnis 0
-  auf null. Ein Lauf ohne festgehaltenes Ende ist abgebrochen. Ein
+  auf null. Ein Lauf ohne festgehaltenes Ende ist abgebrochen:
+  Erreicht das Werkzeug sein Zeitlimit selbst, haelt es sein Ende noch
+  fest. Nach einem harten Ende traegt es nach, wer den Abbruch
+  feststellt - der Auftragslauf oder der naechste Start, sobald kein
+  Lauf mehr den Lauf-Lock haelt: Ergebnis ABGEBROCHEN, als Ende der
+  Zeitpunkt der Feststellung. Ein
   Start, der an der Faelligkeit endet, laesst Beginn, Ende und Zahl
   unberuehrt; er haelt allein den ZEITPUNKT SEINER PRUEFUNG fest. Daran
   erkennt der Auftragslauf, dass ein von ihm ausgeloester Start
