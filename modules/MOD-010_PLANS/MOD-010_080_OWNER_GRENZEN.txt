@@ -1,0 +1,388 @@
+================================================================================
+MOD-010 — OWNER-GRENZEN, ANFORDERUNGEN, ANNAHMEN, OFFENE PUNKTE
+================================================================================
+DATEI: MOD-010_080_OWNER_GRENZEN.txt
+STATUS: IN ARBEIT (AP-M010; Modul noch unvollstaendig)
+
+ZWECK:
+  Was dem Plan-Modul gehoert und was nicht; was es von den Nachbarn
+  braucht - im Wortlaut -; was gilt, solange sie es noch nicht liefern;
+  worauf es sich verlaesst; was offen ist.
+
+================================================================================
+1) WAS DIESEM MODUL GEHOERT
+================================================================================
+
+  Tabellen      die zwoelf Tabellen aus MOD-010_020 Abschnitt 1
+  Schreiber     der Buchungskern (MOD-010_030 Abschnitt 3) - einziger
+                Schreiber dieser Tabellen
+  Auskunft      die Plan-Auskunft PA-1 bis PA-5 und die Listen
+                (MOD-010_060)
+  Regeln        Laufzeit (LZ-), Kette (BU-), Bestellung und Zahlung
+                (BE-, ZA-, CD-, VT-), Zusatzvolumen (ZV-), Regel des
+                Plan-Limits (LI-), Nachrichten (ER-)
+  Lauf          vpn-plan-run; Werkzeug vpn-plan
+  Einstellungen die sieben Keys policy_plan_... (MOD-010_070 Abschnitt 6)
+  Ereignisse    PLAN_... (MOD-010_070 Abschnitt 4)
+  Anlass und    der Nachrichten E-1 bis E-6 (nicht ihr Versand)
+  Inhalt
+
+================================================================================
+2) WAS DIESEM MODUL NICHT GEHOERT
+================================================================================
+
+  Rechte und Limits, ihre Aufloesung, policy_plan_values,  BASE-100
+  Schreibkern der Werte, Auskuenfte AW, BA, AK-1, AK-2,
+  AK-6
+  Bewertung, Zielzustand, Finalisierung (Freigabe),        BASE-080
+  Schutz vor Massenfolgen, Aussetzen einer Bedingung
+  Status, Gruende, Fristen und Fenster einer Connection;   BASE-010
+  Kundenkonto, Rolle; Claim, Rollenwechsel, Loeschung
+  Buchung des Verbrauchs, Quota-Periode, Zuruecksetzen     BASE-070
+  als Vorgang an den Zaehlern, Verzeichnis der Marken
+  Was eine eingeschraenkte Connection erreicht             BASE-050, MOD-002
+  Katalog der Einstellungen, Aufloeser, Klassen            BASE-090
+  Privilegierter Auftragsweg, erneute Anmeldung, Panel,    BASE-110, MOD-006
+  Versand von E-Mails, Vorlagen
+  Registrierung und Claim im Einzelnen                     MOD-001
+  Geschwindigkeit                                          MOD-003
+  Meldeweg, Aufbewahrung                                   MOD-007
+  Datensicherung                                           MOD-008
+  Einloesen einer Karte, Geldeingang, Belege               ausserhalb des
+                                                           Systems (NA-03)
+
+  OG-1  DIESES MODUL SCHREIBT KEINE FREMDE TABELLE - auch nicht
+        vpn_connections (kein Status, kein Grund, keine Frist, nie
+        expiry_date), web_customers oder policy_plan_values.
+  OG-2  ES LIEST FREMDE DATEN NUR UEBER DEREN AUSKUENFTE - mit zwei
+        Ausnahmen, die der Kern in seiner Transaktion braucht: Rolle
+        und Status des Kunden (web_customers) unter der Sperre seiner
+        Zeile, und ob eine Connection dem Kunden gehoert bzw. ohne
+        Kunden und nicht widerrufen ist (fuer Zusatzvolumen und
+        Gutschrift).
+
+================================================================================
+3) ANFORDERUNGEN AN DIE NACHBARN
+================================================================================
+
+  ANF-PL-01 (BASE-000)
+    a) Die zwoelf Tabellen aus MOD-010_020 Abschnitt 1 in die Registry
+       aufnehmen (Zonen policy_, web_, log_).
+    b) Rechte: Fuer diese Tabellen gilt MOD-010_070 Abschnitt 5 - der
+       Webprozess liest nur und hat auf web_plan_payment_codes kein
+       Recht. BASE-000_010 Abschnitt 2 gibt ihm fuer web_ und policy_
+       allgemein alle vier Rechte; "Exakte per-Tabelle GRANTs:
+       jeweilige Base-Module" ist dort um die Module zu ergaenzen.
+    c) policy_plan_values: Der Vermerk "[GEPLANT, MOD-010]" in der
+       Registry der Zone policy_ ist zu berichtigen - die Tabelle
+       gehoert BASE-100 (BASE-100_020 Abschnitt 5).
+
+  ANF-PL-02 (BASE-010)
+    a) Das Feld web_customers.plan_id ENTFAELLT (DEC-PL-04); BASE-010_010
+       nennt es als "Aktiver Plan" mit einem Verweis auf eine Tabelle
+       "plans". INV-41 und CI-08 heissen kuenftig: Buchungen gibt es nur
+       fuer Kunden der Rolle USER. Dieselbe Anforderung stellt BASE-100
+       (ANF-PO-02 g). BASE-010_080 fuehrt plan_id in der Matrix der
+       Schreibwege; die Zeile entfaellt.
+    b) ZWEI GRUENDE im Verzeichnis der Gruende - RESTRICT_PLAN_MISSING
+       und RESTRICT_PLAN_EXPIRED - mit ihrer Finalisierung zu
+       DISABLE_PLAN_MISSING_TIMEOUT und DISABLE_PLAN_EXPIRED_TIMEOUT:
+       nicht wiederherstellbar, mit sofortigem Widerruf, wie die
+       uebrigen Fristgruende (DEC-PL-09, DEC-PL-10; gestellt auch von
+       BASE-100, ANF-PO-02 f). Vorschlag dieses Moduls fuer die Fenster:
+       30 Tage (MISSING), 90 Tage (EXPIRED). Rang, Fenster und
+       Aenderungsweg legt der Owner fest.
+    c) CLAIM MIT GUTSCHRIFT: Die Routine T-01 ruft in IHRER Transaktion
+       den Buchungskern (Vorgang "Gutschrift einloesen"), nachdem der
+       Kunde feststeht und BEVOR sie das Budget prueft. Lehnt der Kern
+       ab, scheitert der Claim als Ganzes (MOD-010_030 Regel GU-2).
+    d) ROLLENWECHSEL UND LOESCHUNG: Die Routine T-09 und der Weg, der
+       einen Kunden als geloescht fuehrt, rufen in ihrer Transaktion
+       den Buchungskern (MOD-010_030 Regeln RW-1 bis RW-3). Die
+       Vorpruefung des Rollenwechsels zeigt, welche Buchungen enden.
+    e) expiry_date: BASE-010_080 nennt als Schreiber "Policy/Plan-
+       Engine". Dieses Modul schreibt das Feld nie (DEC-PL-09); es
+       bleibt bei SYSTEM und ADMIN.
+    f) DIE SPERRE DER KUNDENZEILE (SELECT ... FOR UPDATE auf
+       web_customers) ist die gemeinsame Sperre von Budgetpruefung
+       (BASE-100), Rollenwechsel (BASE-080_060) und Buchungskern; die
+       Reihenfolge der Sperren aus BASE-080_050 gilt auch hier.
+
+  ANF-PL-03 (BASE-070)
+    a) ZURUECKSETZEN DES VERBRAUCHS als Routine, die der Buchungskern
+       als Baustein SEINER Transaktion ruft - im Uebrigen wie von
+       BASE-100 verlangt (BASE-100_080 ANF-PO-03 e). Sie liefert je
+       Connection den festgehaltenen Stand zurueck (fuer das Protokoll
+       dieses Moduls).
+    b) Die Routine, die zu einem Zeitpunkt die Quota-Periode und den
+       Geschaeftstag bestimmt (BASE-070_050 Abschnitt 5), ist fuer
+       dieses Modul benutzbar; ebenso der Nachweis der bestaetigten
+       Zeit (BASE-070_070 Abschnitt 2, U-5).
+    c) Die Marken plan_run_last_run_at und plan_run_last_ok_at in das
+       Verzeichnis der Marken aufnehmen (BASE-070_070 Regel M-5).
+    d) BASE-040_050 und BASE-070_010 nennen dieses Modul neben BASE-070
+       fuer "Quota bewerten" und "Monatsreset". Richtig ist: Dieses
+       Modul bewertet kein Kontingent und wechselt keine Periode; es
+       loest allein das Zuruecksetzen aus (a).
+
+  ANF-PL-04 (BASE-080)
+    a) BEDINGUNGSQUELLE PLAN-STAND mit den zwei Gruenden - wie von
+       BASE-100 verlangt (BASE-100_080 ANF-PO-04 g).
+    b) FOLGEAUFRUF: Nach einem Vorgang des Buchungskerns wird die
+       Bewertung fuer den Kunden gerufen (vpn-policy-eval
+       --customer-id) - ueber den privilegierten Auftragsweg, mit dem
+       Urheber als Akteur, wenn eine Person gehandelt hat (BASE-080
+       ANF-PA-11 f). Unterbleibt er, holt der Lauf nach.
+    c) FINALISIERUNG der zwei Gruende nach ihrem Fenster, unter dem
+       Schutz vor unumkehrbaren Massenfolgen (DEC-PL-10 d).
+    d) AUSSETZEN: die Quelle PLAN_REQUIRED, bis dieses Modul in Betrieb
+       ist und die Bestandskunden gebucht sind (DEC-PL-17).
+    e) AUSKUNFT "ANSTEHENDE FREIGABE": je Kunde der frueheste Zeitpunkt,
+       zu dem eine seiner Connections wegen eines der zwei Gruende
+       finalisiert wuerde - mengenweise, ohne Nebenwirkung. Dieses
+       Modul braucht sie fuer die Warnung E-3 (MOD-010_050 Regel
+       ER-10).
+    f) BASE-080 ANF-PA-10 nennt dieses Modul fuer den Planwechsel bei
+       der Formungsvorgabe. Antwort: Geschwindigkeit ist noch kein
+       Merkmal eines Plans; dieses Modul aendert keine Formungsvorgabe
+       (OPEN-PL-08).
+
+  ANF-PL-05 (BASE-100)
+    a) Die Nahtstelle aus BASE-100_050 Abschnitt 6 ist mit MOD-010_060
+       gefuellt (NP-4 bis NP-11); das Zusatzvolumen ist in BASE-100
+       v1.6 aufgenommen.
+    b) VORSCHAU DER WERTE EINES PLANS: je Key der Wert, der fuer einen
+       Kunden der Rolle USER mit diesem Plan und ohne Ausnahme gaelte
+       (Plan-Wert, sonst Standard der Rolle) - fuer das Angebot im
+       Panel. Die Auskunft AW kennt heute nur die Bezuege CUSTOMER und
+       ROLE.
+    c) Der Schreibkern von BASE-100 schreibt die Werte eines Plans auf
+       der Ebene PLAN (NP-2); die Einrichtung dieses Moduls ruft ihn
+       fuer die ersten Plaene (MOD-010_070 Regel EB-2).
+    d) "MOD-010 IN BETRIEB" (BASE-100_050 NP-9): Der Uebergang ist der
+       Abschluss der Einrichtung dieses Moduls (MOD-010_060 Abschnitt
+       6); wie BASE-100 ihn feststellt, legt es fest.
+
+  ANF-PL-06 (BASE-110, MOD-006)
+    a) PRIVILEGIERTER AUFTRAGSWEG fuer die Vorgaenge des Buchungskerns
+       und die Listen - mit festem Schema, numerischen Kennungen und
+       dem Urheber. Vorgaenge der Rolle ADMIN als Klasse C mit erneuter
+       Anmeldung (MOD-010_070 Regel WK-2).
+    b) DER CODE: Der Auftragsweg reicht den eingereichten Code an den
+       Kern weiter und haelt ihn nirgends fest; das Formular des Panels
+       haelt ihn nicht im Verlauf, in der Sitzung oder in einem
+       Protokoll des Webservers (Anfragen mit Code nur als Inhalt der
+       Anfrage, nie in der Adresse). Ansehen kann ihn nur ADMIN, je
+       Zahlung einzeln.
+    c) ANZEIGE nach DEC-PL-16 und den Abschnitten "Panel-Consumability"
+       dieses Moduls; nichts wird im Panel berechnet. MODERATOR liest
+       ohne Codes; der Kunde sieht nur Eigenes.
+    d) E-MAIL: Das E-Mail-System nimmt Nachrichten aus web_plan_notices
+       entgegen (Vorlage, Empfaenger, Angaben), versendet sie und
+       haftet fuer Zustellung und Wiederholung. Die Vorlagen E-1 bis
+       E-6 gehoeren zur Oberflaeche; keine nennt einen Code.
+    e) DER WEG ZUM PLAN IST EINGESCHRAENKT ERREICHBAR: Bestellung und
+       Code-Eingabe liegen im Panel, das eine eingeschraenkte
+       Connection erreicht (BASE-010_070 Abschnitt 2).
+
+  ANF-PL-07 (MOD-001)
+    Der Claim einer Connection mit Gutschrift (ANF-PL-02 c); nach der
+    Registrierung zeigt das Panel dem neuen Kunden seinen Plan-Stand und
+    den Weg zur Bestellung.
+
+  ANF-PL-08 (BASE-090)
+    Die sieben Keys aus MOD-010_070 Abschnitt 6 in den Katalog
+    aufnehmen (Klasse, Notwert und Richtung wie dort beantragt).
+
+  ANF-PL-09 (MOD-007)
+    Meldeweg der Ereignisse PLAN_...; Aufbewahrung von log_plan_audit
+    und web_plan_notices und der abgeschlossenen Bestellungen und
+    Zahlungen (MOD-010_070 Abschnitt 9); die Ueberwachung des Laufs
+    (PLAN_RUN_OVERDUE).
+
+  ANF-PL-10 (MOD-008)
+    Sicherungsumfang: die zwoelf Tabellen dieses Moduls und der
+    Schluessel des Pruefwerts. Hinweis: Sicherungen enthalten die Codes
+    ungepruefter Zahlungen (MOD-010_040 Regel CD-6). Nach einer
+    Wiederherstellung laeuft die Bestandspruefung (MOD-010_070 Abschnitt
+    8).
+
+  ANF-PL-11 (BASE-050, MOD-002)
+    Das Panel gehoert zu den internen Diensten, die eine eingeschraenkte
+    Connection erreicht (heute so: BASE-010_070 Abschnitt 2). Daran
+    haengt, dass ein Kunde ohne laufenden Plan bestellen kann (SZ-3).
+
+  ANF-PL-12 (BASE-005)
+    Werkzeuge, Units, Pfade und der Systembenutzer aus MOD-010_070
+    Abschnitte 1 und 2 in das Verzeichnis der Plattform.
+
+  ANF-PL-13 (Steuerungsdokumente; Nachzug AP-A06)
+    00_MANIFEST 4.2: VIP ist "eigene Rolle, kein Plan" (nicht
+    "Bezahlt"; DEC-PL-01). 01_GLOSSARY "Plan (Tarif)": ueber die Buchung
+    am Kunden, nicht ueber web_customers.plan_id (DEC-PL-04).
+
+================================================================================
+4) UEBERGANG: WAS GILT, SOLANGE EINE ANFORDERUNG OFFEN IST
+================================================================================
+
+  Arten wie in BASE-080_080 Abschnitt 6a: V = Voraussetzung (ohne den
+  Nachzug geht der genannte Teil DIESES Moduls nicht in Betrieb), R =
+  Rueckfall (bis dahin gilt das Genannte), L = Luecke (ohne den Nachzug
+  fehlte eine Wirkung; das System geht mit der Funktion nicht in
+  Betrieb).
+
+  Anforderung     Art  bis zum Nachzug
+  --------------- ---  --------------------------------------------------
+  ANF-PL-01       V    ohne Tabellen und Rechte kein Betrieb dieses
+                       Moduls
+  ANF-PL-02 a     R    plan_id steht weiter am Kunden; niemand schreibt
+                       oder liest es (BASE-100 fragt die Plan-Auskunft)
+  ANF-PL-02 b,    L    ohne Gruende und Bedingungsquelle setzt kein
+  ANF-PL-04 a          Programm die Plan-Pflicht durch: Ein Kunde ohne
+                       laufenden Plan bleibt im Internet. Die Buchungen
+                       dieses Moduls waeren dann ohne Wirkung auf den
+                       Zugang - das Modul geht erst MIT diesen
+                       Nachzuegen in Betrieb
+  ANF-PL-02 c,    V    ohne den Aufruf im Claim gibt es keine
+  ANF-PL-07            Gutschrift: Die Verwaltung bucht dem Kunden den
+                       ersten Plan nach dem Claim von Hand; bis dahin
+                       ist er eingeschraenkt (DEC-PL-08, Lage)
+  ANF-PL-02 d     L    ohne den Aufruf beim Rollenwechsel behielte ein
+                       Kunde, der die Rolle USER verlaesst, seine
+                       Buchungen. Sie waeren ohne Wirkung (die Auskunft
+                       nennt fuer andere Rollen keinen Plan), stuenden
+                       aber als laufend im Bestand; kehrt er zurueck,
+                       lebten sie wieder auf. Die Bestandspruefung
+                       meldet es (MOD-010_060 Regel AU-6 c)
+  ANF-PL-03 a     V    ohne die Routine von BASE-070 gibt es kein
+                       Zuruecksetzen des Verbrauchs
+  ANF-PL-04 b     R    ohne Folgeaufruf wirkt eine Buchung mit dem
+                       naechsten Lauf des Bewerters - bis zu einen
+                       Bewertungstakt spaeter
+  ANF-PL-04 e     R    ohne die Auskunft entfaellt die Warnung E-3
+  ANF-PL-05 b     R    ohne Vorschau zeigt das Angebot nur, was der Plan
+                       selbst festlegt
+  ANF-PL-06 a, b  V    ohne Auftragsweg kein Bestellen und Bezahlen im
+                       Panel; die Verwaltung bucht mit vpn-plan am
+                       Server
+  ANF-PL-06 d     R    ohne E-Mail-System keine Nachrichten; alles steht
+                       im Panel
+  ANF-PL-08       V    ohne angemeldete Keys loest der Kern sie nicht
+                       auf: kein Betrieb
+  ANF-PL-11       L    erreichte ein eingeschraenkter Kunde das Panel
+                       nicht, kaeme er ohne fremde Hilfe nie wieder zu
+                       einem Plan
+
+================================================================================
+5) ANTWORTEN AUF ANFORDERUNGEN AN DIESES MODUL
+================================================================================
+
+  BASE-100 ANF-PO-07     Nahtstelle zu Plaenen: MOD-010_020 (Tabelle der
+                         Plaene, Geltung des Kontingents), MOD-010_060
+                         (laufender Plan, Plan-Stand, Regel des
+                         Plan-Limits, Zusatzvolumen), MOD-010_030 und
+                         _040 (jeder Vorgang ruft die Bewertung);
+                         Bestandskunden: MOD-010_070 Regel EB-2
+  BASE-080 ANF-PA-02     Regel des Plan-Limits: MOD-010_060 Abschnitt 3,
+                         geliefert ueber die Auskunft AK-1 von BASE-100
+  BASE-080 ANF-PA-10     ANF-PL-04 f
+  BASE-080 ANF-PA-11 f   Akteur am Folgeaufruf: MOD-010_030 Regel BK-2,
+                         ANF-PL-04 b
+  BASE-070 ANF-SC-12     beantwortet von BASE-100_050 Abschnitt 5; hier:
+                         Ein Planwechsel setzt keinen Verbrauch zurueck
+                         (MOD-010_040 Regel RS-5)
+  BASE-010_010 (plan_id) ANF-PL-02 a; die Tabelle der Plaene heisst
+                         policy_plans
+
+================================================================================
+6) ANNAHMEN
+================================================================================
+
+  E-PL-01  Eine eingeschraenkte Connection erreicht das Panel
+           (BASE-010_070 Abschnitt 2: Panel, DNS, NTP). Daran haengt
+           SZ-3. Nicht an einer Konfiguration geprueft.
+  E-PL-02  Der Code einer Paysafecard besteht aus 16 Ziffern. Aus
+           eigener Kenntnis des Autors, nicht an einer Quelle des
+           Anbieters geprueft; vor der Umsetzung zu pruefen (OPEN-PL-06).
+  E-PL-03  Die Plan-Auskunft fuer einige tausend Kunden kostet je Lauf
+           des Bewerters eine feste, kleine Zahl von Abfragen und
+           bleibt unter einer Sekunde. Nicht gemessen.
+  E-PL-04  Die Verwaltung prueft eingereichte Zahlungen innerhalb
+           weniger Tage. Tut sie es nicht, laufen vorlaeufige Buchungen
+           ungeprueft bis zu ihrem Ende (MOD-010_040 Regel ZA-12).
+  E-PL-05  Das E-Mail-System von BASE-110 nimmt Nachrichten mit Vorlage
+           und Angaben entgegen. BASE-110 ist nicht geschrieben.
+  E-PL-06  Die Quota-Periode aller Connections eines Kunden ist
+           dieselbe (der Kalendermonat; BASE-070_050 Abschnitt 5). Eine
+           Connection, deren Periodenwechsel aussteht, sieht ihr
+           Zusatzvolumen der neuen Periode erst nach dem Wechsel.
+
+================================================================================
+7) OFFENE PUNKTE
+================================================================================
+
+  OPEN-PL-05  RESTWERT EINER KARTE (beim Betreiber): MOD-010_010
+              Abschnitt 7.
+  OPEN-PL-06  FORM UND WERTE DER KARTEN vor der Umsetzung pruefen
+              (E-PL-02; DEC-PL-20: "jeder Betrag ab 10 Euro ist ein
+              gaengiger Wert einer Guthabenkarte").
+  OPEN-PL-07  WER LEGT DIE CONNECTIONS EINES KUNDEN AN? Ein Plan mit
+              fuenf Connections nuetzt nur, wenn der Kunde zu ihnen
+              kommt. Heute legt die Verwaltung jede Connection an
+              (BASE-010_070 Weg A); die Anlage durch den Kunden (Weg B)
+              ist in BASE-010 nicht ausgearbeitet (BASE-100
+              OPEN-PO-04). Bis dahin bestellt der Kunde weitere
+              Connections bei der Verwaltung - ausserhalb dieses Moduls.
+  OPEN-PL-08  GESCHWINDIGKEIT ALS PLANMERKMAL kommt mit MOD-003
+              (BASE-100_070 AM-1 bis AM-5). Dann ist zu klaeren, wie
+              eine Formungsvorgabe folgt, wenn ein anderer Plan OHNE
+              Schreibvorgang beginnt (Anschlussbuchung): Der Abgleich
+              von BASE-080 gleicht die Formung im Takt ab; ein
+              schnellerer Weg waere eine Anforderung von MOD-003.
+  OPEN-PL-09  BELEGE: Das System stellt keine Rechnung und keine
+              Quittung aus (NA-03). Ob und wie der Betreiber seinen
+              Kunden Belege gibt, liegt bei ihm; die Geschichte der
+              Buchungen und Zahlungen eines Kunden laesst sich dafuer
+              ausgeben.
+
+================================================================================
+8) AUSGEWIESENE ABWEICHUNGEN UND PRAEZISIERUNGEN
+================================================================================
+
+  - web_customers.plan_id entfaellt (DEC-PL-04; gegen DOMAIN_MODEL 6.8
+    und BASE-010_010).
+  - "Nichts setzt den Verbrauch zurueck" hat EINE Ausnahme: die
+    Handlung der Verwaltung (DEC-PL-19; BASE-100_050 KQ-3a, NP-7).
+  - LAUFZEITREGEL: DEC-PL-05 b nennt das Ende als "Ablauf des
+    Geschaeftstags, der n Monate nach dem Tag des Beginns liegt". Das
+    gilt fuer eine Buchung, die MITTEN am Tag beginnt. Fuer eine
+    Anschlussbuchung, die mit einem Tagesbeginn anfaengt, zaehlen genau
+    n Monate (MOD-010_030 Regeln LZ-2 und LZ-3) - sonst schenkte jede
+    Verlaengerung einen Tag.
+  - "Ein Kunde hat hoechstens eine offene Bestellung" (DEC-PL-07 a)
+    gilt JE ART: eine fuer einen Plan, eine fuer Zusatzvolumen
+    (MOD-010_040 Regel BE-3).
+
+================================================================================
+9) HERKUNFT
+================================================================================
+
+  Die tragenden Entscheidungen nennen ihre Quellen in MOD-010_010. Die
+  Rueckverfolgung der Quellen Aussage fuer Aussage (Entwurf "Plans" der
+  Nachlieferung, DOMAIN_MODEL 6.8) und die Liste der neu begruendeten
+  Regeln stehen aus; bis dahin ist das Modul ein Entwurf (INDEX
+  Abschnitt 8).
+  NEU BEGRUENDET in den Detaildateien (keine Quelle nennt es): die
+  Trennung in Plan und Laufzeitstufe mit eigenem Preis je Buchung
+  (PT-10); die genaue Laufzeitregel (LZ-2); das wirksame Ende mit
+  Nachzahlfrist (BU-3); die Vorgaenge des Kerns mit Aufruecken und
+  Verschieben (VB-1, VB-2); Pruefwert und eigene Tabelle fuer den Code
+  (CD-1 bis CD-5); das Vertrauen je Kunde als eigene Tabelle (VT-1 bis
+  VT-4); die Obergrenze des Zusatzvolumens (ZV-4); der Lauf und seine
+  Schritte; die sieben Einstellungen.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

@@ -4,10 +4,12 @@ MOD-010 — INVARIANTEN (Plaene)
 DATEI: MOD-010_090_INVARIANTEN.txt
 STATUS: IN ARBEIT (AP-M010; Modul noch unvollstaendig)
 
-Harter Vertrag. Jede Verletzung ist ein Fehler. Kennungen PL-01..PL-34.
+Harter Vertrag. Jede Verletzung ist ein Fehler. Kennungen PL-01..PL-47.
 Die Kennungen in Klammern verweisen auf die Entscheidungen und
-Schutzziele in MOD-010_010 (DEC-PL-, SZ-). Mit den folgenden Dateien
-dieses Moduls kommen Regelkennungen und weitere Invarianten hinzu.
+Schutzziele in MOD-010_010 (DEC-PL-, SZ-) und auf die Regeln der
+Detaildateien (ZO-, PT- in _020; BU-, LZ-, BK-, VB-, GU-, RW-, PR- in
+_030; BE-, ZA-, CD-, VT-, ZV-, RS- in _040; AB-, ER-, LF-, LR- in _050;
+AU-, LI-, LS- in _060; WK-, DR-, ES-, EB-, EG- in _070).
 Herkunft je Invariante: Rueckverfolgungs-Records unter
 governance/register/trace/ bzw. NEU_BEGRUENDET.yaml - noch offen.
 
@@ -68,10 +70,13 @@ BUCHUNG UND PLAN-STAND
          Kunden beruehrt das nicht (DEC-PL-04, Folgen).
 
   PL-11  Das Ende einer Buchung wird bei ihrer Entstehung einmal
-         berechnet - Ablauf des Geschaeftstags, der n Monate nach dem Tag
-         des Beginns liegt, sonst des letzten Tages jenes Monats - und
-         gespeichert. Eine spaetere Aenderung der Zeitzone aendert kein
-         gespeichertes Ende (DEC-PL-05 b).
+         berechnet und gespeichert: Eine Buchung, die mitten an einem
+         Geschaeftstag beginnt, endet mit dem Ablauf des Geschaeftstags,
+         der n Monate nach dem Tag des Beginns liegt (sonst des letzten
+         Tages jenes Monats) - der angebrochene Tag ist geschenkt. Eine
+         Anschlussbuchung dauert genau n Monate. Eine spaetere Aenderung
+         der Zeitzone aendert kein gespeichertes Ende (DEC-PL-05 b;
+         LZ-2 bis LZ-4).
 
   PL-12  Nichts verlaengert eine Buchung selbsttaetig, und nichts haelt
          eine Laufzeit an - auch nicht eine gesperrte, pausierte oder
@@ -103,10 +108,11 @@ BESTELLUNG UND BUCHUNGSKERN
          aus einer Paysafecard-Zahlung, deren Code die Formpruefung
          besteht (DEC-PL-07 b, c, h; SZ-5).
 
-  PL-16  Ein Kunde hat hoechstens eine offene Bestellung und hoechstens
-         eine ungepruefte Zahlung. Eine Bestellung mit dem Zahlweg BAR
-         aendert weder Plan noch Plan-Stand, bis die Verwaltung
-         bestaetigt (DEC-PL-07 a, e, f).
+  PL-16  Ein Kunde hat je Art - Plan, Zusatzvolumen - hoechstens eine
+         offene Bestellung und insgesamt hoechstens eine ungepruefte
+         Zahlung. Eine Bestellung mit dem Zahlweg BAR aendert weder
+         Plan noch Plan-Stand noch Kontingent, bis die Verwaltung
+         bestaetigt (DEC-PL-07 a, e, f; BE-3, BE-7, ZA-3).
 
   PL-17  Buchungen, Bestellungen und Gutschriften schreibt allein der
          Buchungskern - unter der Sperre der Zeile des Kunden und mit
@@ -222,6 +228,89 @@ ZAHLUNG, ZUSATZVOLUMEN, ZURUECKSETZEN
          Zusatzvolumens sind Daten des Betreibers: Kein Programm
          enthaelt einen Plan, einen Namen oder einen Preis (SZ-9,
          DEC-PL-20).
+
+================================================================================
+TABELLEN, KERN UND LAUF (Detaildateien)
+================================================================================
+
+  PL-35  Die Tabellen dieses Moduls schreibt allein der Buchungskern
+         mit dem DB-User system. Der Webprozess schreibt keine von
+         ihnen und liest den Code einer Zahlung nicht; der DB-User
+         radius hat auf keine Zugriff (ZO-2, ZO-3, DR-1, DR-2, CD-2).
+
+  PL-36  Der Schluessel eines Plans wird nie geaendert und nie neu
+         vergeben. Buchung und Bestellung halten Dauer und Preis selbst
+         fest: Eine geaenderte, aus dem Angebot genommene oder
+         geloeschte Stufe aendert nichts, was gebucht oder bestellt ist
+         (PT-1, PT-10, PT-12).
+
+  PL-37  Ohne lesbare Zeitzone und ohne bestaetigte Zeit legt der Kern
+         keine Buchung an und setzt keine Frist; bestehende Buchungen
+         und ihr gespeichertes Ende beruehrt das nicht (LZ-5, LZ-7,
+         ES-1).
+
+  PL-38  Laeuft eine Nachzahlfrist ohne neue Zahlung ab, ist die
+         Buchung mit dem Fristende beendet, ohne dass ein Lauf arbeitet.
+         Festgeschrieben wird die Ruecknahme vom Lauf oder vom naechsten
+         Vorgang des Kerns fuer diesen Kunden - und nur bei bestaetigter
+         Zeit (BU-3, ZA-9, LF-1, LF-2).
+
+  PL-39  Kein Vorgang des Kerns hinterlaesst in der Kette eines Kunden
+         eine Luecke oder Ueberlappung: Wird ein Ende hinausgeschoben,
+         verschieben sich die folgenden Buchungen; endet eine Buchung
+         vorzeitig oder wird eine gestrichen, ruecken sie auf oder
+         werden gestrichen. Eine Buchung, die aufrueckt oder sich
+         verschiebt, behaelt ihre Dauer (BU-5, BK-5, VB-1, VB-2).
+
+  PL-40  Jeder Vorgang des Kerns ist EINE Transaktion, die auch seinen
+         Protokolleintrag enthaelt; derselbe Aufruf ein zweites Mal
+         aendert nichts. Ein abgelehnter Vorgang steht mit seinem Grund
+         im Protokoll. Das Protokoll wird nur angefuegt und nennt nie
+         einen Code (BK-1, BK-4, PR-1 bis PR-4).
+
+  PL-41  Eine Bestellung der Art PLAN wird abgelehnt, solange der Kunde
+         eine kuenftige Buchung hat. Jeder Zustand einer Bestellung
+         ausser OPEN ist endgueltig; eine offene Bestellung ohne
+         ungepruefte Zahlung verfaellt nach ihrer Frist (BE-4, BE-6,
+         VB-3, LF-3).
+
+  PL-42  Ein Code wird nur angenommen, wenn er die Form hat, in diesem
+         System noch nie eingereicht wurde, der Kunde keine ungepruefte
+         Zahlung hat und seine Eingaben des Tages nicht ausgeschoepft
+         sind. Fehlt der Schluessel des Pruefwerts, wird kein Code
+         angenommen. Die Annahme sagt nichts ueber den Wert des Codes
+         (ZA-3, ZA-4, CD-5; MOD-010_070 Abschnitt 8).
+
+  PL-43  Zusatzvolumen gilt bei geteiltem Kontingent dem Kunden, bei
+         einem Kontingent je Connection einer Connection des Kunden,
+         die nicht widerrufen ist. Die Summe des wirksamen
+         Zusatzvolumens eines Kunden in einer Periode uebersteigt nie
+         10 hoch 15 Bytes (ZV-3, ZV-4, ZV-6).
+
+  PL-44  Zu einem Schluessel einer Nachricht gibt es hoechstens eine
+         Zeile. Der Lauf legt keine veraltete Nachricht an: E-1 nur,
+         solange die Buchung laeuft, E-2 nur kurz nach dem Ende. Ein als
+         geloescht gefuehrter Kunde erhaelt keine (ER-1, ER-4, ER-7).
+
+  PL-45  Faellt der Lauf aus, gelten Plan-Stand, laufender Plan, das
+         Ende einer Nachzahlfrist und jeder Vorgang des Kerns weiter;
+         es unterbleiben nur Erinnern, Uebergeben, Festschreiben und
+         Aufraeumen. Ein Fehler bei einem Kunden beendet den Lauf nicht
+         (MOD-010_050 Abschnitt 4; LR-1).
+
+  PL-46  Alle Antworten eines Aufrufs der Plan-Auskunft beziehen sich
+         auf dieselbe Datenbankzeit. Der Plan-Stand folgt allein aus
+         der Zahl der laufenden Buchungen: eine - LAUFEND; keine -
+         ABGELAUFEN oder OHNE PLAN; mehrere - nicht bestimmbar. Fuer
+         einen Kunden mit widerspruechlichem Bestand lehnt der Kern
+         jeden Vorgang ab, bis die Verwaltung bereinigt hat (AU-2,
+         AU-7, EG-1; MOD-010_060 Abschnitt 2).
+
+  PL-47  Keine Einstellung dieses Moduls schaltet die Plan-Pflicht, und
+         kein Werkzeug dieses Moduls beendet ihre Aussetzung. Dieses
+         Modul liest Einstellungen nur ueber den Aufloeser von BASE-090
+         und hat keinen eigenen Rueckfall (ES-3, EB-3; MOD-010_070
+         Abschnitt 6).
 
 ================================================================================
 CHANGELOG

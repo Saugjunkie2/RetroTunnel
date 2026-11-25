@@ -1,0 +1,197 @@
+================================================================================
+MOD-010 — PLAENE, LAUFZEITSTUFEN UND ANGEBOT
+================================================================================
+DATEI: MOD-010_020_PLAENE_STUFEN_UND_ANGEBOT.txt
+STATUS: IN ARBEIT (AP-M010; Modul noch unvollstaendig)
+
+ZWECK:
+  Die Stammdaten des Plan-Moduls: Plaene, Laufzeitstufen und die Stufen
+  des Zusatzvolumens - Tabellen, Felder, Regeln und wer sie pflegt. Dazu
+  die Uebersicht ALLER Tabellen des Moduls mit ihrer Zone. Grundlage
+  sind DEC-PL-03, DEC-PL-18 und DEC-PL-20 (MOD-010_010). Die WERTE eines
+  Plans (Zahl der Connections, Datenvolumen) stehen in
+  policy_plan_values und gehoeren BASE-100.
+
+================================================================================
+1) TABELLEN DES MODULS UND IHRE ZONEN
+================================================================================
+
+  Tabelle                    Zone     Inhalt                    Datei
+  -------------------------- -------- ------------------------- ---------
+  policy_plans               policy_  Plaene                    hier
+  policy_plan_terms          policy_  Laufzeitstufen            hier
+  policy_plan_addon_tiers    policy_  Stufen des                hier
+                                      Zusatzvolumens
+  web_plan_bookings          web_     Buchungen                 _030
+  web_plan_credits           web_     Plan-Gutschriften         _030
+  web_plan_orders            web_     Bestellungen              _040
+  web_plan_payments          web_     Zahlungen                 _040
+  web_plan_payment_codes     web_     Codes ungepruefter        _040
+                                      Zahlungen
+  web_plan_customer_flags    web_     Vertrauen je Kunde        _040
+  web_plan_addons            web_     gebuchtes Zusatzvolumen   _040
+  web_plan_notices           web_     ausgeloeste Nachrichten   _050
+  log_plan_audit             log_     Protokoll (nur            _030
+                                      anfuegend)
+
+  policy_plan_values (Werte je Plan und Key) gehoert BASE-100
+  (BASE-100_020 Abschnitt 5); ihr Fremdschluessel plan_id zeigt auf
+  policy_plans.id.
+
+  ZO-1  STAMMDATEN IN DER ZONE policy_, KUNDENDATEN IN DER ZONE web_: Ein
+        Plan beschreibt, was ein Kunde darf - wie ein Standard oder eine
+        Ausnahme (BASE-000_010 Abschnitt 3: "Plan-Werte"). Buchungen,
+        Bestellungen und Zahlungen haengen am Kundenkonto
+        (web_customers).
+  ZO-2  ES SCHREIBT NUR DER DB-USER system - ueber den Buchungskern
+        (MOD-010_030) und, fuer die Werte, ueber den Schreibkern von
+        BASE-100. Der Webprozess liest; was Kunde und Verwaltung
+        ausloesen, fuehrt das System aus (wie BASE-010_080 Grundsatz G1:
+        kein Direct-Write). Die Rechte je Tabelle stehen in MOD-010_070
+        Abschnitt 5; sie engen ein, was BASE-000_010 dem Webprozess fuer
+        die Zonen web_ und policy_ allgemein gibt (ANF-PL-01).
+  ZO-3  Der DB-User radius hat auf keine dieser Tabellen Zugriff: Die
+        Anmeldung fragt keinen Plan ab (BASE-000_010 Abschnitt 2).
+  ZO-4  KEIN GEHEIMNIS AUSSER DEM CODE: Die einzige Tabelle mit einem
+        Geheimnis ist web_plan_payment_codes (MOD-010_040 Abschnitt 4).
+        Alles andere darf im Protokoll und in der Anzeige stehen.
+
+================================================================================
+2) PLAENE (policy_plans)
+================================================================================
+
+  id             Primaerschluessel; intern (TRUTH_MODEL GV-02)
+  plan_key       der unveraenderliche Schluessel: Kleinbuchstaben,
+                 Ziffern und Unterstrich, 2 bis 32 Zeichen, beginnt mit
+                 einem Buchstaben. EINDEUTIG. Mit ihm arbeiten
+                 Oberflaeche und Werkzeuge.
+  name           Anzeigename (bis 64 Zeichen)
+  description    Beschreibung fuer das Angebot (optional)
+  quota_scope    SHARED | DEDICATED - die Geltung des Kontingents
+                 (BASE-100_050 NP-5)
+  is_bookable    ob der Plan im Angebot steht
+  sort_order     Reihenfolge im Angebot
+  created_at, created_by, updated_at, updated_by
+
+  PT-1  plan_key WIRD NIE GEAENDERT und nie neu vergeben - auch nicht,
+        nachdem ein Plan aus dem Angebot genommen ist (DEC-PL-03 a).
+  PT-2  EIN PLAN MIT GESCHICHTE WIRD NIE GELOESCHT: Gibt es zu ihm eine
+        Buchung, eine Bestellung oder eine Gutschrift, ist das Loeschen
+        abgelehnt (Fremdschluessel ohne Loeschweitergabe). Ein Plan ohne
+        Geschichte darf geloescht werden; seine Werte in
+        policy_plan_values entfallen dann mit.
+  PT-3  AUS DEM ANGEBOT NEHMEN heisst is_bookable = nein: Niemand kann
+        ihn mehr bestellen oder verlaengern; laufende und kuenftige
+        Buchungen bleiben, wie sie sind (DEC-PL-03 d). Die Verwaltung
+        kann ihn weiter buchen - etwa um einen Bestandskunden zu
+        verlaengern.
+  PT-4  IM ANGEBOT STEHT EIN PLAN NUR MIT MINDESTENS EINER ANGEBOTENEN
+        LAUFZEITSTUFE (Abschnitt 3). Der Kern lehnt es ab, die letzte
+        angebotene Stufe eines buchbaren Plans zu entfernen.
+  PT-5  NAME UND BESCHREIBUNG SIND ANZEIGE: Sie zu aendern, aendert
+        keine Buchung. Die Geschichte nennt den Plan ueber seinen
+        Schluessel; das Protokoll haelt den Namen zur Zeit des Vorgangs
+        fest.
+  PT-6  quota_scope AENDERN WIRKT SOFORT fuer alle Kunden des Plans - wie
+        ein geaenderter Wert (DEC-PL-03 e). Der Kern zeigt vorher, wie
+        viele Kunden den Plan gerade haben, und verlangt einen Grund.
+  PT-7  DIE WERTE EINES PLANS schreibt der Schreibkern von BASE-100 auf
+        der Ebene PLAN (BASE-100_050 NP-2) - mit seiner Vorschau, wen
+        eine Verschaerfung trifft. Was ein Plan auslaesst, kommt vom
+        Standard der Rolle USER (NP-3). Dieses Modul schreibt
+        policy_plan_values nicht.
+  PT-8  KEIN PLAN IM PROGRAMM (SZ-9): Kein Programm enthaelt einen
+        plan_key, einen Namen oder einen Preis. Auch die Erstausstattung
+        (Abschnitt 5) ist eine Datei mit Daten, die die Einrichtung
+        einliest.
+
+================================================================================
+3) LAUFZEITSTUFEN (policy_plan_terms)
+================================================================================
+
+  id             Primaerschluessel
+  plan_id        Fremdschluessel auf policy_plans.id
+  months         Dauer in ganzen Monaten, 1 bis 36
+  price_cents    Preis in Cent (0 ist erlaubt)
+  currency       Waehrung, fest EUR
+  is_offered     ob die Stufe im Angebot steht
+  created_at, created_by, updated_at, updated_by
+  EINDEUTIG: (plan_id, months)
+
+  PT-9  GEBUCHT WIRD EIN PLAN MIT EINER DAUER: Kunde und Bestellung
+        waehlen eine angebotene Stufe eines buchbaren Plans. Die
+        Verwaltung kann jede Dauer von 1 bis 36 Monaten buchen - auch
+        ohne Stufe - oder ein Ende von Hand setzen (MOD-010_030).
+  PT-10 BUCHUNG UND BESTELLUNG HALTEN DAUER UND PREIS SELBST FEST (Felder
+        term_months, price_cents). Eine Stufe darf deshalb geaendert,
+        aus dem Angebot genommen oder geloescht werden: Was gebucht
+        oder bestellt ist, bleibt, wie es war.
+  PT-11 DER PREIS IST EINE ANGABE (DEC-PL-03 c): Er steht im Angebot, in
+        der Bestellung und in der Geschichte. Nichts rechnet mit ihm -
+        keine Auskunft, keine Bewertung, keine Laufzeit. Das System
+        stellt keine Rechnung.
+  PT-12 EINE PREISAENDERUNG GILT FUER NEUE BESTELLUNGEN. Eine offene
+        Bestellung behaelt den Preis, zu dem sie aufgegeben wurde.
+
+================================================================================
+4) STUFEN DES ZUSATZVOLUMENS (policy_plan_addon_tiers)
+================================================================================
+
+  id             Primaerschluessel
+  bytes          die Menge in Bytes, groesser als null
+  price_cents    Preis in Cent
+  currency       fest EUR
+  is_offered     ob die Stufe im Angebot steht
+  created_at, created_by, updated_at, updated_by
+  EINDEUTIG: (bytes)
+
+  PT-13 EIN ANGEBOT FUER ALLE PLAENE: Die Stufen des Zusatzvolumens
+        gelten unabhaengig vom Plan (DEC-PL-18 a). Bestellen kann nur,
+        wer einen laufenden Plan hat (MOD-010_040 Abschnitt 6).
+  PT-14 Wie bei den Laufzeitstufen haelt die Bestellung Menge und Preis
+        selbst fest; eine Stufe darf geaendert oder geloescht werden.
+  PT-15 Die Verwaltung kann Zusatzvolumen in jeder Menge gewaehren -
+        auch ohne Stufe -, bis zur Obergrenze je Kunde und Periode
+        (MOD-010_040 Regel ZV-4).
+
+================================================================================
+5) WER DIE STAMMDATEN PFLEGT
+================================================================================
+
+  Plaene, Stufen und Zusatzvolumen-Stufen legt nur die Rolle ADMIN an
+  und aendert sie nur - ueber den Buchungskern, mit Grund und
+  Protokolleintrag (MOD-010_030 Abschnitt 6). MODERATOR und Kunde
+  lesen: der Kunde nur, was im Angebot steht.
+
+  PT-16 JEDE AENDERUNG DER STAMMDATEN STEHT IM PROTOKOLL mit dem Stand
+        vorher und nachher (log_plan_audit). Werte eines Plans
+        protokolliert BASE-100 (log_policy_audit).
+  PT-17 ERSTAUSSTATTUNG: Bei der Einrichtung traegt die Verwaltung die
+        ersten Plaene ein - nach dem Vorschlag aus DEC-PL-20 oder nach
+        eigenen Zahlen. Das ist eine gewoehnliche Pflegehandlung mit
+        einer Datei als Eingabe (MOD-010_070 Abschnitt 7); spaeter
+        aendert der Betreiber alles im Panel.
+
+  NACH EINER AENDERUNG gibt es keinen Einzelaufruf der Bewertung: Ein
+  geaenderter Wert oder eine geaenderte Geltung wirkt mit dem naechsten
+  Lauf des Bewerters (BASE-100_060 NF-3). Namen, Preise und Stufen
+  wirken auf nichts (PT-5, PT-11).
+
+================================================================================
+6) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  ANGEBOT (Kunde): die buchbaren Plaene in sort_order - Name,
+  Beschreibung, die Werte des Plans, wie sie fuer einen Kunden ohne
+  Ausnahme gaelten (Plan-Wert, sonst Standard der Rolle USER), die
+  angebotenen Stufen mit Preis; darunter die angebotenen Stufen des
+  Zusatzvolumens. Die Werte rechnet das Panel nicht selbst aus: Die
+  Vorschau je Plan ist bei BASE-100 angefordert (ANF-PL-05 b).
+  VERWALTUNG: alle Plaene, auch die nicht buchbaren, mit der Zahl der
+  Kunden, die sie gerade haben und die sie als Anschluss gebucht haben.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

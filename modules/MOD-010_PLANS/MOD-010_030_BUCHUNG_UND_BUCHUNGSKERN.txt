@@ -1,0 +1,362 @@
+================================================================================
+MOD-010 — BUCHUNG, LAUFZEIT UND BUCHUNGSKERN
+================================================================================
+DATEI: MOD-010_030_BUCHUNG_UND_BUCHUNGSKERN.txt
+STATUS: IN ARBEIT (AP-M010; Modul noch unvollstaendig)
+
+ZWECK:
+  Die Buchung als einzige Tatsache: ihre Tabelle, wie Beginn und Ende
+  entstehen, wann eine Buchung laeuft, und die Vorgaenge des
+  Buchungskerns - der einen Stelle, die Buchungen, Gutschriften und
+  alles Weitere dieses Moduls schreibt. Grundlage sind DEC-PL-04 bis
+  DEC-PL-08, DEC-PL-12 und DEC-PL-13 (MOD-010_010).
+
+================================================================================
+1) BUCHUNGEN (web_plan_bookings)
+================================================================================
+
+  id               Primaerschluessel
+  customer_id      Fremdschluessel auf web_customers.id
+  plan_id          Fremdschluessel auf policy_plans.id
+  term_months      die gebuchte Dauer in Monaten - oder leer, wenn die
+                   Verwaltung das Ende von Hand gesetzt hat
+  price_cents      der genannte Preis - oder leer (Buchung der
+                   Verwaltung ohne Preis, Gutschrift ohne Angabe)
+  starts_at        Beginn (Zeitpunkt, Mikrosekunden)
+  ends_at          Ende (Zeitpunkt); PFLICHT, immer nach starts_at
+  origin           ADMIN | ORDER_CASH | ORDER_PSC | CREDIT
+  is_provisional   ja, solange die Zahlung nicht bestaetigt ist
+                   (nur bei ORDER_PSC; MOD-010_040)
+  confirmed_at     Zeitpunkt der Bestaetigung (bei is_provisional)
+  repay_until      Ende der Nachzahlfrist - gesetzt mit der ersten
+                   Ungueltig-Erklaerung, sonst leer
+  repay_payment_id die in der Nachzahlfrist eingereichte neue Zahlung,
+                   sonst leer
+  end_reason       leer, solange das Ende das der Laufzeit ist; sonst
+                   GRACE | EARLY_ADMIN | SWITCH | ROLE_CHANGE |
+                   CUSTOMER_DELETED | PAYMENT_REVOKED
+  cancelled_at     gesetzt, wenn die Buchung GESTRICHEN wurde, bevor sie
+                   begann; sonst leer
+  created_at, created_by
+  Indices: (customer_id, starts_at), (ends_at), (repay_until)
+
+  BU-1  EINE BUCHUNG NENNT KUNDE, PLAN, BEGINN UND ENDE. Ein leeres Ende
+        gibt es nicht; die Tabelle lehnt es ab, und kein Leser deutet
+        es als "unbegrenzt" (DEC-PL-05 a).
+  BU-2  GESTRICHEN IST NICHT BEENDET: Eine gestrichene Buchung hat nie
+        begonnen und gilt fuer nichts - nicht fuer den Plan-Stand, nicht
+        fuer die Kette. Gestrichen wird nur, was noch nicht begonnen
+        hat. Die Zeile bleibt als Beleg.
+  BU-3  DAS WIRKSAME ENDE einer Buchung ist ends_at. Ist repay_until
+        gesetzt UND repay_payment_id leer (die Nachzahlfrist laeuft
+        oder ist ohne neue Zahlung abgelaufen), ist es das FRUEHERE von
+        ends_at und repay_until. So endet eine Buchung, deren
+        Nachzahlfrist ohne neue Zahlung ablaeuft, VON SELBST zum
+        Fristende - ohne dass ein Lauf arbeiten muss (MOD-010_040
+        Abschnitt 5).
+  BU-4  LAUFEND ist eine nicht gestrichene Buchung, fuer die gilt:
+        starts_at <= jetzt < wirksames Ende. KUENFTIG ist sie, wenn
+        jetzt < starts_at; BEENDET, wenn wirksames Ende <= jetzt.
+        "jetzt" ist die Datenbankzeit der Abfrage (BASE-080_070 Regel
+        UP-7).
+  BU-5  DIE KETTE: Die nicht gestrichenen Buchungen eines Kunden, deren
+        wirksames Ende in der Zukunft liegt, bilden eine Kette ohne
+        Luecke und ohne Ueberlappung: hoechstens eine laufende, und
+        jede kuenftige beginnt genau am ends_at der vorigen
+        (DEC-PL-04 b, d). Der Kern haelt das in jedem Vorgang; ein
+        Verstoss ist ein Fehler im Bestand (MOD-010_060 Regel AU-6).
+  BU-6  VERGANGENES IST UNVERAENDERLICH: An einer beendeten Buchung
+        aendert kein Vorgang ein Feld, und keine Buchung wird geloescht
+        (DEC-PL-13). Geaendert werden kann nur das Ende einer laufenden
+        und Beginn und Ende einer kuenftigen Buchung - durch die
+        Vorgaenge aus Abschnitt 4.
+  BU-7  NUR FUER DIE ROLLE USER: Der Kern legt eine Buchung nur fuer
+        einen Kunden an, der die Rolle USER traegt und nicht als
+        geloescht gefuehrt ist (DEC-PL-12 a). Ein gesperrter Kunde
+        (SUSPENDED) kann gebucht werden - von der Verwaltung.
+
+================================================================================
+2) BEGINN UND ENDE EINER LAUFZEIT
+================================================================================
+
+  Grundlage ist DEC-PL-05 b, hier genau gefasst. Der GESCHAEFTSTAG ist
+  der Kalendertag der Zeitzone vpn_quota_timezone (BASE-070_050
+  Abschnitt 5); umgerechnet wird mit Zeitzonendaten, nie mit einer
+  festen Verschiebung.
+
+  LZ-1  BEGINN: Hat der Kunde eine Kette (BU-5), beginnt die neue
+        Buchung am ends_at ihrer letzten Buchung - als ANSCHLUSS. Sonst
+        beginnt sie jetzt (DEC-PL-06 a, b).
+  LZ-2  ENDE BEI EINER DAUER VON n MONATEN: Sei T der Geschaeftstag,
+        mit dessen Beginn die Laufzeit zaehlt - der Tag des Beginns,
+        wenn die Buchung genau mit einem Tagesbeginn anfaengt, sonst
+        der FOLGENDE Tag. Das Ende ist der Beginn des Geschaeftstags,
+        der n Monate nach T liegt (gleicher Tag im Zielmonat; gibt es
+        ihn dort nicht, der erste Tag des Monats danach).
+        Der Kunde liest "gueltig bis einschliesslich" den Tag davor.
+  LZ-3  WAS DARAUS FOLGT:
+          - Der angebrochene erste Tag ist geschenkt: Wer am 10. Januar
+            mittags fuer einen Monat bucht, ist bis einschliesslich 10.
+            Februar gebucht.
+          - Eine Anschlussbuchung beginnt mit einem Tagesbeginn und
+            dauert GENAU n Monate: vom 11. Februar bis einschliesslich
+            10. Maerz. Verlaengern schenkt keinen weiteren Tag und
+            kostet keinen (SZ-7).
+          - 31. Januar plus einen Monat: bis einschliesslich Ende
+            Februar; der Anschluss beginnt am 1. Maerz.
+  LZ-4  EINMAL BERECHNET, DANN GESPEICHERT: ends_at wird beim Anlegen
+        berechnet und danach nur durch einen Vorgang des Kerns
+        geaendert. Eine spaetere Aenderung der Zeitzone aendert kein
+        gespeichertes Ende.
+  LZ-5  OHNE ZEITZONE KEINE BUCHUNG: Ist vpn_quota_timezone nicht
+        lesbar oder ungueltig, lehnt der Kern jeden Vorgang ab, der ein
+        Ende berechnen muesste (Klasse FAIL_CLOSED des Keys;
+        BASE-070_070 Abschnitt 3). Bestehende Buchungen beruehrt das
+        nicht: Ihr Ende ist gespeichert.
+  LZ-6  VON HAND GESETZTES ENDE: Die Verwaltung kann statt einer Dauer
+        ein Ende nennen (Kulanz, Sofortwechsel). Es muss ein
+        Tagesbeginn der Geschaeftszeitzone sein und nach dem Beginn
+        liegen; term_months bleibt leer.
+  LZ-7  DIE UHR: Massgeblich ist die Datenbankzeit. Der Kern legt eine
+        Buchung nur an, wenn die Zeit bestaetigt ist (derselbe Nachweis
+        wie beim Periodenwechsel, BASE-070_070 Abschnitt 2, U-5) - eine
+        falsch gehende Uhr schriebe ein falsches Ende fest. Fuer das
+        LESEN (BU-4) gibt es keinen solchen Vorbehalt; was eine falsche
+        Uhr dort bewirkt, begrenzt der Schutz des Bewerters
+        (BASE-080_020 Abschnitt 7).
+
+================================================================================
+3) DER BUCHUNGSKERN
+================================================================================
+
+  Der Buchungskern ist die EINE Implementierung, die die Tabellen dieses
+  Moduls schreibt - als Bibliothek mit den Rechten des DB-Users system.
+  Ihn rufen: der privilegierte Auftragsweg von BASE-110 (fuer das, was
+  Kunde und Verwaltung im Panel ausloesen), das Werkzeug vpn-plan am
+  Server (MOD-010_070), der Lauf vpn-plan-run (MOD-010_050) und - als
+  Baustein IHRER Transaktion - die Routinen von BASE-010 fuer Claim,
+  Rollenwechsel und Loeschung (Abschnitt 5).
+
+  BK-1  EIN VORGANG, EINE TRANSAKTION: Jeder Vorgang
+          1. sperrt die Zeile des Kunden in web_customers (dieselbe
+             Sperre wie die Budgetpruefung, BASE-100 SZ-7),
+          2. schreibt fest, was fuer diesen Kunden FAELLIG ist
+             (MOD-010_040 Regel ZA-9: abgelaufene Nachzahlfrist),
+          3. liest die Kette des Kunden frisch,
+          4. prueft seine Vorbedingungen,
+          5. schreibt - und schreibt in DERSELBEN Transaktion das
+             Protokoll (Abschnitt 6) und, wo eine Nachricht faellig ist,
+             ihren Vermerk (MOD-010_050 Abschnitt 2).
+        Scheitert ein Schritt, gilt nichts davon.
+  BK-2  NACH DEM COMMIT fordert der Kern die Bewertung der Connections
+        des Kunden an, wenn sich sein laufender Plan, sein Plan-Stand
+        oder sein Zusatzvolumen geaendert haben kann (BASE-080_020
+        Abschnitt 5; ueber den privilegierten Auftragsweg). Unterbleibt
+        der Aufruf, holt der naechste Lauf des Bewerters ihn nach: Er
+        dient der Schnelligkeit, nicht der Richtigkeit (PL-22).
+  BK-3  WER DARF WAS, prueft der Kern selbst: Er erhaelt den Urheber
+        (Kunde, ADMIN, SYSTEM) vom Aufrufer und lehnt ab, was dessen
+        Rolle nicht darf (Abschnitt 4, Spalte "wer"). Der Aufrufer
+        stellt sicher, dass der Urheber echt ist (BASE-110).
+  BK-4  JEDER VORGANG IST WIEDERHOLBAR, OHNE ZU VERDOPPELN: Ein Vorgang
+        traegt eine Kennung des Aufrufs (request_id); derselbe Aufruf
+        ein zweites Mal aendert nichts und liefert das erste Ergebnis.
+  BK-5  KEIN VORGANG LAESST EINE LUECKE ODER UEBERLAPPUNG: Aendert ein
+        Vorgang das Ende einer Buchung, zieht er die folgenden der
+        Kette im selben Schritt nach (Abschnitt 4).
+  BK-6  DER KERN SCHREIBT KEINEN STATUS, KEINEN GRUND UND KEINE FRIST
+        EINER CONNECTION und nie expiry_date (PL-22). Er schreibt keine
+        Policy-Werte; die Werte eines Plans gehen ueber den Schreibkern
+        von BASE-100.
+
+================================================================================
+4) VORGAENGE AN BUCHUNGEN
+================================================================================
+
+  Vorgang              wer      was geschieht
+  -------------------- -------- ------------------------------------------
+  BUCHEN               ADMIN    neue Buchung fuer einen Kunden: Plan und
+                                Dauer oder Ende; Beginn nach LZ-1. Fuer
+                                Kunden und Gutschrift ruft der Kern ihn
+                                selbst (MOD-010_040; Abschnitt 5)
+  ENDE HINAUSSCHIEBEN  ADMIN    Kulanz: neues, spaeteres Ende einer
+                                laufenden oder kuenftigen Buchung
+                                (end_reason GRACE). Die folgenden
+                                Buchungen der Kette verschieben sich um
+                                dieselbe Dauer
+  JETZT BEENDEN        ADMIN    Ende der laufenden Buchung = jetzt
+                                (end_reason EARLY_ADMIN). Der Aufruf
+                                sagt, was mit den folgenden geschieht:
+                                STREICHEN oder SOFORT BEGINNEN
+  KUENFTIGE STREICHEN  ADMIN    eine kuenftige Buchung wird gestrichen
+                                (cancelled_at); die folgenden ruecken auf
+  SOFORT WECHSELN      ADMIN    JETZT BEENDEN (end_reason SWITCH) und
+                                BUCHEN des neuen Plans ab jetzt - in
+                                EINEM Vorgang (DEC-PL-06 d)
+  BESTAETIGEN          ADMIN    eine vorlaeufige Buchung wird endgueltig
+                                (MOD-010_040)
+  ZURUECKNEHMEN        ADMIN,   eine vorlaeufige Buchung endet, weil die
+                       SYSTEM   Zahlung nicht kam (end_reason
+                                PAYMENT_REVOKED): laufend -> Ende =
+                                jetzt bzw. Ende der Nachzahlfrist;
+                                kuenftig -> gestrichen. Eine folgende
+                                Buchung beginnt sofort
+  KUNDE WECHSELT DIE   SYSTEM   laufende Buchung endet (ROLE_CHANGE),
+  ROLLE                         kuenftige werden gestrichen; Abschnitt 5
+  KUNDE GELOESCHT      SYSTEM   wie oben (CUSTOMER_DELETED)
+
+  VB-1  AUFRUECKEN UND VERSCHIEBEN: Rueckt eine Buchung auf oder
+        verschiebt sie sich, behaelt sie ihre DAUER: Bei einer Dauer in
+        Monaten wird ihr Ende nach LZ-2 neu berechnet, bei einem von
+        Hand gesetzten Ende um dieselbe Spanne verschoben wie ihr
+        Beginn.
+  VB-2  "SOFORT BEGINNEN" heisst: Die erste folgende Buchung beginnt
+        jetzt (LZ-2 mit dem angebrochenen Tag), die weiteren schliessen
+        an. So verliert der Kunde nichts, was er bezahlt hat.
+  VB-3  DER KUNDE KANN HOECHSTENS EINE ANSCHLUSSBUCHUNG AUSLOESEN
+        (DEC-PL-06 e): Hat er eine kuenftige Buchung, lehnt der Kern
+        eine weitere Bestellung ab. Die Verwaltung kann beliebig viele
+        aneinanderreihen.
+  VB-4  DIE KETTE HAT EINE OBERGRENZE: Das Ende der letzten Buchung
+        eines Kunden liegt hoechstens zehn Jahre nach jetzt. Das haelt
+        Tippfehler ab (ein Ende im Jahr 2206), nicht den Betreiber.
+  VB-5  EIN ANDERER PLAN ALS ANSCHLUSS aendert die Werte des Kunden zu
+        seinem Beginn, ohne dass jemand schreibt (DEC-PL-06, Folgen).
+        Der Kern zeigt beim Buchen, was sich dann aendert - vor allem,
+        ob das Aktiv-Budget kleiner wird als die Zahl der Connections
+        (Plan-Limit, MOD-010_060 Abschnitt 3).
+  VB-6  VORSCHAU VOR JEDEM VORGANG DER VERWALTUNG: Der Kern liefert auf
+        Anfrage, was ein Vorgang bewirken wuerde - die Kette vorher und
+        nachher -, ohne zu schreiben. Das Panel zeigt sie vor der
+        Bestaetigung.
+  VB-7  JEDER VORGANG DER VERWALTUNG TRAEGT EINEN GRUND (DEC-PL-13).
+
+================================================================================
+5) GUTSCHRIFT, ROLLENWECHSEL UND LOESCHUNG - IN FREMDER TRANSAKTION
+================================================================================
+
+  PLAN-GUTSCHRIFTEN (web_plan_credits)
+    id                 Primaerschluessel
+    vpn_connection_id  die vorbereitete Connection; EINDEUTIG unter den
+                       offenen Gutschriften
+    plan_id            Fremdschluessel auf policy_plans.id
+    term_months        Dauer in Monaten (PFLICHT)
+    price_cents        der genannte Preis (optional)
+    state              OPEN | REDEEMED | REMOVED | VOID
+    booking_id         die entstandene Buchung (bei REDEEMED)
+    created_at, created_by, closed_at, closed_by
+
+  GU-1  ANLEGEN kann nur ADMIN, und nur an einer Connection OHNE Kunden
+        (vorbereitet, nicht widerrufen). Je Connection gibt es
+        hoechstens eine offene Gutschrift (DEC-PL-08 a).
+  GU-2  EINLOESEN IM CLAIM: Die Routine T-01 von BASE-010 ruft den Kern
+        in IHRER Transaktion, nachdem der Kunde feststeht und BEVOR sie
+        das Budget prueft (ANF-PL-02 c). Der Kern
+          - lehnt ab, wenn der Kunde nicht die Rolle USER traegt
+            (DEC-PL-08 e) oder wenn er gerade nicht buchen kann (LZ-5,
+            LZ-7): Dann scheitert der Claim als Ganzes und aendert
+            nichts. Die Connection bleibt vorbereitet und nutzbar; der
+            Kunde versucht es spaeter erneut,
+          - bucht sonst Plan und Dauer fuer den Kunden (origin CREDIT;
+            Beginn nach LZ-1: mit dem Claim oder als Anschluss) und
+            setzt die Gutschrift auf REDEEMED.
+        Die Budgetpruefung rechnet danach schon mit den Werten des
+        Plans.
+  GU-3  GENAU EINMAL: Eine Gutschrift im Zustand REDEEMED, REMOVED oder
+        VOID wird nie wieder eingeloest.
+  GU-4  VERFALL: Wird die Connection gesperrt, widerrufen oder
+        geloescht, bevor sie uebernommen ist, ist die Gutschrift VOID.
+        Der Lauf setzt den Zustand (MOD-010_050); eingeloest werden
+        kann sie schon vorher nicht mehr, weil es keinen Claim gibt.
+  GU-5  ENTFERNEN ODER ERSETZEN kann ADMIN, solange sie OPEN ist
+        (DEC-PL-13 d).
+
+  ROLLENWECHSEL (T-09) UND LOESCHUNG eines Kunden rufen den Kern in
+  ihrer Transaktion (ANF-PL-02 d):
+  RW-1  WEG VON USER: Die laufende Buchung endet mit dem Wechsel, alle
+        kuenftigen werden gestrichen, die offene Bestellung wird
+        geschlossen, ungepruefte Zahlungen bleiben zur Pruefung stehen
+        (MOD-010_040 Regel ZA-11). Die Vorpruefung des Wechsels
+        (BASE-080_060 Schritt RC1) zeigt, was endet: Plan, Restlaufzeit,
+        Anschlussbuchungen.
+  RW-2  HIN ZU USER: Der Kern tut nichts. Der Kunde ist OHNE PLAN oder
+        ABGELAUFEN, bis eine Buchung entsteht; die Verwaltung kann im
+        selben Arbeitsgang buchen (DEC-PL-12 b).
+  RW-3  LOESCHUNG: wie RW-1, mit dem Grund CUSTOMER_DELETED. Gutschriften
+        betrifft das nicht - sie haengen an Connections ohne Kunden.
+  RW-4  SPERRUNG (SUSPENDED) ruft den Kern nicht: Die Laufzeit laeuft
+        weiter (DEC-PL-05 d, DEC-PL-12 c).
+
+================================================================================
+6) PROTOKOLL (log_plan_audit)
+================================================================================
+
+  id            Primaerschluessel
+  at            Zeitpunkt
+  actor_kind    CUSTOMER | ADMIN | SYSTEM
+  actor_id      Kennung des Urhebers (bei SYSTEM der Name des Laufs)
+  customer_id   der betroffene Kunde (leer bei Stammdaten)
+  action        der Vorgang (fester Wertevorrat: die Vorgaenge aus
+                Abschnitt 4 und 5, aus MOD-010_040 und die Pflege der
+                Stammdaten; dazu REJECTED)
+  object_kind   BOOKING | CREDIT | ORDER | PAYMENT | ADDON | PLAN |
+                TERM | ADDON_TIER | FLAG | USAGE_RESET
+  object_id     Kennung des Gegenstands
+  before, after der Stand der geaenderten Felder vorher und nachher
+  reason        der angegebene Grund (Pflicht bei ADMIN)
+  result        bei REJECTED der feste Ablehnungsgrund
+  request_id    verbindet die Zeilen EINES Vorgangs
+
+  PR-1  NUR ANFUEGEND: Kein Programm aendert oder loescht eine Zeile;
+        allein der Aufbewahrungslauf von MOD-007 loescht nach seiner
+        Frist (ANF-PL-09).
+  PR-2  IN DERSELBEN TRANSAKTION wie der Vorgang (BK-1). Einen Vorgang
+        ohne Protokollzeile gibt es nicht, und keine Protokollzeile
+        ohne Vorgang.
+  PR-3  NIE EIN CODE: Das Protokoll nennt eine Zahlung ueber ihre
+        Kennung und die letzten vier Stellen - nie den Code, auch nicht
+        bei einer Ablehnung (SZ-10).
+  PR-4  ABGELEHNTES STEHT AUCH DRIN: Ein abgelehnter Vorgang schreibt
+        eine Zeile mit REJECTED und dem Grund - in eigener Transaktion,
+        weil die des Vorgangs verworfen ist. Daran zaehlt der Kern die
+        Code-Eingaben eines Tages (MOD-010_040 Regel ZA-4).
+  PR-5  Namen statt nur Kennungen: before und after tragen plan_key und
+        den Namen des Plans zur Zeit des Vorgangs (PT-5).
+
+================================================================================
+7) ABLEHNUNGSGRUENDE DES KERNS (fester Wertevorrat)
+================================================================================
+
+  NOT_ALLOWED            der Urheber darf den Vorgang nicht
+  CUSTOMER_NOT_USER      der Kunde traegt nicht die Rolle USER
+  CUSTOMER_GONE          der Kunde ist als geloescht gefuehrt
+  PLAN_UNKNOWN           den Plan gibt es nicht
+  PLAN_NOT_BOOKABLE      der Plan oder die Stufe steht nicht im Angebot
+                         (nur fuer den Kunden ein Grund)
+  TERM_INVALID           Dauer ausserhalb 1 bis 36 Monate bzw. Ende
+                         kein Tagesbeginn, nicht nach dem Beginn oder
+                         jenseits der Obergrenze (VB-4)
+  CHAIN_LIMIT            der Kunde hat schon eine Anschlussbuchung (VB-3)
+  NOT_CHANGEABLE         die Buchung ist beendet oder gestrichen (BU-6)
+  TIMEZONE_UNKNOWN       LZ-5
+  TIME_UNCONFIRMED       LZ-7
+  BOOKINGS_INCONSISTENT  die Kette des Kunden verletzt BU-5; erst
+                         bereinigen (MOD-010_070 Abschnitt 8)
+  REASON_MISSING         VB-7
+  Die Gruende der Bestellung und Zahlung stehen in MOD-010_040.
+
+================================================================================
+8) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  Je Kunde: die Kette (laufende und kuenftige Buchungen) mit Plan,
+  Beginn, "gueltig bis einschliesslich", verbleibenden Tagen, ob
+  vorlaeufig und ob eine Nachzahlfrist laeuft; darunter die beendeten
+  und gestrichenen Buchungen mit ihrem Grund. Alles liefert die
+  Plan-Auskunft (MOD-010_060); das Panel rechnet weder Tage noch Enden.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

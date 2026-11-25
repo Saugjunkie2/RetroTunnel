@@ -1,0 +1,333 @@
+================================================================================
+MOD-010 — BETRIEB: WERKZEUGE, RECHTE, EINSTELLUNGEN, EINRICHTUNG
+================================================================================
+DATEI: MOD-010_070_BETRIEB.txt
+STATUS: IN ARBEIT (AP-M010; Modul noch unvollstaendig)
+
+ZWECK:
+  Womit das Plan-Modul betrieben wird: Werkzeuge und Units, Pfade,
+  Statusdatei und Marken, Ereignisse, Rechte in der Datenbank,
+  Einstellungen, Einrichtung, Verhalten bei Stoerungen und die
+  Eingriffe der Verwaltung.
+
+================================================================================
+1) WERKZEUGE
+================================================================================
+
+  vpn-plan        Buchungskern und Plan-Auskunft als Werkzeug am Server:
+                  jeder Vorgang aus MOD-010_030 und MOD-010_040, jede
+                  Liste aus MOD-010_060 - mit Vorschau (--dry-run) und
+                  Grund (--reason). Nur root; der Urheber ist dann die
+                  Rolle ADMIN mit dem Namen des aufrufenden Benutzers.
+  vpn-plan-run    der Lauf (MOD-010_050 Abschnitt 3)
+
+  WK-1  EINE IMPLEMENTIERUNG: Werkzeug, Lauf und privilegierter
+        Auftragsweg benutzen dieselbe Bibliothek (Kern und Auskunft). Es
+        gibt keinen zweiten Schreiber (MOD-010_020 Regel ZO-2).
+  WK-2  DAS PANEL RUFT KEIN WERKZEUG SELBST: Was Kunde und Verwaltung im
+        Panel ausloesen, geht ueber den privilegierten Auftragsweg von
+        BASE-110 (ANF-PL-06) - mit festem Schema, numerischen Kennungen
+        und dem Urheber. Handlungen der Rolle ADMIN sind Klasse C (mit
+        erneuter Anmeldung): alle Vorgaenge der Verwaltung aus
+        MOD-010_030 Abschnitt 4 und MOD-010_040 Abschnitt 8, die Pflege
+        der Stammdaten und das Ansehen eines Codes.
+  WK-3  DER CODE GEHT NUR DURCH: Der Auftragsweg reicht einen
+        eingereichten Code an den Kern weiter und haelt ihn nirgends
+        fest - nicht im Auftrag, nicht im Protokoll, nicht in einer
+        Fehlermeldung (MOD-010_040 Regel CD-3).
+
+================================================================================
+2) UNITS UND PFADE
+================================================================================
+
+  vpn-plan-run.timer     Zeitgeber, festes Raster (Vorschlag 5 min)
+  vpn-plan-run.service   der Lauf, wenn faellig; eigener Systembenutzer,
+                         ohne root-Rechte (MOD-010_050 Regel LR-5)
+
+  /run/retrotunnel/plan/             Verzeichnis des Laufs
+    status-run.json                  Statusdatei (Abschnitt 3)
+    run.lock                         Lauf-Lock
+  /etc/retrotunnel/plan/code-check.key
+                                     der geheime Schluessel des
+                                     Pruefwerts (MOD-010_040 Regel CD-5);
+                                     lesbar nur fuer den Kern, nicht fuer
+                                     den Webprozess
+
+  UN-1  KEIN DIENST HAENGT VON DIESEN UNITS AB, und sie verlangen die
+        Datenbank nicht als Startbedingung: Ohne Datenbank endet der
+        Lauf ohne Wirkung.
+  UN-2  ZEITGEBER FEST, TAKT AUS DER EINSTELLUNG (wie BASE-080
+        DEC-PA-21): Eine Aenderung des Takts braucht keine neue Unit.
+  UN-3  Werkzeuge, Units und Pfade stehen im Verzeichnis der Plattform
+        (ANF-PL-12).
+
+================================================================================
+3) STATUSDATEI UND MARKEN
+================================================================================
+
+  /run/retrotunnel/plan/status-run.json (0644, atomar ersetzt; keine
+  personenbezogenen Daten, keine Codes):
+    generated_at, letzter_lauf_at, letzter_lauf_ok_at, zeit_bestaetigt,
+    festgeschrieben (Ruecknahmen), verfallen (Bestellungen,
+    Gutschriften), erinnerungen je Anlass, uebergeben, wartend,
+    widersprueche, ungeprueft_ueberfaellig, fehler, dauer
+
+  Marken (vpn_runtime_marks; Eintrag im Verzeichnis der Marken bei
+  BASE-070 angefordert, ANF-PL-03 c):
+    plan_run_last_run_at   Beginn des letzten Laufs
+    plan_run_last_ok_at    Beginn des letzten Laufs ohne Fehler
+
+  Eine Statusdatei, die aelter ist als das Dreifache des Takts, gilt im
+  Panel als "Lauf antwortet nicht".
+
+================================================================================
+4) EREIGNISSE
+================================================================================
+
+  Ereignis                        Stufe     Anlass
+  ------------------------------- --------- -----------------------------
+  PLAN_ORDER_RECEIVED             INFO      ein Kunde hat bestellt
+  PLAN_PAYMENT_SUBMITTED          WARN      eine Zahlung wartet auf die
+                                            Pruefung (mit Zahlweg, ohne
+                                            Code)
+  PLAN_PAYMENT_UNCHECKED_OVERDUE  ALERT     Zahlungen sind laenger als
+                                            policy_plan_unchecked_alert_
+                                            days ungeprueft (mit Zahl und
+                                            aeltester)
+  PLAN_BOOKING_REVOKED            WARN      eine Buchung oder ein
+                                            Zusatzvolumen wurde
+                                            zurueckgenommen
+  PLAN_CODE_LIMIT                 WARN      ein Kunde hat die Zahl der
+                                            Code-Eingaben eines Tages
+                                            ausgeschoepft
+  PLAN_CODE_ORPHAN                ALERT     ein Code ohne ungepruefte
+                                            Zahlung wurde gefunden und
+                                            geloescht
+  PLAN_BOOKINGS_INCONSISTENT      CRITICAL  der Bestand eines Kunden
+                                            widerspricht sich
+                                            (MOD-010_060 Regel AU-6), mit
+                                            Kunde und Art
+  PLAN_USAGE_RESET                INFO      die Verwaltung hat einen
+                                            Verbrauch zurueckgesetzt
+  PLAN_RUN_FAILED                 ALERT     der Lauf endete mit Fehlern
+  PLAN_RUN_OVERDUE                ALERT     der Lauf laeuft nicht
+                                            (Statusdatei aelter als das
+                                            Dreifache des Takts; erkannt
+                                            von der Ueberwachung, MOD-007)
+  PLAN_TIME_UNCONFIRMED           WARN      der Kern hat einen Vorgang
+                                            abgelehnt bzw. der Lauf
+                                            Schritte ausgelassen, weil
+                                            die Zeit nicht bestaetigt ist
+
+  EV-1  KEIN EREIGNIS NENNT EINEN CODE; Kunden stehen als Kennung darin.
+  EV-2  Meldeweg, Buendelung und Aufbewahrung gehoeren MOD-007
+        (ANF-PL-09).
+
+================================================================================
+5) RECHTE IN DER DATENBANK
+================================================================================
+
+  Tabelle                    radius  webpanel   system
+  -------------------------- ------- ---------- -------------------------
+  policy_plans               -       SELECT     alle
+  policy_plan_terms          -       SELECT     alle
+  policy_plan_addon_tiers    -       SELECT     alle
+  web_plan_bookings          -       SELECT     alle (kein DELETE)
+  web_plan_credits           -       SELECT     alle (kein DELETE)
+  web_plan_orders            -       SELECT     alle (kein DELETE)
+  web_plan_payments          -       SELECT     alle (kein DELETE)
+  web_plan_payment_codes     -       -          SELECT, INSERT, DELETE
+  web_plan_customer_flags    -       SELECT     alle
+  web_plan_addons            -       SELECT     alle (kein DELETE)
+  web_plan_notices           -       SELECT     alle; DELETE nur der
+                                                Aufbewahrungslauf
+  log_plan_audit             -       SELECT     SELECT, INSERT; DELETE
+                                                nur der Aufbewahrungslauf
+                                                (MOD-007)
+
+  DR-1  DER WEBPROZESS SCHREIBT KEINE TABELLE DIESES MODULS und liest
+        die Codes nicht. BASE-000_010 gibt ihm fuer die Zonen web_ und
+        policy_ allgemein alle vier Rechte; die Einengung fuer diese
+        Tabellen ist beantragt (ANF-PL-01).
+  DR-2  radius hat auf keine Tabelle Zugriff.
+  DR-3  policy_plan_values: Rechte nach BASE-100_070 (dort "mit
+        MOD-010"); beantragt ist dasselbe wie hier - der Webprozess
+        liest, der Schreibkern von BASE-100 schreibt als system.
+
+  SCHREIBWEGE (in der Form von BASE-010_080; (REQ) = loest aus, das
+  System fuehrt aus; W! = schreibt ueber den Kern, mit Grund und
+  Protokoll):
+  Gegenstand             SYSTEM  ADMIN  KUNDE
+  ---------------------- ------- ------ -------------------------------
+  Plaene, Stufen         W       W!     liest das Angebot
+  Buchung                W       W!     (REQ) ueber Bestellung und Code
+  Gutschrift             W       W!     -
+  Bestellung             W       W!     (REQ) bestellen, zurueckziehen
+  Zahlung                W       W!     (REQ) Code einreichen
+  Code                   W       liest  (REQ) einreichen; liest nie
+  Vertrauen              W       W!     -
+  Zusatzvolumen          W       W!     (REQ) ueber Bestellung und Code
+  Verbrauch              -       (REQ)  -      (ausgefuehrt von BASE-070)
+  zuruecksetzen
+  MODERATOR liest alles ausser den Codes und loest nichts aus.
+
+================================================================================
+6) EINSTELLUNGEN
+================================================================================
+
+  Sieben Keys, alle global, keiner ein Geheimnis; angemeldet bei BASE-090
+  (ANF-PL-08; Form nach BASE-090_060 Abschnitt 10). Gelesen wird ueber
+  den Aufloeser von BASE-090 - vom Kern bei jedem Vorgang, vom Lauf zu
+  seinem Beginn; dieses Modul hat keinen eigenen Rueckfall.
+
+  policy_plan_repay_days
+      Ganze Tage der Nachzahlfrist nach einer fuer ungueltig erklaerten
+      Zahlung (MOD-010_040 Regel ZA-7). INT 0..14, Vorschlag 3
+      (Betreiber, BM-0030). Groesser: Der Kunde hat laenger Zeit und
+      nutzt laenger unbezahlt. 0: keine Frist - die Buchung endet mit
+      dem Ablauf des Tages der Ungueltig-Erklaerung. Beantragt:
+      FAIL_SAFE_HARDCAP, Notwert 3, kleiner ist strenger. Eine Aenderung
+      gilt fuer kuenftige Ungueltig-Erklaerungen; laufende Fristen
+      bleiben.
+  policy_plan_code_attempts_per_day
+      Code-Eingaben je Kunde und Geschaeftstag (ZA-4). INT 1..20,
+      Vorschlag 5. Groesser: mehr Versuche, einen Code zu erraten oder
+      zu vertippen. Beantragt: FAIL_SAFE_HARDCAP, Notwert 3, kleiner ist
+      strenger. Wirkt sofort.
+  policy_plan_order_expiry_days
+      Tage, nach denen eine offene Bestellung verfaellt (BE-6). INT
+      1..90, Vorschlag 14. Beantragt: FAIL_SAFE_HARDCAP, Notwert 14,
+      ohne Richtung (der Wert raeumt nur auf). Wirkt mit dem naechsten
+      Lauf.
+  policy_plan_reminder_days_before_end
+      Liste der Tage vor dem Ende, an denen E-1 entsteht. Bis zu fuenf
+      Zahlen 1..60, Vorschlag "7,1"; die leere Liste schaltet E-1 ab.
+      Beantragt: FAIL_SAFE_HARDCAP, Notwert "7,1", ohne Richtung. Wirkt
+      mit dem naechsten Lauf.
+  policy_plan_release_warning_days
+      Tage vor der Freigabe, an denen E-3 entsteht. INT 1..60, Vorschlag
+      7. Beantragt: FAIL_SAFE_HARDCAP, Notwert 7, ohne Richtung.
+  policy_plan_unchecked_alert_days
+      Tage, nach denen eine ungepruefte Zahlung gemeldet wird (ZA-12).
+      INT 1..30, Vorschlag 3. Beantragt: FAIL_SAFE_HARDCAP, Notwert 3,
+      kleiner ist strenger.
+  policy_plan_run_interval_seconds
+      Takt des Laufs. INT 300..3600, Vorschlag 900. Beantragt:
+      FAIL_SAFE_HARDCAP, Notwert 900, ohne Richtung (der Takt aendert
+      nur, wie schnell erinnert und festgeschrieben wird).
+
+  ES-1  MITBENUTZT, NICHT EIGEN: vpn_quota_timezone (BASE-070; Klasse
+        FAIL_CLOSED) bestimmt den Geschaeftstag. Ohne gueltigen Wert
+        legt der Kern keine Buchung an und setzt keine Nachzahlfrist
+        (MOD-010_030 Regel LZ-5); bestehende Buchungen laufen weiter.
+  ES-2  KEINE EINSTELLUNG SIND: die Fenster bis zur Freigabe (Spalten
+        des Verzeichnisses der Gruende, BASE-010), Plaene, Preise und
+        Stufen (Daten, MOD-010_020), die Obergrenze des Zusatzvolumens
+        und die Form des Codes (feste Werte).
+  ES-3  KEINE EINSTELLUNG SCHALTET DIE PLAN-PFLICHT: Sie gilt immer
+        (BASE-100 DEC-PO-18). Aussetzen kann sie nur der Eingriff beim
+        Bewerter (BASE-080 AK-5).
+
+================================================================================
+7) EINRICHTUNG
+================================================================================
+
+  EB-1  VORAUSSETZUNGEN BEI DEN NACHBARN (im Einzelnen MOD-010_080
+        Abschnitt 4): die zwei Gruende im Verzeichnis (BASE-010), die
+        Bedingungsquelle beim Bewerter (BASE-080), der Claim mit
+        Gutschrift (BASE-010, MOD-001), der privilegierte Auftragsweg
+        und das Panel (BASE-110, MOD-006). Fuer das Zuruecksetzen die
+        Routine von BASE-070; fuer Nachrichten das E-Mail-System.
+  EB-2  REIHENFOLGE:
+          1. Tabellen anlegen; Schluessel des Pruefwerts erzeugen
+          2. Einstellungen sind angemeldet und gueltig
+          3. ERSTE PLAENE EINTRAGEN: Plaene, Stufen, Stufen des
+             Zusatzvolumens und die Werte je Plan (ueber den Schreibkern
+             von BASE-100) - aus einer Datei, nach dem Vorschlag aus
+             DEC-PL-20 oder eigenen Zahlen (vpn-plan --seed <Datei>;
+             MOD-010_020 Regel PT-17)
+          4. Das Modul ist IN BETRIEB: BASE-100 fragt von da an die
+             Plan-Auskunft (MOD-010_060 Abschnitt 6)
+          5. BESTANDSKUNDEN BUCHEN: Die Liste OHNE PLAN zeigt, wen die
+             Plan-Pflicht traefe; die Verwaltung bucht ihnen ihre Plaene
+          6. Erst dann die Aussetzung der Plan-Pflicht beenden (BASE-080
+             AK-5; DEC-PL-17)
+  EB-3  PRUEFUNG VOR SCHRITT 6: vpn-plan --check meldet, wie viele
+        Kunden der Rolle USER ohne laufenden Plan sind und ob ein Plan
+        im Angebot steht. Der Betreiber entscheidet; das Werkzeug
+        beendet keine Aussetzung.
+  EB-4  DIE DATEI DER ERSTEN PLAENE ist Teil der Einrichtung, nicht des
+        Programms (SZ-9). Nach dem Eintragen ist sie ohne Bedeutung.
+
+================================================================================
+8) STOERUNGEN UND EINGRIFFE
+================================================================================
+
+  Lage                       Verhalten
+  -------------------------- -------------------------------------------
+  Datenbank nicht            kein Vorgang, keine Auskunft (Zustand
+  erreichbar                 UNREADABLE; BASE-100: DB_UNKNOWN); der
+                             Bewerter aendert nichts (BASE-080 AK-4)
+  Zeit nicht bestaetigt      der Kern lehnt Vorgaenge ab, die eine
+                             Buchung anlegen oder eine Frist setzen
+                             (TIME_UNCONFIRMED); der Lauf schreibt
+                             nichts fest und erinnert nicht. Lesen und
+                             Bestaetigen bleiben moeglich
+  Zeitzone nicht lesbar      wie oben (TIMEZONE_UNKNOWN)
+  Schluessel des Pruefwerts  kein Code wird angenommen (der Vergleich
+  fehlt                      "schon eingereicht" waere nicht moeglich);
+                             Barzahlung und alles andere laufen
+  E-Mail-System fehlt        Nachrichten bleiben vorgemerkt und
+                             verfallen (MOD-010_050 Regel ER-6); nichts
+                             sonst haengt daran
+  Lauf faellt aus            MOD-010_050 Abschnitt 4
+  Bestand widerspricht sich  der Plan des Kunden ist nicht bestimmbar;
+                             der Kern lehnt Vorgaenge fuer ihn ab
+                             (MOD-010_060 Regel AU-7)
+  Datensicherung             was seit der Sicherung gebucht, bestellt
+  zurueckgespielt            oder entschieden wurde, fehlt. Die
+                             Verwaltung bucht nach ihren Unterlagen
+                             nach; die Bestandspruefung meldet
+                             Widersprueche
+
+  EG-1  BEREINIGEN: Fuer einen Kunden mit widerspruechlichem Bestand
+        bietet vpn-plan --repair <Kunde> der Rolle ADMIN die
+        ueberlappenden Buchungen an; sie beendet oder streicht, bis die
+        Kette stimmt. Nur dieser Vorgang arbeitet an einem
+        widerspruechlichen Bestand; er traegt einen Grund und steht im
+        Protokoll.
+  EG-2  NICHTS WIRD VON HAND IN DIE TABELLEN GESCHRIEBEN. Wer es am
+        Server dennoch tut, umgeht Protokoll und Regeln; die
+        Bestandspruefung meldet, was sie davon erkennen kann.
+  EG-3  KEIN EINGRIFF HEBT EINE BESTAETIGUNG AUF: Eine bestaetigte
+        Zahlung bleibt bestaetigt. Stellt sich spaeter heraus, dass sie
+        falsch war, beendet die Verwaltung die Buchung mit dem Vorgang
+        JETZT BEENDEN und einem Grund.
+
+================================================================================
+9) AUFBEWAHRUNG
+================================================================================
+
+  log_plan_audit, web_plan_notices und die abgeschlossenen Bestellungen
+  und Zahlungen (ohne Code) bewahrt MOD-007 nach seinen Fristen auf
+  (ANF-PL-09; Vorschlag: Protokoll und Buchungen so lange wie das
+  Kundenkonto besteht, Nachrichten 12 Monate). Buchungen werden nie
+  einzeln geloescht (MOD-010_030 Regel BU-6); mit dem endgueltigen
+  Loeschen eines
+  Kundenkontos entfallen seine Zeilen (Fremdschluessel) - das Protokoll
+  bleibt bis zu seiner Frist.
+
+================================================================================
+10) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  Stand des Laufs aus der Statusdatei; die Ereignisse dieses Moduls; je
+  Einstellung der wirksame Wert (von BASE-090). Das Panel zeigt an und
+  loest Vorgaenge aus; es rechnet nichts nach und schreibt keine Tabelle
+  (DR-1).
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

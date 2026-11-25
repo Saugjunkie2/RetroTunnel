@@ -1,0 +1,222 @@
+================================================================================
+MOD-010 — ABLAUF, NACHRICHTEN UND DER LAUF
+================================================================================
+DATEI: MOD-010_050_ABLAUF_ERINNERUNG_UND_LAUF.txt
+STATUS: IN ARBEIT (AP-M010; Modul noch unvollstaendig)
+
+ZWECK:
+  Was mit dem Ende einer Laufzeit geschieht und wer es tut; welche
+  Nachrichten ein Kunde bekommt und wie jede genau einmal entsteht; was
+  der regelmaessige Lauf dieses Moduls leistet - und was ausdruecklich
+  nicht an ihm haengt. Grundlage sind DEC-PL-09, DEC-PL-10 und DEC-PL-11
+  (MOD-010_010).
+
+================================================================================
+1) WAS MIT DEM ABLAUF GESCHIEHT - UND WER ES TUT
+================================================================================
+
+  Zeitpunkt                  was geschieht                 wer
+  -------------------------- ----------------------------- ---------------
+  Tage vor dem Ende          Erinnerung E-1                Lauf (Abschnitt
+                                                           3)
+  wirksames Ende erreicht    die Buchung ist beendet; der  niemand - es
+                             Plan-Stand ist ABGELAUFEN     folgt aus den
+                             (oder eine Anschlussbuchung   Daten und der
+                             laeuft)                       Uhr (BU-4)
+  naechster Lauf des         die Connections des Kunden    BASE-080 (aus
+  Bewerters                  werden eingeschraenkt, Grund  der Auskunft
+                             RESTRICT_PLAN_EXPIRED         AK-6 von
+                                                           BASE-100)
+  danach                     Nachricht E-2                 Lauf
+  neue Buchung               die Einschraenkung endet      Kern fordert
+                             sofort                        die Bewertung
+                                                           an (BK-2)
+  Tage vor dem Ende des      Warnung E-3                   Lauf
+  Fensters
+  Fenster des Grundes        die Connections werden        BASE-080
+  abgelaufen                 freigegeben                   (Finalisierung;
+                             (DISABLE_PLAN_EXPIRED_        Fenster aus dem
+                             TIMEOUT), unumkehrbar         Verzeichnis der
+                                                           Gruende,
+                                                           BASE-010)
+  (BU- und BK-: Regeln aus MOD-010_030.)
+
+  AB-1  DIESES MODUL SCHALTET NICHTS UM: Es gibt keinen Vorgang "Plan
+        ablaufen lassen". Das Ende steht in der Buchung; alles Weitere
+        lesen Bewerter und Auskunft daraus (PL-09).
+  AB-2  ZWISCHEN ENDE UND EINSCHRAENKUNG liegt hoechstens ein
+        Bewertungstakt (vpn_policy_eval_interval_seconds, BASE-080). In
+        dieser Zeit ist der Kunde noch frei - der Preis dafuer, dass
+        kein eigener Lauf zum richtigen Augenblick arbeiten muss.
+  AB-3  DIE FRISTEN BIS ZUR FREIGABE zaehlen ab der Einschraenkung der
+        einzelnen Connection (restrict_finalize_at, BASE-010) - nicht ab
+        dem Ende der Buchung. Eine neue Buchung hebt die Einschraenkung
+        auf und damit die Frist; laeuft auch sie ab, beginnt die Frist
+        neu. Vorschlag fuer die Fenster: 90 Tage (abgelaufen), 30 Tage
+        (nie gebucht); festgelegt werden sie im Verzeichnis der Gruende
+        (ANF-PL-02 b).
+  AB-4  DAS KUNDENKONTO BLEIBT nach der Freigabe; die Geschichte seiner
+        Buchungen auch. Bucht der Kunde wieder, erhaelt er neue
+        Connections (DEC-PL-10 b).
+  AB-5  OHNE PLAN VON ANFANG AN: Fuer einen Kunden, der nie gebucht hat,
+        gilt dasselbe mit dem Grund RESTRICT_PLAN_MISSING und seinem
+        eigenen Fenster. Eine Nachricht E-2 gibt es fuer ihn nicht; die
+        Warnung E-3 schon.
+
+================================================================================
+2) NACHRICHTEN (web_plan_notices)
+================================================================================
+
+  id           Primaerschluessel
+  customer_id  der Empfaenger
+  occasion     E1 | E2 | E3 | E4 | E5 | E6
+  notice_key   der Schluessel, der die Nachricht eindeutig macht
+               (unten); EINDEUTIG
+  template     Kennung der Vorlage
+  params       die Angaben fuer die Vorlage (Plan, Daten, Tage, Betrag,
+               letzte vier Stellen) - nie ein Geheimnis
+  state        PENDING | HANDED | SKIPPED
+  created_at, handed_at
+
+  ANLAESSE (DEC-PL-11 a):
+  Anlass  wann                               Schluessel
+  ------  ---------------------------------  ---------------------------
+  E-1     das wirksame Ende einer laufenden  Buchung, Tageszahl, Datum
+          Buchung liegt hoechstens d Tage    des Endes
+          entfernt - fuer jedes d aus
+          policy_plan_reminder_days_
+          before_end
+  E-2     eine Buchung ist beendet, und der  Buchung
+          Kunde hat keine laufende
+  E-3     die frueheste Freigabe einer       Kunde, Datum der Freigabe
+          Connection des Kunden liegt
+          hoechstens
+          policy_plan_release_warning_days
+          entfernt
+  E-4     eine Buchung oder ein              Buchung bzw. Zusatzvolumen
+          Zusatzvolumen ist entstanden
+  E-5     Bestellung eingegangen, Zahlung    Bestellung bzw. Zahlung und
+          eingereicht, bestaetigt oder fuer  das Ergebnis
+          ungueltig erklaert (mit dem Ende
+          der Nachzahlfrist), Bestellung
+          abgelehnt oder verfallen, Buchung
+          oder Zusatzvolumen
+          zurueckgenommen
+  E-6     der Verbrauch wurde                Vorgang des Zuruecksetzens
+          zurueckgesetzt
+
+  ER-1  GENAU EINMAL: Zu einem Schluessel gibt es hoechstens eine Zeile.
+        Wer eine Nachricht ausloesen will, fuegt die Zeile ein; gibt es
+        sie schon, geschieht nichts (PL-24).
+  ER-2  E-4 BIS E-6 ENTSTEHEN IM VORGANG: Der Kern schreibt die Zeile in
+        der Transaktion des Vorgangs (MOD-010_030 Regel BK-1). E-1 BIS
+        E-3 ENTSTEHEN IM LAUF (Abschnitt 3).
+  ER-3  E-1 ENTFAELLT, wenn der Kunde eine Anschlussbuchung hat
+        (DEC-PL-11 b) oder die Buchung in der Nachzahlfrist steht (dann
+        hat ihm E-5 das Fristende schon genannt). Wird das Ende einer
+        Buchung hinausgeschoben, gilt fuer das neue Ende eine neue
+        Erinnerung - das Datum gehoert zum Schluessel.
+  ER-4  NUR, WAS NOCH STIMMT: Der Lauf legt E-1 nur an, solange die
+        Buchung laeuft, und E-2 nur, wenn das Ende hoechstens 7 Tage
+        zurueckliegt (fester Wert). Ein lange ausgefallener Lauf schickt
+        keine veralteten Nachrichten nach.
+  ER-5  KEINE ZUSAGE HAENGT AN EINER NACHRICHT (DEC-PL-11 d; PL-25):
+        Plan-Stand, Buchung, Nachzahlfrist und Freigabe gelten, gleich
+        ob eine Nachricht angelegt, uebergeben, zugestellt oder gelesen
+        wurde. Dasselbe steht im Panel.
+  ER-6  UEBERGABE: Der Lauf uebergibt die Zeilen im Zustand PENDING dem
+        E-Mail-System von BASE-110 - Vorlage, Empfaenger, Angaben - und
+        setzt HANDED. Zustellung, Wiederholung und Absender gehoeren
+        BASE-110 (ANF-PL-06 d). Solange es das E-Mail-System nicht
+        gibt, bleiben die Zeilen PENDING; aelter als 7 Tage setzt der
+        Lauf sie auf SKIPPED.
+  ER-7  WER KEINE NACHRICHT BEKOMMT: ein als geloescht gefuehrter Kunde.
+        Ein gesperrter Kunde bekommt sie.
+  ER-8  KEIN GEHEIMNIS IN EINER NACHRICHT (SZ-10): keine Zeile und keine
+        Vorlage traegt den Code einer Karte; eine Zahlung wird ueber
+        ihre letzten vier Stellen genannt.
+  ER-9  DIE VERWALTUNG BEKOMMT KEINE E-MAIL AUS DIESER TABELLE: Was sie
+        wissen muss, sind Ereignisse (MOD-010_070 Abschnitt 4) und
+        Listen im Panel.
+  ER-10 E-3 BRAUCHT EINE AUSKUNFT DES BEWERTERS: Wann die Connections
+        eines Kunden freigegeben wuerden, liest dieses Modul nicht aus
+        den Feldern der Connection, sondern erfragt es (ANF-PL-04 e).
+        Bis es die Auskunft gibt, entfaellt E-3; das Panel zeigt die
+        Frist an der Connection (BASE-010).
+
+================================================================================
+3) DER LAUF (vpn-plan-run)
+================================================================================
+
+  Zeitgeber im festen Raster (Vorschlag 5 min); der Lauf entscheidet aus
+  policy_plan_run_interval_seconds und seiner Marke, ob er faellig ist
+  (wie BASE-080 DEC-PA-21). Eigener Lauf-Lock: Ein zweiter Lauf endet
+  sofort.
+
+  ABLAUF:
+    LF-1  VORBEDINGUNGEN: Datenbank lesbar, sonst Ende ohne Wirkung.
+          Zeit bestaetigt (wie MOD-010_030 Regel LZ-7)? Sonst
+          unterbleiben LF-2 und LF-4: Sie schreiben fest, was eine
+          falsch gehende Uhr vortaeuschen kann.
+    LF-2  FAELLIGES FESTSCHREIBEN: fuer jeden Kunden mit einer
+          abgelaufenen Nachzahlfrist ohne neue Zahlung der Vorgang
+          ZURUECKNEHMEN des Kerns (MOD-010_040 Regel ZA-9).
+    LF-3  HINFAELLIGES SCHLIESSEN: offene Bestellungen, die aelter sind
+          als policy_plan_order_expiry_days und zu denen keine
+          ungepruefte Zahlung vorliegt -> EXPIRED; Gutschriften an
+          Connections, die gesperrt, widerrufen oder geloescht sind ->
+          VOID (MOD-010_030 Regel GU-4).
+    LF-4  ERINNERN: Zeilen fuer E-1, E-2 und E-3 anlegen (Abschnitt 2).
+    LF-5  UEBERGEBEN: vorgemerkte Nachrichten an das E-Mail-System
+          (ER-6).
+    LF-6  BESTAND PRUEFEN (MOD-010_060 Regel AU-6) und melden: Ketten
+          mit Ueberlappung oder Luecke; Buchungen von Kunden, die nicht
+          die Rolle USER tragen; ungepruefte Zahlungen aelter als
+          policy_plan_unchecked_alert_days; Codes ohne ungepruefte
+          Zahlung (sie werden geloescht und gemeldet).
+    LF-7  Statusdatei und Marken (MOD-010_070 Abschnitt 3).
+
+  LR-1  JEDER KUNDE FUER SICH: Jeder Schritt arbeitet je Kunde in
+        eigener Transaktion ueber den Kern. Ein Fehler bei einem Kunden
+        beendet den Lauf nicht; er wird gezaehlt, und der naechste Lauf
+        versucht es erneut.
+  LR-2  WIEDERHOLBAR: Ein zweiter Lauf ohne geaenderte Daten schreibt
+        nichts.
+  LR-3  MENGENWEISE GELESEN: Die Kandidaten jedes Schritts bestimmt eine
+        Abfrage; die Zahl der Abfragen haengt nicht von der Zahl der
+        Kunden ab.
+  LR-4  DER LAUF HAT EIN ZEITLIMIT (ein Takt); was er nicht schafft,
+        bleibt dem naechsten.
+  LR-5  OHNE ROOT: Der Lauf braucht nur die Datenbank (DB-User system)
+        und laeuft unter einem eigenen Systembenutzer.
+
+================================================================================
+4) WAS NICHT AM LAUF HAENGT
+================================================================================
+
+  Faellt der Lauf aus, gilt weiter:
+    - Ein bezahlter Plan laeuft; eine Anschlussbuchung beginnt (PL-09).
+    - Ein abgelaufener Plan ist abgelaufen; der Bewerter schraenkt ein.
+    - Eine Nachzahlfrist ohne neue Zahlung beendet die Buchung (BU-3).
+    - Bestellen, bezahlen, bestaetigen, buchen - alles geht ueber den
+      Kern und braucht den Lauf nicht.
+  Es UNTERBLEIBT, bis er wieder laeuft: Erinnerungen und Warnungen; die
+  Uebergabe von Nachrichten; das Festschreiben einer Ruecknahme samt
+  Entzug des Vertrauens (der Kern holt es beim naechsten Vorgang des
+  Kunden nach); der Verfall offener Bestellungen; die Bestandspruefung.
+  Der Ausfall wird gemeldet (PLAN_RUN_OVERDUE, MOD-010_070).
+
+================================================================================
+5) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  Je Kunde die Nachrichten mit Anlass, Zeitpunkt und Zustand (ohne die
+  Angaben einer fremden Vorlage neu zu deuten); der Stand des Laufs aus
+  seiner Statusdatei. Der Kunde sieht im Panel, was ihm die Nachrichten
+  sagen wuerden: Ende, Nachzahlfrist, Freigabe.
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

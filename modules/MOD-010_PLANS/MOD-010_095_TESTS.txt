@@ -110,7 +110,11 @@ BUCHUNG UND PLAN-STAND
            vpn_quota_timezone ist das gespeicherte Ende jeder
            bestehenden Buchung unveraendert. (e) Eine Anschlussbuchung
            rechnet ab dem Geschaeftstag, mit dessen Ablauf die vorige
-           endet. [PL-11]
+           endet: Nach (a) laeuft ein Anschluss von 3 Monaten vom 25.02.
+           bis einschliesslich 24.05. - genau drei Monate, kein Tag
+           mehr. (f) Zwoelf Verlaengerungen um je einen Monat ergeben
+           dasselbe Ende wie eine Buchung ueber zwoelf Monate mit
+           demselben Beginn. [PL-11]
 
   T-PL-12  [L] Kein Verlaengern, kein Anhalten. (a) Nach dem Ende einer
            Buchung ohne Anschlussbuchung entsteht keine neue, gleich
@@ -154,8 +158,10 @@ BESTELLUNG UND BUCHUNGSKERN
            bestaetigt: Die Buchung ist endgueltig, Beginn und Ende sind
            unveraendert. [PL-15]
 
-  T-PL-16  [L] Eine Bestellung, eine ungepruefte Zahlung. (a) Zweite
-           Bestellung bei offener erster: abgelehnt. (b) Zweiter Code,
+  T-PL-16  [L] Eine Bestellung je Art, eine ungepruefte Zahlung. (a)
+           Zweite Bestellung derselben Art bei offener erster:
+           abgelehnt; eine Bestellung der anderen Art: angenommen. (b)
+           Zweiter Code,
            waehrend der erste ungeprueft ist: abgelehnt. (c) Mehr
            Code-Eingaben am Tag als erlaubt: abgelehnt bis zum
            naechsten Tag. [PL-16]
@@ -324,6 +330,121 @@ ZAHLUNG, ZUSATZVOLUMEN, ZURUECKSETZEN
            Vorlagen steht kein Name eines Plans, kein Preis und keine
            Laufzeit; alle stammen aus den Tabellen dieses Moduls.
            [PL-34]
+
+================================================================================
+TABELLEN, KERN UND LAUF (Detaildateien)
+================================================================================
+
+  T-PL-35  [K, L] Schreiber und Rechte. (a) Mit dem DB-User webpanel:
+           INSERT, UPDATE und DELETE auf jede Tabelle dieses Moduls
+           scheitern; SELECT auf web_plan_payment_codes scheitert. (b)
+           Mit dem DB-User radius: jeder Zugriff scheitert. (c) Im
+           Programmtext schreibt nur die Bibliothek des Kerns diese
+           Tabellen. [PL-35]
+
+  T-PL-36  [L] Stammdaten. (a) plan_key aendern: abgelehnt; einen Plan
+           mit Buchung loeschen: abgelehnt. (b) Preis einer Stufe
+           aendern, Stufe loeschen: Eine bestehende Buchung und eine
+           offene Bestellung zeigen weiter Dauer und Preis von vorher.
+           (c) Die letzte angebotene Stufe eines buchbaren Plans
+           entfernen: abgelehnt. [PL-36, PL-03]
+
+  T-PL-37  [L] Zeit und Zeitzone. (a) vpn_quota_timezone ungueltig:
+           Buchen, Code einreichen und Bestaetigen einer Barzahlung
+           werden abgelehnt (TIMEZONE_UNKNOWN); die Plan-Auskunft
+           antwortet fuer bestehende Buchungen wie zuvor. (b) Zeit
+           nicht bestaetigt: ebenso (TIME_UNCONFIRMED); der Claim einer
+           Connection mit Gutschrift scheitert als Ganzes, die
+           Connection bleibt vorbereitet. [PL-37]
+
+  T-PL-38  [L] Nachzahlfrist ohne Lauf. Vorlaeufige Buchung, Zahlung
+           fuer ungueltig erklaert, Lauf angehalten: (a) Nach dem
+           Fristende nennt die Plan-Auskunft den Kunden ABGELAUFEN; der
+           Bewerter schraenkt ihn ein. (b) Der naechste Vorgang des
+           Kerns fuer den Kunden schreibt die Ruecknahme fest
+           (end_reason, Vertrauen entzogen, Nachricht). (c) Neuer Code
+           vor dem Fristende: Die Buchung laeuft ueber das Fristende
+           hinaus, bis ADMIN entscheidet. (d) Zeit nicht bestaetigt: Der
+           Lauf schreibt nichts fest. [PL-38, PL-29]
+
+  T-PL-39  [L] Kette. Laufende Buchung A, kuenftige B und C: (a) Ende
+           von A um 10 Tage hinausschieben: B und C beginnen und enden
+           10 Tage spaeter. (b) A jetzt beenden, "sofort beginnen": B
+           beginnt jetzt und behaelt seine Dauer, C schliesst an. (c) A
+           jetzt beenden, "streichen": B und C sind gestrichen. (d) B
+           streichen: C rueckt an das Ende von A. Nach jedem Schritt
+           meldet die Bestandspruefung keinen Widerspruch. [PL-39,
+           PL-07, PL-08]
+
+  T-PL-40  [L] Transaktion und Protokoll. (a) Den Kern nach dem
+           Schreiben der Buchung und vor dem Protokoll abbrechen: Es
+           gibt weder Buchung noch Protokollzeile. (b) Denselben Aufruf
+           (gleiche request_id) zweimal senden: eine Buchung, eine
+           Protokollzeile. (c) Ein abgelehnter Vorgang: eine Zeile
+           REJECTED mit dem Grund. (d) UPDATE und DELETE auf
+           log_plan_audit scheitern. (e) Suche im Protokoll nach einem
+           eingereichten Code: kein Treffer. [PL-40, PL-17, PL-31]
+
+  T-PL-41  [L] Bestellung. (a) Kunde mit kuenftiger Buchung bestellt
+           einen Plan: abgelehnt (CHAIN_LIMIT). (b) Eine zurueckgezogene,
+           abgelehnte oder verfallene Bestellung laesst sich nicht mehr
+           buchen. (c) Offene Barbestellung, aelter als
+           policy_plan_order_expiry_days: Der Lauf setzt EXPIRED; mit
+           einer ungeprueften Zahlung bleibt sie offen. [PL-41]
+
+  T-PL-42  [L] Annahme eines Codes. (a) 15 Ziffern, Buchstaben:
+           abgelehnt; 16 Ziffern mit Leerzeichen und Bindestrichen:
+           angenommen. (b) Derselbe Code von einem anderen Kunden, auch
+           nach einer Entscheidung: abgelehnt; dem Kunden wird nicht
+           gesagt, dass es den Code schon gab. (c) Sechste Eingabe am
+           selben Geschaeftstag bei Grenze 5: abgelehnt, auch wenn die
+           ersten fuenf abgelehnt waren. (d) Schluessel des Pruefwerts
+           entfernt: kein Code wird angenommen; Barzahlung laeuft. (e)
+           Ein angenommener, wertloser Code: Die Buchung entsteht
+           vorlaeufig (das ist der ausgewiesene Preis). [PL-42]
+
+  T-PL-43  [L] Zusatzvolumen im Einzelnen. (a) Kontingent je Connection,
+           Bestellung ohne Connection oder mit einer fremden oder
+           widerrufenen: abgelehnt. (b) Geteiltes Kontingent: Die
+           Bestellung nennt keine Connection. (c) Eine Bestellung, die
+           die Summe der Periode ueber 10 hoch 15 Bytes hoebe:
+           abgelehnt. (d) Nachzahlfrist eines vorlaeufigen
+           Zusatzvolumens ohne neue Zahlung abgelaufen: Es zaehlt nicht
+           mehr. [PL-43, PL-32]
+
+  T-PL-44  [L] Nachrichten. (a) Zwei Laeufe am selben Tag: je Buchung
+           und Tageszahl eine Zeile E-1. (b) Ende um 10 Tage
+           hinausgeschoben: Fuer das neue Ende entsteht eine neue
+           Erinnerung. (c) Lauf zwei Wochen angehalten: Er legt fuer
+           inzwischen beendete Buchungen kein E-1 und kein E-2 an. (d)
+           Als geloescht gefuehrter Kunde: keine Zeile. (e) Ohne
+           E-Mail-System: Zeilen bleiben vorgemerkt und verfallen;
+           nichts sonst aendert sich. [PL-44, PL-24, PL-25]
+
+  T-PL-45  [L] Ohne Lauf. Lauf angehalten: Ein Plan laeuft ab, eine
+           Anschlussbuchung beginnt, eine Nachzahlfrist endet, ein
+           Kunde bestellt, zahlt und wird bestaetigt - alles wirkt wie
+           mit Lauf; die Ueberwachung meldet PLAN_RUN_OVERDUE. Ein
+           Kunde mit widerspruechlichem Bestand: Der Lauf meldet ihn
+           und bearbeitet die anderen. [PL-45, PL-09]
+
+  T-PL-46  [L] Auskunft und Widerspruch. (a) Ein Aufruf fuer 5.000
+           Kunden um Mitternacht der Geschaeftszeitzone: Alle Antworten
+           tragen dasselbe "jetzt". (b) Zwei laufende Buchungen von Hand
+           eingetragen: Zustand UNDETERMINED fuer diesen Kunden, jeder
+           Vorgang des Kerns fuer ihn abgelehnt
+           (BOOKINGS_INCONSISTENT), andere Kunden unveraendert; nach
+           vpn-plan --repair ist er wieder bestimmbar. (c) Nur eine
+           kuenftige Buchung (von Hand): Stand NONE, gemeldet.
+           [PL-46, PL-10, PL-21]
+
+  T-PL-47  [K, L] Einstellungen und Einrichtung. (a) Kein Key dieses
+           Moduls aendert die Antwort der Auskunft AK-6. (b) Einen Key
+           loeschen: Es gilt der Notwert des Katalogs von BASE-090; im
+           Programmtext dieses Moduls steht kein Ersatzwert. (c)
+           vpn-plan --check nennt die Zahl der Kunden ohne laufenden
+           Plan und aendert nichts; kein Werkzeug dieses Moduls
+           schreibt vpn_policy_eval_sources_off. [PL-47]
 
 ================================================================================
 CHANGELOG

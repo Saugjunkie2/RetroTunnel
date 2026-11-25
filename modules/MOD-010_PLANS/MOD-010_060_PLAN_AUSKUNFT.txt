@@ -1,0 +1,212 @@
+================================================================================
+MOD-010 — PLAN-AUSKUNFT
+================================================================================
+DATEI: MOD-010_060_PLAN_AUSKUNFT.txt
+STATUS: IN ARBEIT (AP-M010; Modul noch unvollstaendig)
+
+ZWECK:
+  Die eine Stelle, die sagt, welchen Plan ein Kunde jetzt hat und wo er
+  steht: was sie liefert, wie sie es bestimmt, wer sie fragt. Dazu die
+  Regel des Plan-Limits, die Listen fuer die Verwaltung und die Pruefung
+  des Bestands. Grundlage sind DEC-PL-04, DEC-PL-14, DEC-PL-15 und
+  DEC-PL-16 (MOD-010_010) und die Nahtstelle von BASE-100 (BASE-100_050
+  Abschnitt 6, NP-4 bis NP-11).
+
+================================================================================
+1) FORM
+================================================================================
+
+  Die Plan-Auskunft ist eine Bibliothek, die nur liest. Sie fragen:
+  BASE-100 fuer seine Auskuenfte AW, AK-1, AK-2 und AK-6; der
+  Buchungskern; der Lauf; das Panel fuer Anzeige und Listen. Niemand
+  sonst liest die Tabellen dieses Moduls (DEC-PL-14).
+
+  AU-1  NUR LESEN, NUR FESTGESCHRIEBENES: Die Auskunft schreibt nichts,
+        sperrt nichts und stoesst nichts an. Sie sieht nur
+        festgeschriebene Daten.
+  AU-2  EIN "JETZT" JE AUFRUF: Die Datenbankzeit wird einmal gelesen;
+        alle Antworten eines Aufrufs beziehen sich auf sie.
+  AU-3  MENGENWEISE: Ein Aufruf nennt eine Menge von Kunden bzw.
+        Connections und braucht eine feste Zahl von Abfragen - gleich
+        fuer wie viele (PL-26).
+  AU-4  JEDE ANTWORT TRAEGT EINEN ZUSTAND:
+          OK            die Antwort gilt
+          UNDETERMINED  nicht bestimmbar: Die Buchungen des Kunden
+                        widersprechen sich (Abschnitt 5)
+          UNREADABLE    nicht lesbar: Datenbank oder Tabelle nicht
+                        erreichbar
+        Nur OK traegt Werte. BASE-100 macht aus den beiden anderen
+        PLAN_UNKNOWN bzw. DB_UNKNOWN (BASE-100_050 PF-5); "kein Plan"
+        ist eine Antwort mit dem Zustand OK.
+
+================================================================================
+2) DIE FUENF ANTWORTEN
+================================================================================
+
+  PA-1  LAUFENDER PLAN je Kunde
+          plan          plan_key und Kennung des Plans der laufenden
+                        Buchung - oder "keiner"
+        Fuer einen Kunden, der nicht die Rolle USER traegt, immer
+        "keiner" (Zustand OK), ohne seine Buchungen zu lesen.
+
+  PA-2  PLAN-STAND je Kunde der Rolle USER
+          stand         NONE (OHNE PLAN) | RUNNING (LAUFEND) | EXPIRED
+                        (ABGELAUFEN)
+          bei RUNNING:  Plan; wirksames Ende; "gueltig bis
+                        einschliesslich"; verbleibende ganze Tage; ob
+                        vorlaeufig; Ende einer laufenden Nachzahlfrist;
+                        die Anschlussbuchung (Plan, Beginn, Ende),
+                        falls es eine gibt
+          bei EXPIRED:  der letzte Plan und sein wirksames Ende
+        BESTIMMT WIRD ER SO (L = Zahl der laufenden Buchungen des
+        Kunden nach MOD-010_030 Regel BU-4):
+          L = 1   RUNNING
+          L = 0   EXPIRED, wenn der Kunde eine nicht gestrichene Buchung
+                  hat, die begonnen hat; sonst NONE
+          L > 1   Zustand UNDETERMINED
+        Fuer andere Rollen gibt es keinen Plan-Stand (DEC-PL-01).
+
+  PA-3  GELTUNG DES KONTINGENTS je Kunde: quota_scope des laufenden
+        Plans (SHARED | DEDICATED) - oder "keiner".
+
+  PA-4  PLAN-LIMIT je Connection: ob sie als ueberzaehlig gilt
+        (Abschnitt 3).
+
+  PA-5  ZUSATZVOLUMEN je Connection und ihrer Quota-Periode
+          zk   die Summe des wirksamen Zusatzvolumens des Kunden in
+               dieser Periode
+          zc   davon der Teil, der dieser Connection zugeordnet ist
+        "Wirksam" nach MOD-010_040 Regel ZV-6. Fuer eine Connection
+        ohne Kunden und ohne Eintrag: null, Zustand OK.
+
+  AU-5  KEINE ANTWORT HAENGT VOM PREIS AB, von einer Bestellung, einer
+        Nachricht oder dem Lauf (PL-05, PL-25). Eine vorlaeufige Buchung
+        zaehlt wie jede andere (DEC-PL-07, Folgen).
+
+================================================================================
+3) DIE REGEL DES PLAN-LIMITS
+================================================================================
+
+  Grundlage: DEC-PL-15; Rahmen: BASE-100_050 NP-6.
+
+  LI-1  WEN SIE BETRIFFT: nur die Connections eines Kunden der Rolle
+        USER mit laufendem Plan (PA-2 RUNNING). Fuer alle anderen ist
+        die Antwort "nein".
+  LI-2  WAS VERGLICHEN WIRD: A, die Zahl seiner aktiv zaehlenden
+        Connections (BASE-100_040 Abschnitt 1: aktiv oder
+        eingeschraenkt, nicht gesperrt, nicht widerrufen), gegen MA,
+        den WIRKSAMEN Wert von max_active_connections fuer diesen
+        Kunden (Auskunft AW; eine Ausnahme geht dem Plan vor). Beide
+        Zahlen erhaelt die Regel von BASE-100 als Eingabe; sie rechnet
+        sie nicht selbst.
+  LI-3  DIE AUSWAHL: Ist A > MA, gelten die A - MA ZULETZT ANGELEGTEN
+        der aktiv zaehlenden Connections als ueberzaehlig - geordnet
+        nach dem Zeitpunkt der Anlage, bei Gleichstand nach der
+        Kennung. Ist MA unbegrenzt oder A <= MA: keine.
+  LI-4  BESTAENDIG: Eine eingeschraenkte Connection zaehlt weiter aktiv;
+        die Auswahl aendert sich nicht dadurch, dass sie vollzogen
+        wurde. Sie aendert sich, wenn eine Connection gesperrt oder
+        widerrufen wird, eine neue hinzukommt oder MA sich aendert.
+  LI-5  UNBEKANNT BLEIBT UNBEKANNT: Hat MA oder A keinen Wert, liefert
+        BASE-100 fuer AK-1 keinen Wert (BASE-100_050 LM-2); diese Regel
+        wird dann nicht gefragt.
+
+================================================================================
+4) LISTEN FUER DIE VERWALTUNG
+================================================================================
+
+  Die Auskunft liefert, was DEC-PL-16 der Verwaltung zusagt - jede Liste
+  eine Abfrage, mit Blaettern und der Gesamtzahl:
+
+    LAEUFT BALD AB        Kunden mit laufender Buchung ohne Anschluss,
+                          deren wirksames Ende in hoechstens N Tagen
+                          liegt (N waehlt der Betrachter)
+    ABGELAUFEN            Kunden im Stand EXPIRED: letzter Plan, seit
+                          wann
+    OHNE PLAN             Kunden der Rolle USER im Stand NONE
+    OFFENE BESTELLUNGEN   mit Zahlweg, Alter und Preis
+    ZU PRUEFENDE          ungepruefte Zahlungen mit Alter, letzten vier
+    ZAHLUNGEN             Stellen und dem, was daraus entstanden ist
+    IN DER NACHZAHLFRIST  Buchungen und Zusatzvolumen mit dem Fristende
+    OHNE VERTRAUEN        Kunden, deren Paysafecard-Zahlung nicht mehr
+                          sofort wirkt
+    GUTSCHRIFTEN          offene Gutschriften mit ihrer Connection
+    KUNDEN JE PLAN        je Plan die Zahl der Kunden mit laufender und
+                          mit kuenftiger Buchung
+    WIDERSPRUECHE         Kunden, deren Bestand Abschnitt 5 verletzt
+
+  LS-1  DIE LISTE "OHNE PLAN" NENNT, WEN DAS ENDE EINER AUSSETZUNG
+        TRAEFE (DEC-PL-17): Solange die Plan-Pflicht beim Bewerter
+        ausgesetzt ist, sind diese Kunden frei; mit dem Ende der
+        Aussetzung waeren sie eingeschraenkt.
+  LS-2  KEINE LISTE NENNT EINEN CODE.
+
+================================================================================
+5) WANN DER BESTAND SICH WIDERSPRICHT
+================================================================================
+
+  Der Kern haelt die Regeln; ein Verstoss kann nur entstehen, wenn
+  jemand an ihm vorbei schreibt (Eingriff von Hand, eine
+  zurueckgespielte Sicherung).
+
+  AU-6  GEPRUEFT WIRD je Kunde:
+          a) mehr als eine laufende Buchung
+          b) Ueberlappung oder Luecke in der Kette (MOD-010_030 Regel
+             BU-5)
+          c) eine laufende oder kuenftige Buchung fuer einen Kunden, der
+             nicht die Rolle USER traegt oder als geloescht gefuehrt ist
+          d) eine Buchung mit einem Plan, den es nicht gibt, oder ohne
+             Ende (beides lehnt schon die Tabelle ab)
+          e) eine vorlaeufige Buchung ohne Zahlung; eine Zahlung im
+             Zustand UNCHECKED ohne Code; ein Code ohne ungepruefte
+             Zahlung
+  AU-7  WAS DARAUS FOLGT:
+          a)          der Plan des Kunden ist UNDETERMINED - seine Werte
+                      und sein Plan-Stand sind unbekannt (PL-10); der
+                      Bewerter oeffnet nichts und schraenkt nichts neu
+                      ein
+          b) bis e)   die Auskunft antwortet nach den Regeln aus
+                      Abschnitt 2 (sie sind auch dann eindeutig); der
+                      Fall wird gemeldet
+        Der Kern lehnt jeden Vorgang fuer einen Kunden mit a) oder b)
+        ab, bis die Verwaltung bereinigt hat (MOD-010_070 Abschnitt 8).
+  AU-8  ANDERE KUNDEN BERUEHRT DAS NICHT: Ein Widerspruch bei einem
+        Kunden aendert keine Antwort fuer einen anderen.
+  AU-9  GEMELDET wird vom Lauf (MOD-010_050 Schritt LF-6; Ereignis
+        PLAN_BOOKINGS_INCONSISTENT) - und der Zustand UNDETERMINED
+        steht in jeder Antwort selbst.
+
+================================================================================
+6) BEVOR DIESES MODUL IN BETRIEB IST
+================================================================================
+
+  Solange es die Tabellen dieses Moduls nicht gibt, fragt niemand die
+  Auskunft: BASE-100 gibt die festen Antworten selbst (BASE-100_050
+  NP-9: kein Kunde hat einen laufenden Plan, jeder Kunde der Rolle USER
+  ist OHNE PLAN, kein Zusatzvolumen). IN BETRIEB ist das Modul mit dem
+  Abschluss seiner Einrichtung (MOD-010_070 Abschnitt 7); von da an
+  antwortet die Auskunft - auch wenn noch niemand gebucht hat.
+
+================================================================================
+7) LEISTUNG
+================================================================================
+
+  Zielgroesse wie BASE-080: einige tausend Kunden. Der Bewerter fragt
+  ueber BASE-100 in jedem Lauf fuer alle Connections; die Indices auf
+  (customer_id, starts_at) und (ends_at) tragen PA-1 bis PA-3, der Index
+  auf (customer_id, period_start) der Zusatzvolumen PA-5. Gemessen ist
+  nichts; die Annahme steht in MOD-010_080 (E-PL-03).
+
+================================================================================
+8) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  Das Panel zeigt, was PA-2 und die Listen liefern, und rechnet nichts
+  nach: keine Tage, kein Ende, keinen Stand. "Nicht bestimmbar" und
+  "nicht lesbar" zeigt es als solche - nie als "kein Plan".
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================

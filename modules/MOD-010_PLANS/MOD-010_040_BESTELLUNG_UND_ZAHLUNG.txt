@@ -1,0 +1,364 @@
+================================================================================
+MOD-010 — BESTELLUNG, ZAHLUNG, ZUSATZVOLUMEN, ZURUECKSETZEN
+================================================================================
+DATEI: MOD-010_040_BESTELLUNG_UND_ZAHLUNG.txt
+STATUS: IN ARBEIT (AP-M010; Modul noch unvollstaendig)
+
+ZWECK:
+  Wie ein Kunde bestellt und bezahlt, was die Verwaltung daran prueft,
+  was mit einer ungueltigen Zahlung geschieht, wie Zusatzvolumen gebucht
+  und wie der Verbrauch zurueckgesetzt wird. Grundlage sind DEC-PL-07,
+  DEC-PL-18 und DEC-PL-19 (MOD-010_010; Entscheidung des Betreibers
+  BM-0030). Geschrieben wird alles vom Buchungskern (MOD-010_030
+  Abschnitt 3).
+
+================================================================================
+1) GRUNDSAETZE
+================================================================================
+
+  BZ-1  DAS SYSTEM WICKELT KEINE ZAHLUNG AB (NA-03): Es loest keine
+        Karte ein, fragt keinen Zahlungsdienst und kennt keinen
+        Kontostand. Es nimmt entgegen, was der Kunde als Zahlung nennt,
+        und haelt fest, was die Verwaltung dazu entscheidet.
+  BZ-2  ZWEI ZAHLWEGE: PAYSAFECARD (der Kunde gibt den Code ein) und BAR
+        (die Verwaltung nimmt das Geld entgegen).
+  BZ-3  HALBAUTOMATISCH (Entscheidung des Betreibers): Eine
+        Paysafecard-Zahlung wirkt SOFORT und VORLAEUFIG; die Verwaltung
+        prueft nach. Bargeld wirkt erst mit der Bestaetigung.
+  BZ-4  NUR ADMIN ENTSCHEIDET: bestaetigen, fuer ungueltig erklaeren,
+        ablehnen, den Code ansehen, Vertrauen wiedergeben, Verbrauch
+        zuruecksetzen (DEC-PL-07 h). MODERATOR liest - ohne Codes.
+
+================================================================================
+2) BESTELLUNGEN (web_plan_orders)
+================================================================================
+
+  id                 Primaerschluessel
+  customer_id        Fremdschluessel auf web_customers.id
+  kind               PLAN | ADDON (Zusatzvolumen)
+  plan_id            der bestellte Plan (bei PLAN)
+  term_months        die bestellte Dauer (bei PLAN)
+  addon_bytes        die bestellte Menge (bei ADDON)
+  vpn_connection_id  die Connection, fuer die das Zusatzvolumen gilt
+                     (bei ADDON und Kontingent je Connection), sonst leer
+  price_cents        der Preis zur Zeit der Bestellung (PT-12)
+  pay_method         PSC | CASH
+  state              OPEN | BOOKED | WITHDRAWN | REJECTED | EXPIRED |
+                     CLOSED
+  booking_id,        was aus der Bestellung entstanden ist
+  addon_id
+  created_at, closed_at, closed_by, close_note
+
+  BE-1  WER BESTELLEN KANN: ein Kunde der Rolle USER, der weder gesperrt
+        noch als geloescht gefuehrt ist - fuer sich selbst. Die
+        Verwaltung bestellt nicht; sie bucht (MOD-010_030 Abschnitt 4).
+  BE-2  WAS BESTELLBAR IST: ein buchbarer Plan mit einer angebotenen
+        Laufzeitstufe; eine angebotene Stufe des Zusatzvolumens.
+  BE-3  JE ART HOECHSTENS EINE OFFENE BESTELLUNG: Ein Kunde hat
+        hoechstens eine offene Bestellung der Art PLAN und hoechstens
+        eine der Art ADDON.
+  BE-4  EINE ANSCHLUSSBUCHUNG: Hat der Kunde schon eine kuenftige
+        Buchung, wird eine Bestellung der Art PLAN abgelehnt
+        (MOD-010_030 Regel VB-3).
+  BE-5  DER KUNDE KANN SEINE OFFENE BESTELLUNG ZURUECKZIEHEN - solange
+        zu ihr keine ungepruefte Zahlung vorliegt.
+  BE-6  ZUSTAENDE:
+          OPEN       bestellt, noch nichts gebucht
+          BOOKED     daraus ist eine Buchung bzw. ein Zusatzvolumen
+                     entstanden (auch vorlaeufig)
+          WITHDRAWN  vom Kunden zurueckgezogen
+          REJECTED   von der Verwaltung abgelehnt (mit Notiz)
+          EXPIRED    nach policy_plan_order_expiry_days ohne Buchung
+                     verfallen (der Lauf, MOD-010_050)
+          CLOSED     hinfaellig, weil der Kunde die Rolle gewechselt hat
+                     oder geloescht wurde
+        Alles ausser OPEN ist ein Endzustand.
+  BE-7  EINE BESTELLUNG MIT DEM ZAHLWEG BAR aendert nichts, bis die
+        Verwaltung den Eingang bestaetigt: weder Plan noch Plan-Stand
+        noch Kontingent (PL-16).
+  BE-8  DIE VERWALTUNG ERFAEHRT ES: Jede Bestellung und jede eingereichte
+        Zahlung loest ein Ereignis aus (MOD-010_070 Abschnitt 4) und
+        steht in den Listen des Panels (MOD-010_060 Abschnitt 4).
+
+================================================================================
+3) ZAHLUNGEN (web_plan_payments)
+================================================================================
+
+  id            Primaerschluessel
+  order_id      die Bestellung, zu der gezahlt wird
+  customer_id   Fremdschluessel auf web_customers.id
+  method        PSC | CASH
+  state         UNCHECKED | CONFIRMED | INVALID
+  code_check    Pruefwert des Codes (nur PSC; Abschnitt 4)
+  code_last4    die letzten vier Stellen des Codes (nur PSC)
+  submitted_at  wann der Kunde sie eingereicht hat (bei CASH: wann die
+                Verwaltung den Eingang bestaetigt hat)
+  decided_at, decided_by, decide_note
+
+  ZA-1  EINE ZAHLUNG IST EINE BEHAUPTUNG, BIS DIE VERWALTUNG ENTSCHEIDET:
+        UNCHECKED heisst "eingereicht, nicht geprueft". Nur ADMIN setzt
+        CONFIRMED oder INVALID; beide sind endgueltig.
+  ZA-2  BARGELD: Die Zeile entsteht erst mit der Bestaetigung des
+        Eingangs - gleich als CONFIRMED.
+  ZA-3  PRUEFUNG BEIM EINREICHEN EINES CODES - nur das, was das System
+        selbst wissen kann:
+          a) FORM: nach dem Entfernen von Leerzeichen und Bindestrichen
+             genau 16 Ziffern (Annahme E-PL-02; vor der Umsetzung zu
+             pruefen, OPEN-PL-06),
+          b) NEU: Derselbe Code wurde in diesem System noch nie
+             eingereicht - gleich von wem und mit welchem Ergebnis
+             (Vergleich ueber code_check),
+          c) HOECHSTENS EINE UNGEPRUEFTE ZAHLUNG je Kunde.
+        Besteht der Code die Pruefung, sagt das nichts ueber seinen
+        Wert (DEC-PL-07, Begruendung).
+  ZA-4  BEGRENZTE VERSUCHE: Je Kunde und Geschaeftstag nimmt der Kern
+        hoechstens policy_plan_code_attempts_per_day Eingaben entgegen -
+        angenommene und abgelehnte zusammen (gezaehlt am Protokoll,
+        MOD-010_030 Regel PR-4). Danach lehnt er bis zum naechsten Tag
+        ab.
+  ZA-5  WAS EIN ANGENOMMENER CODE BEWIRKT:
+          MIT VERTRAUEN (Abschnitt 5, VT-1): Die Buchung bzw. das
+            Zusatzvolumen entsteht SOFORT, als vorlaeufig; die
+            Bestellung ist BOOKED.
+          OHNE VERTRAUEN: Die Zahlung steht zur Pruefung; die Bestellung
+            bleibt OPEN, und nichts aendert sich, bis ADMIN bestaetigt.
+  ZA-6  ENTSCHEIDUNG "CONFIRMED": Die vorlaeufige Buchung wird
+        endgueltig (is_provisional = nein; eine Nachzahlfrist entfaellt)
+        - oder, ohne Vertrauen, die Buchung entsteht jetzt. Der Code
+        wird geloescht (Abschnitt 4).
+  ZA-7  ENTSCHEIDUNG "INVALID", ERSTES MAL: Die vorlaeufige Buchung
+        laeuft weiter, und die NACHZAHLFRIST beginnt: repay_until = der
+        Beginn des Geschaeftstags, der policy_plan_repay_days + 1 Tage
+        nach heute liegt (der Kunde hat also die genannte Zahl voller
+        Tage; Vorschlag des Betreibers: 3). Der Kunde erfaehrt es mit
+        dem Fristende (E-5). Der Code wird geloescht.
+        Ohne Vertrauen gibt es nichts zurueckzunehmen: Die Bestellung
+        bleibt OPEN; der Kunde kann einen anderen Code einreichen oder
+        bar zahlen.
+  ZA-8  IN DER NACHZAHLFRIST kann der Kunde
+          - einen NEUEN Code einreichen (Pruefung nach ZA-3): Die neue
+            Zahlung steht an der Buchung (repay_payment_id); die Buchung
+            laeuft weiter, bis ADMIN ueber sie entschieden hat - auch
+            ueber das Fristende hinaus. CONFIRMED macht die Buchung
+            endgueltig; INVALID nimmt sie SOFORT zurueck (ZA-10);
+          - BAR zahlen: Bestaetigt ADMIN den Eingang vor dem Fristende,
+            ist die Buchung endgueltig. Die Ankuendigung allein haelt
+            die Frist nicht an.
+        DIE FRIST BEGINNT NICHT NEU (DEC-PL-07 d): repay_until wird
+        einmal gesetzt und nie verlaengert - ausser durch Kulanz der
+        Verwaltung an der Buchung (MOD-010_030 Abschnitt 4).
+  ZA-9  FRIST OHNE NEUE ZAHLUNG ABGELAUFEN: Die Buchung ist mit dem
+        Fristende beendet - das folgt aus MOD-010_030 Regel BU-3, ohne
+        dass jemand schreibt. FESTGESCHRIEBEN wird es (end_reason
+        PAYMENT_REVOKED, ends_at = Fristende, Vertrauen entzogen,
+        Nachricht E-5) vom Lauf oder vom naechsten Vorgang des Kerns
+        fuer diesen Kunden - je nachdem, wer zuerst kommt. Eine bezahlte
+        Anschlussbuchung beginnt dabei mit dem Fristende (MOD-010_030
+        Regel VB-2).
+  ZA-10 ZURUECKNEHMEN heisst: laufende Buchung endet (jetzt bzw. zum
+        Fristende), kuenftige wird gestrichen; das Vertrauen ist
+        entzogen (VT-2); der Kunde erfaehrt es (E-5). Eine BESTAETIGTE
+        Buchung wird nie zurueckgenommen (PL-29).
+  ZA-11 KUNDE NICHT MEHR USER ODER GELOESCHT: Eine ungepruefte Zahlung
+        bleibt zur Pruefung stehen - das Geld ist gezahlt oder nicht,
+        und der Code soll nicht ungeprueft liegen bleiben. Eine Buchung
+        entsteht daraus nicht mehr; was mit dem Geld geschieht, klaeren
+        Betreiber und Kunde ausserhalb des Systems.
+  ZA-12 UNGEPRUEFTES BLEIBT NICHT LIEGEN: Ist eine Zahlung laenger als
+        policy_plan_unchecked_alert_days ungeprueft, meldet der Lauf es
+        (MOD-010_050). Eine vorlaeufige Buchung, ueber deren Zahlung
+        niemand entscheidet, laeuft bis zu ihrem Ende - das ist der
+        Preis des Wegs "sofort und vorlaeufig" und liegt in der Hand
+        der Verwaltung.
+
+================================================================================
+4) DER CODE EINER PAYSAFECARD (web_plan_payment_codes)
+================================================================================
+
+  payment_id   Primaerschluessel und Fremdschluessel auf
+               web_plan_payments.id
+  code         der eingereichte Code
+  created_at
+
+  CD-1  DER CODE IST BARGELD (SZ-10, DEC-PL-07 g). Er steht NUR in
+        dieser Tabelle, und nur so lange, bis ADMIN ueber die Zahlung
+        entschieden hat: Mit CONFIRMED oder INVALID loescht der Kern die
+        Zeile in derselben Transaktion.
+  CD-2  NUR DER DB-USER system LIEST UND SCHREIBT DIE TABELLE. Der
+        Webprozess hat darauf kein Recht - auch kein lesendes
+        (MOD-010_070 Abschnitt 5). Der Kunde reicht den Code ueber den
+        privilegierten Auftragsweg ein; ADMIN sieht ihn ueber denselben
+        Weg als Handlung der Klasse C mit erneuter Anmeldung
+        (ANF-PL-06).
+  CD-3  NIRGENDS SONST: Der Code steht in keinem Protokoll, keiner
+        Statusdatei, keiner E-Mail, keinem Ereignis und keiner
+        Fehlermeldung - auch nicht gekuerzt, ausser den letzten vier
+        Stellen. Der Auftragsweg protokolliert ihn nicht (ANF-PL-06).
+  CD-4  JEDES ANSEHEN STEHT IM PROTOKOLL (wer, wann, welche Zahlung) -
+        ohne den Code.
+  CD-5  DER PRUEFWERT (code_check) ist ein Schluessel-Hash des Codes mit
+        einem geheimen Schluessel des Systems, den der Webprozess nicht
+        lesen kann. Aus ihm und den letzten vier Stellen laesst sich
+        der Code nicht zurueckrechnen; er dient allein dem Vergleich
+        nach ZA-3 b und bleibt nach der Entscheidung bestehen.
+  CD-6  WAS BLEIBT (offen ausgewiesen): Solange eine Zahlung ungeprueft
+        ist, steht ihr Code in der Datenbank und damit in jeder
+        Datensicherung dieser Zeit. Sicherungen sind verschluesselt
+        (BASE-005 PF-14); wer zuegig prueft, haelt die Zahl solcher
+        Codes klein. Ein eingeloester Code ist wertlos.
+  CD-7  MODERATOR UND KUNDE sehen von einer Zahlung Zustand, Zeitpunkte
+        und die letzten vier Stellen - der Kunde nur seine eigenen.
+
+================================================================================
+5) VERTRAUEN (web_plan_customer_flags)
+================================================================================
+
+  customer_id          Primaerschluessel, Fremdschluessel auf
+                       web_customers.id
+  psc_blocked_at       seit wann eine Paysafecard-Zahlung dieses Kunden
+                       nicht mehr sofort wirkt; leer = Vertrauen besteht
+  psc_blocked_booking  die zurueckgenommene Buchung bzw. das
+                       Zusatzvolumen, das dazu fuehrte
+  psc_restored_at,     wann und von wem das Vertrauen zuletzt
+  psc_restored_by      wiedergegeben wurde
+
+  VT-1  VERTRAUEN BESTEHT, solange psc_blocked_at leer ist - auch wenn
+        es zu dem Kunden keine Zeile gibt.
+  VT-2  ENTZOGEN wird es mit jeder Ruecknahme (ZA-9, ZA-10) - in
+        derselben Transaktion.
+  VT-3  OHNE VERTRAUEN wirkt keine Paysafecard-Zahlung des Kunden sofort
+        (ZA-5); alles andere bleibt ihm: bestellen, einreichen, bar
+        zahlen.
+  VT-4  WIEDERGEBEN kann nur ADMIN, ausdruecklich und mit Grund
+        (DEC-PL-07 f). Eine bestaetigte Zahlung gibt es NICHT von selbst
+        zurueck.
+
+================================================================================
+6) ZUSATZVOLUMEN (web_plan_addons)
+================================================================================
+
+  id                 Primaerschluessel
+  customer_id        Fremdschluessel auf web_customers.id
+  vpn_connection_id  die Connection, fuer die es gilt - bei einem
+                     Kontingent je Connection; sonst leer
+  period_start       die Quota-Periode, fuer die es gilt (Beginn; nach
+                     der Routine von BASE-070_050 Abschnitt 5)
+  bytes              die Menge
+  price_cents        der genannte Preis (optional)
+  origin             ADMIN | ORDER_CASH | ORDER_PSC
+  is_provisional,    wie bei der Buchung (MOD-010_030 Abschnitt 1)
+  repay_until,
+  repay_payment_id
+  state              VALID | REVOKED
+  created_at, created_by, revoked_at
+  Index: (customer_id, period_start)
+
+  ZV-1  NUR MIT LAUFENDEM PLAN: Zusatzvolumen kann nur bestellen oder
+        erhalten, wer eine laufende Buchung hat (DEC-PL-18, Folgen;
+        PL-32).
+  ZV-2  FUER DIE LAUFENDE PERIODE: period_start ist die Periode, die
+        jetzt gilt. Mit ihrem Ende ist das Zusatzvolumen ohne Wirkung;
+        niemand muss es entfernen.
+  ZV-3  WEM ES GILT: Bei geteiltem Kontingent (SHARED) dem Kunden; die
+        Bestellung nennt keine Connection. Bei einem Kontingent je
+        Connection (DEDICATED) nennt sie EINE Connection des Kunden,
+        die nicht widerrufen ist. Was BASE-100 daraus rechnet, steht in
+        BASE-100_050 (QA-3 bis QA-7, NP-5).
+  ZV-4  OBERGRENZE: Die Summe des wirksamen Zusatzvolumens eines Kunden
+        in einer Periode uebersteigt nie 10 hoch 15 Bytes (BASE-100_050
+        NP-11). Der Kern lehnt ab, was darueber ginge.
+  ZV-5  BESTELLT UND BEZAHLT WIE EIN PLAN (Abschnitte 2 und 3): mit
+        Vertrauen sofort und vorlaeufig, sonst nach Bestaetigung; bar
+        nach Bestaetigung. Die Verwaltung kann es auch ohne Bestellung
+        gewaehren (origin ADMIN).
+  ZV-6  WIRKSAM ist ein Zusatzvolumen im Zustand VALID - ausser seine
+        Nachzahlfrist ist ohne neue Zahlung abgelaufen (wie MOD-010_030
+        Regel BU-3). Die Regeln ZA-6 bis ZA-10 gelten sinngemaess:
+        "zuruecknehmen" setzt den Zustand REVOKED.
+  ZV-7  ES SETZT NICHTS ZURUECK UND AENDERT KEINEN WERT (DEC-PL-18 d):
+        Der Verbrauch bleibt; nach einer Ruecknahme kann die Connection
+        sofort erschoepft sein (BASE-100_050 KQ-12).
+  ZV-8  WECHSELT DIE GELTUNG (ein Anschlussplan mit anderem quota_scope
+        beginnt in derselben Periode), bleibt das Zusatzvolumen dem
+        Kunden: Fuer den Deckel zaehlt es immer; einer Connection kann
+        die Verwaltung es nachtraeglich zuordnen.
+
+================================================================================
+7) VERBRAUCH ZURUECKSETZEN
+================================================================================
+
+  Grundlage ist DEC-PL-19 (Entscheidung des Betreibers, BM-0030).
+
+  RS-1  NUR ADMIN, MIT GRUND, FUER EINEN KUNDEN: Der Vorgang gilt fuer
+        ALLE Connections des Kunden und die laufende Quota-Periode. Er
+        ist an keine Rolle des Kunden gebunden.
+  RS-2  AUSFUEHREN LAESST DER KERN ES VON BASE-070: Dessen Routine haelt
+        den Stand jeder Connection fest und beginnt die Zaehlung bei
+        null (BASE-100_080 ANF-PO-03 e; hier ANF-PL-03 a) - als Baustein
+        der Transaktion des Kerns. Dieses Modul fuehrt keine eigene
+        Zahl des Verbrauchs.
+  RS-3  IN DERSELBEN TRANSAKTION: der Protokolleintrag (mit dem Stand
+        vorher je Connection) und der Vermerk der Nachricht E-6 an den
+        Kunden.
+  RS-4  DANACH wird die Bewertung der Connections des Kunden angefordert
+        (MOD-010_030 Regel BK-2): Eine wegen des Kontingents
+        eingeschraenkte Connection ist dann wieder frei.
+  RS-5  NICHTS SONST SETZT ZURUECK (DEC-PL-19 c): kein Planwechsel,
+        keine Buchung, kein Zusatzvolumen, keine neue Connection.
+  RS-6  KEINE GRENZE FUER DIE HAEUFIGKEIT: Wie oft die Verwaltung
+        zuruecksetzt, entscheidet sie; jedes Mal steht es im Protokoll
+        und geht dem Kunden als Nachricht zu.
+
+================================================================================
+8) VORGAENGE UND ABLEHNUNGSGRUENDE
+================================================================================
+
+  Vorgang                 wer       Ergebnis
+  ----------------------- --------- ---------------------------------------
+  BESTELLEN               Kunde     Bestellung OPEN
+  CODE EINREICHEN         Kunde     Zahlung UNCHECKED; mit Vertrauen
+                                    Buchung bzw. Zusatzvolumen vorlaeufig
+  ZURUECKZIEHEN           Kunde     Bestellung WITHDRAWN
+  BAREINGANG BESTAETIGEN  ADMIN     Zahlung CONFIRMED; Buchung endgueltig
+  ZAHLUNG ENTSCHEIDEN     ADMIN     CONFIRMED oder INVALID (ZA-6 bis ZA-10)
+  CODE ANSEHEN            ADMIN     der Code der ungeprueften Zahlung
+  BESTELLUNG ABLEHNEN     ADMIN     Bestellung REJECTED (mit Notiz)
+  VERTRAUEN WIEDERGEBEN   ADMIN     VT-4
+  ZUSATZVOLUMEN GEWAEHREN ADMIN     Zusatzvolumen VALID, endgueltig
+  ZUSATZVOLUMEN ZUORDNEN  ADMIN     ZV-8
+  VERBRAUCH ZURUECKSETZEN ADMIN     Abschnitt 7
+
+  ABLEHNUNGSGRUENDE (zusaetzlich zu MOD-010_030 Abschnitt 7):
+  ORDER_EXISTS        BE-3
+  NO_RUNNING_PLAN     ZV-1
+  CONNECTION_NEEDED   ZV-3: Connection fehlt, gehoert einem anderen oder
+                      ist widerrufen
+  ADDON_LIMIT         ZV-4
+  ORDER_NOT_OPEN      die Bestellung ist nicht (mehr) offen
+  CODE_FORM           ZA-3 a
+  CODE_KNOWN          ZA-3 b
+  PAYMENT_PENDING     ZA-3 c
+  CODE_LIMIT          ZA-4
+  PAYMENT_DECIDED     ueber die Zahlung ist schon entschieden
+  REPAY_CLOSED        die Nachzahlfrist ist abgelaufen oder die zweite
+                      Zahlung schon eingereicht
+  Dem Kunden nennt das Panel bei CODE_KNOWN und CODE_FORM nur "Code
+  nicht angenommen" - nicht, ob es den Code schon gab.
+
+================================================================================
+9) PANEL-CONSUMABILITY (R-17)
+================================================================================
+
+  KUNDE: seine offene Bestellung mit Zahlweg und Stand; seine Zahlungen
+  (Zustand, letzte vier Stellen); eine laufende Nachzahlfrist mit ihrem
+  Ende; sein Zusatzvolumen der Periode.
+  ADMIN: die Listen "offene Bestellungen", "zu pruefende Zahlungen" (mit
+  dem Alter; der Code erst auf ausdrueckliches Ansehen), "in der
+  Nachzahlfrist", "ohne Vertrauen"; je Kunde alles.
+  MODERATOR: dasselbe lesend - ohne die Handlung "Code ansehen".
+
+================================================================================
+CHANGELOG
+================================================================================
+Siehe 03_CHANGELOG.txt (zentrale Projekthistorie).
+================================================================================
