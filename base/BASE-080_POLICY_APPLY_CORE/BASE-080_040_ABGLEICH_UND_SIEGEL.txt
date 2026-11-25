@@ -26,9 +26,13 @@ ZWECK:
   Laeuft ein Lauf noch, wenn der naechste faellig wird (moeglich nur bei
   einem Takt nahe dem Minimum von 60 s), beginnt der Folgelauf am ersten
   Rasterpunkt nach seinem Ende - bis zu ein Raster spaeter als der Takt.
-  Behoben ist eine Abweichung dann spaetestens nach Takt plus 60 s - das
+  Behoben ist eine Abweichung spaetestens nach Takt plus 60 s - das
   ist die Frist der Plattform (BASE-005 PF-18) und der Nachbarn
-  (BASE-040_030 Abschnitt 6, BASE-050_070). Ist eine der Voraussetzungen
+  (BASE-040_030 Abschnitt 6, BASE-050_070) -, im GRENZFALL nach Takt
+  plus Raster plus 60 s. Die Frist von PF-18 kann also bei einem Takt
+  unter 90 s um ein Raster (30 s) ueberschritten werden; das ist offen
+  ausgewiesen. Mit dem Vorschlagswert von 300 s tritt der Grenzfall
+  nicht ein. Ist eine der Voraussetzungen
   verletzt, gilt die Schranke nicht, und das wird gemeldet: ein
   ausbleibender Lauf als POLICY_RECONCILE_OVERDUE, ein Lauf von mehr als
   60 s als POLICY_RECONCILE_SLOW (Abschnitt 9). Die Frist ist dann Takt
@@ -351,7 +355,10 @@ ZWECK:
        Connection ist laut frischer Lesung zugelassen. -> wg_ensure
        vollendet die Add-Sequenz (pruefen, Policy, Gate loesen). Nicht,
        solange ein offener Auftrag der Connection das Merkmal "Schnitt
-       ausstehend" traegt: Dann vollendet der Auftrag (Schritt V3).
+       ausstehend" traegt: Dann fuehrt erst der Auftrag den Schnitt
+       (Schritt V3; BASE-080_050 Merkmal MK3); das Element loest der
+       Abgleich, der darauf folgt. Eine Herstellung fuer ein Einzelziel
+       loest ein solches Element nie (BASE-080_030 Schritt H8).
   P-3  KRITISCH, NICHT ZUGELASSEN: Ein Peer fuehrt die Adresse, die
        Connection ist nicht zugelassen (ein frueheres Entfernen ist
        gescheitert). -> Entfernen erneut versuchen. Solange der Peer
@@ -479,15 +486,38 @@ ZWECK:
               den letzten 3600 s ohne Auftrag beendeten mehr sind als
               vpn_l2tp_kill_hold_per_hour (Key von BASE-070).
               EIN GEMEINSAMES FENSTER FUER b) UND d): Gezaehlt wird jede
-              L2TP-Sitzung, die OHNE AUFTRAG beendet wurde - durch den
-              Abgleich und die Aufsicht dieses Moduls ebenso wie durch
-              den L2TP-Abgleich von BASE-070 (dort die Klassen HAENGEND,
+              L2TP-Sitzung, die als KORREKTUR OHNE AUFTRAG beendet
+              wurde - durch den Abgleich dieses Moduls (ein Ziel nach
+              MB-1: Die Sitzung war freigegeben) ebenso wie durch den
+              L2TP-Abgleich von BASE-070 (dort die Klassen HAENGEND,
               UNABGERECHNET, MEHRFACH). Das Fenster fuehrt der
               Hard-Cut-Kern von BASE-070, durch den jedes Beenden
               laeuft; beide Abgleiche rechnen mit derselben Zahl
               (ANF-PA-14 f). So halten die Schwellen auch in einer
               GEMISCHTEN Lage - etwa wenn ein Lesefehler des Adapters
               mehrere Klassen zugleich erzeugt.
+              WER DAS KENNZEICHEN "KORREKTUR OHNE AUFTRAG" SETZT: in
+              diesem Modul allein der Abgleich, wenn er Ziele nach MB-1
+              beendet (BASE-080_030 Abschnitt 8, Schritt TB4). NICHT
+              GEZAEHLT wird, was die Bremse nie aufhaelt: das Beenden
+              mit Auftrag (Einzelauftrag) und das Beenden einer Sitzung
+              OHNE FREIGABE - beim Sitzungsbeginn (BASE-080_030
+              Abschnitt 6.3) und durch die Aufsicht nach der Frist
+              (Abschnitt 6.5; BASE-080_050 Schritt AL6). Sonst hielte
+              eine Stoerung, nach der die Aufsicht viele nie
+              freigegebene Sitzungen beendet (Datenbank fehlte, Daemon
+              neu gestartet), bis zu einer Stunde lang jede Korrektur
+              an L2TP auf.
+              PRUEFEN UND VORMERKEN IN EINEM SCHRITT: Wer als Korrektur
+              ohne Auftrag beenden will, meldet dem Kern die ZAHL
+              vorher an (der Abgleich in Schritt V1 d). Der Kern prueft
+              unter seinem eigenen Lock, ob sie zusammen mit dem
+              Fenster unter beiden Schwellen bleibt, und traegt sie im
+              selben Schritt ein - oder lehnt ab; dann haelt die
+              Bremse. Eine Vormerkung zaehlt auch, wenn das Beenden
+              danach entfaellt oder scheitert (streng). Ohne das
+              prueften zwei Wege ohne gemeinsamen Lock denselben Stand
+              und beendeten zusammen bis zum Doppelten der Schwellen.
               WAS SICH GEGENUEBER HEUTE AENDERT (offen ausgewiesen):
               Heute zaehlt L7a alle Kandidaten EINES Laufs zusammen und
               haelt bei 16 von ihnen (Schwelle 10) ALLE zurueck. Kuenftig
@@ -496,7 +526,10 @@ ZWECK:
               Zeitraum von 300 s und in jeder Stunde beenden beide Wege
               zusammen nie mehr, als die Schwellen erlauben; eine
               gemischte Lage wird aber in Teilen abgearbeitet statt ganz
-              zurueckgestellt.
+              zurueckgestellt. AUCH FUER DEN EIGENEN WEG wird aus "je
+              Lauf" ein "je 300 s": Zwei Laeufe dieses Moduls kurz
+              nacheinander beenden zusammen nicht mehr als die Schwelle
+              b) erlaubt (bis zur Fassung v1.4 galt sie je Lauf).
          Dann fuehrt der Lauf fuer KEINES der gezaehlten Ziele eine
          schliessende Handlung an bestehender Laufzeit aus: kein
          Entfernen eines Peers, kein Entzug einer Freigabe, kein Beenden

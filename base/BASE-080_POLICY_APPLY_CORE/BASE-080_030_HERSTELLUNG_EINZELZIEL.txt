@@ -113,6 +113,15 @@ ZWECK:
   H8  PRUEFEN UND ABSCHLIESSEN: Der erreichte Zustand wird am Kernel
       nachgelesen. Stimmt er: Auftrag erledigen (nur wenn sein Zaehler
       unveraendert ist, BASE-080_050 Regel AB-4), Code 0. Sonst Code 4.
+      EIN STEHENDES GATE-ELEMENT ZAEHLT DABEI NICHT ZUM SOLL: Es hat
+      keine Entsprechung in SQL. Stimmen Peer und Sets, erledigt H8 den
+      Auftrag auch dann, wenn fuer die Connection noch ein Element in
+      connect_pending_* aus einem frueheren Fehlschlag steht. Der Peer
+      bleibt geschlossen, bis der naechste Abgleich das Element loest
+      (BASE-080_040 Regel P-2; hoechstens Takt plus 60 s) - nie
+      offener. Hat DIESER Aufruf ein Gate-Element gesetzt (Abschnitt 5,
+      NACHWEIS; Abschnitt 7, Schritt F4), ist das Ergebnis 4, und der
+      Auftrag bleibt.
 
   ZEITLIMIT: Die Arbeit des Einzelauftrags - vom ersten Erwerb des Locks
   bis zum Abschluss - endet nach vpn_policy_apply_timeout_seconds. NICHT
@@ -124,9 +133,10 @@ ZWECK:
   ueberwacht diese Zeiten selbst. Die AEUSSERE GRENZE - nach ihr wird
   der Prozess hart beendet - ist die Summe der vier Zeiten mit dem
   groessten Wert, den die Grenzen der Keys zulassen (BASE-080_070 Regel
-  UP-5). Sie setzt, wer den Prozess startet: die Unit oder der
-  aufrufende Hook (ANF-PA-04 c). Ein Abbruch durch das Zeitlimit ist
-  ein Abbruch wie jeder andere (Abschnitt 10).
+  UP-5). Sie setzt, wer den Prozess startet: die Unit, der aufrufende
+  Hook (ANF-PA-04 c) oder das aufrufende Werkzeug eines anderen Moduls
+  (ANF-PA-03 e, ANF-PA-07 j, ANF-PA-14 j). Ein Abbruch durch das
+  Zeitlimit ist ein Abbruch wie jeder andere (Abschnitt 10).
 
   KEIN ZWEITER WEG: Kein anderes Programm schreibt die dynamischen Sets,
   Peers oder die Verkehrsformung; die Tunnel-Hooks und das Panel rufen
@@ -658,8 +668,15 @@ ZWECK:
         nicht (H8). OEFFNENDE Schritte (eine Freigabe erteilen, ein Gate
         loesen) unterbleiben in diesem Durchlauf: Sie stuenden auf einem
         Stand, der bekannt ueberholt ist. Der Auftrag bleibt und wird
-        mit frischer Lesung bearbeitet - sie holt das Oeffnen nach; ein
-        Statuswechsel aus der Zwischenzeit geht so nie verloren.
+        mit frischer Lesung bearbeitet - sie holt das Oeffnen nach: Eine
+        L2TP-Freigabe erteilt sie selbst, und einen fehlenden Peer
+        traegt sie mit der Add-Sequenz ein, die ihr eigenes Gate setzt
+        und loest. Ein Gate-Element, das bei BESTEHENDEM Peer steht,
+        loest keine Herstellung fuer ein Einzelziel (Schritt H8): Das
+        tut der naechste Abgleich, sobald der Auftrag den Schnitt
+        abgehakt hat (BASE-080_040 Regel P-2) - hoechstens Takt plus
+        60 s spaeter. Ein Statuswechsel aus der Zwischenzeit geht so nie
+        verloren.
         Gelingt der Eintrag nicht, laeuft die Abfolge trotzdem: Das
         Einschraenken haengt nie am Auftragsbuch.
     F2  Sets schreiben (eine Transaktion fuer beide Familien). Ab dem

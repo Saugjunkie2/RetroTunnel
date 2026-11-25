@@ -439,6 +439,11 @@ ZWECK:
     c) Anzeigen laut den Abschnitten "Panel-Consumability"; keine
        Bearbeitung von Sets, Auftraegen, Status oder Marken.
     d) Helfer der Verwaltungsfreigabe nach _070 Abschnitt 1.
+    e) AEUSSERE ZEITGRENZE: Der privilegierte Auftragsweg ruft
+       vpn-policy-apply, vpn-policy-eval und vpn-role-change mit einer
+       Grenze AUSSERHALB des Prozesses (der groesste Wert nach _070
+       Regel UP-5 fuer die jeweilige Operation) und beendet den Prozess
+       danach hart - wie ANF-PA-04 c.
 
   ANF-PA-04 (BASE-030, Nachzug AP-Q04)
     a) Die Hooks sind duenn: ip-up schreibt den Laufzeit-Spiegel
@@ -496,7 +501,7 @@ ZWECK:
     Bedingung U-1). (Gleichlautend: BASE-070 ANF-SC-14 b.)
 
   ANF-PA-07 (BASE-040) - a bis c, e und f sind in BASE-040 umgesetzt; d
-  ist im Verhalten umgesetzt, im Wortlaut anzugleichen; g und i sind
+  ist im Verhalten umgesetzt, im Wortlaut anzugleichen; g, i und j sind
   offen; h ist zurueckgenommen
     a) Die Remove-Sequenz raeumt conntrack und Sets fuer die Adressen,
        die der entfernte Peer TATSAECHLICH fuehrte - nicht nur fuer die
@@ -544,6 +549,12 @@ ZWECK:
     i) Die Routine fuer den Vermerk "Profil faellig" ist in einer
        fremden Transaktion aufrufbar; der Vermerk bleibt bei einer
        gesperrten Connection stehen (_060 Abschnitt 9).
+    j) AEUSSERE ZEITGRENZE: Der Controller (BASE-040_050 Schritt B2)
+       und jedes andere Werkzeug von BASE-040 rufen vpn-policy-apply
+       mit einer Grenze AUSSERHALB des Prozesses und beenden ihn danach
+       hart - wie ANF-PA-04 c. BASE-040_050 sagt allgemein, der Zyklus
+       enthalte keinen blockierenden Aufruf ohne Zeitlimit; fuer diesen
+       Aufruf ist die Grenze zu nennen.
 
   ANF-PA-08 (BASE-050)
     a) vpn-fw-load unseal uebernimmt den vom Aufrufer gehaltenen
@@ -614,7 +625,7 @@ ZWECK:
 
   ANF-PA-14 (BASE-070) - a, b und e sind in BASE-070 umgesetzt, die
   Marken aus c dort verzeichnet; d ist nur zum Teil umgesetzt und geht
-  in f auf; f bis i sind offen
+  in f auf; f bis j sind offen
     a) Der L2TP-Adapter nennt je Sitzung Schnittstelle, Sitzungskennung
        und Beginn (fuer die Zuordnung Schnittstelle zu Sitzung und fuer
        Merkmal MK2) - in BASE-070_040 Abschnitt 1 enthalten.
@@ -657,13 +668,27 @@ ZWECK:
        (vpn_l2tp_kill_hold_threshold; vpn_l2tp_kill_hold_per_hour - _040
        Regel MB-2 b und d). BASE-070 fuehrt beide Keys; dieses Modul
        liest sie. EIN GEMEINSAMES FENSTER: Der Hard-Cut-Kern haelt die
-       Zeitpunkte ALLER ohne Auftrag beendeten L2TP-Sitzungen fest -
-       gleich welcher Aufrufer (Kennzeichen "ohne Auftrag" am Aufruf) -
-       und nennt ihre Zahl fuer die letzten 300 s und die letzten
-       3600 s. L7a und der Abgleich dieses Moduls rechnen beide mit
-       dieser Zahl. Ohne das zaehlten zwei Wege getrennt, und in einer
-       gemischten Lage hielte keine Bremse (_040 Regel MB-2, "WAS SICH
-       GEGENUEBER HEUTE AENDERT").
+       Zeitpunkte der L2TP-Sitzungen fest, die als KORREKTUR OHNE
+       AUFTRAG beendet werden - gleich welcher Aufrufer (Kennzeichen am
+       Aufruf) -, und nennt ihre Zahl fuer die letzten 300 s und die
+       letzten 3600 s. L7a und der Abgleich dieses Moduls rechnen beide
+       mit dieser Zahl. Ohne das zaehlten zwei Wege getrennt, und in
+       einer gemischten Lage hielte keine Bremse (_040 Regel MB-2, "WAS
+       SICH GEGENUEBER HEUTE AENDERT").
+       WER DAS KENNZEICHEN SETZT: L7a fuer seine Klassen und der
+       Abgleich dieses Moduls fuer Ziele nach MB-1 (_030 Schritt TB4).
+       OHNE Kennzeichen rufen - und zaehlen nicht -: Einzelauftraege
+       (sie tragen einen Auftrag), der Sitzungsbeginn und die Aufsicht
+       dieses Moduls (Sitzungen ohne Freigabe; _030 Abschnitte 6.3 und
+       6.5).
+       PRUEFEN UND VORMERKEN IN EINEM SCHRITT: Der Kern bietet eine
+       Operation, die eine ZAHL beabsichtigter Beendigungen unter
+       seinem eigenen Lock gegen beide Schwellen prueft und sie im
+       selben Schritt in das Fenster eintraegt - oder ablehnt. L7a und
+       der Abgleich melden vor dem Beenden an; eine Vormerkung zaehlt,
+       auch wenn das Beenden danach entfaellt. Ohne das beendeten zwei
+       Wege, die denselben Stand pruefen, zusammen bis zum Doppelten
+       der Schwellen.
     g) vpn_hardcut_kill_timeout_seconds ist Bezug der Regel KP-h (_070
        Abschnitt 3). Der Hard-Cut-Kern ist ohne Kernel-Lock des Aufrufers
        benutzbar; dieses Modul ruft ihn nie unter dem Lock (_050 Regel
@@ -696,6 +721,10 @@ ZWECK:
        sieht die Benutzung als Bibliothek "innerhalb ihrer eigenen
        Sperre" vor; dieses Modul benutzt den Kern ohne eine solche
        Sperre (_050 Regel NB-1) - dort zuzulassen.
+    j) AEUSSERE ZEITGRENZE: vpn-session-kill (BASE-070_040 Schritt K6)
+       und der L2TP-Abgleich rufen vpn-policy-apply mit einer Grenze
+       AUSSERHALB des Prozesses und beenden ihn danach hart - wie
+       ANF-PA-04 c.
 
   ANF-PA-15 (MOD-001; fuer den Grenzzeitpunkt auch BASE-010)
     Bedeutung und Setzen von unclaimed_grace_until und claim_deadline;
@@ -745,8 +774,12 @@ ZWECK:
                                  Routinen von BASE-010
     ANF-PA-01 n                  den Kennwortwechsel
     ANF-PA-04 a, b, g, c         den L2TP-Tunnel (Hooks von BASE-030)
-    ANF-PA-07 d                  den Admission-Waechter von BASE-040 mit
-                                 Wiederholung in jedem Zyklus
+    ANF-PA-07 d, j               den Admission-Waechter von BASE-040
+                                 (Wiederholung in jedem Zyklus; Aufruf
+                                 ohne aeussere Zeitgrenze)
+    ANF-PA-03 e, ANF-PA-14 j     die Aufrufe dieses Werkzeugs aus dem
+                                 privilegierten Auftragsweg und aus
+                                 vpn-session-kill
   Fuer jede offene Anforderung aus Abschnitt 6, die hier NICHT steht,
   gilt Art V fuer den Teil DIESES Moduls, der an ihr haengt. Fuer eine
   Anforderung an einen Schritt, den ein Nachbar selbst in Betrieb nimmt
@@ -904,8 +937,18 @@ ZWECK:
             wird geoeffnet, aber auch keine Sperrung erreicht den
             Kernel - eine schliessende Wirkung bliebe aus (Art L). Die
             Alarme des Auftragslaufs zeigen es (BASE-080_050 Abschnitt
-            9). Dasselbe gilt fuer jedes Werkzeug eines anderen Moduls,
-            das dieses Werkzeug ohne aeussere Grenze ruft.
+            9).
+  ANF-PA-03 e, 07 j, 14 j  Aeussere Zeitgrenze fremder Aufrufe     Art L
+    HEUTE:  BASE-040_050 sagt allgemein, der Zyklus des Controllers
+            enthalte keinen blockierenden Aufruf ohne Zeitlimit, nennt
+            fuer den Aufruf dieses Werkzeugs (Schritt B2) aber keine
+            Grenze. BASE-070_040 Schritt K6 nennt keine. Der
+            privilegierte Auftragsweg ist in BASE-110 noch nicht
+            festgelegt.
+    FOLGE:  wie bei ANF-PA-04 c - gegen einen haengenden Aufruf wirkt
+            allein die Selbstueberwachung des Werkzeugs; versagt sie,
+            bleibt der Kernel-Lock belegt, und keine Sperrung erreicht
+            den Kernel.
   ANF-PA-04 e  Helfer zum Nachtragen der Kennung im Spiegel        Art R
     HEUTE:  BASE-030 kennt den Helfer nicht.
     FOLGE:  Eine Sitzung, die erst die Aufsicht oder der Abgleich
@@ -966,8 +1009,9 @@ ZWECK:
             beenden, was der Abgleich dieses Moduls zurueckgestellt hat.
             Die Schwellen sind dieselben (Regel MB-2 b und d); ein
             gemeinsames Fenster gibt es erst mit dem Nachzug - bis dahin
-            zaehlt dieses Modul nur seine eigenen Beendigungen (Ablage
-            close-window). PA-18
+            zaehlt dieses Modul nur seine eigenen Beendigungen (die
+            L2TP-Eintraege der Ablage close-window), und "nie mehr, als
+            die Schwellen erlauben" gilt nur je Weg. PA-18
             (letzter Absatz) und PA-43 gelten fuer L2TP erst mit dem
             Nachzug; fuer WireGuard gelten sie heute.
   ANF-PA-14 g  Hard-Cut-Kern fuer mehrere Sitzungen                Art R
