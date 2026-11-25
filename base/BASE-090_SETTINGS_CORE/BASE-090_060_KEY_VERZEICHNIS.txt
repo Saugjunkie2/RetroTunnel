@@ -34,8 +34,8 @@ ZWECK:
             *n   Abweichung oder Festlegung dieses Moduls; Anmerkung n in
                  Abschnitt 6
 
-  Alle Keys gelten nur global (allowed_override_scope NONE) - ausser den
-  zwei Uebergangs-Keys in Abschnitt 5. Kein Key ist ein Geheimnis.
+  Alle Keys gelten nur global (allowed_override_scope NONE). Kein Key
+  ist ein Geheimnis.
 
 ================================================================================
 2) KEYS VON BASE-040 (WIREGUARD) - Quelle BASE-040_020 Abschnitt 1
@@ -270,18 +270,19 @@ ZWECK:
   Zahl: 18 Keys (alle FAIL_SAFE_HARDCAP).
 
 ================================================================================
-5) KEYS OHNE GESCHRIEBENEN EIGENTUEMER UND KEYS DIESES MODULS
+5) WEITERE KEYS: BASE-100, BASE-020 UND BASE-030, BASE-090, MOD-010
 ================================================================================
 
-  5.1 AUS TRUTH_MODEL UND D003 (Eigentuemer BASE-010, bis BASE-100 bzw.
-      MOD-001 sie uebernehmen)
+  5.1 BASE-100 (POLICY-KERN) - Quelle BASE-100_070 Abschnitt 3
 
   vpn_disabled_connection_buffer
       INT 0..20 | 2 | HC 2 | L | LIVE | TM (7.3) *12
-  vpn_moderator_max_connections        UEBERGANG, Ebene CUSTOMER erlaubt
-      INT 1..100 | 3 | HC 3 | L | LIVE | TM (7.3) *12 *13
-  vpn_vip_max_connections              UEBERGANG, Ebene CUSTOMER erlaubt
-      INT 1..100 | 3 | HC 3 | L | LIVE | TM (7.3) *12 *13
+  policy_check_interval_seconds
+      INT 60..3600 | 300 | HC 300 | L | LIVE | *18
+      Takt des Prueflaufs der Rechte (BASE-100_070 Abschnitt 4).
+
+  Die zwei Verbindungslimits vpn_moderator_max_connections und
+  vpn_vip_max_connections sind ENTFALLEN (*13).
 
   5.2 EIGENTUEMER BASE-020 UND BASE-030
 
@@ -298,7 +299,29 @@ ZWECK:
       INT 60..3600 | 300 | HC 300 | L | LIVE | neu
       Takt des Prueflaufs (BASE-090_070 Abschnitt 4).
 
-  GESAMTZAHL DER KATALOGEINTRAEGE: 27 + 24 + 30 + 18 + 3 + 1 + 2 = 105.
+  5.4 MOD-010 (PLAENE) - Quelle MOD-010_070 Abschnitt 6 (alle: Wirkung
+      LIVE; gelesen vom Buchungskern je Vorgang, vom Lauf zu seinem
+      Beginn)
+
+  policy_plan_repay_days
+      INT 0..14 | 3 | HC 3 | L | LIVE | A
+  policy_plan_code_attempts_per_day
+      INT 1..20 | 5 | HC 3 | L | LIVE | A
+  policy_plan_order_expiry_days
+      INT 1..90 | 14 | HC 14 | N | LIVE | A
+  policy_plan_reminder_days_before_end
+      INT_LIST 1..60, hoechstens 5 | [7,1] | HC [7,1] | N | LIVE | A *19
+  policy_plan_release_warning_days
+      INT 1..60 | 7 | HC 7 | N | LIVE | A
+  policy_plan_unchecked_alert_days
+      INT 1..30 | 3 | HC 3 | L | LIVE | A
+  policy_plan_run_interval_seconds
+      INT 300..3600 | 900 | HC 900 | L | LIVE | *18
+
+  Zahl: 7 Keys (alle FAIL_SAFE_HARDCAP).
+
+  GESAMTZAHL DER KATALOGEINTRAEGE: 27 + 24 + 30 + 18 + 2 + 1 + 2 + 7 =
+  111.
 
 ================================================================================
 6) ANMERKUNGEN, ABWEICHUNGEN UND GRUENDE DER RICHTUNG
@@ -368,7 +391,13 @@ ZWECK:
   *12 Grenzen hier festgelegt (TRUTH_MODEL nennt nur ">=0" bzw. ">0");
       Vorschlag aus D003-E03 und D003-E06. Richtung: Ein kleinerer Wert
       laesst weniger Connections zu.
-  *13 UEBERGANG (DEC-ST-16; D003-E08): entfaellt mit BASE-100.
+  *13 ENTFALLEN (Fassung v1.2; DEC-ST-16; D003-E08):
+      vpn_moderator_max_connections und vpn_vip_max_connections sind mit
+      BASE-100 in das Policy-System uebergegangen (dort DEC-PO-15: der
+      Policy-Key max_active_connections mit dem Standard je Rolle und
+      der Ausnahme je Kunde; ANF-PO-05 a). Sie stehen unter den Altnamen
+      (Abschnitt 8). Damit erlaubt kein Key mehr eine andere Ebene als
+      GLOBAL.
   *14 ENTSCHEIDUNG ZU VB-0020 (ANF-SC-08): Vorschlag 60 statt bisher 300,
       wie BASE-070_050 empfiehlt - bei 300 Sekunden kann ein L2TP-Kunde
       eine kleine Quota um Minuten ueberziehen; 60 gleicht den Verzug an
@@ -392,6 +421,23 @@ ZWECK:
       fuehrt guarded_change (BASE-090_050 SK-8; BASE-080 ANF-PA-09 c).
       Vorschlag und Notwert sind gleich (BASE-090_020 LP-12): Kein
       Ablauf des Systems traegt einen anderen Wert ein.
+      ANGEKUENDIGT: der Wert PLAN_REQUIRED (Plan-Pflicht; BASE-100
+      ANF-PO-05 d, MOD-010 ANF-PL-04 d). Den Wertevorrat legt BASE-080
+      als Eigentuemer fest; dort steht heute PLAN_LIMIT, QUOTA. Der Wert
+      kommt mit dem Nachzug von BASE-080 hierher - bis dahin laesst sich
+      die Plan-Pflicht ueber diesen Key nicht aussetzen.
+  *18 ABWEICHUNG VOM ANTRAG (beantragt: ohne Richtung): Wie bei den
+      uebrigen Takten von Pruef- und Aufraeumlaeufen
+      (settings_check_interval_seconds, vpn_janitor_interval_seconds)
+      ist der kleinere Wert der strengere - ein Mangel wird frueher
+      gemeldet, eine Ruecknahme frueher festgeschrieben. Vorschlag und
+      Notwert sind gleich; die Richtung zaehlt damit nur fuer die
+      Auskunft und bei einer kuenftigen Regelgruppe.
+  *19 Liste der Tage vor dem Ende einer Laufzeit, an denen erinnert
+      wird; die leere Liste schaltet die Erinnerung ab (ein Wert, kein
+      fehlender Key; DEC-ST-17). Richtung NEUTRAL: Die Liste steuert nur
+      Nachrichten (unten). Sie steht in keiner Regelgruppe (BASE-090_020
+      RG-6).
 
   GRUENDE FUER NEUTRAL BEI FAIL_SAFE_HARDCAP (neutral_reason):
     wg_counter_seen_refresh_seconds, vpn_runtime_seen_refresh_seconds
@@ -419,6 +465,13 @@ ZWECK:
         offenen Auftrag zurueck, der wiederholt wird.
     settings_refresh_interval_seconds
         bestimmt nur, wie schnell eine Aenderung in einem Dienst wirkt.
+    policy_plan_order_expiry_days
+        raeumt nur auf: Eine offene Bestellung ohne Zahlung aendert
+        nichts, gleich wie lange sie steht (MOD-010_040 Regel BE-7).
+    policy_plan_reminder_days_before_end,
+    policy_plan_release_warning_days
+        steuern nur, wann eine Nachricht entsteht; keine Zusage haengt
+        an einer Nachricht (MOD-010_050 Regel ER-5).
   Fuer die Keys der Klasse FAIL_CLOSED ist die Richtung nur Auskunft
   (Lesehilfe); N heisst dort: Der Key hat keine Ordnung "strenger".
 
@@ -479,6 +532,9 @@ ZWECK:
     KP-h  F1  vpn_hardcut_kill_timeout_seconds <
               vpn_policy_apply_timeout_seconds
               abh.: der Key von BASE-080; Bezug: der Key von BASE-070
+    KP-i  F2  2 * vpn_policy_eval_interval_seconds <=
+              vpn_policy_eval_quiet_seconds
+              (neu mit BASE-080 v1.5; BASE-080_070 Abschnitt 3)
 
   BASE-040 (Kennungen hier vergeben; ANF-ST-02)
     WK-a  F1  wg_obf_jmin < wg_obf_jmax
@@ -517,7 +573,7 @@ ZWECK:
   K-g 2*10 <= 60; K-i 300 > 10+10+30; K-j 10 <= 30 und 1 <= 1; KP-a
   5 < 10; KP-b 10 < 30; KP-c 4*5 <= 120; KP-d 2*60 < 3600 und 2*60 < 600;
   KP-e 30 < 60; KP-f 300 <= 300; KP-g 120 > 10+30; KP-h 10 < 30;
-  WK-d 30 < 240; WK-e 240 < 300; WK-f
+  KP-i 2*60 <= 3600; WK-d 30 < 240; WK-e 240 < 300; WK-f
   5 <= 60; WK-g 180 >= 5*25 und 300 >= 5*25; FK-a bis FK-g jeweils Rate
   kleiner als Burst; FK-h mit [23,135] und [135].
 
@@ -593,6 +649,11 @@ ZWECK:
   vpn_l2tp_radacct_retry_interval_seconds
   wg_counter_wrap_detection,              - ; DROPPED (D004 P-01, P-02)
   wg_grace_accounting_buffer_max
+  vpn_moderator_max_connections,          - ; DROPPED als Setting: jetzt
+  vpn_vip_max_connections                 der Policy-Key
+                                          max_active_connections mit dem
+                                          Standard je Rolle (BASE-100
+                                          DEC-PO-15; D003-E08; *13)
 
   KEINE ALTNAMEN, SONDERN NIE KEYS VON RETROTUNNEL sind die Kandidaten
   aus den Entwuerfen des Vorgaengers (web_ip_pool_green_threshold,
@@ -713,6 +774,7 @@ ZWECK:
 
   Dieses Verzeichnis wird mit jedem Modul fortgeschrieben, das Keys
   anmeldet. Die Zahlen in den Abschnitten 2 bis 5 sind der Stand der
-  geschriebenen Module BASE-000 bis BASE-080.
+  geschriebenen Module BASE-000 bis BASE-100 und MOD-010 (BASE-080 im
+  Stand v1.6).
 
 ================================================================================
