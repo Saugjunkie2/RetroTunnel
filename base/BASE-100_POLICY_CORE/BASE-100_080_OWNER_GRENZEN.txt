@@ -196,6 +196,20 @@ ZWECK:
     c) Ein Index auf log_quota_period (customer_id, period_start).
     d) BASE-070_080 ANF-SC-12 ist mit BASE-100_050 Abschnitt 5
        beantwortet.
+    e) ZURUECKSETZEN DURCH DIE VERWALTUNG (BASE-100_050 KQ-3a; MOD-010
+       DEC-PL-19; Entscheidung des Betreibers, BM-0030): eine Routine,
+       die fuer ALLE Zeilen eines Kunden in vpn_connections mit der
+       laufenden Periode - auch gesperrte und widerrufene - in EINER
+       Transaktion den Stand in log_quota_period festhaelt (eigene Art
+       des Eintrags, mit Akteur und Grund) und quota_used auf null
+       setzt; die Periode bleibt. Ein solcher Eintrag ist KEIN Abschluss
+       der Periode: Der regulaere Wechsel schliesst sie spaeter ab, und
+       der Verbrauch des Monats ergibt sich fuer die Anzeige aus beiden
+       zusammen. Der Zeitpunkt des letzten Zuruecksetzens je Kunde und
+       Periode ist abfragbar (fuer den Kundenverbrauch). Ausloeser ist
+       allein der privilegierte Auftragsweg (Klasse C, Akteur ADMIN).
+       Die Liste "Was den Verbrauch nicht zuruecksetzt" (BASE-070_050
+       Abschnitt 5) bleibt; hinzu kommt diese eine Handlung.
 
   ANF-PO-04 (BASE-080)
     a) FORM DER AUSKUENFTE (BASE-080_020 Regel AK-3): Routinen der
@@ -248,8 +262,10 @@ ZWECK:
        eines Standards und jedes Setzen von "unbegrenzt".
     c) Nach einer geaenderten Ausnahme fordert das Panel den Folgeaufruf
        der Bewertung ueber den privilegierten Auftragsweg an.
-    d) Dem Kunden: eigene Werte und Verbrauch (SI-3); bei einer
-       abgelehnten Zulassung die Meldung mit den Zahlen der Auskunft BA.
+    d) Dem Kunden: eigene Werte und Verbrauch (SI-3) - das
+       Zusatzvolumen der Periode fuer sich ausgewiesen (extra_bytes der
+       Auskunft AK-2); bei einer abgelehnten Zulassung die Meldung mit
+       den Zahlen der Auskunft BA.
     e) MODERATOR: nur lesend.
     f) PLAN-PFLICHT (DEC-PO-18): Dem Kunden ohne gueltigen Plan zeigt
        das Panel, dass und warum er eingeschraenkt ist - nie gebucht
@@ -261,16 +277,21 @@ ZWECK:
     Die Nahtstelle aus BASE-100_050 Abschnitt 6: Tabelle der Plaene;
     Plan-Werte ueber den Schreibkern dieses Moduls (NP-1, NP-2); Geltung
     des Kontingents je Plan (NP-5); Regel des Plan-Limits (NP-6);
-    Planwechsel und Auffuellen rufen die Bewertung; ob ein Auffuellen
-    eine Ausnahme oder ein eigener Gegenstand ist (OPEN-PO-05).
+    Planwechsel und Auffuellen rufen die Bewertung. ZUSATZVOLUMEN
+    (entschieden: eigener Gegenstand, OPEN-PO-05): je Kunde und Periode
+    als Eingabe der Auskunft AK-2, hoechstens 10 hoch 15 Bytes
+    (BASE-100_050 NP-11). ZURUECKSETZEN des Verbrauchs: MOD-010 loest es
+    aus, BASE-070 fuehrt es aus (ANF-PO-03 e); danach ruft MOD-010 die
+    Bewertung.
     PLAN-PFLICHT (DEC-PO-18): je Kunde der laufende Plan und der
     Plan-Stand (NP-10); jeder Vorgang, der sie aendert, ruft die
     Bewertung; der Weg zu einem Plan ist fuer einen eingeschraenkten
     Kunden erreichbar (Panel als interner Dienst); die Buchung der
     Plaene fuer Bestandskunden, bevor eine Aussetzung der Pflicht endet.
-    STAND (2026-11-24): MOD-010 ist begonnen und hat dies in seinem
+    STAND (2026-11-25): MOD-010 ist begonnen und hat dies in seinem
     Planmodell entschieden (MOD-010_010: DEC-PL-04, -06, -07, -09, -14,
-    -15, -17); die Dateien mit Tabellen und Ablaeufen stehen aus.
+    -15, -17, -18, -19); die Dateien mit Tabellen und Ablaeufen stehen
+    aus.
 
   ANF-PO-08 (MOD-007)
     Aufbewahrung von log_policy_audit (nur der Aufbewahrungslauf
@@ -344,10 +365,11 @@ ZWECK:
               ihnen spuerbar.
   OPEN-PO-05  AUFFUELLEN UND BEFRISTETE AUSNAHME: Eine Ausnahme gilt, bis
               die Verwaltung sie aendert oder loescht; eine Ausnahme mit
-              Ablauf gibt es nicht. Ob ein zusaetzliches Volumen fuer
-              die laufende Periode eine Ausnahme ist oder ein eigener
-              Gegenstand, entscheidet MOD-010 (dort OPEN-PL-03: als
-              eigener Gegenstand, wenn der Betreiber es anbieten will).
+              Ablauf gibt es nicht. ENTSCHIEDEN (BM-0030; MOD-010
+              DEC-PL-18): Zusaetzliches Volumen fuer die laufende
+              Periode ist ein eigener Gegenstand von MOD-010 und geht
+              als Eingabe in die Auskunft AK-2 (BASE-100_050 KQ-2a,
+              NP-11).
   OPEN-PO-06  FORM DER KATALOG-DEFINITION (Dateiformat, kanonische Form
               fuer die Pruefsumme): Sache der Umsetzung, gemeinsam mit
               BASE-090 (dort OPEN-ST-03).

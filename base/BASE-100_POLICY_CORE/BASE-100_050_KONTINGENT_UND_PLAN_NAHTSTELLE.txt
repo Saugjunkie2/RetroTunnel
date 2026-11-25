@@ -24,12 +24,22 @@ ZWECK:
         Wert des Kunden (Auskunft AW), fuer eine Connection OHNE Kunden
         der Standard ihrer eigenen Rolle (Bezug ROLE)
     N   das Aktiv-Budget des Kunden (max_active_connections)
+    Z   das ZUSATZVOLUMEN der Periode (MOD-010 DEC-PL-18; Plan-Auskunft
+        PA-5): ZK(k, P) fuer den Kunden k in der Periode P und - als
+        Teil davon - ZC(c, P) fuer die Connection c, fuer die es
+        bestellt wurde. Ohne Bestellung, und solange MOD-010 nicht in
+        Betrieb ist, ist beides null.
 
   KQ-1  DAS KONTINGENT GEHOERT DEM KUNDEN, NICHT DER CONNECTION: Es gibt
         keinen Wert je Connection. Alle Connections eines Kunden haben
         dasselbe L.
   KQ-2  "Unbegrenzt" heisst: Nichts ist je erschoepft. Die Null heisst:
         Jede Connection ist sofort erschoepft.
+  KQ-2a ZUSATZVOLUMEN ERHOEHT DAS LIMIT DER PERIODE, NICHT DEN WERT
+        (Entscheidung des Betreibers, BM-0030): Es ist kein Policy-Wert
+        und keine Ausnahme; die Aufloesung (AW) kennt es nicht, und L
+        bleibt, was es ist. Es geht allein in die Auskunft AK-2 ein
+        (Abschnitt 3) und endet mit der Periode von selbst.
 
 ================================================================================
 2) VERBRAUCH
@@ -50,11 +60,24 @@ ZWECK:
                mehr vorkommt (log_quota_period mit customer_id = k und
                period_start = P; je Connection die Zeile mit der
                hoechsten Folgenummer)
+             NACH EINEM ZURUECKSETZEN (KQ-3a) zaehlt aus diesem zweiten
+               Teil nur, was NACH dem letzten Zuruecksetzen des Kunden
+               in P abgeschlossen wurde; die Zeilen des Zuruecksetzens
+               selbst zaehlen nie
 
   KQ-3  DER KUNDENVERBRAUCH VERGISST NICHTS: Eine Connection, die in der
         Periode gesperrt, widerrufen oder geloescht wurde, zaehlt mit
         dem, was sie in dieser Periode verbraucht hat. Sonst erneuerte
         sich ein Kontingent durch Loeschen und Neuanlegen (DEC-PO-11).
+  KQ-3a EINZIGE AUSNAHME: DAS ZURUECKSETZEN DURCH DIE VERWALTUNG (MOD-010
+        DEC-PL-19; Entscheidung des Betreibers, BM-0030). Die Rolle
+        ADMIN kann den Verbrauch EINES Kunden fuer die laufende Periode
+        zuruecksetzen. BASE-070 fuehrt es aus (ANF-PO-03 e): Der Stand
+        jeder Connection des Kunden wird festgehalten, quota_used
+        beginnt bei null, die Periode bleibt. Von da an zaehlen V(c)
+        und U(k, P) nur, was SEITHER verbraucht wurde - auch fuer den
+        Deckel. Nichts anderes setzt zurueck (NP-7). BASE-100 schreibt
+        dabei nichts; es liest, was BASE-070 fuehrt.
   KQ-4  U WIRD BEI DER AUSKUNFT GEBILDET UND NIRGENDS GESPEICHERT.
         quota_used bleibt das einzige Aggregat (D004-E05; BASE-070
         SC-36).
@@ -81,6 +104,8 @@ ZWECK:
     unlimited     ja | nein (nur bei OK)
     limit_bytes   das Limit, gegen das zu rechnen ist (nur bei OK und
                   nicht unbegrenzt)
+    extra_bytes   das in limit_bytes enthaltene Zusatzvolumen der
+                  Periode (fuer die Anzeige; sonst 0)
     used_bytes    der Verbrauch, der dagegen zu rechnen ist
     basis         CONNECTION | CUSTOMER_CAP | CUSTOMER_SHARED - worauf
                   sich limit_bytes und used_bytes beziehen
@@ -90,24 +115,30 @@ ZWECK:
   Den Vergleich zieht der Bewerter (BASE-080_020 Abschnitt 2); BASE-100
   liefert die beiden Zahlen.
 
-  REGEL (ohne Plan; mit Plan siehe Abschnitt 6, NP-5):
+  REGEL (ohne Plan und mit einem Plan der Geltung DEDICATED; das
+  geteilte Kontingent siehe Abschnitt 6, NP-5). ZC und ZK sind das
+  Zusatzvolumen der Periode (Abschnitt 1) - ohne Bestellung null:
     QA-1  L hat keinen Wert            -> state wie der Zustand von L
     QA-2  L ist unbegrenzt             -> OK, unlimited; used_bytes = V(c)
-    QA-3  V(c) >= L                    -> OK; limit L; used V(c);
+    QA-2a Zusatzvolumen nicht lesbar   -> PLAN_UNKNOWN
+    QA-3  V(c) >= L + ZC               -> OK; limit L + ZC; used V(c);
                                           basis CONNECTION
-    QA-4  Connection ohne Kunden       -> OK; limit L; used V(c);
+    QA-4  Connection ohne Kunden       -> OK; limit L + ZC; used V(c);
           oder N ist unbegrenzt           basis CONNECTION
     QA-5  N hat keinen Wert            -> state wie der Zustand von N
-    QA-6  U(k, P(c)) >= N * L          -> OK; limit N * L; used U;
+    QA-6  U(k, P(c)) >= N * L + ZK     -> OK; limit N * L + ZK; used U;
                                           basis CUSTOMER_CAP
-    QA-7  sonst                        -> OK; limit L; used V(c);
+    QA-7  sonst                        -> OK; limit L + ZC; used V(c);
                                           basis CONNECTION
   Die Regeln gelten in dieser Reihenfolge; die erste zutreffende
-  entscheidet.
+  entscheidet. extra_bytes ist der Anteil des Zusatzvolumens am Limit
+  (ZC bzw. ZK).
 
   KQ-5  KEIN UEBERLAUF: Das Produkt N * L bleibt unter 2 hoch 63, weil
         die Grenzen der beiden Keys es erzwingen (BASE-100_020 LP-9;
-        heute 1.000 mal 10 hoch 15).
+        heute 1.000 mal 10 hoch 15). Das Zusatzvolumen je Kunde und
+        Periode ist auf 10 hoch 15 Bytes begrenzt (NP-11); auch die
+        Summe bleibt darunter.
   KQ-6  DER DECKEL TRIFFT ALLE: Ist er erreicht (QA-6), liefert die
         Auskunft fuer JEDE Connection des Kunden in dieser Periode
         dasselbe Paar - sie gelten gemeinsam als erschoepft, auch eine
@@ -119,7 +150,9 @@ ZWECK:
   KQ-8  QA-3 VOR QA-5: Hat eine Connection ihr eigenes Kontingent
         erreicht, steht das Ergebnis fest, auch wenn der Deckel gerade
         nicht bestimmbar ist. So bleibt eine erschoepfte Connection
-        nicht wegen eines fehlenden ANDEREN Wertes offen.
+        nicht wegen eines fehlenden ANDEREN Wertes offen. QA-2a STEHT
+        DAVOR: Ist das Zusatzvolumen nicht lesbar, steht das Limit
+        selbst nicht fest.
   KQ-9  SO FRISCH WIE DIE BUCHUNG: AK-2 liest quota_used, wie es
         festgeschrieben ist, und fuegt keine Verzoegerung hinzu. Wie alt
         der Wert sein kann, sagt BASE-070_050 (Zusagen Q-1 bis Q-3).
@@ -130,6 +163,11 @@ ZWECK:
         Connections ab (SZ-9).
   KQ-11 OHNE NEBENWIRKUNG: AK-2 schreibt nichts, sperrt nichts und
         stoesst nichts an.
+  KQ-12 ZUSATZVOLUMEN ENDET VON SELBST: Mit der naechsten Periode ist es
+        null; nichts ist zurueckzunehmen. Wird eine Zahlung
+        zurueckgenommen (MOD-010 DEC-PL-07, DEC-PL-18 e), entfaellt es
+        mit der naechsten Auskunft. Der Verbrauch bleibt: Die Connection
+        kann dadurch sofort erschoepft sein.
 
   WAS DER DECKEL KOSTET (offen ausgewiesen): Ein Kunde, der eine
   erschoepfte Connection durch eine neue ersetzt, kann mit der neuen
@@ -272,6 +310,10 @@ ZWECK:
                                          einen Verbrauch zurueck; ein
                                          geaendertes Limit gilt mit der
                                          naechsten Auskunft (D004-E08).
+                                         Die eine Ausnahme ist die
+                                         Handlung der Verwaltung (KQ-3a);
+                                         sie fuehrt BASE-070 aus
+                                         (ANF-PO-03 e).
 
   BASE-070_050 Abschnitt 7 (Zusagen Q-1 bis Q-4) setzt AK-2 voraus und
   aendert daran nichts. Die Neubewertung nach dem Periodenwechsel (Q-4)
@@ -299,9 +341,11 @@ ZWECK:
           (DOMAIN_MODEL 6.8: SHARED oder DEDICATED). AK-2 erhaelt sie als
           Eingabe je Plan:
             DEDICATED  wie ohne Plan (Abschnitt 3, QA-1 bis QA-7)
-            SHARED     limit L, used U(k, P), basis CUSTOMER_SHARED - fuer
-                       jede Connection des Kunden
-          In beiden Faellen zaehlt der Kundenverbrauch nach KQ-3.
+            SHARED     limit L + ZK, used U(k, P), basis CUSTOMER_SHARED
+                       - fuer jede Connection des Kunden; ist das
+                       Zusatzvolumen nicht lesbar: PLAN_UNKNOWN
+          In beiden Faellen zaehlt der Kundenverbrauch nach KQ-3 und
+          KQ-3a.
     NP-6  REGEL DES PLAN-LIMITS: MOD-010 liefert fuer AK-1 die Auswahl
           der ueberzaehligen Connections. Sie
             a) greift nur, wenn A > MA gilt - mit dem WIRKSAMEN Wert des
@@ -312,10 +356,13 @@ ZWECK:
                nicht dadurch, dass sie vollzogen wurde,
             d) liest nur festgeschriebene Daten und schreibt nichts.
           WELCHE Connections sie nennt, bestimmt MOD-010.
-    NP-7  NICHTS SETZT DEN VERBRAUCH ZURUECK: weder ein Planwechsel noch
-          eine Ausnahme, ein Rollenwechsel oder eine neue Connection
+    NP-7  NICHTS SETZT DEN VERBRAUCH VON SELBST ZURUECK: weder ein
+          Planwechsel noch eine Buchung, ein Zusatzvolumen, eine
+          Ausnahme, ein Rollenwechsel oder eine neue Connection
           (D004-E08; BASE-070_050 "Was den Verbrauch nicht
-          zuruecksetzt").
+          zuruecksetzt"). EINZIGE AUSNAHME ist die ausdrueckliche
+          Handlung der Verwaltung fuer EINEN Kunden und die laufende
+          Periode (KQ-3a; MOD-010 DEC-PL-19).
     NP-8  SICHERHEIT IST KEIN PLANMERKMAL (SZ-10, R-07): Kein Plan-Wert
           kann etwas schalten, was der Katalog nicht als Key fuehrt.
     NP-9  OHNE MOD-010 KEINE BUCHUNG: Bis MOD-010 in Betrieb ist, hat
@@ -330,6 +377,13 @@ ZWECK:
           Nebenwirkung. Beides folgt aus den Buchungen und der
           Datenbankzeit; nichts speichert es. Die Aufloesung (AW)
           benutzt den LAUFENDEN Plan, AK-6 den Plan-Stand.
+    NP-11 ZUSATZVOLUMEN (MOD-010 DEC-PL-18): Die Plan-Auskunft liefert
+          je Kunde und Periode ZK und je Connection ZC (dort PA-5) -
+          mengenweise, aus festgeschriebenen Daten, ohne Nebenwirkung;
+          null, wenn nichts bestellt ist; hoechstens 10 hoch 15 Bytes
+          je Kunde und Periode. Ein vorlaeufig gebuchtes Zusatzvolumen
+          zaehlt wie ein bestaetigtes, ein zurueckgenommenes nicht. Ist
+          es nicht lesbar oder nicht bestimmbar, sagt die Antwort das.
 
   Was MOD-010 LEISTET (ANF-PO-07; dort DEC-PL-03 bis DEC-PL-15): die
   Tabelle der Plaene mit unveraenderlichem Schluessel (TRUTH_MODEL
@@ -337,9 +391,10 @@ ZWECK:
   die Eingaben nach NP-5, NP-6 und NP-10; die Buchung der Plaene fuer
   Bestandskunden, bevor eine Aussetzung der Plan-Pflicht endet. Jeder
   Vorgang, der den laufenden Plan oder den Plan-Stand aendert, ruft die
-  Bewertung (BASE-080_020 Abschnitt 5). OFFEN dort: das Auffuellen eines
-  Kontingents (MOD-010 OPEN-PL-03); weitere Keys (Geschwindigkeit mit
-  MOD-003).
+  Bewertung (BASE-080_020 Abschnitt 5). Dazu seit dem 2026-11-24
+  (BM-0030): das Zusatzvolumen als Eingabe nach NP-11 und der Anstoss
+  zum Zuruecksetzen (KQ-3a) - beide rufen danach die Bewertung. OFFEN
+  dort: weitere Keys (Geschwindigkeit mit MOD-003).
 
   VERBLEIB DER SIEBEN OFFENEN FRAGEN DES ENTWURFS "PLANS"
   (nachlieferung/entwuerfe/Plans, Abschnitt 7):
@@ -389,6 +444,11 @@ ZWECK:
                                          die Buchung zu aendern
   D004-E08 Planwechsel setzt nicht       NP-7; derselbe Schutz fuer das
   zurueck ("Missbrauchsschutz")          Ersetzen einer Connection (KQ-3)
+  BM-0030 Datenvolumen nachkaufen        KQ-2a, QA-2a bis QA-7, KQ-12,
+                                         NP-5, NP-11 (MOD-010 DEC-PL-18)
+  BM-0030 Verwaltung setzt den           KQ-3a, NP-7; ausgefuehrt von
+  Verbrauch zurueck                      BASE-070 (ANF-PO-03 e; MOD-010
+                                         DEC-PL-19)
   DOMAIN_MODEL 6.8 Plaene                NP-1 bis NP-10; Einzelheiten
                                          MOD-010
   DOMAIN_MODEL 6.8 "NULL = kein Plan,    ANGEPASST (Entscheidung des
