@@ -55,10 +55,11 @@ ZWECK:
         Fristende - ohne dass ein Lauf arbeiten muss (MOD-010_040
         Abschnitt 5).
   BU-4  LAUFEND ist eine nicht gestrichene Buchung, fuer die gilt:
-        starts_at <= jetzt < wirksames Ende. KUENFTIG ist sie, wenn
-        jetzt < starts_at; BEENDET, wenn wirksames Ende <= jetzt.
-        "jetzt" ist die Datenbankzeit der Abfrage (BASE-080_070 Regel
-        UP-7).
+        starts_at <= jetzt < wirksames Ende. BEENDET ist sie, wenn
+        wirksames Ende <= jetzt - auch wenn sie nie begonnen hat (eine
+        kuenftige Buchung, deren Nachzahlfrist ablief). Sonst ist sie
+        KUENFTIG: jetzt < starts_at. "jetzt" ist die Datenbankzeit der
+        Abfrage (BASE-080_070 Regel UP-7).
   BU-5  DIE KETTE: Die nicht gestrichenen Buchungen eines Kunden, deren
         wirksames Ende in der Zukunft liegt, bilden eine Kette ohne
         Luecke und ohne Ueberlappung: hoechstens eine laufende, und
@@ -66,10 +67,12 @@ ZWECK:
         (DEC-PL-04 b, d). Der Kern haelt das in jedem Vorgang; ein
         Verstoss ist ein Fehler im Bestand (MOD-010_060 Regel AU-6).
   BU-6  VERGANGENES IST UNVERAENDERLICH: An einer beendeten Buchung
-        aendert kein Vorgang ein Feld, und keine Buchung wird geloescht
-        (DEC-PL-13). Geaendert werden kann nur das Ende einer laufenden
-        und Beginn und Ende einer kuenftigen Buchung - durch die
-        Vorgaenge aus Abschnitt 4.
+        aendert kein Vorgang ein Feld, und keine Buchung wird einzeln
+        geloescht (DEC-PL-13); ihre Zeilen entfallen erst mit dem
+        endgueltigen Loeschen des Kundenkontos (MOD-010_070 Abschnitt
+        9). Geaendert werden kann nur das Ende einer laufenden und
+        Beginn und Ende einer kuenftigen Buchung - durch die Vorgaenge
+        aus Abschnitt 4.
   BU-7  NUR FUER DIE ROLLE USER: Der Kern legt eine Buchung nur fuer
         einen Kunden an, der die Rolle USER traegt und nicht als
         geloescht gefuehrt ist (DEC-PL-12 a). Ein gesperrter Kunde
@@ -199,8 +202,8 @@ ZWECK:
                        SYSTEM   Zahlung nicht kam (end_reason
                                 PAYMENT_REVOKED): laufend -> Ende =
                                 jetzt bzw. Ende der Nachzahlfrist;
-                                kuenftig -> gestrichen. Eine folgende
-                                Buchung beginnt sofort
+                                kuenftig -> gestrichen. Eine
+                                Nachfolgerin hat sie nie (VB-8)
   KUNDE WECHSELT DIE   SYSTEM   laufende Buchung endet (ROLE_CHANGE),
   ROLLE                         kuenftige werden gestrichen; Abschnitt 5
   KUNDE GELOESCHT      SYSTEM   wie oben (CUSTOMER_DELETED)
@@ -230,6 +233,19 @@ ZWECK:
         nachher -, ohne zu schreiben. Das Panel zeigt sie vor der
         Bestaetigung.
   VB-7  JEDER VORGANG DER VERWALTUNG TRAEGT EINEN GRUND (DEC-PL-13).
+  VB-8  HINTER EINER VORLAEUFIGEN BUCHUNG WAECHST DIE KETTE NICHT:
+        Solange ein Kunde eine vorlaeufige Buchung hat - laufend oder
+        kuenftig -, lehnt der Kern jede weitere Buchung fuer ihn ab:
+        aus einer Bestellung, einem Bareingang, einer Gutschrift und
+        von der Verwaltung (Grund PROVISIONAL_PENDING). Erst
+        entscheidet die Verwaltung ueber die Zahlung. Eine vorlaeufige
+        Buchung ist damit immer die LETZTE der Kette, und je Kunde gibt
+        es hoechstens eine. Endet sie durch eine abgelaufene
+        Nachzahlfrist von selbst (BU-3), wartet hinter ihr keine
+        bezahlte Buchung darauf, dass jemand die Kette nachzieht
+        (SZ-2). JETZT BEENDEN und SOFORT WECHSELN bleiben moeglich: Sie
+        beenden die vorlaeufige Buchung; ihre Zahlung bleibt zur
+        Pruefung stehen (MOD-010_040 Regel ZA-13).
 
 ================================================================================
 5) GUTSCHRIFT, ROLLENWECHSEL UND LOESCHUNG - IN FREMDER TRANSAKTION
@@ -254,7 +270,7 @@ ZWECK:
         das Budget prueft (ANF-PL-02 c). Der Kern
           - lehnt ab, wenn der Kunde nicht die Rolle USER traegt
             (DEC-PL-08 e) oder wenn er gerade nicht buchen kann (LZ-5,
-            LZ-7): Dann scheitert der Claim als Ganzes und aendert
+            LZ-7, VB-8): Dann scheitert der Claim als Ganzes und aendert
             nichts. Die Connection bleibt vorbereitet und nutzbar; der
             Kunde versucht es spaeter erneut,
           - bucht sonst Plan und Dauer fuer den Kunden (origin CREDIT;
@@ -337,6 +353,10 @@ ZWECK:
                          kein Tagesbeginn, nicht nach dem Beginn oder
                          jenseits der Obergrenze (VB-4)
   CHAIN_LIMIT            der Kunde hat schon eine Anschlussbuchung (VB-3)
+  PROVISIONAL_PENDING    der Kunde hat eine vorlaeufige Buchung (VB-8)
+  PLAN_IN_USE            der Plan hat Geschichte oder noch Werte (PT-2)
+  LAST_TERM              die letzte angebotene Stufe eines buchbaren
+                         Plans (PT-4)
   NOT_CHANGEABLE         die Buchung ist beendet oder gestrichen (BU-6)
   TIMEZONE_UNKNOWN       LZ-5
   TIME_UNCONFIRMED       LZ-7

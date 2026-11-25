@@ -57,9 +57,12 @@ ZWECK:
   BE-3  JE ART HOECHSTENS EINE OFFENE BESTELLUNG: Ein Kunde hat
         hoechstens eine offene Bestellung der Art PLAN und hoechstens
         eine der Art ADDON.
-  BE-4  EINE ANSCHLUSSBUCHUNG: Hat der Kunde schon eine kuenftige
-        Buchung, wird eine Bestellung der Art PLAN abgelehnt
-        (MOD-010_030 Regel VB-3).
+  BE-4  EINE ANSCHLUSSBUCHUNG, UND KEINE HINTER EINER VORLAEUFIGEN: Hat
+        der Kunde schon eine kuenftige Buchung oder ist seine Buchung
+        vorlaeufig, wird eine Bestellung der Art PLAN abgelehnt
+        (MOD-010_030 Regeln VB-3 und VB-8). In der Nachzahlfrist zahlt
+        er zu SEINER Buchung nach (ZA-8); das ist keine neue
+        Bestellung.
   BE-5  DER KUNDE KANN SEINE OFFENE BESTELLUNG ZURUECKZIEHEN - solange
         zu ihr keine ungepruefte Zahlung vorliegt.
   BE-6  ZUSTAENDE:
@@ -145,16 +148,17 @@ ZWECK:
             ist die Buchung endgueltig. Die Ankuendigung allein haelt
             die Frist nicht an.
         DIE FRIST BEGINNT NICHT NEU (DEC-PL-07 d): repay_until wird
-        einmal gesetzt und nie verlaengert - ausser durch Kulanz der
-        Verwaltung an der Buchung (MOD-010_030 Abschnitt 4).
+        einmal gesetzt und nie verlaengert. Will die Verwaltung dem
+        Kunden entgegenkommen, bucht sie ihm nach der Ruecknahme neu
+        und gibt ihm das Vertrauen wieder (VT-4).
   ZA-9  FRIST OHNE NEUE ZAHLUNG ABGELAUFEN: Die Buchung ist mit dem
         Fristende beendet - das folgt aus MOD-010_030 Regel BU-3, ohne
         dass jemand schreibt. FESTGESCHRIEBEN wird es (end_reason
         PAYMENT_REVOKED, ends_at = Fristende, Vertrauen entzogen,
         Nachricht E-5) vom Lauf oder vom naechsten Vorgang des Kerns
-        fuer diesen Kunden - je nachdem, wer zuerst kommt. Eine bezahlte
-        Anschlussbuchung beginnt dabei mit dem Fristende (MOD-010_030
-        Regel VB-2).
+        fuer diesen Kunden - je nachdem, wer zuerst kommt. Eine
+        Nachfolgerin, die auf das Festschreiben warten muesste, gibt es
+        nicht (MOD-010_030 Regel VB-8).
   ZA-10 ZURUECKNEHMEN heisst: laufende Buchung endet (jetzt bzw. zum
         Fristende), kuenftige wird gestrichen; das Vertrauen ist
         entzogen (VT-2); der Kunde erfaehrt es (E-5). Eine BESTAETIGTE
@@ -170,6 +174,13 @@ ZWECK:
         niemand entscheidet, laeuft bis zu ihrem Ende - das ist der
         Preis des Wegs "sofort und vorlaeufig" und liegt in der Hand
         der Verwaltung.
+  ZA-13 ENTSCHEIDUNG NACH DEM ENDE DER BUCHUNG: Ist die vorlaeufige
+        Buchung schon beendet - ihre Laufzeit ist abgelaufen oder die
+        Verwaltung hat sie beendet -, aendert die Entscheidung an ihr
+        nichts mehr (MOD-010_030 Regel BU-6). CONFIRMED haelt fest,
+        dass bezahlt ist. INVALID entzieht das Vertrauen (VT-2), und
+        der Kunde erfaehrt es (E-5); eine Nachzahlfrist gibt es dann
+        nicht.
 
 ================================================================================
 4) DER CODE EINER PAYSAFECARD (web_plan_payment_codes)
@@ -224,8 +235,9 @@ ZWECK:
 
   VT-1  VERTRAUEN BESTEHT, solange psc_blocked_at leer ist - auch wenn
         es zu dem Kunden keine Zeile gibt.
-  VT-2  ENTZOGEN wird es mit jeder Ruecknahme (ZA-9, ZA-10) - in
-        derselben Transaktion.
+  VT-2  ENTZOGEN wird es mit jeder Ruecknahme (ZA-9, ZA-10) und mit
+        einer Ungueltig-Erklaerung nach dem Ende der Buchung (ZA-13) -
+        in derselben Transaktion.
   VT-3  OHNE VERTRAUEN wirkt keine Paysafecard-Zahlung des Kunden sofort
         (ZA-5); alles andere bleibt ihm: bestellen, einreichen, bar
         zahlen.
