@@ -16,9 +16,9 @@ Pflichtlektüre ist der Bericht der Vorrunde, die Darstellung des Autors und der
 (2.120 und 1.679 Zeilen) statt der vollständigen Dateien; beurteilt wird am Endstand, gezielt nachgelesen. Die
 Testdatei wurde in der Fassung v1.6 neu umbrochen; ihr Diff steht gegen eine gleich umbrochene Fassung v1.5.
 
-STAND 2026-11-25: Teil A ist abgeschlossen. Der Lauf des Prüfers B wurde nach rund zehn Minuten durch einen Neustart
-der Arbeitsumgebung beendet, bevor ein Bericht entstand; er wird mit demselben Auftrag am selben Lesestand
-wiederholt. Diese Datei wird dann um seine Laufdaten und die Zuordnung seines Berichts ergänzt.
+STAND 2026-11-25: Beide Teile sind abgeschlossen. Der erste Lauf des Prüfers B wurde nach rund zehn Minuten durch
+einen Neustart der Arbeitsumgebung beendet, bevor ein Bericht entstand; er wurde am selben Tag mit demselben Auftrag
+am selben Lesestand wiederholt (Abschnitt 3).
 
 Einzige Abweichung vom Wortlaut: Im Ablaufskript (Abschnitt 4) ist die Modellangabe durch einen Platzhalter ersetzt
 (das Repository nennt keine Modellkennungen).
@@ -376,8 +376,12 @@ auf, was offen bleibt.
 ## 3. Schmale Bestätigung BASE-080 v1.6: Auftrag B (Bewertung, Umbauten, Grenzen und Übergang, Invarianten, Tests)
 
 - Zeitpunkt des ersten Laufs: 2026-11-25, 01:22 bis 01:32 UTC - ABGEBROCHEN durch einen Neustart der Arbeitsumgebung
-  (6 Arbeitsschritte, 38 Werkzeugaufrufe; kein Bericht, kein Urteil). Der Lauf wird wiederholt.
+  (6 Arbeitsschritte, 38 Werkzeugaufrufe; kein Bericht, kein Urteil).
+- Zeitpunkt des Wiederholungslaufs: 2026-11-25, 06:14 bis 06:34 UTC - derselbe Auftrag, derselbe Lesestand (422199b),
+  dasselbe Ablaufskript (Abschnitt 4; das Ergebnis des Teils A wurde dabei nicht neu erzeugt).
 - Art, Modell und Denkaufwand wie Auftrag A.
+- Laufdaten kontrolliert: Modellstufe und Denkaufwand wie gewählt; 10 Arbeitsschritte, 35 Werkzeugaufrufe.
+- Bericht: BASE-080_BESTAETIGUNG_V16_B_BEWERTUNG_UND_GRENZEN_2026-11-25.md
 
 ~~~~
 BESTAETIGUNGSAUFTRAG B - BASE-080 v1.6: BEWERTUNG, UMBAUTEN, GRENZEN UND UEBERGANG, INVARIANTEN, TESTS (2026-11-25)
